@@ -1,0 +1,22 @@
+[package]
+name = "user-list"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+description = "Example: a Topcoat #[page] listing Toasty User rows from in-memory sqlite."
+
+[dependencies]
+argentum-core = { path = "../../crates/argentum-core" }
+toasty.workspace = true
+tokio.workspace = true
+topcoat = { workspace = true, features = ["router", "serve", "discover"] }
+uuid.workspace = true
+
+[dev-dependencies]
+http = "1"
+http-body-util = "0.1"
+
+[lints]
+workspace = true

@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/argentum-core",
     "crates/argentum-macros",
+    "examples/user-list",
 ]
 exclude = [
     "benchmarks/argentum",
