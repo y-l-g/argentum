@@ -1,0 +1,15 @@
+[package]
+name = "storefront-argentum"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+# Detached from the Argentum workspace on purpose: the bench app links the
+# toolkit plus a full topcoat runtime, so it is a standalone crate with its
+# own dependency tree (mirrors topcoat/benchmarks).
+[workspace]
+
+[dependencies]
+argentum-core = { path = "../../crates/argentum-core" }
+topcoat = { path = "../../../topcoat/crates/topcoat", features = ["router", "serve", "runtime", "discover", "asset"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }

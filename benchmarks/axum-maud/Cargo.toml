@@ -1,0 +1,13 @@
+[package]
+name = "storefront-axum-maud"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+# Detached from the Argentum workspace on purpose (see ../README.md).
+[workspace]
+
+[dependencies]
+axum = "0.8"
+maud = { version = "0.27", features = ["axum"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }

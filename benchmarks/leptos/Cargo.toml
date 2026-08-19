@@ -1,0 +1,43 @@
+[package]
+name = "storefront-leptos"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+# Detached from the Argentum workspace on purpose (see ../README.md).
+# Mirrors tokio-rs/topcoat/benchmarks/leptos, which is the proven-working
+# shape for a Leptos SSR comparator.
+[workspace]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+leptos = { version = "0.8", features = ["islands"] }
+leptos_meta = { version = "0.8" }
+leptos_router = { version = "0.8" }
+leptos_axum = { version = "0.8", optional = true }
+axum = { version = "0.8", optional = true }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"], optional = true }
+
+[features]
+hydrate = ["leptos/hydrate"]
+ssr = [
+    "dep:axum",
+    "dep:tokio",
+    "dep:leptos_axum",
+    "leptos/ssr",
+    "leptos_meta/ssr",
+    "leptos_router/ssr",
+]
+
+[package.metadata.leptos]
+output-name = "storefront-leptos"
+site-root = "target/site"
+site-pkg-dir = "pkg"
+site-addr = "127.0.0.1:8090"
+reload-port = 3001
+bin-features = ["ssr"]
+bin-default-features = false
+lib-features = ["hydrate"]
+lib-default-features = false
