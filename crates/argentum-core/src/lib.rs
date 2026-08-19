@@ -9,4 +9,5 @@
 // renderable component and the `Db` glue so the crate has vertical slices
 // through Topcoat and Toasty.
 pub mod db;
+pub mod schema;
 pub mod view;
