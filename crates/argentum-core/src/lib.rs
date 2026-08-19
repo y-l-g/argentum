@@ -6,5 +6,7 @@
 #![doc = include_str!("../../../CONTEXT.md")]
 
 // The full toolkit surface lands in later phases. For now, expose a single
-// renderable component so the crate has a vertical slice through Topcoat.
+// renderable component and the `Db` glue so the crate has vertical slices
+// through Topcoat and Toasty.
+pub mod db;
 pub mod view;
