@@ -55,15 +55,16 @@ impl NavigationItem {
     ///
     /// Label is the `Model`'s type name without module path and with a
     /// trailing `s` for pluralisation (matching Filament's `User` → `Users`).
-    /// URL is `/admin/<kebab-plural>` — stable and predictable for Phase 1.
+    /// URL is `/admin` for the single-resource Phase 1 shell; multi-resource
+    /// routing will become `/admin/<kebab-plural>` (ADR-0002 query seam
+    /// handles scoping, Panel prefix owns the mount point).
     pub fn from_resource<R: Resource>() -> Self {
         let model_name = std::any::type_name::<R::Model>();
         let short = model_name.rsplit("::").next().unwrap_or(model_name);
         let label = format!("{short}s");
-        let slug = short.to_lowercase();
         Self {
             label,
-            url: format!("/admin/{slug}s"),
+            url: "/admin".to_string(),
         }
     }
 }
@@ -147,7 +148,7 @@ mod tests {
     fn navigation_derives_label_and_url_from_model() {
         let item = NavigationItem::from_resource::<UserResource>();
         assert_eq!(item.label, "Users");
-        assert_eq!(item.url, "/admin/users");
+        assert_eq!(item.url, "/admin");
     }
 
     #[test]

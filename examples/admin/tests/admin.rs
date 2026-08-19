@@ -45,7 +45,10 @@ async fn admin_layout_and_list_page_serve_seeded_users() {
     assert!(html.contains("ac-admin") || html.contains("ac-sidebar"), "missing admin layout in {html}");
     // NavigationItem derived from UserResource
     assert!(html.contains("Users"), "missing navigation label in {html}");
-    assert!(html.contains("/admin/users"), "missing navigation url in {html}");
+    assert!(
+        html.contains("href=\"/admin\"") || html.contains("/admin"),
+        "missing navigation url in {html}"
+    );
     // List page content
     assert!(html.contains("<h1>Users</h1>") || html.contains("Users"), "missing heading in {html}");
     for (name, email) in [
