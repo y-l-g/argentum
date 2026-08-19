@@ -4,7 +4,7 @@
 
 ### Issue tracker
 
-Issues live as local markdown files under `.scratch/`. See `docs/agents/issue-tracker.md`.
+Issues live as GitHub issues in y-l-g/argentum (via `gh` CLI). See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
