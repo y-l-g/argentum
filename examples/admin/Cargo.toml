@@ -1,0 +1,22 @@
+[package]
+name = "admin"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+description = "Admin example: Panel + Resource + layout + list page."
+
+[dependencies]
+argentum-core = { path = "../../crates/argentum-core" }
+toasty.workspace = true
+tokio.workspace = true
+topcoat = { workspace = true, features = ["serve"] }
+uuid.workspace = true
+
+[dev-dependencies]
+http = "1"
+http-body-util = "0.1"
+
+[lints]
+workspace = true
