@@ -1,0 +1,18 @@
+[package]
+name = "argentum-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "The core toolkit types for Argentum, a server-rendered admin toolkit on Topcoat and Toasty."
+
+[dependencies]
+toasty.workspace = true
+topcoat.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true
+uuid.workspace = true
+
+[lints]
+workspace = true
