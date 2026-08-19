@@ -1,0 +1,32 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/argentum-core",
+    "crates/argentum-macros",
+]
+exclude = [
+    "benchmarks/argentum",
+    "benchmarks/axum-maud",
+    "benchmarks/leptos",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+rust-version = "1.97.1"
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+
+[workspace.lints.clippy]
+too_many_lines = "allow"
+
+# Topcoat and Toasty are consumed from the sibling clones checked out at their
+# latest commit (`../topcoat`, `../toasty`). Swap these for crates.io versions
+# at publish time; see CONTEXT.md and docs/adr/0003-reactivity-seam.md.
+[workspace.dependencies]
+topcoat = { path = "../topcoat/crates/topcoat", default-features = false, features = ["view"] }
+toasty = { path = "../toasty/crates/toasty", default-features = false, features = ["sqlite"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+uuid = "1.23"
