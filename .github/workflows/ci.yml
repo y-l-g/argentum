@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.head_ref || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -Dwarnings
+
+jobs:
+  # The workspace depends on Topcoat and Toasty through local path deps
+  # (../topcoat, ../toasty) so Argentum always tracks their latest commits.
+  # CI clones the sibling repos at their default branch into the same layout.
+
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Clone sibling repos at latest
+        run: |
+          git clone --depth 1 https://github.com/tokio-rs/topcoat ../topcoat
+          git clone --depth 1 https://github.com/tokio-rs/toasty ../toasty
+      - run: rustup update stable && rustup default stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --workspace
+
+  clippy:
+    name: clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Clone sibling repos at latest
+        run: |
+          git clone --depth 1 https://github.com/tokio-rs/topcoat ../topcoat
+          git clone --depth 1 https://github.com/tokio-rs/toasty ../toasty
+      - run: rustup update stable && rustup default stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+
+  fmt:
+    name: fmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Clone sibling repos at latest
+        run: |
+          git clone --depth 1 https://github.com/tokio-rs/topcoat ../topcoat
+          git clone --depth 1 https://github.com/tokio-rs/toasty ../toasty
+      - run: rustup update stable && rustup default stable
+      - uses: Swatinem/rust-cache@v2
+      # `-p` scopes rustfmt to workspace members; `cargo fmt --all` would also
+      # walk the sibling path deps (../topcoat, ../toasty) and check them with
+      # Argentum's config.
+      - run: cargo fmt -p argentum-core -p argentum-macros -- --check
+      - name: Install topcoat CLI (for `topcoat fmt`)
+        run: |
+          cargo install --path ../topcoat/crates/topcoat-cli --locked
+      - name: topcoat fmt
+        run: |
+          topcoat fmt
+          git diff --exit-code
