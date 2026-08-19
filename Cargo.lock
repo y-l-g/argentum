@@ -3,6 +3,19 @@
 version = 4
 
 [[package]]
+name = "admin"
+version = "0.1.0"
+dependencies = [
+ "argentum-core",
+ "http",
+ "http-body-util",
+ "toasty",
+ "tokio",
+ "topcoat",
+ "uuid",
+]
+
+[[package]]
 name = "aead"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -68,6 +81,7 @@ checksum = "fb5dfbc6d8d2675589ccbe4d0fd61df2419075625f8c1a62325e718e2b0049f9"
 name = "argentum-core"
 version = "0.1.0"
 dependencies = [
+ "argentum-macros",
  "toasty",
  "tokio",
  "topcoat",

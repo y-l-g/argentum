@@ -7,6 +7,7 @@ rust-version.workspace = true
 description = "The core toolkit types for Argentum, a server-rendered admin toolkit on Topcoat and Toasty."
 
 [dependencies]
+argentum-macros = { path = "../argentum-macros" }
 toasty.workspace = true
 topcoat.workspace = true
 

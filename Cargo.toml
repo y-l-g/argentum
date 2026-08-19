@@ -27,7 +27,7 @@ too_many_lines = "allow"
 # latest commit (`../topcoat`, `../toasty`). Swap these for crates.io versions
 # at publish time; see CONTEXT.md and docs/adr/0003-reactivity-seam.md.
 [workspace.dependencies]
-topcoat = { path = "../topcoat/crates/topcoat", default-features = false, features = ["view"] }
+topcoat = { path = "../topcoat/crates/topcoat", default-features = false, features = ["view", "router", "discover"] }
 toasty = { path = "../toasty/crates/toasty", default-features = false, features = ["sqlite"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 uuid = "1.23"

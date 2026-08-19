@@ -9,5 +9,11 @@
 // renderable component and the `Db` glue so the crate has vertical slices
 // through Topcoat and Toasty.
 pub mod db;
+pub mod panel;
+pub mod resource;
 pub mod schema;
 pub mod view;
+
+pub use panel::Panel;
+pub use resource::{NavigationItem, Pages, Resource, Table};
+pub use argentum_macros::Resource;
