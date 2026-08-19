@@ -86,12 +86,12 @@ pub trait Resource: Sized + Send + Sync + 'static {
     }
 
     /// Description of the list view. Phase 1: stub.
-    fn table() -> Table<Self::Model> {
+    fn table(_cx: &Cx) -> Table<Self::Model> {
         Table::new()
     }
 
     /// Description of the form/infolist. Phase 1: stub.
-    fn form() -> Schema {
+    fn form(_cx: &Cx) -> Schema {
         Schema::empty()
     }
 
@@ -161,8 +161,9 @@ mod tests {
 
     #[test]
     fn table_form_pages_have_defaults() {
-        let _table = UserResource::table();
-        let _form = UserResource::form();
+        let cx = CxTestBuilder::new().build();
+        let _table = UserResource::table(&cx);
+        let _form = UserResource::form(&cx);
         let _pages = UserResource::pages();
         let _nav = UserResource::navigation();
     }
