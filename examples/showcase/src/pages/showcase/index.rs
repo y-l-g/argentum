@@ -12,7 +12,8 @@ async fn showcase_index() -> Result {
                 <ul>
                     <li><a href="/admin/showcase/panel">"Panel"</a>" — app shell, prefix, Db in app_context, Router discover"</li>
                     <li><a href="/admin/showcase/resource">"Resource"</a>" — #[derive(Resource)] model + query override, navigation"</li>
-                    <li><a href="/admin/showcase/schema">"Schema"</a>" — Section / Group / Grid / Text + composition variants"</li>
+                    <li><a href="/admin/showcase/schema">"Schema"</a>" — Section / Group / Grid / TextInput + composition variants"</li>
+                    <li><a href="/admin/showcase/table">"Table"</a>" — TextColumn searchable/sortable, Table::for + columns"</li>
                     <li><a href="/admin/showcase/db">"Db + memoize"</a>" — db(cx) glue and per-request memoization"</li>
                     <li><a href="/admin">"Admin list (/admin)"</a>" — real app page (Panel + Resource → table)"</li>
                 </ul>

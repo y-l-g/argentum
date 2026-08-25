@@ -107,6 +107,7 @@ async fn showcase_index_lists_features() {
         "/admin/showcase/schema",
         "/admin/showcase/resource",
         "/admin/showcase/panel",
+        "/admin/showcase/table",
         "/admin/showcase/db",
     ] {
         assert!(html.contains(path), "missing link {path} in {html}");
@@ -254,5 +255,43 @@ async fn showcase_db_renders_memoized_loader() {
     assert!(
         html.contains("Ada Lovelace") || html.contains("Grace Hopper"),
         "missing user rows in {html}"
+    );
+}
+
+#[tokio::test]
+async fn showcase_table_renders_variants() {
+    let db = seeded_db().await;
+    let router = router(db);
+    let response = router
+        .handle(
+            http::Request::builder()
+                .uri("/admin/showcase/table")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+    assert!(
+        response.status().is_success(),
+        "table showcase status {}",
+        response.status()
+    );
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let html = String::from_utf8_lossy(&body);
+    assert!(
+        html.contains("TextColumn::for"),
+        "missing TextColumn snippet in {html}"
+    );
+    assert!(html.contains("ac-table"), "missing ac-table in {html}");
+    assert!(
+        html.contains("ac-column--searchable"),
+        "missing ac-column--searchable in {html}"
+    );
+    assert!(
+        html.contains("ac-column--sortable"),
+        "missing ac-column--sortable in {html}"
+    );
+    assert!(
+        html.contains("Ada Lovelace") || html.contains("ac-column"),
+        "missing table rows in {html}"
     );
 }
