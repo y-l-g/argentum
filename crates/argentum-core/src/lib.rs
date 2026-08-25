@@ -22,4 +22,4 @@ pub mod view;
 pub use argentum_macros::Resource;
 pub use panel::Panel;
 pub use resource::{NavigationItem, Pages, Resource, Table};
-pub use schema::{Grid, Group, IntoSchema, Schema, Section, Text};
+pub use schema::{FieldLens, Grid, Group, IntoSchema, Schema, Section, Text, TextInput};

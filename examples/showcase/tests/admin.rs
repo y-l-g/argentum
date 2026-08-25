@@ -142,6 +142,13 @@ async fn showcase_schema_renders_variants() {
         html.contains("ac-grid-cols-2"),
         "missing grid cols in {html}"
     );
+    // TextInput field
+    assert!(
+        html.contains("TextInput::for"),
+        "missing TextInput snippet in {html}"
+    );
+    assert!(html.contains("ac-field"), "missing ac-field in {html}");
+    assert!(html.contains("<input"), "missing input in {html}");
     // Composition and empty
     assert!(
         html.contains("Schema::empty"),

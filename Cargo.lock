@@ -70,6 +70,7 @@ version = "0.1.0"
 dependencies = [
  "argentum-macros",
  "toasty",
+ "toasty-core",
  "tokio",
  "topcoat",
  "uuid",

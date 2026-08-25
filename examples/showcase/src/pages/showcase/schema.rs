@@ -1,10 +1,46 @@
-use argentum_core::{Grid, Group, Schema, Section, Text};
+use argentum_core::{Grid, Group, Schema, Section, Text, TextInput};
 use topcoat::{Result, context::Cx, router::page, view::view};
+
+use crate::models::User;
 
 #[page("/admin/showcase/schema")]
 async fn schema_showcase(cx: &Cx) -> Result {
     // Live renders for each variant — keep code minimal and matching snippets.
     let text = Schema::new(Text::new("hello")).render(cx).await?;
+    let input_name = Schema::new(TextInput::r#for(User::fields().name()))
+        .render(cx)
+        .await?;
+    let input_required = Schema::new(TextInput::r#for(User::fields().name()).required())
+        .render(cx)
+        .await?;
+    let input_email = Schema::new(TextInput::r#for(User::fields().email()).required().email())
+        .render(cx)
+        .await?;
+    let input_tuple = Schema::new((
+        TextInput::r#for(User::fields().name()),
+        TextInput::r#for(User::fields().email()),
+    ))
+    .render(cx)
+    .await?;
+    let input_in_layout = Schema::new(Section::new("Account").schema(Grid::new(2).schema((
+        TextInput::r#for(User::fields().name()).required(),
+        TextInput::r#for(User::fields().email()).email(),
+    ))))
+    .render(cx)
+    .await?;
+    // Validation demo — static inline errors (empty → required, bad email)
+    let err_required = TextInput::r#for(User::fields().name())
+        .required()
+        .validate("")
+        .join(", ");
+    let err_email = TextInput::r#for(User::fields().email())
+        .email()
+        .validate("not-an-email")
+        .join(", ");
+    let err_none = TextInput::r#for(User::fields().name())
+        .required()
+        .validate("hello")
+        .join(", ");
     let section_empty = Schema::new(Section::new("Account")).render(cx).await?;
     let section_with_child = Schema::new(Section::new("Account").schema(Text::new("hello")))
         .render(cx)
@@ -47,6 +83,30 @@ async fn schema_showcase(cx: &Cx) -> Result {
                 <p>"Placeholder leaf — will become typed fields (TextInput, Select...)."</p>
                 <pre><code>"Schema::new(Text::new(\"hello\"))"</code></pre>
                 <div class="ac-showcase-result">(text)</div>
+            </section>
+
+            <section class="ac-showcase-block">
+                <h2>"TextInput (typed field)"</h2>
+                <p>"Bound to a Toasty lens — `TextInput::for(User::fields().name())` fails if column missing. Variants: plain, required, email."</p>
+                <pre><code>"TextInput::for(User::fields().name())\nTextInput::for(User::fields().name()).required()\nTextInput::for(User::fields().email()).required().email()\nSchema::new((TextInput::for(User::fields().name()), TextInput::for(User::fields().email())))"</code></pre>
+                <div class="ac-showcase-result">
+                    <h3>"name"</h3> (input_name)
+                    <h3>"required"</h3> (input_required)
+                    <h3>"email"</h3> (input_email)
+                    <h3>"tuple (name, email)"</h3> (input_tuple)
+                    <h3>"in Section+Grid"</h3> (input_in_layout)
+                </div>
+            </section>
+
+            <section class="ac-showcase-block">
+                <h2>"Validation (inline)"</h2>
+                <p>"`required` and `email` return per-field errors; empty required → error, bad email → error, valid → no error."</p>
+                <pre><code>"TextInput::for(User::fields().name()).required().validate(\"\") // [\"Name is required\"]\nTextInput::for(User::fields().email()).email().validate(\"bad\") // [\"Email must be a valid email\"]"</code></pre>
+                <div class="ac-showcase-result">
+                    <p>"required empty: " <span class="ac-error">(err_required)</span></p>
+                    <p>"email bad: " <span class="ac-error">(err_email)</span></p>
+                    <p>"valid: " (if err_none.is_empty() { "— no errors" } else { &err_none })</p>
+                </div>
             </section>
 
             <section class="ac-showcase-block">

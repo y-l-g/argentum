@@ -29,5 +29,6 @@ too_many_lines = "allow"
 [workspace.dependencies]
 topcoat = { path = "../topcoat/crates/topcoat", default-features = false, features = ["view", "router", "discover"] }
 toasty = { path = "../toasty/crates/toasty", default-features = false, features = ["sqlite"] }
+toasty-core = { path = "../toasty/crates/toasty-core" }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 uuid = "1.23"

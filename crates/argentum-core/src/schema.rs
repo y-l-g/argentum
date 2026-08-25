@@ -26,6 +26,140 @@ impl Text {
     }
 }
 
+/// Typed text field bound to a Toasty field lens. The lens is the single
+/// source of truth for the field name and type, so `TextInput::for(User::fields().name())`
+/// fails to compile if the column does not exist (ADR-0001).
+#[derive(Debug, Clone)]
+pub struct TextInput {
+    name: String,
+    label: String,
+    required: bool,
+    is_email: bool,
+    placeholder: Option<String>,
+}
+
+impl TextInput {
+    /// Create a `TextInput` bound to the given field lens.
+    pub fn for_lens<M, T>(path: toasty::stmt::Path<M, T>) -> Self
+    where
+        M: toasty::schema::Model,
+    {
+        // Extract field index from the typed path, then resolve the app-level
+        // field name via `M::schema()`.
+        let stmt_path: toasty_core::stmt::Path = path.into();
+        debug_assert!(
+            !stmt_path.projection.as_slice().is_empty(),
+            "TextInput::for expects a field lens, got root path"
+        );
+        // Slice 1: only single-field lenses; multi-step paths will panic in
+        // debug and fall back to first segment in release.
+        let idx = stmt_path
+            .projection
+            .as_slice()
+            .first()
+            .copied()
+            .expect("field lens must have a projection");
+        let model = M::schema();
+        let field_name = model
+            .fields()
+            .get(idx)
+            .map(|f| f.name.app_unwrap().to_string())
+            .unwrap_or_else(|| {
+                panic!(
+                    "field index {idx} out of bounds for {}",
+                    std::any::type_name::<M>()
+                )
+            });
+        let label = {
+            let mut c = field_name.chars();
+            match c.next() {
+                None => String::new(),
+                Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
+            }
+        };
+        Self {
+            name: field_name,
+            label,
+            required: false,
+            is_email: false,
+            placeholder: None,
+        }
+    }
+
+    /// Convenience alias so call sites read `TextInput::for(User::fields().name())`.
+    pub fn r#for<M, T>(path: toasty::stmt::Path<M, T>) -> Self
+    where
+        M: toasty::schema::Model,
+    {
+        Self::for_lens(path)
+    }
+
+    pub fn required(mut self) -> Self {
+        self.required = true;
+        self
+    }
+
+    pub fn email(mut self) -> Self {
+        self.is_email = true;
+        self
+    }
+
+    pub fn placeholder(mut self, p: impl Into<String>) -> Self {
+        self.placeholder = Some(p.into());
+        self
+    }
+
+    pub fn label(mut self, l: impl Into<String>) -> Self {
+        self.label = l.into();
+        self
+    }
+
+    /// Validate a raw string value against the configured rules.
+    pub fn validate(&self, value: &str) -> Vec<String> {
+        let v = value.trim();
+        let mut errs = Vec::new();
+        if self.required && v.is_empty() {
+            errs.push(format!("{} is required", self.label));
+        }
+        // TODO: slice 2 — use `validator` crate for email
+        if self.is_email && !v.is_empty() && !Self::is_valid_email(v) {
+            errs.push(format!("{} must be a valid email", self.label));
+        }
+        errs
+    }
+
+    fn is_valid_email(s: &str) -> bool {
+        // `s` is already trimmed by `validate`
+        if s.contains(' ') {
+            return false;
+        }
+        let parts: Vec<&str> = s.split('@').collect();
+        if parts.len() != 2 {
+            return false;
+        }
+        let (local, domain) = (parts[0], parts[1]);
+        if local.is_empty() || domain.is_empty() {
+            return false;
+        }
+        domain.contains('.')
+    }
+
+    async fn render(&self, cx: &Cx) -> Result<View> {
+        let label = self.label.clone();
+        let name = self.name.clone();
+        let required = self.required;
+        let placeholder = self.placeholder.clone();
+        let input_type = if self.is_email { "email" } else { "text" };
+        // Single template — placeholder omitted when None, `required` attr set,
+        // label linked via `for`/`id`, star aria-hidden.
+        view! { cx => <div class="ac-field"><label class="ac-field-label" for=(name.clone())>(label) if required { <span class="ac-required" aria-hidden="true">"*"</span> } </label><input id=(name.clone()) type=(input_type) name=(name) placeholder=(placeholder) required=(required) class="ac-input" /></div> }
+    }
+}
+
+/// Spec alias — ADR-0001 typed lens. Slice 1 uses `toasty::stmt::Path` directly as the lens;
+/// a richer `FieldLens` trait (carrying `FieldTy`, nullability, etc.) will replace this alias in slice 2.
+pub type FieldLens<M, T> = toasty::stmt::Path<M, T>;
+
 /// Section — titled container with an optional child `Schema`.
 #[derive(Debug)]
 pub struct Section {
@@ -135,9 +269,11 @@ impl Grid {
 // Node / Schema
 // ---------------------------------------------------------------------------
 
+// Slice 1: one field variant (TextInput). Will generalize to `Field` (enum of all field types) in slice 2 per spec `Node::Field`.
 #[derive(Debug)]
 enum Node {
     Text(Text),
+    TextInput(Box<TextInput>),
     Section(Box<Section>),
     Group(Box<Group>),
     Grid(Box<Grid>),
@@ -147,6 +283,7 @@ impl Node {
     async fn render(&self, cx: &Cx) -> Result<View> {
         match self {
             Node::Text(t) => t.render(cx).await,
+            Node::TextInput(f) => Box::pin(f.render(cx)).await,
             Node::Section(s) => Box::pin(s.render(cx)).await,
             Node::Group(g) => Box::pin(g.render(cx)).await,
             Node::Grid(g) => Box::pin(g.render(cx)).await,
@@ -157,6 +294,11 @@ impl Node {
 impl From<Text> for Node {
     fn from(v: Text) -> Self {
         Node::Text(v)
+    }
+}
+impl From<TextInput> for Node {
+    fn from(v: TextInput) -> Self {
+        Node::TextInput(Box::new(v))
     }
 }
 impl From<Section> for Node {
@@ -248,6 +390,13 @@ impl IntoSchema for Grid {
         }
     }
 }
+impl IntoSchema for TextInput {
+    fn into_schema(self) -> Schema {
+        Schema {
+            nodes: vec![self.into()],
+        }
+    }
+}
 
 impl<A, B> IntoSchema for (A, B)
 where
@@ -298,6 +447,159 @@ mod tests {
 
     fn cx() -> Cx {
         CxTestBuilder::new().build()
+    }
+
+    // ---- Slice 1: TextInput with typed lens (red) ----
+
+    #[derive(Debug, toasty::Model)]
+    struct DummyUser {
+        #[key]
+        #[auto]
+        id: uuid::Uuid,
+        name: String,
+        #[unique]
+        email: String,
+    }
+
+    #[tokio::test]
+    async fn text_input_renders_with_label_and_ac_field() {
+        let cx = cx();
+        let schema = Schema::new(TextInput::r#for(DummyUser::fields().name()));
+        let html = schema.render(&cx).await.unwrap().render(&cx);
+        assert!(html.contains("ac-field"), "missing ac-field in {html}");
+        assert!(html.contains("ac-input"), "missing ac-input in {html}");
+        assert!(
+            html.contains("name=\"name\"")
+                || html.contains("name=\"Name\"")
+                || html.contains("name"),
+            "missing name attr in {html}"
+        );
+        assert!(html.contains("<input"), "missing input in {html}");
+        // label derived from lens: DummyUser::fields().name() → "name" → "Name"
+        assert!(
+            html.contains("Name") || html.contains("name"),
+            "missing label in {html}"
+        );
+    }
+
+    #[test]
+    fn text_input_required_validates_empty() {
+        let input = TextInput::r#for(DummyUser::fields().name()).required();
+        assert!(
+            !input.validate("").is_empty(),
+            "required should reject empty"
+        );
+        assert!(
+            input.validate("hello").is_empty(),
+            "required should accept non-empty"
+        );
+        assert!(
+            input.validate("   ").is_empty() == false,
+            "required should reject whitespace"
+        );
+        assert!(
+            TextInput::r#for(DummyUser::fields().name())
+                .validate("")
+                .is_empty(),
+            "optional should accept empty"
+        );
+    }
+
+    #[tokio::test]
+    async fn text_input_required_renders_star_and_email_type() {
+        let cx = cx();
+        let html_req = Schema::new(TextInput::r#for(DummyUser::fields().name()).required())
+            .render(&cx)
+            .await
+            .unwrap()
+            .render(&cx);
+        assert!(
+            html_req.contains("ac-required"),
+            "required should render star in {html_req}"
+        );
+        assert!(
+            html_req.contains("required"),
+            "required attr missing in {html_req}"
+        );
+        let html_email = Schema::new(TextInput::r#for(DummyUser::fields().email()).email())
+            .render(&cx)
+            .await
+            .unwrap()
+            .render(&cx);
+        assert!(
+            html_email.contains("type=\"email\""),
+            "email should render type=email in {html_email}"
+        );
+        let html_text = Schema::new(TextInput::r#for(DummyUser::fields().name()))
+            .render(&cx)
+            .await
+            .unwrap()
+            .render(&cx);
+        assert!(
+            html_text.contains("type=\"text\""),
+            "plain should render type=text in {html_text}"
+        );
+    }
+
+    #[test]
+    fn text_input_email_validates() {
+        let input = TextInput::r#for(DummyUser::fields().email())
+            .required()
+            .email();
+        assert!(
+            !input.validate("not-an-email").is_empty(),
+            "email should reject invalid"
+        );
+        assert!(
+            !input.validate("a@").is_empty(),
+            "email should reject partial"
+        );
+        assert!(
+            input.validate("a@b.com").is_empty(),
+            "email should accept valid"
+        );
+        // optional email: empty is ok, whitespace trimmed
+        assert!(
+            TextInput::r#for(DummyUser::fields().email())
+                .email()
+                .validate("")
+                .is_empty(),
+            "optional email should accept empty"
+        );
+        assert!(
+            TextInput::r#for(DummyUser::fields().email())
+                .email()
+                .validate(" a@b.com ")
+                .is_empty(),
+            "email should trim"
+        );
+    }
+
+    #[tokio::test]
+    async fn text_input_composes_in_tuple() {
+        let cx = cx();
+        let schema = Schema::new((
+            TextInput::r#for(DummyUser::fields().name()),
+            TextInput::r#for(DummyUser::fields().email()),
+        ));
+        let html = schema.render(&cx).await.unwrap().render(&cx);
+        assert!(
+            html.matches("ac-field").count() >= 2,
+            "expected 2 fields in {html}"
+        );
+    }
+
+    #[tokio::test]
+    async fn text_input_inside_section_and_grid() {
+        let cx = cx();
+        let schema = Schema::new(Section::new("Account").schema(Grid::new(2).schema((
+            TextInput::r#for(DummyUser::fields().name()).required(),
+            TextInput::r#for(DummyUser::fields().email()).email(),
+        ))));
+        let html = schema.render(&cx).await.unwrap().render(&cx);
+        assert!(html.contains("ac-section"), "missing section in {html}");
+        assert!(html.contains("ac-grid"), "missing grid in {html}");
+        assert!(html.contains("ac-field"), "missing field in {html}");
     }
 
     #[tokio::test]
