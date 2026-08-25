@@ -1,11 +1,11 @@
 [package]
-name = "admin"
+name = "showcase"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 publish = false
-description = "Admin example: Panel + Resource + layout + list page."
+description = "Showcase: single example demonstrating every Argentum feature with snippets + rendered results."
 
 [dependencies]
 argentum-core = { path = "../../crates/argentum-core" }

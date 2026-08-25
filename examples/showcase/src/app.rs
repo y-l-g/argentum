@@ -2,16 +2,12 @@ use argentum_core::{Panel, Resource};
 use toasty::Db;
 use topcoat::{
     Result,
-    context::{Cx, memoize},
-    router::{Router, layout, page},
+    router::{Router, layout},
     view::view,
 };
 
-use crate::models::User;
-use argentum_core::db::db;
-
 // ---------------------------------------------------------------------------
-// Resource
+// Resource — single Model → Resource, see CONTEXT.md
 // ---------------------------------------------------------------------------
 
 /// Admin resource for `User`.
@@ -20,25 +16,7 @@ use argentum_core::db::db;
 pub struct UserResource;
 
 // ---------------------------------------------------------------------------
-// Data loading (memoized)
-// ---------------------------------------------------------------------------
-
-#[memoize(as_ref)]
-async fn query_users(cx: &Cx) -> Result<Vec<User>> {
-    UserResource::query(cx)
-        .exec(&mut db(cx))
-        .await
-        .map_err(Into::into)
-}
-
-async fn users(cx: &Cx) -> Result<&Vec<User>> {
-    query_users(cx)
-        .await
-        .map_err(|e| std::io::Error::other(e.to_string()).into())
-}
-
-// ---------------------------------------------------------------------------
-// Layout + Page
+// Layout — Panel shell at /admin, wraps every /admin/* page
 // ---------------------------------------------------------------------------
 
 #[layout("/admin")]
@@ -53,34 +31,11 @@ async fn admin_layout(slot: Result) -> Result {
             <body class="ac-admin">
                 <nav class="ac-sidebar">
                     <a href=(url) class="ac-nav-item">(label)</a>
+                    <a href="/admin/showcase" class="ac-nav-item">"Showcase"</a>
                 </nav>
                 <main class="ac-main">(slot?)</main>
             </body>
         </html>
-    }
-}
-
-#[page("/admin")]
-async fn admin_list(cx: &Cx) -> Result {
-    let users = users(cx).await?;
-    view! {
-        <h1>"Users"</h1>
-        <table class="ac-table">
-            <thead>
-                <tr>
-                    <th>"Name"</th>
-                    <th>"Email"</th>
-                </tr>
-            </thead>
-            <tbody>
-                for user in users {
-                    <tr>
-                        <td>(&user.name)</td>
-                        <td>(&user.email)</td>
-                    </tr>
-                }
-            </tbody>
-        </table>
     }
 }
 

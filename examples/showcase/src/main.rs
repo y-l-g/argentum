@@ -1,11 +1,11 @@
 use toasty::Db;
 
-use admin::{app::router, models::seed};
+use showcase::{app::router, models::seed};
 
 #[tokio::main]
 async fn main() {
     let mut db = Db::builder()
-        .models(toasty::models!(admin::models::User))
+        .models(toasty::models!(showcase::models::User))
         .connect("sqlite::memory:")
         .await
         .expect("connect to in-memory sqlite");
