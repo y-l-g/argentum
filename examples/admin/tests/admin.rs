@@ -32,17 +32,19 @@ async fn admin_layout_and_list_page_serve_seeded_users() {
         )
         .await;
 
-    assert!(response.status().is_success(), "status {}", response.status());
-    let body = response
-        .into_body()
-        .collect()
-        .await
-        .unwrap()
-        .to_bytes();
+    assert!(
+        response.status().is_success(),
+        "status {}",
+        response.status()
+    );
+    let body = response.into_body().collect().await.unwrap().to_bytes();
     let html = String::from_utf8_lossy(&body);
 
     // Layout shell
-    assert!(html.contains("ac-admin") || html.contains("ac-sidebar"), "missing admin layout in {html}");
+    assert!(
+        html.contains("ac-admin") || html.contains("ac-sidebar"),
+        "missing admin layout in {html}"
+    );
     // NavigationItem derived from UserResource
     assert!(html.contains("Users"), "missing navigation label in {html}");
     assert!(
@@ -50,7 +52,10 @@ async fn admin_layout_and_list_page_serve_seeded_users() {
         "missing navigation url in {html}"
     );
     // List page content
-    assert!(html.contains("<h1>Users</h1>") || html.contains("Users"), "missing heading in {html}");
+    assert!(
+        html.contains("<h1>Users</h1>") || html.contains("Users"),
+        "missing heading in {html}"
+    );
     for (name, email) in [
         ("Ada Lovelace", "ada@example.com"),
         ("Grace Hopper", "grace@example.com"),

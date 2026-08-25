@@ -67,10 +67,7 @@ mod tests {
 
     #[tokio::test]
     async fn panel_builds_router_with_db() {
-        let db = Db::builder()
-            .connect("sqlite::memory:")
-            .await
-            .unwrap();
+        let db = Db::builder().connect("sqlite::memory:").await.unwrap();
         let router = Panel::new("admin").app_context(db).build();
         // Router built without panic — the real serving test lives in the
         // admin example's integration test.

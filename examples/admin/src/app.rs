@@ -25,7 +25,10 @@ pub struct UserResource;
 
 #[memoize(as_ref)]
 async fn query_users(cx: &Cx) -> Result<Vec<User>> {
-    UserResource::query(cx).exec(&mut db(cx)).await.map_err(Into::into)
+    UserResource::query(cx)
+        .exec(&mut db(cx))
+        .await
+        .map_err(Into::into)
 }
 
 async fn users(cx: &Cx) -> Result<&Vec<User>> {
