@@ -208,6 +208,16 @@ where
     }
 }
 
+/// Row identity — `key: &row.id` per CONTEXT.md. Slice 3: simple string id.
+pub trait HasId {
+    fn id_string(&self) -> String;
+}
+
+/// Field accessor for Table cell rendering. Slice 3: minimal stringly-typed, will be replaced by typed lens projection in slice 4.
+pub trait GetField {
+    fn get_field(&self, name: &str) -> String;
+}
+
 /// Table description of a `Resource`'s list view. Declares columns and how they map to queries.
 #[derive(Debug)]
 pub struct Table<M> {
@@ -271,12 +281,11 @@ impl<M> Table<M> {
     }
 
     /// Render the table for the given rows. Header shows searchable/sortable indicators;
-    /// rows are keyed by index (Slice 2: will use `row.id` when `M: HasId` in slice 3).
+    /// rows are keyed by `row.id` per CONTEXT.md.
     pub async fn render(&self, cx: &Cx, rows: &[M]) -> Result<View>
     where
-        M: toasty::schema::Model + std::fmt::Debug + Send + Sync + 'static,
+        M: toasty::schema::Model + HasId + GetField + std::fmt::Debug + Send + Sync + 'static,
     {
-        let rows_dbg: Vec<String> = rows.iter().map(|r| format!("{r:?}")).collect();
         view! {
             cx =>
             <table class="ac-table">
@@ -288,10 +297,10 @@ impl<M> Table<M> {
                     </tr>
                 </thead>
                 <tbody>
-                    for (idx, row_dbg) in rows_dbg.iter().enumerate() {
-                        <tr key=(idx.to_string())>
+                    for row in rows {
+                        <tr key=(row.id_string())>
                             for col in &self.columns {
-                                <td>(format!("{}: {}", col.name(), row_dbg))</td>
+                                <td>(row.get_field(col.name()))</td>
                             }
                         </tr>
                     }
@@ -385,12 +394,32 @@ mod tests {
     use toasty::Db;
     use topcoat::context::CxTestBuilder;
 
-    #[derive(Debug, toasty::Model)]
+    #[derive(Debug, Clone, toasty::Model)]
     struct User {
         #[key]
         #[auto]
         id: uuid::Uuid,
         name: String,
+    }
+
+    impl HasId for User {
+        fn id_string(&self) -> String {
+            self.id.to_string()
+        }
+    }
+
+    impl GetField for User {
+        fn get_field(&self, name: &str) -> String {
+            match name {
+                "name" => self.name.clone(),
+                "id" => self.id.to_string(),
+                _ => panic!(
+                    "GetField: unknown column '{}' for {}",
+                    name,
+                    std::any::type_name::<Self>()
+                ),
+            }
+        }
     }
 
     struct UserResource;

@@ -1,19 +1,38 @@
-use argentum_core::{Panel, Resource};
+use argentum_core::{Panel, Resource, Table, TextColumn};
 use toasty::Db;
 use topcoat::{
     Result,
+    context::Cx,
     router::{Router, layout},
     view::view,
 };
+
+use crate::models::User;
 
 // ---------------------------------------------------------------------------
 // Resource — single Model → Resource, see CONTEXT.md
 // ---------------------------------------------------------------------------
 
 /// Admin resource for `User`.
-#[derive(Resource)]
-#[resource(model = crate::models::User)]
+///
+/// Manual `Resource` impl — `#[derive(Resource)]` currently only supports
+/// `model`/`query`, not `table`. Slice 3 needs a custom `Table` so we
+/// implement `Resource` by hand; a `#[resource(table=...)]` derive extension
+/// will replace this in a later slice.
 pub struct UserResource;
+
+impl Resource for UserResource {
+    type Model = User;
+
+    fn table(cx: &Cx) -> Table<User> {
+        Table::r#for(cx).columns((
+            TextColumn::r#for(User::fields().name())
+                .searchable()
+                .sortable(),
+            TextColumn::r#for(User::fields().email()),
+        ))
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Layout — Panel shell at /admin, wraps every /admin/* page

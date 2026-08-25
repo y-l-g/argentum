@@ -295,3 +295,57 @@ async fn showcase_table_renders_variants() {
         "missing table rows in {html}"
     );
 }
+
+#[tokio::test]
+async fn admin_table_via_resource_has_searchable_sortable() {
+    use argentum_core::Resource;
+    use showcase::app::UserResource;
+    use topcoat::context::CxTestBuilder;
+    let cx = CxTestBuilder::new().build();
+    let table = UserResource::table(&cx);
+    assert!(
+        !table.is_empty(),
+        "UserResource::table should declare columns"
+    );
+    assert!(
+        table.search_expr("Ada").is_some(),
+        "searchable column should produce expr"
+    );
+    assert!(
+        table.order_by().is_some(),
+        "sortable column should produce order_by"
+    );
+}
+
+#[tokio::test]
+async fn admin_list_filters_via_q_param() {
+    let db = seeded_db().await;
+    let router = router(db);
+    let response = router
+        .handle(
+            http::Request::builder()
+                .uri("/admin?q=Ada")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+    assert!(
+        response.status().is_success(),
+        "filtered status {}",
+        response.status()
+    );
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let html = String::from_utf8_lossy(&body);
+    assert!(
+        html.contains("Ada Lovelace"),
+        "filtered should contain Ada in {html}"
+    );
+    assert!(
+        !html.contains("Grace Hopper"),
+        "filtered should not contain Grace in {html}"
+    );
+    assert!(
+        html.contains("ac-table") && html.contains("ac-column--searchable"),
+        "filtered table should still render via Table in {html}"
+    );
+}

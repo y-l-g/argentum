@@ -1,7 +1,8 @@
+use argentum_core::resource::{GetField, HasId};
 use toasty::Db;
 
 /// User shown in the admin list.
-#[derive(Debug, toasty::Model)]
+#[derive(Debug, Clone, toasty::Model)]
 pub struct User {
     #[key]
     #[auto]
@@ -9,6 +10,27 @@ pub struct User {
     pub name: String,
     #[unique]
     pub email: String,
+}
+
+impl HasId for User {
+    fn id_string(&self) -> String {
+        self.id.to_string()
+    }
+}
+
+impl GetField for User {
+    fn get_field(&self, name: &str) -> String {
+        match name {
+            "name" => self.name.clone(),
+            "email" => self.email.clone(),
+            "id" => self.id.to_string(),
+            _ => panic!(
+                "GetField: unknown column '{}' for {}",
+                name,
+                std::any::type_name::<Self>()
+            ),
+        }
+    }
 }
 
 /// Seed a few users.
