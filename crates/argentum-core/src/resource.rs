@@ -240,7 +240,8 @@ impl<M> Table<M> {
         Some(exprs.fold(first, |acc, e| acc.or(e)))
     }
 
-    /// First sortable column's order_by (asc). Slice 3 will add PK tie-breaker.
+    /// First sortable column's order_by (asc). Deterministic pagination requires
+    /// a PK tie-breaker — use [`Self::order_bys`] for the full ordering.
     pub fn order_by(&self) -> Option<OrderByExpr>
     where
         M: toasty::schema::Model,
@@ -248,6 +249,36 @@ impl<M> Table<M> {
         self.columns.iter().find_map(|c| match c {
             Column::Text(col) => col.to_order_by(),
         })
+    }
+
+    /// Ordered list for the query: first sortable column asc + PK tie-breaker(s)
+    /// for deterministic pagination (spec US10). Returns empty if no sortable
+    /// column is declared; otherwise the PK field(s) are appended via
+    /// `ref_self_field(FieldId)` so every `M: Model` is stable regardless of
+    /// whether the sortable column is unique.
+    ///
+    /// The tie-breaker is appended even if the sortable column is the PK
+    /// itself — duplicate `order_by` on the same column is harmless and keeps
+    /// the method branch-free.
+    pub fn order_bys(&self) -> Vec<OrderByExpr>
+    where
+        M: toasty::schema::Model,
+    {
+        let Some(first) = self.order_by() else {
+            return Vec::new();
+        };
+        let mut out = vec![first];
+        let app_model = M::schema();
+        if let Some(root) = app_model.as_root() {
+            for pk_field in &root.primary_key.fields {
+                let expr = toasty_core::stmt::Expr::ref_self_field(*pk_field);
+                out.push(OrderByExpr {
+                    expr,
+                    order: Some(toasty_core::stmt::Direction::Asc),
+                });
+            }
+        }
+        out
     }
 
     /// Render the table for the given rows. Header shows searchable/sortable indicators;
@@ -594,5 +625,70 @@ mod tests {
         let table_none =
             Table::<User>::r#for(&cx).columns(TextColumn::r#for(User::fields().name()));
         assert!(table_none.order_by().is_none());
+    }
+
+    #[test]
+    fn table_order_bys_includes_pk_tie_breaker() {
+        let cx = CxTestBuilder::new().build();
+        let table =
+            Table::<User>::r#for(&cx).columns(TextColumn::r#for(User::fields().name()).sortable());
+        let orders = table.order_bys();
+        // first is sortable, second is PK asc for deterministic pagination
+        assert_eq!(
+            orders.len(),
+            2,
+            "sortable + PK tie-breaker expected, got {orders:?}"
+        );
+        // No sortable → empty
+        let table_none =
+            Table::<User>::r#for(&cx).columns(TextColumn::r#for(User::fields().name()));
+        assert!(
+            table_none.order_bys().is_empty(),
+            "non-sortable should have no order_bys"
+        );
+    }
+
+    #[tokio::test]
+    async fn table_order_bys_is_deterministic_for_pagination() {
+        // Two rows with same name, different ids — order_bys with PK tie-breaker must be stable
+        let mut db = Db::builder()
+            .models(toasty::models!(User))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        let a = toasty::create!(User { name: "Same" })
+            .exec(&mut db)
+            .await
+            .unwrap();
+        let b = toasty::create!(User { name: "Same" })
+            .exec(&mut db)
+            .await
+            .unwrap();
+        assert_ne!(a.id, b.id);
+        let cx = CxTestBuilder::new().app_context(db).build();
+        let table =
+            Table::<User>::r#for(&cx).columns(TextColumn::r#for(User::fields().name()).sortable());
+        let mut db = crate::db::db(&cx);
+        let mut query = User::all();
+        for ord in table.order_bys() {
+            query = query.order_by(ord);
+        }
+        let rows = query.exec(&mut db).await.unwrap();
+        assert_eq!(rows.len(), 2);
+        // With PK tie-breaker asc, order is deterministic by id
+        assert!(
+            rows[0].id.to_string() < rows[1].id.to_string()
+                || rows[0].id == a.id && rows[1].id == b.id
+                || rows[0].id == b.id && rows[1].id == a.id,
+            "rows should be ordered deterministically"
+        );
+        // Ensure stable ordering is by PK asc (lowest id first)
+        let expected_first = if a.id.to_string() < b.id.to_string() {
+            a.id
+        } else {
+            b.id
+        };
+        assert_eq!(rows[0].id, expected_first);
     }
 }

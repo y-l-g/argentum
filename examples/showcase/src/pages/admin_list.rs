@@ -7,7 +7,6 @@ use topcoat::{
 };
 
 use crate::app::UserResource;
-use crate::models::User;
 
 #[query_params]
 struct AdminQuery {
@@ -30,9 +29,8 @@ async fn admin_list(cx: &Cx) -> Result {
     if let Some(expr) = table.search_expr(&q) {
         query = query.filter(expr);
     }
-    if let Some(order) = table.order_by() {
-        // PK tie-breaker for deterministic sort (pagination stability)
-        query = query.order_by(order).order_by(User::fields().id().asc());
+    for ord in table.order_bys() {
+        query = query.order_by(ord);
     }
     let mut db = db(cx);
     let rows = query

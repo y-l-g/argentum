@@ -59,8 +59,8 @@ async fn table_showcase(cx: &Cx) -> Result {
 
             <section class="ac-showcase-block">
                 <h2>"sortable"</h2>
-                <p>"Marks column for ordering → `asc()` (PK tie-breaker in next slice)."</p>
-                <pre><code>"let table = Table::for::<User>(cx).columns(TextColumn::for(User::fields().name()).sortable());\ntable.order_by() // → asc"</code></pre>
+                <p>"Marks column for ordering → `asc()` with PK tie-breaker via `order_bys()` for deterministic pagination."</p>
+                <pre><code>"let table = Table::for::<User>(cx).columns(TextColumn::for(User::fields().name()).sortable());\ntable.order_by() // → asc\ntable.order_bys() // → [sortable asc, pk asc]"</code></pre>
                 <div class="ac-showcase-result">(sortable_html)</div>
             </section>
 
