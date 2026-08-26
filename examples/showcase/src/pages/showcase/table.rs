@@ -1,12 +1,15 @@
-use argentum_core::{Table, TextColumn, db::db};
+use argentum_core::{Resource, Table, TextColumn, db::db};
 use topcoat::{Result, context::Cx, router::page, view::view};
 
-use crate::models::User;
+use crate::{app::UserResource, models::User};
 
 #[page("/admin/showcase/table")]
 async fn table_showcase(cx: &Cx) -> Result {
+    // Respect Resource::query seam (CONTEXT Query) — every loader starts
+    // from Resource::query, not Model::all, so tenancy/soft-delete scoping
+    // applies even in showcase demos (P10).
     let mut conn = db(cx);
-    let rows = User::all()
+    let rows = UserResource::query(cx)
         .exec(&mut conn)
         .await
         .map_err(|e| std::io::Error::other(e.to_string()))?;

@@ -120,12 +120,20 @@ impl TextInput {
         let input_type = if self.is_email { "email" } else { "text" };
         // Single template — placeholder omitted when None, `required` attr set,
         // label linked via `for`/`id`, star aria-hidden.
+        // Review P3: inline `validate()` errors are not rendered here — form
+        // state + per-field error slots belong with Schema form state and
+        // #[procedure] handling (Slice 4). Static demo in showcase/schema.rs
+        // shows errors outside ac-field; wiring them inside the field is deferred.
         view! { cx => <div class="ac-field"><label class="ac-field-label" for=(name.clone())>(label) if required { <span class="ac-required" aria-hidden="true">"*"</span> } </label><input id=(name.clone()) type=(input_type) name=(name) placeholder=(placeholder) required=(required) class="ac-input" /></div> }
     }
 }
 
 /// Spec alias — ADR-0001 typed lens. Slice 1 uses `toasty::stmt::Path` directly as the lens;
 /// a richer `FieldLens` trait (carrying `FieldTy`, nullability, etc.) will replace this alias in slice 2.
+///
+/// Review P8: `is_nullable` / `is_unique` / `column_name` are not needed until
+/// Create/Edit hydration (hydration → Create/Update projections). Deferred to
+/// Slice 4 and tracked as tech debt — do not add now.
 pub type FieldLens<M, T> = toasty::stmt::Path<M, T>;
 
 /// Resolve a typed lens to its app-level field name and capitalized label.
@@ -422,6 +430,9 @@ where
         }
     }
 }
+// 4-tuple limit is intentional (review S2): without variadic generics this is
+// idiomatic — see `IntoColumns` in `resource.rs`. Macro deferred until 5+
+// columns are needed.
 impl<A, B, C> IntoSchema for (A, B, C)
 where
     A: Into<Node>,
