@@ -349,3 +349,25 @@ async fn admin_list_filters_via_q_param() {
         "filtered table should still render via Table in {html}"
     );
 }
+
+#[tokio::test]
+async fn admin_form_via_resource_renders_text_inputs() {
+    use argentum_core::Resource;
+    use showcase::app::UserResource;
+    use topcoat::context::CxTestBuilder;
+    let cx = CxTestBuilder::new().build();
+    let form = UserResource::form(&cx);
+    let html = form.render(&cx).await.unwrap().render(&cx);
+    assert!(
+        html.contains("ac-field"),
+        "Resource::form should render TextInput(s) with ac-field in {html}"
+    );
+    assert!(
+        html.contains("<input"),
+        "Resource::form should contain <input> in {html}"
+    );
+    assert!(
+        html.matches("ac-field").count() >= 2,
+        "Resource::form should have at least 2 fields (name, email) in {html}"
+    );
+}

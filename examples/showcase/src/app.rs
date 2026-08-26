@@ -1,4 +1,4 @@
-use argentum_core::{Panel, Resource, Table, TextColumn};
+use argentum_core::{Panel, Resource, Schema, Table, TextColumn, TextInput};
 use toasty::Db;
 use topcoat::{
     Result,
@@ -30,6 +30,16 @@ impl Resource for UserResource {
                 .searchable()
                 .sortable(),
             TextColumn::r#for(User::fields().email()),
+        ))
+    }
+
+    fn form(_cx: &Cx) -> Schema {
+        // Canonical Resource::form seam (spec #6 solution) — typed lens → TextInput.
+        // Proves both Resource entry points are wired; showcase pages use this
+        // indirectly via Schema::new, but resource owners declare forms here.
+        Schema::new((
+            TextInput::r#for(User::fields().name()).required(),
+            TextInput::r#for(User::fields().email()).required().email(),
         ))
     }
 }
