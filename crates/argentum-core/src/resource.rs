@@ -10,7 +10,7 @@ use toasty::stmt::{Expr, List, OrderByExpr};
 use topcoat::context::Cx;
 use topcoat::{Result, view::*};
 
-use crate::schema::{FieldLens, Schema, lens_field_name_and_label};
+use crate::schema::{FieldLens, Schema, lens_field_name_and_label, pk_tie_breakers};
 
 /// Text column bound to a typed lens. `TextColumn::for(User::fields().name())`
 /// fails if the column does not exist (ADR-0001).
@@ -85,7 +85,7 @@ where
 
     pub fn to_order_by(&self) -> Option<OrderByExpr> {
         if self.sortable {
-            // Slice 2: single asc; PK tie-breaker will be added in slice 3 for stable pagination
+            // PK tie-breaker lives in Table::order_bys() (deterministic pagination).
             Some(self.path.clone().asc())
         } else {
             None
@@ -266,8 +266,8 @@ impl<M> Table<M> {
     /// Ordered list for the query: first sortable column asc + PK tie-breaker(s)
     /// for deterministic pagination (spec US10). Returns empty if no sortable
     /// column is declared; otherwise the PK field(s) are appended via
-    /// `ref_self_field(FieldId)` so every `M: Model` is stable regardless of
-    /// whether the sortable column is unique.
+    /// `crate::schema::pk_tie_breakers` so every `M: Model` is stable
+    /// regardless of whether the sortable column is unique.
     ///
     /// The tie-breaker is appended even if the sortable column is the PK
     /// itself — duplicate `order_by` on the same column is harmless and keeps
@@ -280,16 +280,7 @@ impl<M> Table<M> {
             return Vec::new();
         };
         let mut out = vec![first];
-        let app_model = M::schema();
-        if let Some(root) = app_model.as_root() {
-            for pk_field in &root.primary_key.fields {
-                let expr = toasty_core::stmt::Expr::ref_self_field(*pk_field);
-                out.push(OrderByExpr {
-                    expr,
-                    order: Some(toasty_core::stmt::Direction::Asc),
-                });
-            }
-        }
+        out.extend(pk_tie_breakers::<M>());
         out
     }
 

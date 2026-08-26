@@ -181,6 +181,29 @@ fn capitalize(s: &str) -> String {
     }
 }
 
+/// PK tie-breaker(s) for deterministic pagination (review P5 core coupling).
+///
+/// Centralizes the `toasty_core::stmt` walk (`M::schema().as_root().primary_key`)
+/// so `resource.rs` does not directly depend on core internals. Returns one
+/// `asc` `OrderByExpr` per PK field, in declared order.
+pub(crate) fn pk_tie_breakers<M>() -> Vec<toasty::stmt::OrderByExpr>
+where
+    M: toasty::schema::Model,
+{
+    let mut out = Vec::new();
+    let app_model = M::schema();
+    if let Some(root) = app_model.as_root() {
+        for pk_field in &root.primary_key.fields {
+            let expr = toasty_core::stmt::Expr::ref_self_field(*pk_field);
+            out.push(toasty::stmt::OrderByExpr {
+                expr,
+                order: Some(toasty_core::stmt::Direction::Asc),
+            });
+        }
+    }
+    out
+}
+
 /// Section — titled container with an optional child `Schema`.
 #[derive(Debug)]
 pub struct Section {
