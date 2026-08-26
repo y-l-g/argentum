@@ -20,14 +20,8 @@ struct ScopedUserResource;
 async fn resource_showcase(cx: &Cx) -> Result {
     let mut conn = db(cx);
 
-    let all = BareUserResource::query(cx)
-        .exec(&mut conn)
-        .await
-        .map_err(|e| std::io::Error::other(e.to_string()))?;
-    let scoped = ScopedUserResource::query(cx)
-        .exec(&mut conn)
-        .await
-        .map_err(|e| std::io::Error::other(e.to_string()))?;
+    let all = BareUserResource::query(cx).exec(&mut conn).await?;
+    let scoped = ScopedUserResource::query(cx).exec(&mut conn).await?;
 
     let nav = BareUserResource::navigation();
     let label = nav.label.clone();

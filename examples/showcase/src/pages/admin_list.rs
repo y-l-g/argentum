@@ -36,10 +36,7 @@ async fn admin_list(cx: &Cx) -> Result {
         query = query.order_by(ord);
     }
     let mut db = db(cx);
-    let rows = query
-        .exec(&mut db)
-        .await
-        .map_err(|e| std::io::Error::other(e.to_string()))?;
+    let rows = query.exec(&mut db).await?;
     let table_view = table.render(cx, &rows).await?;
     view! {
         <div class="ac-page">

@@ -115,8 +115,9 @@ mod tests {
         let default = Panel::new("admin").navigation_item::<DummyResource>();
         assert_eq!(default.url, "/admin");
         // Also verify the prefix-aware constructor normalises slashes
-        let via_prefix =
-            crate::resource::NavigationItem::from_resource_with_prefix::<DummyResource>("/backoffice/");
+        let via_prefix = crate::resource::NavigationItem::from_resource_with_prefix::<DummyResource>(
+            "/backoffice/",
+        );
         assert_eq!(via_prefix.url, "/backoffice");
     }
 }

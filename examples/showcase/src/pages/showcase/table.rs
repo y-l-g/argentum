@@ -9,10 +9,7 @@ async fn table_showcase(cx: &Cx) -> Result {
     // from Resource::query, not Model::all, so tenancy/soft-delete scoping
     // applies even in showcase demos (P10).
     let mut conn = db(cx);
-    let rows = UserResource::query(cx)
-        .exec(&mut conn)
-        .await
-        .map_err(|e| std::io::Error::other(e.to_string()))?;
+    let rows = UserResource::query(cx).exec(&mut conn).await?;
 
     // Variants for snippet display
     let plain = Table::<User>::r#for(cx).columns(TextColumn::r#for(User::fields().name()));

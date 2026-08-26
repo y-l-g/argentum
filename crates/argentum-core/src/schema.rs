@@ -4,6 +4,11 @@
 //! Each node renders through Topcoat's `view!` macro; `Schema::render`
 //! combines them. The API mirrors Filament's `Schema::new(( ... ))` tuple
 //! form via the `IntoSchema` trait.
+//!
+//! Bridge note: `lens_field_name_and_label` and `pk_tie_breakers` reach into
+//! `toasty_core` (see `EXTERNAL_GAPS.md` at repo root). They are the single
+//! `toasty_core` import sites; migrate to public `Path::field_name()` /
+//! `Model::primary_key_paths()` when Toasty exposes them.
 
 use topcoat::{Result, context::Cx, view::*};
 
