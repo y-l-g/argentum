@@ -93,7 +93,7 @@ where
     }
 }
 
-/// Column enum — Slice 2: only `Text`. Will generalize to `Number`, `Badge`, etc. in later slices.
+/// Column enum — Phase 1: only `Text`. Will generalize to `Number`, `Badge`, etc. later.
 #[derive(Debug, Clone)]
 pub enum Column<M> {
     Text(TextColumn<M>),
@@ -130,10 +130,10 @@ where
 
 /// Convert a single column or tuple of columns into `Vec<Column<M>>`.
 ///
-/// 4-tuple limit is intentional (review S2): without variadic generics this
-/// is idiomatic Rust — matches `IntoSchema` in `schema.rs`. Extending to 5+
-/// columns adds boilerplate for little gain; a macro is deferred until a real
-/// Resource needs 5 columns (not in Phase 1 slices).
+/// 4-tuple limit is intentional: without variadic generics this is idiomatic
+/// Rust — matches `IntoSchema` in `schema.rs`. Extending to 5+ columns adds
+/// boilerplate for little gain; a macro is deferred until a real Resource
+/// needs 5 columns.
 pub trait IntoColumns<M> {
     fn into_columns(self) -> Vec<Column<M>>;
 }
@@ -183,19 +183,18 @@ where
     }
 }
 
-/// Row identity — `key: &row.id` per CONTEXT.md. Slice 3: simple string id.
+/// Row identity — `key: &row.id` per CONTEXT.md. Simple string id for Phase 1.
 ///
-/// Review S3/P7/P9: stringly-typed `GetField` contradicts ADR-0001 typed lens
-/// and is intentional tech debt. Slice 4 will replace `HasId+GetField` with a
-/// typed projection (`Column` holding `Fn(&M)->String` or lens-aware `Cell`).
-/// Keeping panic-on-unknown now preserves typo visibility without over-design.
+/// Stringly-typed `GetField` contradicts ADR-0001 typed lens and is
+/// intentional tech debt (see GH #10). Will become a typed projection
+/// (`Column` holding `Fn(&M)->String` or lens-aware `Cell`); panic-on-unknown
+/// now preserves typo visibility without over-design.
 pub trait HasId {
     fn id_string(&self) -> String;
 }
 
-/// Field accessor for Table cell rendering. Slice 3: minimal stringly-typed, will be replaced by typed lens projection in slice 4.
-///
-/// See `HasId` doc for deferred typed projection (review S3/P9).
+/// Field accessor for Table cell rendering. Minimal stringly-typed for Phase 1,
+/// will be replaced by typed lens projection (see `HasId` doc, GH #10).
 pub trait GetField {
     fn get_field(&self, name: &str) -> String;
 }
@@ -520,8 +519,6 @@ mod tests {
         assert_eq!(rows_all.len(), 2);
     }
 
-    // ---- Slice 2: TextColumn with typed lens (red) ----
-
     #[test]
     fn text_column_searchable_produces_starts_with() {
         let col = TextColumn::r#for(User::fields().name()).searchable();
@@ -559,7 +556,7 @@ mod tests {
             TextColumn::r#for(User::fields().name()).searchable(),
             TextColumn::r#for(User::fields().name()).sortable(),
         ));
-        // Use dummy rows for render check (no DB) — Slice 2: key is index, Slice 3 will use row.id
+        // Use dummy rows for render check (no DB) — keyed by row.id
         let rows = vec![
             User {
                 id: uuid::Uuid::new_v4(),

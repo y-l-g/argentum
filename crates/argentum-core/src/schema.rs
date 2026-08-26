@@ -94,7 +94,7 @@ impl TextInput {
         if self.required && v.is_empty() {
             errs.push(format!("{} is required", self.label));
         }
-        // TODO: slice 2 — use `validator` crate for email
+        // TODO: use `validator` crate for email (see GH #11)
         if self.is_email && !v.is_empty() && !Self::is_valid_email(v) {
             errs.push(format!("{} must be a valid email", self.label));
         }
@@ -125,27 +125,24 @@ impl TextInput {
         let input_type = if self.is_email { "email" } else { "text" };
         // Single template — placeholder omitted when None, `required` attr set,
         // label linked via `for`/`id`, star aria-hidden.
-        // Review P3: inline `validate()` errors are not rendered here — form
-        // state + per-field error slots belong with Schema form state and
-        // #[procedure] handling (Slice 4). Static demo in showcase/schema.rs
-        // shows errors outside ac-field; wiring them inside the field is deferred.
+        // Inline validate() errors are not rendered inside ac-field yet — needs
+        // Schema form state + #[procedure] (see GH #12). Demo in
+        // showcase/schema.rs intentionally shows errors outside ac-field for now.
         view! { cx => <div class="ac-field"><label class="ac-field-label" for=(name.clone())>(label) if required { <span class="ac-required" aria-hidden="true">"*"</span> } </label><input id=(name.clone()) type=(input_type) name=(name) placeholder=(placeholder) required=(required) class="ac-input" /></div> }
     }
 }
 
-/// Spec alias — ADR-0001 typed lens. Slice 1 uses `toasty::stmt::Path` directly as the lens;
-/// a richer `FieldLens` trait (carrying `FieldTy`, nullability, etc.) will replace this alias in slice 2.
-///
-/// Review P8: `is_nullable` / `is_unique` / `column_name` are not needed until
-/// Create/Edit hydration (hydration → Create/Update projections). Deferred to
-/// Slice 4 and tracked as tech debt — do not add now.
+/// Spec alias — ADR-0001 typed lens. Currently uses `toasty::stmt::Path` directly;
+/// a richer `FieldLens` trait (carrying `FieldTy`, nullability, etc.) will replace
+/// this alias (see GH #11, EXTERNAL_GAPS.md “field metadata”). `is_nullable` /
+/// `is_unique` / `column_name` are deferred until hydration.
 pub type FieldLens<M, T> = toasty::stmt::Path<M, T>;
 
 /// Resolve a typed lens to its app-level field name and capitalized label.
 ///
 /// Hides the `Path → toasty_core::stmt::Path → projection → M::schema()` walk
-/// (review S1/S4). Used by both `TextInput` and `TextColumn` so the shape is
-/// defined once.
+/// (single import site, see EXTERNAL_GAPS.md). Used by both `TextInput` and
+/// `TextColumn` so the shape is defined once.
 pub(crate) fn lens_field_name_and_label<M, T>(path: FieldLens<M, T>) -> (String, String)
 where
     M: toasty::schema::Model,
@@ -155,7 +152,7 @@ where
         !core_path.projection.as_slice().is_empty(),
         "lens expects a field lens, got root path"
     );
-    // Slice 1: only single-field lenses; multi-step paths will panic in
+    // Only single-field lenses are supported; multi-step paths will panic in
     // debug and fall back to first segment in release.
     let idx = core_path
         .projection
@@ -186,11 +183,12 @@ fn capitalize(s: &str) -> String {
     }
 }
 
-/// PK tie-breaker(s) for deterministic pagination (review P5 core coupling).
+/// PK tie-breaker(s) for deterministic pagination.
 ///
 /// Centralizes the `toasty_core::stmt` walk (`M::schema().as_root().primary_key`)
-/// so `resource.rs` does not directly depend on core internals. Returns one
-/// `asc` `OrderByExpr` per PK field, in declared order.
+/// so `resource.rs` does not directly depend on core internals (see
+/// EXTERNAL_GAPS.md “primary-key tie-breaker”). Returns one `asc`
+/// `OrderByExpr` per PK field, in declared order.
 pub(crate) fn pk_tie_breakers<M>() -> Vec<toasty::stmt::OrderByExpr>
 where
     M: toasty::schema::Model,
@@ -318,7 +316,7 @@ impl Grid {
 // Node / Schema
 // ---------------------------------------------------------------------------
 
-// Slice 1: one field variant (TextInput). Will generalize to `Field` (enum of all field types) in slice 2 per spec `Node::Field`.
+// Phase 1: single field variant (TextInput). Will generalize to `Field` (enum of all field types).
 #[derive(Debug)]
 enum Node {
     Text(Text),
@@ -458,9 +456,8 @@ where
         }
     }
 }
-// 4-tuple limit is intentional (review S2): without variadic generics this is
-// idiomatic — see `IntoColumns` in `resource.rs`. Macro deferred until 5+
-// columns are needed.
+// 4-tuple limit is intentional: without variadic generics this is idiomatic
+// — see `IntoColumns` in `resource.rs`. Macro deferred until 5+ columns are needed.
 impl<A, B, C> IntoSchema for (A, B, C)
 where
     A: Into<Node>,
@@ -500,8 +497,6 @@ mod tests {
     fn cx() -> Cx {
         CxTestBuilder::new().build()
     }
-
-    // ---- Slice 1: TextInput with typed lens (red) ----
 
     #[derive(Debug, toasty::Model)]
     struct DummyUser {

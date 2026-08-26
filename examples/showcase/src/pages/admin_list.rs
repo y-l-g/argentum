@@ -19,10 +19,9 @@ struct AdminQuery {
 
 #[page("/admin")]
 async fn admin_list(cx: &Cx) -> Result {
-    // Plain `q` param for this slice — parse errors treated as empty (no filter) to keep minimal.
-    // Review P2: q-aware `#[memoize]` is deferred to shard/boundary slice
-    // (ADR-0003) — memoizing `db(cx)` query with `q` as key will be added
-    // when search/sort move to owned signal + boundary (spec #6).
+    // Plain `q` param for now — parse errors treated as empty (no filter) to keep minimal.
+    // q-aware #[memoize] is deferred until search/sort move to owned signal +
+    // boundary (see ADR-0003, GH #13).
     let q = query_params::<AdminQuery>(cx)
         .ok()
         .and_then(|x| x.q.clone())

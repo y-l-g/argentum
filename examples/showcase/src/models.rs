@@ -3,10 +3,9 @@ use toasty::Db;
 
 /// User shown in the admin list.
 ///
-/// Review P1: `role` / `active` / `created_at` with `#[index]` (spec #6 US16)
-/// are deferred to FilterBuilder slice — not needed for Table+Schema vertical
-/// slice and would force a migration + 3rd seed row now. Added when filters
-/// need them.
+/// `role` / `active` / `created_at` with `#[index]` (spec #6 US16) are
+/// deferred until FilterBuilder needs them (see GH #13) — not needed for the
+/// Table+Schema vertical slice and would force a migration + 3rd seed row now.
 #[derive(Debug, Clone, toasty::Model)]
 pub struct User {
     #[key]

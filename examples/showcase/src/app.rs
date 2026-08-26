@@ -16,9 +16,9 @@ use crate::models::User;
 /// Admin resource for `User`.
 ///
 /// Manual `Resource` impl — `#[derive(Resource)]` currently only supports
-/// `model`/`query`, not `table`. Slice 3 needs a custom `Table` so we
-/// implement `Resource` by hand; a `#[resource(table=...)]` derive extension
-/// will replace this in a later slice.
+/// `model`/`query`, not `table`. A custom `Table` is needed so we implement
+/// `Resource` by hand; a `#[resource(table=...)]` derive extension will
+/// replace this later.
 pub struct UserResource;
 
 impl Resource for UserResource {
