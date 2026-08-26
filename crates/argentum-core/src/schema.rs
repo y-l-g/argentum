@@ -44,39 +44,7 @@ impl TextInput {
     where
         M: toasty::schema::Model,
     {
-        // Extract field index from the typed path, then resolve the app-level
-        // field name via `M::schema()`.
-        let stmt_path: toasty_core::stmt::Path = path.into();
-        debug_assert!(
-            !stmt_path.projection.as_slice().is_empty(),
-            "TextInput::for expects a field lens, got root path"
-        );
-        // Slice 1: only single-field lenses; multi-step paths will panic in
-        // debug and fall back to first segment in release.
-        let idx = stmt_path
-            .projection
-            .as_slice()
-            .first()
-            .copied()
-            .expect("field lens must have a projection");
-        let model = M::schema();
-        let field_name = model
-            .fields()
-            .get(idx)
-            .map(|f| f.name.app_unwrap().to_string())
-            .unwrap_or_else(|| {
-                panic!(
-                    "field index {idx} out of bounds for {}",
-                    std::any::type_name::<M>()
-                )
-            });
-        let label = {
-            let mut c = field_name.chars();
-            match c.next() {
-                None => String::new(),
-                Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
-            }
-        };
+        let (field_name, label) = lens_field_name_and_label(path);
         Self {
             name: field_name,
             label,
@@ -159,6 +127,51 @@ impl TextInput {
 /// Spec alias — ADR-0001 typed lens. Slice 1 uses `toasty::stmt::Path` directly as the lens;
 /// a richer `FieldLens` trait (carrying `FieldTy`, nullability, etc.) will replace this alias in slice 2.
 pub type FieldLens<M, T> = toasty::stmt::Path<M, T>;
+
+/// Resolve a typed lens to its app-level field name and capitalized label.
+///
+/// Hides the `Path → toasty_core::stmt::Path → projection → M::schema()` walk
+/// (review S1/S4). Used by both `TextInput` and `TextColumn` so the shape is
+/// defined once.
+pub(crate) fn lens_field_name_and_label<M, T>(path: FieldLens<M, T>) -> (String, String)
+where
+    M: toasty::schema::Model,
+{
+    let core_path: toasty_core::stmt::Path = path.into();
+    debug_assert!(
+        !core_path.projection.as_slice().is_empty(),
+        "lens expects a field lens, got root path"
+    );
+    // Slice 1: only single-field lenses; multi-step paths will panic in
+    // debug and fall back to first segment in release.
+    let idx = core_path
+        .projection
+        .as_slice()
+        .first()
+        .copied()
+        .expect("field lens must have a projection");
+    let model = M::schema();
+    let field_name = model
+        .fields()
+        .get(idx)
+        .map(|f| f.name.app_unwrap().to_string())
+        .unwrap_or_else(|| {
+            panic!(
+                "field index {idx} out of bounds for {}",
+                std::any::type_name::<M>()
+            )
+        });
+    let label = capitalize(&field_name);
+    (field_name, label)
+}
+
+fn capitalize(s: &str) -> String {
+    let mut c = s.chars();
+    match c.next() {
+        None => String::new(),
+        Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
+    }
+}
 
 /// Section — titled container with an optional child `Schema`.
 #[derive(Debug)]

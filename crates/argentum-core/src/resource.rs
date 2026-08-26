@@ -10,7 +10,7 @@ use toasty::stmt::{Expr, List, OrderByExpr};
 use topcoat::context::Cx;
 use topcoat::{Result, view::*};
 
-use crate::schema::{FieldLens, Schema};
+use crate::schema::{FieldLens, Schema, lens_field_name_and_label};
 
 /// Text column bound to a typed lens. `TextColumn::for(User::fields().name())`
 /// fails if the column does not exist (ADR-0001).
@@ -28,37 +28,7 @@ where
     M: toasty::schema::Model,
 {
     pub fn for_lens(path: FieldLens<M, String>) -> Self {
-        let stmt_path: toasty_core::stmt::Path = path.clone().into();
-        debug_assert!(
-            !stmt_path.projection.as_slice().is_empty(),
-            "TextColumn::for expects a field lens, got root path"
-        );
-        let idx = stmt_path
-            .projection
-            .as_slice()
-            .first()
-            .copied()
-            .expect("field lens must have a projection");
-        let model = M::schema();
-        let field_name = model
-            .fields()
-            .get(idx)
-            .unwrap_or_else(|| {
-                panic!(
-                    "field index {idx} out of bounds for {}",
-                    std::any::type_name::<M>()
-                )
-            })
-            .name
-            .app_unwrap()
-            .to_string();
-        let label = {
-            let mut c = field_name.chars();
-            match c.next() {
-                None => String::new(),
-                Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
-            }
-        };
+        let (field_name, label) = lens_field_name_and_label(path.clone());
         Self {
             path,
             name: field_name,
