@@ -541,7 +541,7 @@ mod tests {
             "required should accept non-empty"
         );
         assert!(
-            input.validate("   ").is_empty() == false,
+            !input.validate("   ").is_empty(),
             "required should reject whitespace"
         );
         assert!(

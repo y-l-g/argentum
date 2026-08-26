@@ -5,6 +5,8 @@
 use toasty::Db;
 use topcoat::router::{Router, RouterBuilderDiscoverExt};
 
+use crate::resource::{NavigationItem, Resource};
+
 /// The admin application.
 ///
 /// ```ignore
@@ -49,6 +51,15 @@ impl Panel {
         let db = self.db.expect("Panel::build requires a Db via app_context");
         Router::builder().discover().app_context(db).build()
     }
+
+    /// Derive a [`NavigationItem`] for `R` using this panel's mount prefix.
+    ///
+    /// This is the panel-aware counterpart to `NavigationItem::from_resource`.
+    /// The URL respects `self.prefix()` so `Panel::new("backoffice")` yields
+    /// `"/backoffice"` instead of hard-coded `"/admin"`.
+    pub fn navigation_item<R: Resource>(&self) -> NavigationItem {
+        NavigationItem::from_resource_with_prefix::<R>(&self.prefix)
+    }
 }
 
 #[cfg(test)]
@@ -78,5 +89,34 @@ mod tests {
     #[should_panic(expected = "Panel::build requires a Db")]
     fn panel_build_panics_without_db() {
         let _router = Panel::new("admin").build();
+    }
+
+    #[test]
+    fn panel_navigation_item_respects_prefix() {
+        use crate::resource::Resource;
+
+        #[derive(Debug, toasty::Model)]
+        struct Dummy {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            name: String,
+        }
+        struct DummyResource;
+        impl Resource for DummyResource {
+            type Model = Dummy;
+        }
+
+        let panel = Panel::new("backoffice");
+        let item = panel.navigation_item::<DummyResource>();
+        assert_eq!(item.label, "Dummys");
+        assert_eq!(item.url, "/backoffice");
+
+        let default = Panel::new("admin").navigation_item::<DummyResource>();
+        assert_eq!(default.url, "/admin");
+        // Also verify the prefix-aware constructor normalises slashes
+        let via_prefix =
+            crate::resource::NavigationItem::from_resource_with_prefix::<DummyResource>("/backoffice/");
+        assert_eq!(via_prefix.url, "/backoffice");
     }
 }

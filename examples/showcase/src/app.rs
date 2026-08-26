@@ -50,7 +50,8 @@ impl Resource for UserResource {
 
 #[layout("/admin")]
 async fn admin_layout(slot: Result) -> Result {
-    let nav = UserResource::navigation();
+    // Panel-aware navigation — URL respects the Panel mount prefix (e.g. "backoffice" → "/backoffice").
+    let nav = Panel::new("admin").navigation_item::<UserResource>();
     let label = nav.label.clone();
     let url = nav.url.clone();
     view! {

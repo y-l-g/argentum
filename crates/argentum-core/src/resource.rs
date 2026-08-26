@@ -337,21 +337,37 @@ pub struct NavigationItem {
 }
 
 impl NavigationItem {
-    /// Derive a sidebar entry from a `Resource` type.
+    /// Derive a sidebar entry from a `Resource` type, using the given panel mount prefix.
     ///
     /// Label is the `Model`'s type name without module path and with a
     /// trailing `s` for pluralisation (matching Filament's `User` → `Users`).
-    /// URL is `/admin` for the single-resource Phase 1 shell; multi-resource
-    /// routing will become `/admin/<kebab-plural>` (ADR-0002 query seam
+    /// URL is the panel prefix for the single-resource Phase 1 shell; multi-resource
+    /// routing will become `{prefix}/<kebab-plural>` (ADR-0002 query seam
     /// handles scoping, Panel prefix owns the mount point).
-    pub fn from_resource<R: Resource>() -> Self {
+    pub fn from_resource_with_prefix<R: Resource>(prefix: &str) -> Self {
         let model_name = std::any::type_name::<R::Model>();
         let short = model_name.rsplit("::").next().unwrap_or(model_name);
         let label = format!("{short}s");
-        Self {
-            label,
-            url: "/admin".to_string(),
-        }
+        let url = if prefix.is_empty() {
+            "/admin".to_string()
+        } else {
+            let trimmed = prefix.trim_matches('/').trim();
+            if trimmed.is_empty() {
+                "/admin".to_string()
+            } else {
+                format!("/{trimmed}")
+            }
+        };
+        Self { label, url }
+    }
+
+    /// Derive a sidebar entry from a `Resource` type.
+    ///
+    /// Shorthand for `from_resource_with_prefix::<R>("/admin")` — kept for
+    /// single-panel Phase 1 call sites. New code should use
+    /// `from_resource_with_prefix` or `Panel::navigation_item`.
+    pub fn from_resource<R: Resource>() -> Self {
+        Self::from_resource_with_prefix::<R>("/admin")
     }
 }
 
