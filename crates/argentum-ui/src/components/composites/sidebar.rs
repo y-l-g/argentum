@@ -12,7 +12,8 @@ use crate::components::primitives::separator::SeparatorOrientation;
 // Provider & Inset — shadcn parity (ADR-0009)
 // ---------------------------------------------------------------------------
 
-const PROVIDER: StaticClass = class!("group/sidebar-wrapper flex min-h-svh w-full");
+const PROVIDER: StaticClass =
+    class!("group group/sidebar-wrapper flex min-h-svh w-full");
 
 /// Sidebar provider — sets CSS vars for width and wraps the entire shell.
 ///
@@ -42,12 +43,17 @@ pub async fn sidebar_provider(
             None
         })
         .unwrap_or("expanded");
-    // Use offcanvas for full hide on large screen (left-[calc(...*-1)]), icon for rail is alternative.
+    // `data-collapsible` mirrors the state-derived value in shadcn: the hide
+    // mode names how the sidebar leaves, and is only set while collapsed, so
+    // `group-data-[collapsible=offcanvas]` rules do not fire when expanded.
+    // "offcanvas" fully hides on large screen (left-[calc(...*-1)]); "icon"
+    // would keep an icon rail instead.
+    let collapsible = if state == "collapsed" { "offcanvas" } else { "" };
     view! {
         <div
             data-sidebar="provider"
             data-state=(state)
-            data-collapsible="offcanvas"
+            data-collapsible=(collapsible)
             style="--sidebar-width:16rem;--sidebar-width-icon:3rem;--sidebar-width-mobile:18rem"
             class=(class!(PROVIDER, attrs.remove("class")))
             (attrs)
@@ -85,14 +91,14 @@ const SIDEBAR: StaticClass = class!(
 ///
 /// On small viewports it is hidden (`hidden lg:flex`); the mobile drawer is
 /// a `sheet` opened via [`sidebar_trigger`]. `fixed inset-y-0 h-svh w-(--sidebar-width)`
-/// with `data-state` + `data-collapsible` for `group-data-[collapsible=icon]` rules.
+/// with `data-state` + `data-collapsible` for `group-data-[collapsible=*]` rules.
 #[component]
 pub async fn sidebar(#[default] mut attrs: Attributes, #[default] child: View) -> Result {
     view! {
         <div
             data-sidebar="sidebar"
             data-state="expanded"
-            data-collapsible="offcanvas"
+            data-collapsible=""
             data-variant="sidebar"
             class=(class!(SIDEBAR, attrs.remove("class")))
             (attrs)

@@ -200,7 +200,7 @@ impl Panel {
                     )
                     sidebar_footer(
                         <div class="flex items-center gap-2">
-                            sidebar_trigger(attrs: attributes! { class="hidden lg:flex" })
+                            sidebar_trigger()
                             button(
                                 variant: ButtonVariant::Ghost,
                                 size: ButtonSize::Icon,
@@ -243,7 +243,7 @@ impl Panel {
                         )
                         sidebar_footer(
                             <div class="flex items-center gap-2">
-                                sidebar_trigger(attrs: attributes! { class="lg:hidden" })
+                                sidebar_trigger()
                                 button(
                                     variant: ButtonVariant::Ghost,
                                     size: ButtonSize::Icon,
@@ -257,9 +257,13 @@ impl Panel {
                 // Gap for fixed sidebar — hidden on mobile, w-(--sidebar-width) on lg, collapses to 0 when offcanvas
                 <div class="hidden w-(--sidebar-width) shrink-0 transition-[width] duration-200 group-data-[collapsible=offcanvas]:w-0 lg:block" aria-hidden="true"></div>
                 sidebar_inset(
-                    // Main content area — sticky header per shadcn, SidebarTrigger visible on lg next to sidebar
+                    // Main content area — sticky header per shadcn. The trigger is
+                    // always visible (shadcn SidebarTrigger): below lg it opens the
+                    // mobile Sheet, on lg it collapses the rail. It must carry no
+                    // `hidden`/`lg:flex` pair — the Ghost base's `inline-flex` comes
+                    // after `hidden` in the utilities layer and would win anyway.
                     <header class="sticky top-0 z-10 flex h-16 items-center gap-4 border-b border-border bg-background px-6">
-                        sidebar_trigger(attrs: attributes! { class="-ml-1 hidden lg:flex" })
+                        sidebar_trigger(attrs: attributes! { class="-ml-1" })
                         <div class="font-semibold text-foreground">"Admin"</div>
                         <div class="ml-auto flex items-center gap-2">
                             button(
@@ -286,7 +290,7 @@ impl Panel {
             } else {
                 // Fallback for tests / offline builds without AssetBundle
                 <script>
-                    "document.addEventListener('DOMContentLoaded',()=>{const s=document.querySelector('[data-sidebar=\"sidebar\"]');const p=document.querySelector('[data-sidebar=\"provider\"]');if(s&&p){document.addEventListener('click',e=>{if(e.target.closest('[data-sidebar=\"trigger\"]')){const c=s.getAttribute('data-state')==='collapsed'?'expanded':'collapsed';s.setAttribute('data-state',c);p.setAttribute('data-state',c);document.cookie=`sidebar_state=${c};path=/;max-age=604800`}});document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key==='b'){e.preventDefault();document.querySelector('[data-sidebar=\"trigger\"]')?.click()}});const m=document.cookie.match(/sidebar_state=([^;]+)/);if(m&&s&&p){s.setAttribute('data-state',m[1]);p.setAttribute('data-state',m[1])}};document.querySelectorAll('[data-theme-toggle]').forEach(b=>b.addEventListener('click',()=>{document.documentElement.classList.toggle('dark');localStorage.setItem('theme',document.documentElement.classList.contains('dark')?'dark':'light');document.cookie=`theme=${localStorage.getItem('theme')};path=/;max-age=31536000`}));const t=localStorage.getItem('theme')||(document.cookie.match(/theme=([^;]+)/)?.[1]);if(t==='dark')document.documentElement.classList.add('dark')})"
+                    "document.addEventListener('DOMContentLoaded',()=>{const s=document.querySelector('[data-sidebar=\"sidebar\"]');const p=document.querySelector('[data-sidebar=\"provider\"]');const sheet=document.getElementById('mobile-sidebar-sheet');if(s&&p){const setState=c=>{const col=c==='collapsed'?'offcanvas':'';s.setAttribute('data-state',c);s.setAttribute('data-collapsible',col);p.setAttribute('data-state',c);p.setAttribute('data-collapsible',col);document.cookie=`sidebar_state=${c};path=/;max-age=604800`};document.addEventListener('click',e=>{if(e.target.closest('[data-sidebar=\"trigger\"]')){if(window.innerWidth<1024&&sheet){if(sheet.hasAttribute('open')){sheet.removeAttribute('open');sheet.close?.()}else{sheet.setAttribute('open','');sheet.showModal?.()}}else{setState(s.getAttribute('data-state')==='collapsed'?'expanded':'collapsed')}}});document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key==='b'){e.preventDefault();document.querySelector('[data-sidebar=\"trigger\"]')?.click()}});const m=document.cookie.match(/sidebar_state=([^;]+)/);if(m)setState(m[1])}if(sheet){sheet.addEventListener('click',e=>{if(e.target===sheet){sheet.removeAttribute('open');sheet.close?.()}})}document.querySelectorAll('[data-theme-toggle]').forEach(b=>b.addEventListener('click',()=>{document.documentElement.classList.toggle('dark');localStorage.setItem('theme',document.documentElement.classList.contains('dark')?'dark':'light');document.cookie=`theme=${localStorage.getItem('theme')};path=/;max-age=31536000`}));const t=localStorage.getItem('theme')||(document.cookie.match(/theme=([^;]+)/)?.[1]);if(t==='dark')document.documentElement.classList.add('dark'))"
                 </script>
             }
         }
