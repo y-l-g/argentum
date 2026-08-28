@@ -5,7 +5,7 @@ Admin toolkit for Rust — server-rendered on Topcoat, persisted with Toasty. Pr
 ## Language
 
 ### Panel
-The admin application. Owns the Router, the Db in app_context, the layout shell, and a closed set of Resources. A deployment has one Panel in Phase 1.
+The admin application. Owns the Router, the Db in app_context, the layout Shell, and its declared Resources. Declaring a Panel with Resources yields the Shell and navigation with no manual HTML.
 
 _Avoid_: Admin, Dashboard, App, Site
 
@@ -89,6 +89,11 @@ The persistent navigation region inside the Shell. Composes header, content, foo
 
 _Avoid_: Nav, Menu, Drawer
 
+### Page
+The standard container for an admin page. Owns max-width, padding and vertical rhythm so pages declare title and content, not Tailwind layout classes.
+
+_Avoid_: Container, Wrapper, Layout
+
 ### Theme
 The named set of design tokens that determines the admin's look. Argentum ships the neutral theme.
 
@@ -99,7 +104,12 @@ A CSS variable (such as `--background`, `--primary`, `--border`) that components
 
 _Avoid_: Variable, Color
 
-### Component
-A Topcoat `#[component]` that renders a styled primitive such as button, card, table, input, badge or sidebar. Argentum owns its Components in `argentum-ui`.
+### Primitive
+A re-exported Topcoat UI component (button, card, badge, table, input...) vendored verbatim from `topcoat-ui-registry` into `argentum-ui/src/components/primitives/` and synced via `cargo xtask sync-topcoat-ui`.
 
-_Avoid_: Widget, Element, View
+_Avoid_: Component (when meaning synced primitive), Widget
+
+### Component
+An owned Topcoat `#[component]` in `argentum-ui/src/components/composites/` (Sidebar, Page, CodeBlock) that composes Primitives and Tokens. Hand-written, never overwritten by sync.
+
+_Avoid_: Primitive, Widget, Element, View

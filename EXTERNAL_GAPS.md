@@ -2,6 +2,8 @@
 
 This file tracks **missing or unstable APIs in upstream crates** (Toasty, Topcoat) that force Argentum to reach into internals or duplicate logic. Each gap lists: what Argentum does today, what a clean upstream API would look like, and how to migrate when it lands. The goal is to make the workarounds visible and cheap to remove.
 
+> **Policy:** Do not hesitate to use `toasty_core` / `topcoat_core` internals inside `argentum-core` / `argentum-ui` when the public API is missing. Every such use **must** be documented here as a gap with "Where / Today / Why fragile / Clean upstream API / Argentum plan" so it can be upstreamed — you (maintainer) contribute the fix to Toasty/Topcoat and retire the entry. Keep this file focused: only gaps that truly belong upstream. Internal choices (e.g. Tailwind `@source` for `argentum-ui`, now ADR-0006) do **not** belong here.
+>
 > Audience: contributors; not user-facing. Link to this file from `crates/argentum-core/src/schema.rs` and `crates/argentum-core/src/resource.rs` where the workarounds live. Keep it short — one entry per gap.
 
 ---
@@ -101,32 +103,6 @@ trait Model {
 
 ---
 
-## Topcoat — Tailwind `@source` for dependency scanning
-
-**Where:** `examples/showcase/styles.css` (`@source "../../crates/argentum-ui/src/**/*.rs"`), `crates/argentum-ui/src/**/*.rs` (Token classes), `crates/argentum-core/src/resource.rs` & `schema.rs` (Table/Schema chrome uses Token classes).
-
-**Today:** Per-app `styles.css` must explicitly `@source` the dependency crate's `src/**/*.rs` (`argentum-ui` and, for now, `argentum-core`) so Tailwind's scanner finds the Token utilities (`bg-background`, `border-border`, `text-muted-foreground`, etc.) used inside the library. This is the contract documented in ADR-0006: `examples/showcase` is the canonical reference, empty projects follow the docs (one `styles.css`, one `build.rs`) until a future `argentum new` scaffold automates them. `argentum-ui` is the single `@source` that must be added; `argentum-core` is also added for now because Table/Schema chrome currently uses token classes directly (raw HTML) rather than solely via `argentum-ui` primitives — once Table/Schema delegate fully to `argentum-ui` primitives, the core `@source` can be dropped.
-
-**Why fragile:** Tailwind's default `source` detection walks `cwd` (the app) but not dependencies; scanning a dependency's source requires an explicit `@source` with a relative path that is brittle to workspace layout and not documented as a Topcoat public contract. A future Topcoat `tailwind` feature or `topcoat ui` scaffold could provide a helper that auto-discovers dependency sources (e.g., via `cargo metadata` or a `tailwind_build` that emits `cargo:rerun-if-changed` and `cargo:warning` for missing `@source`), removing the manual path.
-
-**Clean upstream API:**
-```rust
-// ideal: Topcoat documents and provides a helper
-// build.rs
-topcoat::tailwind::BuildConfig::new()
-    .discover_sources() // scans `cargo metadata` for `topcoat-ui` and `argentum-ui` crates
-    .input("styles.css")
-    .render()?;
-// or
-// styles.css
-@import "tailwindcss";
-@import "topcoat-ui/theme"; // auto-discovers sources
-```
-
-**Argentum plan:** Keep the explicit `@source` for `argentum-ui` (and `argentum-core` for now) in `examples/showcase/styles.css`; track here until Topcoat documents dependency scanning natively. When Topcoat provides a helper, replace the manual `@source` with that helper and delete this entry, but keep `EXTERNAL_GAPS.md` as the ADR-visible contract until then.
-
----
-
 ## How to retire entries
 
 1. Add the upstream API (or feature-flag it).
@@ -134,4 +110,4 @@ topcoat::tailwind::BuildConfig::new()
 3. Update the bridge helpers to delegate to the new public API, keep signature.
 4. Delete the entry here and reference the Toasty/Topcoat PR that closed it.
 
-Last updated: 2026-08-28 (scaffold argentum-ui + Tailwind seam, #15).
+Last updated: 2026-08-28 (scaffold argentum-ui + Tailwind seam, #15) — 2026-08-28: Tailwind `@source` moved to ADR-0006 (internal), policy added: use internals freely and document missing public APIs here.

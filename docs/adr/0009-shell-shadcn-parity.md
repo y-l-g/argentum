@@ -1,0 +1,9 @@
+# Shell parity with shadcn sidebar
+
+Argentum's Shell (`panel.rs:98` `render_shell` + `sidebar.rs:13` `SIDEBAR=class!("hidden h-full w-64 ...")`) flowed with the page (`flex min-h-screen`), not fixed; header `h-16` was not sticky; `sidebar_trigger` and `data-theme-toggle` buttons were inert (no JS, no cookie, no `Sheet` mobile drawer). The spec demands shadcn-grade shell: sticky/fixed, collapsible to icon rail, persisted, dark-mode toggle working.
+
+We adopt the shadcn `sidebar.tsx` pattern verbatim but via Topcoat conventions: `SidebarProvider` sets CSS vars `--sidebar-width:16rem / --sidebar-width-icon:3rem / --sidebar-width-mobile:18rem`, gap div `w-(--sidebar-width)` with `transition-[width]`, container `fixed inset-y-0 z-10 hidden h-svh w-(--sidebar-width)` + `SidebarContent flex-1 overflow-auto`, header/footer `shrink-0` with `sticky top-0`, collapsible `data-state=expanded|collapsed` + `group-data-[collapsible=icon]` rules, cookie `sidebar_state` (604800s, `topcoat::cookie`) read server-side for SSR, keyboard `Ctrl+B`, mobile branch `if isMobile return <Sheet>` via existing `sheet` component, and `theme.js` toggling `document.documentElement.classList` (`dark`) + `localStorage` (fallback cookie) for `NextThemes` parity. JS is two minimal assets (`assets/sidebar.js`, `assets/theme.js`) included via `asset!` and `topcoat::runtime::script()`, no `topcoat_core` internals needed.
+
+Considered: flow sidebar only (rejected: scrolls away, fails spec), `topcoat_core::ViewBuffer` hack for state (rejected: internal, not needed).
+
+Consequences: `argentum-ui/src/components/composites/sidebar.rs` gains `SidebarProvider` + `SidebarInset`; `crates/argentum-core/src/panel.rs:98` `render_shell` injects provider, reads cookie, emits scripts. `styles.css` gains `--sidebar-*` vars (tokens). No new external gap; only public `cookie`/`asset`/`view` APIs are used.
