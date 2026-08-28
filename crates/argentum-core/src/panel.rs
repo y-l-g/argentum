@@ -21,6 +21,7 @@ use crate::resource::{NavigationItem, Resource};
 pub struct Panel {
     prefix: String,
     db: Option<Db>,
+    nav_items: Vec<NavigationItem>,
 }
 
 impl Panel {
@@ -33,7 +34,11 @@ impl Panel {
         } else {
             format!("/{trimmed}")
         };
-        Self { prefix, db: None }
+        Self {
+            prefix,
+            db: None,
+            nav_items: Vec::new(),
+        }
     }
 
     /// Returns the mount prefix, e.g. `"/admin"`.
@@ -54,8 +59,9 @@ impl Panel {
     /// of resources. Multiple calls compose. For now this is a marker — types
     /// are discovered via `Router::builder().discover()` — but it will drive
     /// navigation generation in the full declarative shell (ADR-0008).
-    pub fn resource<R: Resource>(self) -> Self {
-        let _ = std::any::type_name::<R>();
+    pub fn resource<R: Resource>(mut self) -> Self {
+        let item = NavigationItem::from_resource_with_prefix::<R>(&self.prefix);
+        self.nav_items.push(item);
         self
     }
 
@@ -87,7 +93,12 @@ impl Panel {
                 );
             }
         }
-        Router::builder().discover().app_context(db).build()
+        let nav_items = self.nav_items;
+        Router::builder()
+            .discover()
+            .app_context(db)
+            .app_context(nav_items)
+            .build()
     }
 
     /// Derive a [`NavigationItem`] for `R` using this panel's mount prefix.
@@ -229,15 +240,19 @@ impl Panel {
     /// Convenience wrapper for `#[layout]` handlers: takes `slot: Result` and
     /// renders the shell with current path derived from `cx`.
     pub async fn layout_shell(cx: &Cx, slot: Result) -> Result {
+        use topcoat::context::try_app_context;
         use topcoat::router::request::uri;
         let current = uri(cx).path().to_string();
-        // Default nav — single resource placeholder; real apps pass explicit nav_items
-        // via `render_shell`. This fallback keeps empty projects beautiful out of the box
-        // with at least one NavigationItem.
-        let nav_items = vec![NavigationItem {label: "Dashboard".to_string(),
-            url: "/admin".to_string(),
-            href_check: None,
-        }];
+        // Prefer declarative nav_items from Panel::resource, fallback to Dashboard.
+        let nav_items = try_app_context::<Vec<NavigationItem>>(cx)
+            .cloned()
+            .unwrap_or_else(|| {
+                vec![NavigationItem {
+                    label: "Dashboard".to_string(),
+                    url: "/admin".to_string(),
+                    href_check: None,
+                }]
+            });
         let inner = slot?;
         Self::render_shell(cx, nav_items, &current, inner, None).await
     }
