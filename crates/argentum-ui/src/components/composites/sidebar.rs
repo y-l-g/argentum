@@ -77,7 +77,7 @@ pub async fn sidebar_inset(#[default] mut attrs: Attributes, #[default] child: V
 // ---------------------------------------------------------------------------
 
 const SIDEBAR: StaticClass = class!(
-    "fixed inset-y-0 z-10 hidden h-svh w-(--sidebar-width) flex-col border-r border-border bg-background transition-[left,right,width] lg:flex"
+    "fixed inset-y-0 z-10 hidden h-svh w-(--sidebar-width) flex-col border-r border-border bg-background transition-[left,right,width] group-data-[collapsible=icon]:w-(--sidebar-width-icon) lg:flex"
 );
 
 /// Sidebar component — the persistent navigation rail on desktop.
@@ -178,7 +178,7 @@ pub async fn sidebar_group_label(
         <div
             data-sidebar="group-label"
             class=(class!(
-                "px-2 py-1 text-xs font-medium text-muted-foreground",
+                "px-2 py-1 text-xs font-medium text-muted-foreground group-data-[collapsible=icon]:hidden",
                 attrs.remove("class"),
             ))
             (attrs)
@@ -238,7 +238,8 @@ const MENU_BUTTON_BASE: StaticClass = class!(
     "flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm font-medium \
      transition-colors hover:bg-foreground/5 hover:text-foreground \
      focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 \
-     focus-visible:ring-offset-background outline-none"
+     focus-visible:ring-offset-background outline-none \
+     group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-2"
 );
 
 const MENU_BUTTON_ACTIVE: StaticClass = class!("bg-foreground/5 text-foreground");

@@ -126,10 +126,11 @@ impl Panel {
         extra_class: Option<String>,
     ) -> Result<View> {
         use argentum_ui::{
-            ButtonSize, ButtonVariant, button, sidebar, sidebar_content, sidebar_footer,
-            sidebar_group, sidebar_group_content, sidebar_group_label, sidebar_header,
-            sidebar_inset, sidebar_menu, sidebar_menu_button, sidebar_menu_item,
-            sidebar_provider, sidebar_separator, sidebar_trigger,
+            ButtonSize, ButtonVariant, SheetSide, button, sheet, sheet_content, sidebar,
+            sidebar_content, sidebar_footer, sidebar_group, sidebar_group_content,
+            sidebar_group_label, sidebar_header, sidebar_inset, sidebar_menu,
+            sidebar_menu_button, sidebar_menu_item, sidebar_provider, sidebar_separator,
+            sidebar_trigger,
         };
 
         let outer_class = extra_class.clone().unwrap_or_default();
@@ -165,6 +166,8 @@ impl Panel {
             menu_items.push(btn);
         }
 
+        // Build mobile sheet content — same nav as desktop sidebar, for Sheet drawer
+        let mobile_menu_items = menu_items.clone();
         view! {
             cx =>
             sidebar_provider(
@@ -205,6 +208,50 @@ impl Panel {
                                 <span aria-hidden="true">"◐"</span>
                             )
                         </div>
+                    )
+                )
+                // Mobile Sheet drawer — hidden on lg, w-(--sidebar-width-mobile) when open
+                sheet(
+                    open: false,
+                    attrs: attributes! { id="mobile-sidebar-sheet" class="lg:hidden" },
+                    sheet_content(
+                        side: SheetSide::Left,
+                        attrs: attributes! { class="w-(--sidebar-width-mobile) p-0" data-sidebar="sidebar" data-mobile="true" },
+                        sidebar_header(
+                            <div class="flex items-center gap-2 font-semibold text-foreground">
+                                "Argentum"
+                            </div>
+                        )
+                        sidebar_content(
+                            sidebar_group(
+                                sidebar_group_label("Navigation")
+                                sidebar_group_content(
+                                    sidebar_menu(
+                                        for item in mobile_menu_items {
+                                            (item)
+                                        }
+                                    )
+                                )
+                            )
+                            sidebar_separator()
+                            sidebar_group(
+                                sidebar_group_label("Resources")
+                                sidebar_group_content(
+                                    <div class="px-2 text-xs text-muted-foreground">"Managed via Resource::query seam"</div>
+                                )
+                            )
+                        )
+                        sidebar_footer(
+                            <div class="flex items-center gap-2">
+                                sidebar_trigger(attrs: attributes! { class="lg:hidden" })
+                                button(
+                                    variant: ButtonVariant::Ghost,
+                                    size: ButtonSize::Icon,
+                                    attrs: attributes! { aria-label="Toggle dark mode" data-theme-toggle="" },
+                                    <span aria-hidden="true">"◐"</span>
+                                )
+                            </div>
+                        )
                     )
                 )
                 // Gap for fixed sidebar — hidden on mobile, w-(--sidebar-width) on lg
