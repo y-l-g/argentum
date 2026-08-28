@@ -133,6 +133,8 @@ impl Panel {
         };
 
         let outer_class = extra_class.clone().unwrap_or_default();
+        let has_assets =
+            topcoat::context::try_app_context::<topcoat::asset::AssetConfig>(cx).is_some();
 
         // Build menu items with active detection — delegates to
         // `NavigationItem::is_current_path` (slash-boundary, exact for
@@ -230,10 +232,16 @@ impl Panel {
                     // Placeholder: notifications render here via Panel shell's top-level Boundary
                 </div>
             )
-            // Minimal JS for sidebar toggle (cookie + Ctrl+B) and dark toggle (localStorage)
-            <script>
-                "document.addEventListener('DOMContentLoaded',()=>{const s=document.querySelector('[data-sidebar=\"sidebar\"]');const p=document.querySelector('[data-sidebar=\"provider\"]');if(s&&p){document.addEventListener('click',e=>{if(e.target.closest('[data-sidebar=\"trigger\"]')){const c=s.getAttribute('data-state')==='collapsed'?'expanded':'collapsed';s.setAttribute('data-state',c);p.setAttribute('data-state',c);document.cookie=`sidebar_state=${c};path=/;max-age=604800`}});document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key==='b'){e.preventDefault();document.querySelector('[data-sidebar=\"trigger\"]')?.click()}});const m=document.cookie.match(/sidebar_state=([^;]+)/);if(m&&s&&p){s.setAttribute('data-state',m[1]);p.setAttribute('data-state',m[1])}};document.querySelectorAll('[data-theme-toggle]').forEach(b=>b.addEventListener('click',()=>{document.documentElement.classList.toggle('dark');localStorage.setItem('theme',document.documentElement.classList.contains('dark')?'dark':'light')}));if(localStorage.getItem('theme')==='dark')document.documentElement.classList.add('dark')})"
-            </script>
+            if has_assets {
+                topcoat::runtime::script()
+                <script src=(argentum_ui::SIDEBAR_JS)></script>
+                <script src=(argentum_ui::THEME_JS)></script>
+            } else {
+                // Fallback for tests / offline builds without AssetBundle
+                <script>
+                    "document.addEventListener('DOMContentLoaded',()=>{const s=document.querySelector('[data-sidebar=\"sidebar\"]');const p=document.querySelector('[data-sidebar=\"provider\"]');if(s&&p){document.addEventListener('click',e=>{if(e.target.closest('[data-sidebar=\"trigger\"]')){const c=s.getAttribute('data-state')==='collapsed'?'expanded':'collapsed';s.setAttribute('data-state',c);p.setAttribute('data-state',c);document.cookie=`sidebar_state=${c};path=/;max-age=604800`}});document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key==='b'){e.preventDefault();document.querySelector('[data-sidebar=\"trigger\"]')?.click()}});const m=document.cookie.match(/sidebar_state=([^;]+)/);if(m&&s&&p){s.setAttribute('data-state',m[1]);p.setAttribute('data-state',m[1])}};document.querySelectorAll('[data-theme-toggle]').forEach(b=>b.addEventListener('click',()=>{document.documentElement.classList.toggle('dark');localStorage.setItem('theme',document.documentElement.classList.contains('dark')?'dark':'light');document.cookie=`theme=${localStorage.getItem('theme')};path=/;max-age=31536000`}));const t=localStorage.getItem('theme')||(document.cookie.match(/theme=([^;]+)/)?.[1]);if(t==='dark')document.documentElement.classList.add('dark')})"
+                </script>
+            }
         }
     }
 

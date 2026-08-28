@@ -1,5 +1,7 @@
+use http::header::COOKIE;
 use topcoat::{
     Result,
+    context::{Cx, try_request_context},
     view::{Attributes, StaticClass, View, class, component, view},
 };
 
@@ -18,15 +20,32 @@ const PROVIDER: StaticClass = class!("group/sidebar-wrapper flex min-h-svh w-ful
 /// `--sidebar-width:16rem`, `--sidebar-width-icon:3rem`,
 /// `--sidebar-width-mobile:18rem`, `group/sidebar-wrapper flex min-h-svh w-full`,
 /// `data-state` + `data-collapsible` for `group-data-[collapsible=icon]` rules.
+/// Reads `sidebar_state` cookie via `http::request::Parts` in `Cx` for SSR.
 #[component]
 pub async fn sidebar_provider(
+    cx: &Cx,
     #[default] mut attrs: Attributes,
     #[default] child: View,
 ) -> Result {
+    let state = try_request_context::<http::request::Parts>(cx)
+        .and_then(|parts| parts.headers.get(COOKIE))
+        .and_then(|v| v.to_str().ok())
+        .and_then(|cookie| {
+            for part in cookie.split(';') {
+                let trimmed = part.trim();
+                if let Some(val) = trimmed.strip_prefix("sidebar_state=") {
+                    if val == "collapsed" || val == "expanded" {
+                        return Some(val);
+                    }
+                }
+            }
+            None
+        })
+        .unwrap_or("expanded");
     view! {
         <div
             data-sidebar="provider"
-            data-state="expanded"
+            data-state=(state)
             data-collapsible=""
             style="--sidebar-width:16rem;--sidebar-width-icon:3rem;--sidebar-width-mobile:18rem"
             class=(class!(PROVIDER, attrs.remove("class")))
