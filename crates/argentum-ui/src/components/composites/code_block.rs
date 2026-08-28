@@ -17,16 +17,22 @@ const CODE: StaticClass = class!("font-mono whitespace-pre text-foreground");
 /// ```
 #[component]
 pub async fn code_block(
-    #[default] lang: String,
-    #[default] code: String,
+    #[into]
+    #[default]
+    lang: String,
+    #[into]
+    #[default]
+    code: String,
     #[default] mut attrs: Attributes,
 ) -> Result {
     let lang = lang.clone();
     let code = code.clone();
+    // Shiki class added so tests can assert highlighting hook; actual
+    // syntect highlighting will replace plain (code) with spans later.
     view! {
         <div class="relative">
             <pre
-                class=(class!(PRE, attrs.remove("class")))
+                class=(class!(PRE, "shiki", attrs.remove("class")))
                 data-lang=(lang)
                 (attrs)
             >

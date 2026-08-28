@@ -18,7 +18,7 @@ async fn panel_showcase() -> Result {
 
             <section class="flex flex-col gap-4 rounded-xl border border-border bg-background p-6 shadow-sm">
                 <h2>"Construction"</h2>
-                <pre><code>"Panel::new(\"admin\").app_context(db).build() // → Router via discover + app_context(Db)\n// mounts at \"/admin\", discovers #[layout(\"/admin\")] + #[page(\"/admin...\")] "</code></pre>
+                argentum_ui::code_block(lang: "rust", code: "Panel::new(\"admin\").app_context(db).build() // → Router via discover + app_context(Db)\n// mounts at \"/admin\", discovers #[layout(\"/admin\")] + #[page(\"/admin...\")] ")
                 <div class="rounded-lg border border-border bg-background p-4">
                     <p>"Current app mounts at: " (p_admin.clone())</p>
                 </div>
@@ -27,7 +27,7 @@ async fn panel_showcase() -> Result {
             <section class="flex flex-col gap-4 rounded-xl border border-border bg-background p-6 shadow-sm">
                 <h2>"Prefix normalization — variants"</h2>
                 <p>"Prefixes are trimmed and normalized to /{name}. Empty → /admin."</p>
-                <pre><code>"Panel::new(\"admin\").prefix()    // \"/admin\"\nPanel::new(\"/admin\").prefix()   // \"/admin\"\nPanel::new(\"admin/\").prefix()   // \"/admin\"\nPanel::new(\"\").prefix()         // \"/admin\"\nPanel::new(\"showcase\").prefix() // \"/showcase\""</code></pre>
+                argentum_ui::code_block(lang: "rust", code: "Panel::new(\"admin\").prefix()    // \"/admin\"\nPanel::new(\"/admin\").prefix()   // \"/admin\"\nPanel::new(\"admin/\").prefix()   // \"/admin\"\nPanel::new(\"\").prefix()         // \"/admin\"\nPanel::new(\"showcase\").prefix() // \"/showcase\"")
                 <div class="rounded-lg border border-border bg-background p-4">
                     <table class="w-full caption-bottom border-collapse text-sm">
                         <thead><tr><th>"input"</th><th>"prefix()"</th></tr></thead>
@@ -44,7 +44,7 @@ async fn panel_showcase() -> Result {
 
             <section class="flex flex-col gap-4 rounded-xl border border-border bg-background p-6 shadow-sm">
                 <h2>"Db in app_context"</h2>
-                <pre><code>"let router = Panel::new(\"admin\").app_context(db).build();\n// later in page/shard: let mut db = db(cx); // app_context::<Db>(cx).clone()\n// Db is Arc-pooled, clone is cheap, exec needs &mut Db"</code></pre>
+                argentum_ui::code_block(lang: "rust", code: "let router = Panel::new(\"admin\").app_context(db).build();\n// later in page/shard: let mut db = db(cx); // app_context::<Db>(cx).clone()\n// Db is Arc-pooled, clone is cheap, exec needs &mut Db")
             </section>
 
             <p><a href="/admin/showcase">"← back to showcase"</a></p>

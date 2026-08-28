@@ -26,7 +26,7 @@ async fn showcase_index() -> Result {
             <section class="flex flex-col gap-4 rounded-xl border border-border bg-background p-6 shadow-sm">
                 <h2>"How to read each page"</h2>
                 <p>"Each page shows: description → minimal code snippet → rendered result as in a real app."</p>
-                <pre><code>"// snippet (copy-paste minimal)\n// rendered below is the live View from that code"</code></pre>
+                argentum_ui::code_block(lang: "rust", code: "// snippet (copy-paste minimal)\n// rendered below is the live View from that code")
             </section>
         )
     }

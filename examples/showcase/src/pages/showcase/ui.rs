@@ -30,7 +30,7 @@ async fn ui_showcase(cx: &Cx) -> Result {
             )
             <section class="flex flex-col gap-4 rounded-xl border border-border bg-background p-6 shadow-sm">
                 <h2 class="text-lg font-semibold text-foreground">"Card + Button + Badge"</h2>
-                <pre><code>"argentum_ui::card(\n    card_header(card_title(\"Beautiful card\"))\n    card_content(button(variant: Primary, \"Primary\"))\n)"</code></pre>
+                argentum_ui::code_block(lang: "rust", code: "argentum_ui::card(\n    card_header(card_title(\"Beautiful card\"))\n    card_content(button(variant: Primary, \"Primary\"))\n)")
                 (card_view)
             </section>
             <p><a href="/admin/showcase" class="text-sm text-primary hover:underline">"← back to showcase"</a></p>
