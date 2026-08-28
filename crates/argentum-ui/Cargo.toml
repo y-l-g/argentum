@@ -7,7 +7,10 @@ rust-version.workspace = true
 description = "Beautiful Topcoat UI primitives for Argentum — owned library over topcoat-ui-registry."
 
 [dependencies]
-topcoat = { workspace = true, features = ["tailwind", "font", "font-fontsource", "asset"] }
+topcoat = { workspace = true, features = ["tailwind", "font", "font-fontsource", "asset", "icon", "icon-iconify"] }
+
+[build-dependencies]
+topcoat = { workspace = true, features = ["icon-iconify"] }
 
 [lints]
 workspace = true

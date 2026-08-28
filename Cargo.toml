@@ -5,6 +5,7 @@ members = [
     "crates/argentum-macros",
     "crates/argentum-ui",
     "examples/showcase",
+    "xtask",
 ]
 exclude = [
     "benchmarks/argentum",

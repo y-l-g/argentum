@@ -34,6 +34,12 @@ pub use components::skeleton::skeleton;
 pub use components::table::{
     table, table_body, table_caption, table_cell, table_footer, table_head, table_header, table_row,
 };
+// Composites — owned Argentum components (ADR-0007). Re-exported here for
+// ergonomic `argentum_ui::page` etc.; they live in `components/composites/`.
+pub use components::composites::code_block::code_block;
+pub use components::composites::page::{
+    page, page_content, page_description, page_header, page_title,
+};
 
 /// Tailwind build helper for the per-app contract.
 ///

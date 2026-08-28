@@ -1897,6 +1897,8 @@ dependencies = [
  "topcoat-core-macro",
  "topcoat-font",
  "topcoat-font-macro",
+ "topcoat-icon",
+ "topcoat-icon-macro",
  "topcoat-mail",
  "topcoat-router",
  "topcoat-router-macro",
@@ -2003,6 +2005,42 @@ dependencies = [
  "quote",
  "syn 2.0.119",
  "topcoat-font-grammar",
+]
+
+[[package]]
+name = "topcoat-icon"
+version = "0.6.2"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror",
+ "topcoat-core",
+ "topcoat-view",
+ "topcoat-view-macro",
+ "ureq",
+]
+
+[[package]]
+name = "topcoat-icon-grammar"
+version = "0.6.2"
+dependencies = [
+ "heck",
+ "proc-macro2",
+ "quote",
+ "serde_json",
+ "syn 2.0.119",
+ "topcoat-core-grammar",
+ "topcoat-icon",
+]
+
+[[package]]
+name = "topcoat-icon-macro"
+version = "0.6.2"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+ "topcoat-icon-grammar",
 ]
 
 [[package]]
@@ -2487,6 +2525,13 @@ name = "writeable"
 version = "0.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3ad82d2a33cdc9674dc7465672f271e096168fcdbe0f799d9e6db8c5892679dc"
+
+[[package]]
+name = "xtask"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+]
 
 [[package]]
 name = "yoke"
