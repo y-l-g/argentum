@@ -78,3 +78,28 @@ _Avoid_: NoResults, Placeholder, ZeroState
 The Table's failed-load rendering, produced by the layout's slot: Result match rather than inside the shard, so it survives boundary swaps.
 
 _Avoid_: ErrorPage, Fallback
+
+### Shell
+The top-level layout that frames every admin page. Owns the Sidebar, topbar, and main content area.
+
+_Avoid_: Layout, Wrapper, Chrome
+
+### Sidebar
+The persistent navigation region inside the Shell. Composes header, content, footer, groups and menus, collapsing to an icon rail or sheet drawer on small viewports.
+
+_Avoid_: Nav, Menu, Drawer
+
+### Theme
+The named set of design tokens that determines the admin's look. Argentum ships the neutral theme.
+
+_Avoid_: Skin, Style, Palette
+
+### Token
+A CSS variable (such as `--background`, `--primary`, `--border`) that components reference instead of raw colors, swapping between light and dark values.
+
+_Avoid_: Variable, Color
+
+### Component
+A Topcoat `#[component]` that renders a styled primitive such as button, card, table, input, badge or sidebar. Argentum owns its Components in `argentum-ui`.
+
+_Avoid_: Widget, Element, View
