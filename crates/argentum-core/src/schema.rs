@@ -341,7 +341,22 @@ impl Grid {
     }
 
     async fn render(&self, cx: &Cx) -> Result<View> {
-        let class = format!("grid grid-cols-{} gap-4", self.cols);
+        // Static literals for Tailwind scanner — `format!("grid grid-cols-{}")` would be
+        // purged because Tailwind only sees literal substrings. See ADR-0007 / T2.
+        let class: &'static str = match self.cols {
+            1 => "grid grid-cols-1 gap-4",
+            2 => "grid grid-cols-2 gap-4",
+            3 => "grid grid-cols-3 gap-4",
+            4 => "grid grid-cols-4 gap-4",
+            5 => "grid grid-cols-5 gap-4",
+            6 => "grid grid-cols-6 gap-4",
+            7 => "grid grid-cols-7 gap-4",
+            8 => "grid grid-cols-8 gap-4",
+            9 => "grid grid-cols-9 gap-4",
+            10 => "grid grid-cols-10 gap-4",
+            11 => "grid grid-cols-11 gap-4",
+            _ => "grid grid-cols-12 gap-4",
+        };
         if let Some(schema) = &self.children {
             let child_view = schema.render(cx).await?;
             view! { cx => <div class=(class)>(child_view)</div> }
