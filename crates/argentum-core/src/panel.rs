@@ -124,11 +124,18 @@ impl Panel {
         let outer_class = extra_class.clone().unwrap_or_default();
 
         // Build menu items with active detection — delegates to
-        // `NavigationItem::is_current_path` which mirrors `Href::is_current`
-        // (slash-boundary, exact for "/admin", ignores query). See ADR-0008 / T5.
+        // `NavigationItem::is_current_path` (slash-boundary, exact for
+        // "/admin") which mirrors `Href::is_current` for string urls;
+        // typed `from_href` items delegate to `Href::is_current` via
+        // `is_current(cx)` (handles query/encoding). See ADR-0008 / T28.3.
         let mut menu_items: Vec<View> = Vec::new();
         for item in &nav_items {
-            let is_active = item.is_current_path(current_path);
+            // Prefer typed Href when available, else fallback to path string.
+            let is_active = if item.href_check.is_some() {
+                item.is_current(cx)
+            } else {
+                item.is_current_path(current_path)
+            };
             let label = item.label.clone();
             let url = item.url.clone();
             let btn = view! {
@@ -227,9 +234,9 @@ impl Panel {
         // Default nav — single resource placeholder; real apps pass explicit nav_items
         // via `render_shell`. This fallback keeps empty projects beautiful out of the box
         // with at least one NavigationItem.
-        let nav_items = vec![NavigationItem {
-            label: "Dashboard".to_string(),
+        let nav_items = vec![NavigationItem {label: "Dashboard".to_string(),
             url: "/admin".to_string(),
+            href_check: None,
         }];
         let inner = slot?;
         Self::render_shell(cx, nav_items, &current, inner, None).await
@@ -304,14 +311,14 @@ mod tests {
         let cx = CxTestBuilder::new().build();
         let cx_ref = &cx;
         let nav_items = vec![
-            NavigationItem {
-                label: "Users".to_string(),
+            NavigationItem {label: "Users".to_string(),
                 url: "/admin".to_string(),
-            },
-            NavigationItem {
-                label: "Showcase".to_string(),
+            href_check: None,
+        },
+            NavigationItem {label: "Showcase".to_string(),
                 url: "/admin/showcase".to_string(),
-            },
+            href_check: None,
+        },
         ];
         let slot = view! { cx_ref => "hello" }.unwrap();
         let html = Panel::render_shell(&cx, nav_items, "/admin", slot, None)

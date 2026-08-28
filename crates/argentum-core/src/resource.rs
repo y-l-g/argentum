@@ -5,9 +5,11 @@
 //! `CONTEXT.md` and ADR-0002.
 
 use std::marker::PhantomData;
+use std::sync::Arc;
 
 use toasty::stmt::{Expr, List, OrderByExpr};
 use topcoat::context::Cx;
+use topcoat::router::{Href, HrefParams, HrefQueries, HrefTarget};
 use topcoat::{Result, view::*};
 
 use crate::schema::{FieldLens, Schema, lens_field_name_and_label, pk_tie_breakers};
@@ -480,10 +482,47 @@ impl<R> Pages<R> {
 }
 
 /// Sidebar entry derived from a `Resource` (see `CONTEXT.md`).
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NavigationItem {
     pub label: String,
     pub url: String,
+    pub href_check: Option<Arc<dyn Fn(&Cx) -> bool + Send + Sync>>,
+}
+
+impl Clone for NavigationItem {
+    fn clone(&self) -> Self {
+        Self {
+            label: self.label.clone(),
+            url: self.url.clone(),
+            href_check: self.href_check.clone(),
+        }
+    }
+}
+
+impl std::fmt::Debug for NavigationItem {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("NavigationItem")
+            .field("label", &self.label)
+            .field("url", &self.url)
+            .field("href_check", &self.href_check.is_some())
+            .finish()
+    }
+}
+
+impl PartialEq for NavigationItem {
+    fn eq(&self, other: &Self) -> bool {
+        self.label == other.label && self.url == other.url
+    }
+}
+impl Eq for NavigationItem {}
+
+impl Default for NavigationItem {
+    fn default() -> Self {
+        Self {
+            label: String::new(),
+            url: String::new(),
+            href_check: None,
+        }
+    }
 }
 
 impl NavigationItem {
@@ -508,7 +547,37 @@ impl NavigationItem {
                 format!("/{trimmed}")
             }
         };
-        Self { label, url }
+        Self {
+            label,
+            url,
+            href_check: None,
+        }
+    }
+
+    /// Create a `NavigationItem` from a typed `Href` (e.g. `href!("/admin/showcase")`).
+    ///
+    /// The label is provided explicitly; `url` is the href's resolved URL
+    /// (e.g. `"/admin/showcase"`), and `is_current` delegates to
+    /// `Href::is_current` so query/encoding are handled per Topcoat `d273cb15`.
+    /// For dynamic `Panel::prefix()` items use `from_resource_with_prefix`.
+    pub fn from_href<T, P, Q, F>(
+        label: impl Into<String>,
+        href: Href<T, P, Q, F>,
+        url: impl Into<String>,
+    ) -> Self
+    where
+        T: HrefTarget + Send + Sync + 'static,
+        P: HrefParams + Send + Sync + 'static,
+        Q: HrefQueries + Send + Sync + 'static,
+        F: std::fmt::Display + Send + Sync + 'static,
+    {
+        let check = Arc::new(move |cx: &Cx| href.is_current(cx))
+            as Arc<dyn Fn(&Cx) -> bool + Send + Sync>;
+        Self {
+            label: label.into(),
+            url: url.into(),
+            href_check: Some(check),
+        }
     }
 
     /// Derive a sidebar entry from a `Resource` type.
@@ -522,12 +591,16 @@ impl NavigationItem {
 
     /// Whether this item is current for the request in `cx`.
     ///
-    /// Mirrors Topcoat's `Href::is_current` semantics for the panel's
-    /// string URLs: exact path match, or prefix match with slash boundary
-    /// for non-root items (so `/admin/showcase` does not false-positive on
-    /// `/admin/showcases`), ignoring query. Root `"/admin"` is exact-only
+    /// If this item was created via `from_href`, delegates to `Href::is_current`
+    /// (sorted decoded query + percent-encoding). Otherwise mirrors that
+    /// semantics for string URLs: exact path match, or prefix match with slash
+    /// boundary for non-root items (so `/admin/showcase` does not false-positive
+    /// on `/admin/showcases`), ignoring query. Root `"/admin"` is exact-only
     /// so the Users list is not active on every sub-page (Filament parity).
     pub fn is_current(&self, cx: &Cx) -> bool {
+        if let Some(check) = &self.href_check {
+            return check(cx);
+        }
         let current = topcoat::router::request::uri(cx).path();
         self.is_current_path(current)
     }
@@ -655,13 +728,13 @@ mod tests {
 
     #[test]
     fn navigation_item_is_current_path() {
-        let users = NavigationItem {
-            label: "Users".to_string(),
+        let users = NavigationItem {label: "Users".to_string(),
             url: "/admin".to_string(),
+            href_check: None,
         };
-        let showcase = NavigationItem {
-            label: "Showcase".to_string(),
+        let showcase = NavigationItem {label: "Showcase".to_string(),
             url: "/admin/showcase".to_string(),
+            href_check: None,
         };
         // exact
         assert!(users.is_current_path("/admin"));
@@ -681,9 +754,9 @@ mod tests {
 
     #[test]
     fn navigation_item_is_current_via_cx() {
-        let item = NavigationItem {
-            label: "Showcase".to_string(),
+        let item = NavigationItem {label: "Showcase".to_string(),
             url: "/admin/showcase".to_string(),
+            href_check: None,
         };
         let (parts, ()) = http::Request::builder()
             .uri("/admin/showcase/table")
