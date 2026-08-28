@@ -365,21 +365,21 @@ impl<M> Table<M> {
                             <thead class="[&_tr]:border-b">
                                 <tr class="border-b border-border transition-colors hover:bg-foreground/5">
                                     for col in &self.columns {
-                                        <th class=(if col.is_sortable() { "h-10 px-3 text-left align-middle font-medium whitespace-nowrap text-muted-foreground cursor-pointer hover:bg-foreground/5" } else { "h-10 px-3 text-left align-middle font-medium whitespace-nowrap text-muted-foreground" }) aria-sort=(if col.is_sortable() { Some("none") } else { None })>
-                                            (col.label())
-                                            if col.is_searchable() {
-                                                <span class="ml-2 text-muted-foreground">"⌕"</span>
-                                            }
-                                            if col.is_sortable() {
-                                                <span class="ml-2">"↕"</span>
-                                            }
-                                        </th>
-                                    }
-                                </tr>
-                            </thead>
-                        </table>
-                    </div>
-                    <div class="px-6 py-16 text-center">
+                                    <th class=(if col.is_sortable() { "h-10 px-3 text-left align-middle font-medium whitespace-nowrap text-muted-foreground cursor-pointer hover:bg-foreground/5" } else { "h-10 px-3 text-left align-middle font-medium whitespace-nowrap text-muted-foreground" }) aria-sort=(if col.is_sortable() { Some("none") } else { None })>
+                                        (col.label())
+                                        if col.is_searchable() {
+                                            <span role="img" aria-label="Searchable column" class="ml-2 inline-flex size-4 items-center justify-center align-middle text-base leading-none text-muted-foreground">"⌕"</span>
+                                        }
+                                        if col.is_sortable() {
+                                            <button type="button" aria-label=(format!("Sort by {}", col.label())) class="ml-2 inline-flex size-4 items-center justify-center align-middle text-base leading-none text-muted-foreground hover:text-foreground">"↕"</button>
+                                        }
+                                    </th>
+                                }
+                            </tr>
+                        </thead>
+                    </table>
+                </div>
+                <div class="px-6 py-16 text-center">
                         <div class="flex flex-col items-center gap-4">
                             <p class="text-sm text-muted-foreground">"No records found"</p>
                             <p class="text-sm text-muted-foreground">"No search results"</p>
@@ -411,10 +411,10 @@ impl<M> Table<M> {
                                     <th class=(if col.is_sortable() { "h-10 px-3 text-left align-middle font-medium whitespace-nowrap text-muted-foreground cursor-pointer hover:bg-foreground/5" } else { "h-10 px-3 text-left align-middle font-medium whitespace-nowrap text-muted-foreground" }) aria-sort=(if col.is_sortable() { Some("none") } else { None })>
                                         (col.label())
                                         if col.is_searchable() {
-                                            <span class="ml-2 text-muted-foreground">"⌕"</span>
+                                            <span role="img" aria-label="Searchable column" class="ml-2 inline-flex size-4 items-center justify-center align-middle text-base leading-none text-muted-foreground">"⌕"</span>
                                         }
                                         if col.is_sortable() {
-                                            <span class="ml-2">"↕"</span>
+                                            <button type="button" aria-label=(format!("Sort by {}", col.label())) class="ml-2 inline-flex size-4 items-center justify-center align-middle text-base leading-none text-muted-foreground hover:text-foreground">"↕"</button>
                                         }
                                     </th>
                                 }
