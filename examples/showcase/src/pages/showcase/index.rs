@@ -10,7 +10,7 @@ async fn showcase_index() -> Result {
             )
 
             <section class="flex flex-col gap-4 rounded-xl border border-border bg-background p-6 shadow-sm">
-                <h2>"Features"</h2>
+                <h2 class="text-lg font-semibold tracking-tight text-foreground">"Features"</h2>
                 <ul>
                     <li><a href="/admin/showcase/ui">"UI"</a>" — argentum-ui seam: card, button, badge with Tokens (proves Tailwind seam)"</li>
                     <li><a href="/admin/showcase/dialog">"Dialog"</a>" — notification stack (fixed top-4 right-4, card) + alert_dialog with Primary/Destructive buttons"</li>
@@ -24,8 +24,8 @@ async fn showcase_index() -> Result {
             </section>
 
             <section class="flex flex-col gap-4 rounded-xl border border-border bg-background p-6 shadow-sm">
-                <h2>"How to read each page"</h2>
-                <p>"Each page shows: description → minimal code snippet → rendered result as in a real app."</p>
+                <h2 class="text-lg font-semibold tracking-tight text-foreground">"How to read each page"</h2>
+                <p class="text-sm text-muted-foreground">"Each page shows: description → minimal code snippet → rendered result as in a real app."</p>
                 argentum_ui::code_block(lang: "rust", code: "// snippet (copy-paste minimal)\n// rendered below is the live View from that code")
             </section>
         )

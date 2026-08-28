@@ -42,11 +42,11 @@ async fn resource_showcase(cx: &Cx) -> Result {
             )
 
             <section class="flex flex-col gap-4 rounded-xl border border-border bg-background p-6 shadow-sm">
-                <h2>"Derive — model only"</h2>
-                <p>"Bare resource uses default query (all rows)."</p>
+                <h2 class="text-lg font-semibold tracking-tight text-foreground">"Derive — model only"</h2>
+                <p class="text-sm text-muted-foreground">"Bare resource uses default query (all rows)."</p>
                 argentum_ui::code_block(lang: "rust", code: "#[derive(Resource)]\n#[resource(model = User)]\nstruct BareUserResource;")
                 <div class="rounded-lg border border-border bg-background p-4">
-                    <p>"Bare query rows: " (all_count.to_string()) " (expected 2)"</p>
+                    <p class="text-sm text-muted-foreground">"Bare query rows: " (all_count.to_string()) " (expected 2)"</p>
                     <ul>
                         for user in &all {
                             <li>(format!("{} — {}", user.name, user.email))</li>
@@ -56,12 +56,12 @@ async fn resource_showcase(cx: &Cx) -> Result {
             </section>
 
             <section class="flex flex-col gap-4 rounded-xl border border-border bg-background p-6 shadow-sm">
-                <h2>"Derive — with query override"</h2>
-                <p>"Single seam for tenancy/soft-delete (ADR-0002). Every loader starts from Resource::query."</p>
+                <h2 class="text-lg font-semibold tracking-tight text-foreground">"Derive — with query override"</h2>
+                <p class="text-sm text-muted-foreground">"Single seam for tenancy/soft-delete (ADR-0002). Every loader starts from Resource::query."</p>
                 argentum_ui::code_block(lang: "rust", code: "fn only_ada(cx: &Cx) -> Query<List<User>> {\n    User::filter(User::fields().name().eq(\"Ada Lovelace\"))\n}\n#[derive(Resource)]\n#[resource(model = User, query = only_ada)]\nstruct ScopedUserResource;")
                 <div class="rounded-lg border border-border bg-background p-4">
-                    <p>"Scoped query rows: " (scoped_count.to_string()) " (expected 1)"</p>
-                    <p>"First name: " (scoped_name)</p>
+                    <p class="text-sm text-muted-foreground">"Scoped query rows: " (scoped_count.to_string()) " (expected 1)"</p>
+                    <p class="text-sm text-muted-foreground">"First name: " (scoped_name)</p>
                     <ul>
                         for user in &scoped {
                             <li>(format!("{} — {}", user.name, user.email))</li>
@@ -71,18 +71,18 @@ async fn resource_showcase(cx: &Cx) -> Result {
             </section>
 
             <section class="flex flex-col gap-4 rounded-xl border border-border bg-background p-6 shadow-sm">
-                <h2>"NavigationItem"</h2>
-                <p>"Derived from Model type name (User → Users) and Panel prefix."</p>
+                <h2 class="text-lg font-semibold tracking-tight text-foreground">"NavigationItem"</h2>
+                <p class="text-sm text-muted-foreground">"Derived from Model type name (User → Users) and Panel prefix."</p>
                 argentum_ui::code_block(lang: "rust", code: "BareUserResource::navigation() // → NavigationItem { label: \"Users\", url: \"/admin\" }")
                 <div class="rounded-lg border border-border bg-background p-4">
-                    <p>"label: " (&label) ", url: " (&url)</p>
+                    <p class="text-sm text-muted-foreground">"label: " (&label) ", url: " (&url)</p>
                     <p><a href=(url.clone()) class="text-sm text-primary hover:underline">(label.clone())</a>" ← nav link"</p>
                 </div>
             </section>
 
             <section class="flex flex-col gap-4 rounded-xl border border-border bg-background p-6 shadow-sm">
-                <h2>"Variants"</h2>
-                <p>"Duplicate model/query → compile error, unknown key → error (argentum-macros/src/lib.rs:22-45)."</p>
+                <h2 class="text-lg font-semibold tracking-tight text-foreground">"Variants"</h2>
+                <p class="text-sm text-muted-foreground">"Duplicate model/query → compile error, unknown key → error (argentum-macros/src/lib.rs:22-45)."</p>
                 argentum_ui::code_block(lang: "rust", code: "#[resource(model = User, model = User)] // error: duplicate `model`\n#[resource(model = User, query = only_ada, query = only_ada)] // error: duplicate `query`\n#[resource(model = User, unknown = Foo)] // error: unknown key")
             </section>
 

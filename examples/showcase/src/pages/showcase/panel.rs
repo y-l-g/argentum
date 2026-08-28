@@ -17,16 +17,16 @@ async fn panel_showcase() -> Result {
             )
 
             <section class="flex flex-col gap-4 rounded-xl border border-border bg-background p-6 shadow-sm">
-                <h2>"Construction"</h2>
+                <h2 class="text-lg font-semibold tracking-tight text-foreground">"Construction"</h2>
                 argentum_ui::code_block(lang: "rust", code: "Panel::new(\"admin\").app_context(db).build() // → Router via discover + app_context(Db)\n// mounts at \"/admin\", discovers #[layout(\"/admin\")] + #[page(\"/admin...\")] ")
                 <div class="rounded-lg border border-border bg-background p-4">
-                    <p>"Current app mounts at: " (p_admin.clone())</p>
+                    <p class="text-sm text-muted-foreground">"Current app mounts at: " (p_admin.clone())</p>
                 </div>
             </section>
 
             <section class="flex flex-col gap-4 rounded-xl border border-border bg-background p-6 shadow-sm">
-                <h2>"Prefix normalization — variants"</h2>
-                <p>"Prefixes are trimmed and normalized to /{name}. Empty → /admin."</p>
+                <h2 class="text-lg font-semibold tracking-tight text-foreground">"Prefix normalization — variants"</h2>
+                <p class="text-sm text-muted-foreground">"Prefixes are trimmed and normalized to /{name}. Empty → /admin."</p>
                 argentum_ui::code_block(lang: "rust", code: "Panel::new(\"admin\").prefix()    // \"/admin\"\nPanel::new(\"/admin\").prefix()   // \"/admin\"\nPanel::new(\"admin/\").prefix()   // \"/admin\"\nPanel::new(\"\").prefix()         // \"/admin\"\nPanel::new(\"showcase\").prefix() // \"/showcase\"")
                 <div class="rounded-lg border border-border bg-background p-4">
                     <table class="w-full caption-bottom border-collapse text-sm">
@@ -43,7 +43,7 @@ async fn panel_showcase() -> Result {
             </section>
 
             <section class="flex flex-col gap-4 rounded-xl border border-border bg-background p-6 shadow-sm">
-                <h2>"Db in app_context"</h2>
+                <h2 class="text-lg font-semibold tracking-tight text-foreground">"Db in app_context"</h2>
                 argentum_ui::code_block(lang: "rust", code: "let router = Panel::new(\"admin\").app_context(db).build();\n// later in page/shard: let mut db = db(cx); // app_context::<Db>(cx).clone()\n// Db is Arc-pooled, clone is cheap, exec needs &mut Db")
             </section>
 

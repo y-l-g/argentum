@@ -155,7 +155,10 @@ pub async fn dialog_header(#[default] mut attrs: Attributes, #[default] child: V
 pub async fn dialog_title(#[default] mut attrs: Attributes, #[default] child: View) -> Result {
     view! {
         <h2
-            class=(class!("text-lg leading-none font-semibold", attrs.remove("class")))
+            class=(class!(
+                "text-lg font-semibold leading-none tracking-tight",
+                attrs.remove("class"),
+            ))
             (attrs)
         >
             (child)

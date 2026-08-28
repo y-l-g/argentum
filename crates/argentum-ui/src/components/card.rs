@@ -61,7 +61,13 @@ pub async fn card_header(#[default] mut attrs: Attributes, #[default] child: Vie
 #[component]
 pub async fn card_title(#[default] mut attrs: Attributes, #[default] child: View) -> Result {
     view! {
-        <h3 class=(class!("leading-none font-semibold", attrs.remove("class"))) (attrs)>
+        <h3
+            class=(class!(
+                "text-lg font-semibold leading-none tracking-tight",
+                attrs.remove("class"),
+            ))
+            (attrs)
+        >
             (child)
         </h3>
     }
