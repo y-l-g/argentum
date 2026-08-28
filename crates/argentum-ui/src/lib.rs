@@ -44,6 +44,7 @@ pub use components::composites::page::{
 // Assets for shell JS — via `asset!` + `AssetBundle` + `topcoat::runtime::script()` (ADR-0009 / T28.5)
 pub const SIDEBAR_JS: topcoat::asset::Asset = topcoat::asset::asset!("../assets/sidebar.js");
 pub const THEME_JS: topcoat::asset::Asset = topcoat::asset::asset!("../assets/theme.js");
+pub const DIALOG_JS: topcoat::asset::Asset = topcoat::asset::asset!("../assets/dialog.js");
 
 /// Tailwind build helper for the per-app contract.
 ///

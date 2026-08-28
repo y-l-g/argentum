@@ -1,22 +1,39 @@
-use topcoat::{Result, context::Cx, router::page, view::view};
+use topcoat::{
+    Result,
+    context::Cx,
+    router::{page, query_params},
+    view::{attributes, view},
+};
+
+#[query_params]
+struct DialogQuery {
+    open: Option<bool>,
+}
 
 #[page("/admin/showcase/dialog")]
 async fn dialog_showcase(cx: &Cx) -> Result {
     // Prove Notification and Dialog chrome — all Token-only, no ac-*
     // Notification: card with border-border bg-background shadow-sm, fixed stack
-    // Dialog: alert_dialog with card_header/card_footer and Primary/Destructive buttons
+    // Dialog: alert_dialog driven by ?open= — Cancel/Delete are links back to
+    // the plain page (SSR close), dialog.js adds Escape/backdrop dismissal
+    // without reload.
+    let open = query_params::<DialogQuery>(cx)
+        .ok()
+        .and_then(|q| q.open)
+        .unwrap_or(false);
     let dialog = view! {
         cx =>
         argentum_ui::alert_dialog(
-            open: true,
+            open: open,
+            attrs: attributes! { aria-labelledby="showcase-dialog-title" aria-describedby="showcase-dialog-description" },
             argentum_ui::dialog_content(
                 argentum_ui::dialog_header(
-                    argentum_ui::dialog_title("Delete user?")
-                    argentum_ui::dialog_description("This action cannot be undone. The user will be permanently deleted.")
+                    argentum_ui::dialog_title(attrs: attributes! { id="showcase-dialog-title" }, "Delete user?")
+                    argentum_ui::dialog_description(attrs: attributes! { id="showcase-dialog-description" }, "This action cannot be undone. The user will be permanently deleted.")
                 )
                 argentum_ui::dialog_footer(
-                    argentum_ui::button(variant: argentum_ui::ButtonVariant::Outline, "Cancel")
-                    argentum_ui::button(variant: argentum_ui::ButtonVariant::Destructive, "Delete")
+                    <a href="/admin/showcase/dialog" data-dialog-close="" class=(argentum_ui::button_variants(argentum_ui::ButtonVariant::Outline, argentum_ui::ButtonSize::Md))>"Cancel"</a>
+                    <a href="/admin/showcase/dialog" data-dialog-close="" class=(argentum_ui::button_variants(argentum_ui::ButtonVariant::Destructive, argentum_ui::ButtonSize::Md))>"Delete"</a>
                 )
             )
         )
@@ -27,7 +44,7 @@ async fn dialog_showcase(cx: &Cx) -> Result {
         argentum_ui::page(
             argentum_ui::page_header(
                 argentum_ui::page_title("Dialog & Notification — diceboard polish")
-                argentum_ui::page_description("Notifications render in a top-level Boundary owned by the Panel Shell (fixed top-4 right-4), each a card with border-border bg-background shadow-sm. Dialogs use alert_dialog with card_header/card_footer and Primary/Destructive buttons.")
+                argentum_ui::page_description("Notifications render in a top-level Boundary owned by the Panel Shell (fixed top-4 right-4), each a card with border-border bg-background shadow-sm. Dialogs use alert_dialog driven by ?open= — open it from the button below; Cancel/Delete/Escape/backdrop close it.")
             )
 
             <section class="flex flex-col gap-4 rounded-xl border border-border bg-background p-6 shadow-sm">
@@ -45,10 +62,12 @@ async fn dialog_showcase(cx: &Cx) -> Result {
 
             <section class="flex flex-col gap-4 rounded-xl border border-border bg-background p-6 shadow-sm">
                 <h2 class="text-lg font-semibold tracking-tight text-foreground">"Dialog / AlertDialog"</h2>
-                argentum_ui::code_block(lang: "rust", code: "alert_dialog(open: true,\n    dialog_content(\n        dialog_header(dialog_title(\"Delete user?\"))\n        dialog_footer(button(Outline, \"Cancel\") button(Destructive, \"Delete\"))\n    )\n)")
+                argentum_ui::code_block(lang: "rust", code: "// GET /admin/showcase/dialog?open=true\nlet open = query_params::<DialogQuery>(cx).ok().and_then(|q| q.open).unwrap_or(false);\nalert_dialog(open: open,\n    dialog_content(\n        dialog_header(dialog_title(\"Delete user?\"))\n        dialog_footer(<a href=\"/admin/showcase/dialog\" data-dialog-close class=(button_variants(Outline, Md))>\"Cancel\"</a> <a href=\"...\" data-dialog-close class=(button_variants(Destructive, Md))>\"Delete\"</a>)\n    )\n)")
                 <div class="rounded-lg border border-border bg-background p-4">
-                    <p class="text-sm text-muted-foreground">"Destructive Actions that requires_confirmation() open alert_dialog with card_header/card_footer and Primary/Destructive variants."</p>
-                    // The dialog is open:true, so it will render as a <dialog open> with backdrop and card
+                    <p class="text-sm text-muted-foreground">"Destructive actions that require confirmation open alert_dialog with card_header/card_footer and Outline/Destructive answers. Cancel and Delete are links back to the plain page; with dialog.js, Escape, the backdrop, and the same links close without a reload."</p>
+                    <a href="/admin/showcase/dialog?open=true" class=(argentum_ui::button_variants(argentum_ui::ButtonVariant::Primary, argentum_ui::ButtonSize::Md))>"Open dialog"</a>
+                    // The dialog is open only when the query says so, so the page is
+                    // readable and exitable; the state survives a reload and a link.
                     (dialog)
                 </div>
             </section>

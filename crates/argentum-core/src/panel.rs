@@ -287,6 +287,7 @@ impl Panel {
                 topcoat::runtime::script()
                 <script src=(argentum_ui::SIDEBAR_JS)></script>
                 <script src=(argentum_ui::THEME_JS)></script>
+                <script src=(argentum_ui::DIALOG_JS)></script>
             } else {
                 // Fallback for tests / offline builds without AssetBundle
                 <script>
