@@ -3,14 +3,15 @@ use topcoat::{Result, router::page, view::view};
 #[page("/admin/showcase")]
 async fn showcase_index() -> Result {
     view! {
-        <div class="ac-showcase ac-showcase-index">
+        <div class="flex flex-col gap-8 max-w-4xl mx-auto p-6">
             <h1>"Showcase"</h1>
             <p>"Single example demonstrating every Argentum feature — minimal snippet, description, and live result."</p>
 
-            <section class="ac-showcase-section">
+            <section class="flex flex-col gap-4 rounded-xl border border-border bg-background p-6 shadow-sm">
                 <h2>"Features"</h2>
                 <ul>
                     <li><a href="/admin/showcase/ui">"UI"</a>" — argentum-ui seam: card, button, badge with Tokens (proves Tailwind seam)"</li>
+                    <li><a href="/admin/showcase/dialog">"Dialog"</a>" — notification stack (fixed top-4 right-4, card) + alert_dialog with Primary/Destructive buttons"</li>
                     <li><a href="/admin/showcase/panel">"Panel"</a>" — app shell, prefix, Db in app_context, Router discover"</li>
                     <li><a href="/admin/showcase/resource">"Resource"</a>" — #[derive(Resource)] model + query override, navigation"</li>
                     <li><a href="/admin/showcase/schema">"Schema"</a>" — Section / Group / Grid / TextInput + composition variants"</li>
@@ -20,7 +21,7 @@ async fn showcase_index() -> Result {
                 </ul>
             </section>
 
-            <section class="ac-showcase-section">
+            <section class="flex flex-col gap-4 rounded-xl border border-border bg-background p-6 shadow-sm">
                 <h2>"How to read each page"</h2>
                 <p>"Each page shows: description → minimal code snippet → rendered result as in a real app."</p>
                 <pre><code>"// snippet (copy-paste minimal)\n// rendered below is the live View from that code"</code></pre>

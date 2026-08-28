@@ -35,15 +35,15 @@ async fn resource_showcase(cx: &Cx) -> Result {
         .unwrap_or_else(|| "-".to_string());
 
     view! {
-        <div class="ac-showcase">
+        <div class="flex flex-col gap-8 max-w-4xl mx-auto p-6">
             <h1>"Resource"</h1>
             <p>"Maps one Toasty Model to its admin UI. One Model → one Resource (CONTEXT.md)."</p>
 
-            <section class="ac-showcase-block">
+            <section class="flex flex-col gap-4 rounded-xl border border-border bg-background p-6 shadow-sm">
                 <h2>"Derive — model only"</h2>
                 <p>"Bare resource uses default query (all rows)."</p>
                 <pre><code>"#[derive(Resource)]\n#[resource(model = User)]\nstruct BareUserResource;"</code></pre>
-                <div class="ac-showcase-result">
+                <div class="rounded-lg border border-border bg-background p-4">
                     <p>"Bare query rows: " (all_count.to_string()) " (expected 2)"</p>
                     <ul>
                         for user in &all {
@@ -53,11 +53,11 @@ async fn resource_showcase(cx: &Cx) -> Result {
                 </div>
             </section>
 
-            <section class="ac-showcase-block">
+            <section class="flex flex-col gap-4 rounded-xl border border-border bg-background p-6 shadow-sm">
                 <h2>"Derive — with query override"</h2>
                 <p>"Single seam for tenancy/soft-delete (ADR-0002). Every loader starts from Resource::query."</p>
                 <pre><code>"fn only_ada(cx: &Cx) -> Query<List<User>> {\n    User::filter(User::fields().name().eq(\"Ada Lovelace\"))\n}\n#[derive(Resource)]\n#[resource(model = User, query = only_ada)]\nstruct ScopedUserResource;"</code></pre>
-                <div class="ac-showcase-result">
+                <div class="rounded-lg border border-border bg-background p-4">
                     <p>"Scoped query rows: " (scoped_count.to_string()) " (expected 1)"</p>
                     <p>"First name: " (scoped_name)</p>
                     <ul>
@@ -68,17 +68,17 @@ async fn resource_showcase(cx: &Cx) -> Result {
                 </div>
             </section>
 
-            <section class="ac-showcase-block">
+            <section class="flex flex-col gap-4 rounded-xl border border-border bg-background p-6 shadow-sm">
                 <h2>"NavigationItem"</h2>
                 <p>"Derived from Model type name (User → Users) and Panel prefix."</p>
                 <pre><code>"BareUserResource::navigation() // → NavigationItem { label: \"Users\", url: \"/admin\" }"</code></pre>
-                <div class="ac-showcase-result">
+                <div class="rounded-lg border border-border bg-background p-4">
                     <p>"label: " (&label) ", url: " (&url)</p>
-                    <p><a href=(url.clone()) class="ac-nav-item">(label.clone())</a>" ← nav link"</p>
+                    <p><a href=(url.clone()) class="text-sm text-primary hover:underline">(label.clone())</a>" ← nav link"</p>
                 </div>
             </section>
 
-            <section class="ac-showcase-block">
+            <section class="flex flex-col gap-4 rounded-xl border border-border bg-background p-6 shadow-sm">
                 <h2>"Variants"</h2>
                 <p>"Duplicate model/query → compile error, unknown key → error (argentum-macros/src/lib.rs:22-45)."</p>
                 <pre><code>"#[resource(model = User, model = User)] // error: duplicate `model`\n#[resource(model = User, query = only_ada, query = only_ada)] // error: duplicate `query`\n#[resource(model = User, unknown = Foo)] // error: unknown key"</code></pre>

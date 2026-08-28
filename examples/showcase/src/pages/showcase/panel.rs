@@ -10,24 +10,24 @@ async fn panel_showcase() -> Result {
     let p_custom = Panel::new("showcase").prefix().to_string();
 
     view! {
-        <div class="ac-showcase">
+        <div class="flex flex-col gap-8 max-w-4xl mx-auto p-6">
             <h1>"Panel"</h1>
             <p>"Admin shell — owns Router, Db in app_context, and prefix. Single Panel in Phase 1."</p>
 
-            <section class="ac-showcase-block">
+            <section class="flex flex-col gap-4 rounded-xl border border-border bg-background p-6 shadow-sm">
                 <h2>"Construction"</h2>
                 <pre><code>"Panel::new(\"admin\").app_context(db).build() // → Router via discover + app_context(Db)\n// mounts at \"/admin\", discovers #[layout(\"/admin\")] + #[page(\"/admin...\")] "</code></pre>
-                <div class="ac-showcase-result">
+                <div class="rounded-lg border border-border bg-background p-4">
                     <p>"Current app mounts at: " (p_admin.clone())</p>
                 </div>
             </section>
 
-            <section class="ac-showcase-block">
+            <section class="flex flex-col gap-4 rounded-xl border border-border bg-background p-6 shadow-sm">
                 <h2>"Prefix normalization — variants"</h2>
                 <p>"Prefixes are trimmed and normalized to /{name}. Empty → /admin."</p>
                 <pre><code>"Panel::new(\"admin\").prefix()    // \"/admin\"\nPanel::new(\"/admin\").prefix()   // \"/admin\"\nPanel::new(\"admin/\").prefix()   // \"/admin\"\nPanel::new(\"\").prefix()         // \"/admin\"\nPanel::new(\"showcase\").prefix() // \"/showcase\""</code></pre>
-                <div class="ac-showcase-result">
-                    <table class="ac-table">
+                <div class="rounded-lg border border-border bg-background p-4">
+                    <table class="w-full caption-bottom border-collapse text-sm">
                         <thead><tr><th>"input"</th><th>"prefix()"</th></tr></thead>
                         <tbody>
                             <tr><td>"\"admin\""</td><td>(p_admin)</td></tr>
@@ -40,7 +40,7 @@ async fn panel_showcase() -> Result {
                 </div>
             </section>
 
-            <section class="ac-showcase-block">
+            <section class="flex flex-col gap-4 rounded-xl border border-border bg-background p-6 shadow-sm">
                 <h2>"Db in app_context"</h2>
                 <pre><code>"let router = Panel::new(\"admin\").app_context(db).build();\n// later in page/shard: let mut db = db(cx); // app_context::<Db>(cx).clone()\n// Db is Arc-pooled, clone is cheap, exec needs &mut Db"</code></pre>
             </section>

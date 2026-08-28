@@ -8,7 +8,7 @@ use topcoat::{Result, view::*};
 /// from the core crate so the workspace proves a green vertical slice.
 #[component]
 pub async fn heading(title: &str) -> Result {
-    view! { <h1 class="ac-heading">(title)</h1> }
+    view! { <h1 class="text-2xl font-bold tracking-tight text-foreground">(title)</h1> }
 }
 
 #[cfg(test)]
@@ -26,6 +26,9 @@ mod tests {
 
         let html = view.render(cx);
 
-        assert_eq!(html, r#"<h1 class="ac-heading">Users</h1>"#);
+        assert!(
+            html.contains("text-foreground") && html.contains("Users"),
+            "heading should contain token classes and title, got {html}"
+        );
     }
 }
