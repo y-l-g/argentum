@@ -519,6 +519,36 @@ impl NavigationItem {
     pub fn from_resource<R: Resource>() -> Self {
         Self::from_resource_with_prefix::<R>("/admin")
     }
+
+    /// Whether this item is current for the request in `cx`.
+    ///
+    /// Mirrors Topcoat's `Href::is_current` semantics for the panel's
+    /// string URLs: exact path match, or prefix match with slash boundary
+    /// for non-root items (so `/admin/showcase` does not false-positive on
+    /// `/admin/showcases`), ignoring query. Root `"/admin"` is exact-only
+    /// so the Users list is not active on every sub-page (Filament parity).
+    pub fn is_current(&self, cx: &Cx) -> bool {
+        let current = topcoat::router::request::uri(cx).path();
+        self.is_current_path(current)
+    }
+
+    /// Whether this item is current for the given request path (without query).
+    ///
+    /// Split from `is_current` so `Panel::render_shell` can stay testable
+    /// without constructing a full `http::request::Parts` in `Cx`.
+    pub fn is_current_path(&self, current_path: &str) -> bool {
+        if current_path == self.url {
+            return true;
+        }
+        if self.url == "/admin" {
+            return false;
+        }
+        if current_path.starts_with(&self.url) {
+            let rest = &current_path[self.url.len()..];
+            return rest.starts_with('/');
+        }
+        false
+    }
 }
 
 /// Maps one Toasty `Model` to its admin UI.
@@ -621,6 +651,54 @@ mod tests {
         let item = NavigationItem::from_resource::<UserResource>();
         assert_eq!(item.label, "Users");
         assert_eq!(item.url, "/admin");
+    }
+
+    #[test]
+    fn navigation_item_is_current_path() {
+        let users = NavigationItem {
+            label: "Users".to_string(),
+            url: "/admin".to_string(),
+        };
+        let showcase = NavigationItem {
+            label: "Showcase".to_string(),
+            url: "/admin/showcase".to_string(),
+        };
+        // exact
+        assert!(users.is_current_path("/admin"));
+        assert!(showcase.is_current_path("/admin/showcase"));
+        // root exact-only — /admin/showcase should not highlight Users
+        assert!(!users.is_current_path("/admin/showcase"));
+        // slash-boundary — /admin/showcases should not highlight /admin/showcase
+        assert!(!showcase.is_current_path("/admin/showcases"));
+        assert!(!showcase.is_current_path("/admin/showcase-table"));
+        // prefix with slash — sub-pages active
+        assert!(showcase.is_current_path("/admin/showcase/table"));
+        assert!(showcase.is_current_path("/admin/showcase/db"));
+        // unrelated
+        assert!(!users.is_current_path("/other"));
+        assert!(!showcase.is_current_path("/admin"));
+    }
+
+    #[test]
+    fn navigation_item_is_current_via_cx() {
+        let item = NavigationItem {
+            label: "Showcase".to_string(),
+            url: "/admin/showcase".to_string(),
+        };
+        let (parts, ()) = http::Request::builder()
+            .uri("/admin/showcase/table")
+            .body(())
+            .unwrap()
+            .into_parts();
+        let cx = CxTestBuilder::new().request_context(parts).build();
+        assert!(item.is_current(&cx));
+        let (parts2, ()) = http::Request::builder()
+            .uri("/admin/showcases")
+            .body(())
+            .unwrap()
+            .into_parts();
+        let cx2 = CxTestBuilder::new().request_context(parts2).build();
+        assert!(!item.is_current(&cx2));
     }
 
     #[test]

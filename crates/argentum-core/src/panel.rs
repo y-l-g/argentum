@@ -115,11 +115,12 @@ impl Panel {
             "flex min-h-screen bg-background".to_string()
         };
 
-        // Build menu items with active detection
+        // Build menu items with active detection — delegates to
+        // `NavigationItem::is_current_path` which mirrors `Href::is_current`
+        // (slash-boundary, exact for "/admin", ignores query). See ADR-0008 / T5.
         let mut menu_items: Vec<View> = Vec::new();
         for item in &nav_items {
-            let is_active = current_path == item.url
-                || (item.url != "/admin" && current_path.starts_with(&item.url));
+            let is_active = item.is_current_path(current_path);
             let label = item.label.clone();
             let url = item.url.clone();
             let btn = view! {

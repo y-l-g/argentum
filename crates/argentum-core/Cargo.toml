@@ -14,6 +14,7 @@ toasty-core.workspace = true
 topcoat.workspace = true
 
 [dev-dependencies]
+http = "1"
 tokio.workspace = true
 uuid.workspace = true
 
