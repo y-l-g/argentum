@@ -16,11 +16,12 @@ fn highlight_rust(code: &str) -> Option<String> {
     let ps = SyntaxSet::load_defaults_newlines();
     let ts = ThemeSet::load_defaults();
     let syntax = ps.find_syntax_by_extension("rs")?;
-    // Use base16-ocean.dark for dark parity, or InspiredGitHub for light; both exist.
+    // Use InspiredGitHub for light (high contrast #333 on white) as default — page is light by default.
+    // base16-ocean.dark is dark pastel on light bg (muted). Dark mode will be handled via CSS variables in future.
     let theme = ts
         .themes
-        .get("base16-ocean.dark")
-        .or_else(|| ts.themes.get("InspiredGitHub"))
+        .get("InspiredGitHub")
+        .or_else(|| ts.themes.get("base16-ocean.dark"))
         .or_else(|| ts.themes.values().next())?;
     let mut h = HighlightLines::new(syntax, theme);
     let mut html = String::new();
