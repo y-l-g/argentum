@@ -74,9 +74,12 @@ async fn schema_showcase(cx: &Cx) -> Result {
     let empty = Schema::empty().render(cx).await?;
 
     view! {
-        <div class="flex flex-col gap-8 max-w-4xl mx-auto p-6">
-            <h1>"Schema"</h1>
-            <p>"Unified layout primitive for forms/infolists. Text + Section/Group/Grid compose via IntoSchema tuples and render through view!."</p>
+        cx =>
+        argentum_ui::page(
+            argentum_ui::page_header(
+                argentum_ui::page_title("Schema")
+                argentum_ui::page_description("Unified layout primitive for forms/infolists. Text + Section/Group/Grid compose via IntoSchema tuples and render through view!.")
+            )
 
             <section class="flex flex-col gap-4 rounded-xl border border-border bg-background p-6 shadow-sm">
                 <h2>"Text (leaf)"</h2>
@@ -150,6 +153,6 @@ async fn schema_showcase(cx: &Cx) -> Result {
             </section>
 
             <p><a href="/admin/showcase">"← back to showcase"</a>" | " <a href="/admin">"→ admin list"</a></p>
-        </div>
+        )
     }
 }

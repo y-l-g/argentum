@@ -23,15 +23,17 @@ async fn ui_showcase(cx: &Cx) -> Result {
     .unwrap();
     view! {
         cx =>
-        <div class="flex flex-col gap-8 max-w-4xl mx-auto p-6">
-            <h1 class="text-2xl font-bold tracking-tight text-foreground">"UI — argentum-ui seam"</h1>
-            <p class="text-sm text-muted-foreground">"Per-app contract: styles.css (@import tailwindcss + Tokens + @source for app and argentum-ui) + build.rs (argentum_ui::tailwind_build) + tailwind::stylesheet!() and Geist font in layout. This page proves it with a card, button, and badge — all Token-only, no raw colors."</p>
+        argentum_ui::page(
+            argentum_ui::page_header(
+                argentum_ui::page_title("UI — argentum-ui seam")
+                argentum_ui::page_description("Per-app contract: styles.css (@import tailwindcss + Tokens + @source for app and argentum-ui) + build.rs (argentum_ui::tailwind_build) + tailwind::stylesheet!() and Geist font in layout. This page proves it with a card, button, and badge — all Token-only, no raw colors.")
+            )
             <section class="flex flex-col gap-4 rounded-xl border border-border bg-background p-6 shadow-sm">
                 <h2 class="text-lg font-semibold text-foreground">"Card + Button + Badge"</h2>
                 <pre><code>"argentum_ui::card(\n    card_header(card_title(\"Beautiful card\"))\n    card_content(button(variant: Primary, \"Primary\"))\n)"</code></pre>
                 (card_view)
             </section>
             <p><a href="/admin/showcase" class="text-sm text-primary hover:underline">"← back to showcase"</a></p>
-        </div>
+        )
     }
 }

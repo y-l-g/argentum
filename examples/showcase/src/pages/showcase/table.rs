@@ -40,9 +40,12 @@ async fn table_showcase(cx: &Cx) -> Result {
         .order_by();
 
     view! {
-        <div class="flex flex-col gap-8 max-w-4xl mx-auto p-6">
-            <h1>"Table"</h1>
-            <p>"Declarative list view — columns declare how to query (searchable → starts_with, sortable → order_by) and how to render. Table owns the query."</p>
+        cx =>
+        argentum_ui::page(
+            argentum_ui::page_header(
+                argentum_ui::page_title("Table")
+                argentum_ui::page_description("Declarative list view — columns declare how to query (searchable → starts_with, sortable → order_by) and how to render. Table owns the query.")
+            )
 
             <section class="flex flex-col gap-4 rounded-xl border border-border bg-background p-6 shadow-sm">
                 <h2>"TextColumn — plain"</h2>
@@ -71,6 +74,6 @@ async fn table_showcase(cx: &Cx) -> Result {
             </section>
 
             <p><a href="/admin/showcase">"← back to showcase"</a></p>
-        </div>
+        )
     }
 }

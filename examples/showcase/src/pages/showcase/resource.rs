@@ -35,9 +35,11 @@ async fn resource_showcase(cx: &Cx) -> Result {
         .unwrap_or_else(|| "-".to_string());
 
     view! {
-        <div class="flex flex-col gap-8 max-w-4xl mx-auto p-6">
-            <h1>"Resource"</h1>
-            <p>"Maps one Toasty Model to its admin UI. One Model → one Resource (CONTEXT.md)."</p>
+        argentum_ui::page(
+            argentum_ui::page_header(
+                argentum_ui::page_title("Resource")
+                argentum_ui::page_description("Maps one Toasty Model to its admin UI. One Model → one Resource (CONTEXT.md).")
+            )
 
             <section class="flex flex-col gap-4 rounded-xl border border-border bg-background p-6 shadow-sm">
                 <h2>"Derive — model only"</h2>
@@ -85,6 +87,6 @@ async fn resource_showcase(cx: &Cx) -> Result {
             </section>
 
             <p><a href="/admin/showcase">"← back to showcase"</a></p>
-        </div>
+        )
     }
 }

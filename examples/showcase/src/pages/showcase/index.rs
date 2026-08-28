@@ -3,9 +3,11 @@ use topcoat::{Result, router::page, view::view};
 #[page("/admin/showcase")]
 async fn showcase_index() -> Result {
     view! {
-        <div class="flex flex-col gap-8 max-w-4xl mx-auto p-6">
-            <h1>"Showcase"</h1>
-            <p>"Single example demonstrating every Argentum feature — minimal snippet, description, and live result."</p>
+        argentum_ui::page(
+            argentum_ui::page_header(
+                argentum_ui::page_title("Showcase")
+                argentum_ui::page_description("Single example demonstrating every Argentum feature — minimal snippet, description, and live result.")
+            )
 
             <section class="flex flex-col gap-4 rounded-xl border border-border bg-background p-6 shadow-sm">
                 <h2>"Features"</h2>
@@ -26,6 +28,6 @@ async fn showcase_index() -> Result {
                 <p>"Each page shows: description → minimal code snippet → rendered result as in a real app."</p>
                 <pre><code>"// snippet (copy-paste minimal)\n// rendered below is the live View from that code"</code></pre>
             </section>
-        </div>
+        )
     }
 }

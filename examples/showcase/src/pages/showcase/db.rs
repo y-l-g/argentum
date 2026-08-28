@@ -37,9 +37,11 @@ async fn db_showcase(cx: &Cx) -> Result {
     let count = rows.len();
 
     view! {
-        <div class="flex flex-col gap-8 max-w-4xl mx-auto p-6">
-            <h1>"Db + memoize"</h1>
-            <p>"Db lives in app_context (Arc-pooled). Clone per request, exec with &mut. #[memoize] dedups per request and shares one future across concurrent callers."</p>
+        argentum_ui::page(
+            argentum_ui::page_header(
+                argentum_ui::page_title("Db + memoize")
+                argentum_ui::page_description("Db lives in app_context (Arc-pooled). Clone per request, exec with &mut. #[memoize] dedups per request and shares one future across concurrent callers.")
+            )
 
             <section class="flex flex-col gap-4 rounded-xl border border-border bg-background p-6 shadow-sm">
                 <h2>"db(cx) glue"</h2>
@@ -66,6 +68,6 @@ async fn db_showcase(cx: &Cx) -> Result {
             </section>
 
             <p><a href="/admin/showcase">"← back to showcase"</a></p>
-        </div>
+        )
     }
 }

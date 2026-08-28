@@ -38,11 +38,16 @@ async fn admin_list(cx: &Cx) -> Result {
     let rows = query.exec(&mut db).await?;
     let table_view = table.render(cx, &rows).await?;
     view! {
-        <div class="flex flex-col gap-6">
-            <h1 class="text-2xl font-bold tracking-tight text-foreground">"Users"</h1>
-            <p class="text-sm text-muted-foreground">"Real admin list — Table via Resource::table + db(cx) (q=" (q.clone()) ")"</p>
-            (table_view)
-            <p><a href="/admin/showcase" class="text-sm text-primary hover:underline">"→ Showcase (all features)"</a></p>
-        </div>
+        cx =>
+        argentum_ui::page(
+            argentum_ui::page_header(
+                argentum_ui::page_title("Users")
+                argentum_ui::page_description("Real admin list — Table via Resource::table + db(cx) (q=" (q.clone()) ")")
+            )
+            argentum_ui::page_content((table_view))
+            argentum_ui::page_content(
+                <p><a href="/admin/showcase" class="text-sm text-primary hover:underline">"→ Showcase (all features)"</a></p>
+            )
+        )
     }
 }

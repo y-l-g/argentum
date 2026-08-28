@@ -24,9 +24,11 @@ async fn dialog_showcase(cx: &Cx) -> Result {
     .unwrap();
     view! {
         cx =>
-        <div class="flex flex-col gap-8 max-w-4xl mx-auto p-6">
-            <h1 class="text-2xl font-bold tracking-tight text-foreground">"Dialog & Notification — diceboard polish"</h1>
-            <p class="text-sm text-muted-foreground">"Notifications render in a top-level Boundary owned by the Panel Shell (fixed top-4 right-4), each a card with border-border bg-background shadow-sm. Dialogs use alert_dialog with card_header/card_footer and Primary/Destructive buttons."</p>
+        argentum_ui::page(
+            argentum_ui::page_header(
+                argentum_ui::page_title("Dialog & Notification — diceboard polish")
+                argentum_ui::page_description("Notifications render in a top-level Boundary owned by the Panel Shell (fixed top-4 right-4), each a card with border-border bg-background shadow-sm. Dialogs use alert_dialog with card_header/card_footer and Primary/Destructive buttons.")
+            )
 
             <section class="flex flex-col gap-4 rounded-xl border border-border bg-background p-6 shadow-sm">
                 <h2 class="text-lg font-semibold text-foreground">"Notification (card in fixed stack)"</h2>
@@ -58,6 +60,6 @@ async fn dialog_showcase(cx: &Cx) -> Result {
             </section>
 
             <p><a href="/admin/showcase" class="text-sm text-primary hover:underline">"← back to showcase"</a></p>
-        </div>
+        )
     }
 }

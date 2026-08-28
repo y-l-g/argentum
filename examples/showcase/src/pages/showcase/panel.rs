@@ -10,9 +10,11 @@ async fn panel_showcase() -> Result {
     let p_custom = Panel::new("showcase").prefix().to_string();
 
     view! {
-        <div class="flex flex-col gap-8 max-w-4xl mx-auto p-6">
-            <h1>"Panel"</h1>
-            <p>"Admin shell — owns Router, Db in app_context, and prefix. Single Panel in Phase 1."</p>
+        argentum_ui::page(
+            argentum_ui::page_header(
+                argentum_ui::page_title("Panel")
+                argentum_ui::page_description("Admin shell — owns Router, Db in app_context, and prefix. Single Panel in Phase 1.")
+            )
 
             <section class="flex flex-col gap-4 rounded-xl border border-border bg-background p-6 shadow-sm">
                 <h2>"Construction"</h2>
@@ -46,6 +48,6 @@ async fn panel_showcase() -> Result {
             </section>
 
             <p><a href="/admin/showcase">"← back to showcase"</a></p>
-        </div>
+        )
     }
 }
