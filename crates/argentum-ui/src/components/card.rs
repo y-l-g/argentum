@@ -12,7 +12,7 @@ use topcoat::{
 /// text color, so it reads as a card on any ancestor.
 const CARD: StaticClass = class!(
     "flex flex-col gap-5 rounded-xl border border-border bg-background py-6 \
-     text-foreground shadow-sm",
+     text-foreground shadow-sm transition-colors duration-200",
 );
 
 /// A card component: a bordered, raised surface grouping related content.

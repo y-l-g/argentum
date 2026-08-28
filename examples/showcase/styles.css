@@ -67,6 +67,14 @@
 
 @layer base {
   body {
-    @apply bg-background font-sans text-foreground;
+    @apply bg-background font-sans text-foreground transition-colors duration-200;
+  }
+  /* Sync dark transition for shell surfaces that otherwise snap */
+  [data-sidebar="sidebar"],
+  [data-sidebar="header"],
+  [data-sidebar="provider"],
+  header,
+  .card {
+    @apply transition-colors duration-200;
   }
 }
