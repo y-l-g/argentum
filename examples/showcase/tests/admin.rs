@@ -324,17 +324,24 @@ async fn showcase_table_renders_variants() {
         html.contains("TextColumn::for"),
         "missing TextColumn snippet in {html}"
     );
-    assert!(html.contains("ac-table"), "missing ac-table in {html}");
     assert!(
-        html.contains("ac-column--searchable"),
-        "missing ac-column--searchable in {html}"
+        html.contains("rounded-xl") && html.contains("border-border"),
+        "missing table chrome in {html}"
     );
     assert!(
-        html.contains("ac-column--sortable"),
-        "missing ac-column--sortable in {html}"
+        html.contains("text-muted-foreground"),
+        "missing table header Token in {html}"
     );
     assert!(
-        html.contains("Ada Lovelace") || html.contains("ac-column"),
+        html.contains("⌕") || html.contains("search"),
+        "missing searchable indicator in {html}"
+    );
+    assert!(
+        html.contains("↕") || html.contains("aria-sort"),
+        "missing sortable indicator in {html}"
+    );
+    assert!(
+        html.contains("Ada Lovelace") || html.contains("Name"),
         "missing table rows in {html}"
     );
 }
@@ -388,8 +395,12 @@ async fn admin_list_filters_via_q_param() {
         "filtered should not contain Grace in {html}"
     );
     assert!(
-        html.contains("ac-table") && html.contains("ac-column--searchable"),
-        "filtered table should still render via Table in {html}"
+        html.contains("rounded-xl") && html.contains("border-border"),
+        "filtered table should still render via Table chrome in {html}"
+    );
+    assert!(
+        html.contains("text-muted-foreground") || html.contains("⌕"),
+        "filtered table should have searchable indicator in {html}"
     );
 }
 

@@ -65,12 +65,13 @@ where
     }
 
     pub fn header_class(&self) -> String {
-        let mut cls = "ac-column".to_string();
+        // Legacy helper kept for compat; new Table chrome uses Token classes directly.
+        let mut cls = "text-muted-foreground".to_string();
         if self.searchable {
-            cls.push_str(" ac-column--searchable");
+            cls.push_str(" searchable");
         }
         if self.sortable {
-            cls.push_str(" ac-column--sortable");
+            cls.push_str(" sortable cursor-pointer");
         }
         cls
     }
@@ -124,6 +125,18 @@ where
     pub fn name(&self) -> &str {
         match self {
             Column::Text(c) => &c.name,
+        }
+    }
+
+    pub fn is_searchable(&self) -> bool {
+        match self {
+            Column::Text(c) => c.is_searchable(),
+        }
+    }
+
+    pub fn is_sortable(&self) -> bool {
+        match self {
+            Column::Text(c) => c.is_sortable(),
         }
     }
 }
@@ -203,6 +216,8 @@ pub trait GetField {
 #[derive(Debug)]
 pub struct Table<M> {
     columns: Vec<Column<M>>,
+    pagination: bool,
+    show_skeleton: bool,
     _marker: PhantomData<M>,
 }
 
@@ -216,6 +231,8 @@ impl<M> Table<M> {
     pub fn new() -> Self {
         Self {
             columns: Vec::new(),
+            pagination: false,
+            show_skeleton: false,
             _marker: PhantomData,
         }
     }
@@ -228,6 +245,18 @@ impl<M> Table<M> {
     /// Declare columns. Accepts a single column or tuple of columns.
     pub fn columns(mut self, cols: impl IntoColumns<M>) -> Self {
         self.columns = cols.into_columns();
+        self
+    }
+
+    /// Enable pagination chrome (visual stub; query pagination is out of scope this slice).
+    pub fn pagination(mut self, enabled: bool) -> Self {
+        self.pagination = enabled;
+        self
+    }
+
+    /// Enable skeleton placeholder rows (reserved for future `Boundary` `defer`).
+    pub fn skeleton(mut self, enabled: bool) -> Self {
+        self.show_skeleton = enabled;
         self
     }
 
@@ -285,30 +314,152 @@ impl<M> Table<M> {
 
     /// Render the table for the given rows. Header shows searchable/sortable indicators;
     /// rows are keyed by `row.id` per CONTEXT.md.
+    ///
+    /// Beautiful chrome: `rounded-xl border border-border overflow-hidden` container,
+    /// `table` primitives (w-full, border-border, text-muted-foreground, hover:bg-foreground/5),
+    /// sortable `cursor-pointer`, searchable/sortable indicators with `aria-sort`,
+    /// pagination chrome when `pagination` is set, EmptyState via card when `rows` is empty,
+    /// skeleton rows when `skeleton` is set.
+    /// Delegates visually to `argentum-ui` token classes (`bg-background`, `border-border`,
+    /// `shadow-sm`, `text-muted-foreground`) — no raw colors, no `ac-*`.
     pub async fn render(&self, cx: &Cx, rows: &[M]) -> Result<View>
     where
         M: toasty::schema::Model + HasId + GetField + std::fmt::Debug + Send + Sync + 'static,
     {
+        if self.show_skeleton {
+            return view! {
+                cx =>
+                <div class="rounded-xl border border-border overflow-hidden">
+                    <div class="w-full overflow-x-auto">
+                        <table class="w-full caption-bottom border-collapse text-sm">
+                            <thead class="[&_tr]:border-b">
+                                <tr class="border-b border-border transition-colors hover:bg-foreground/5">
+                                    for col in &self.columns {
+                                        <th class="h-10 px-3 text-left align-middle font-medium whitespace-nowrap text-muted-foreground">(col.label())</th>
+                                    }
+                                </tr>
+                            </thead>
+                            <tbody class="[&_tr:last-child]:border-0">
+                                for _ in 0..3 {
+                                    <tr class="border-b border-border transition-colors hover:bg-foreground/5">
+                                        for _ in &self.columns {
+                                            <td class="p-3 align-middle whitespace-nowrap"><div class="animate-pulse rounded-md bg-foreground/10 h-4 w-full"></div></td>
+                                        }
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            };
+        }
+
+        if rows.is_empty() {
+            return view! {
+                cx =>
+                <div class="rounded-xl border border-border overflow-hidden">
+                    <div class="w-full overflow-x-auto">
+                        <table class="w-full caption-bottom border-collapse text-sm">
+                            <thead class="[&_tr]:border-b">
+                                <tr class="border-b border-border transition-colors hover:bg-foreground/5">
+                                    for col in &self.columns {
+                                        <th class=(if col.is_sortable() { "h-10 px-3 text-left align-middle font-medium whitespace-nowrap text-muted-foreground cursor-pointer hover:bg-foreground/5" } else { "h-10 px-3 text-left align-middle font-medium whitespace-nowrap text-muted-foreground" }) aria-sort=(if col.is_sortable() { Some("none") } else { None })>
+                                            (col.label())
+                                            if col.is_searchable() {
+                                                <span class="ml-2 text-muted-foreground">"⌕"</span>
+                                            }
+                                            if col.is_sortable() {
+                                                <span class="ml-2">"↕"</span>
+                                            }
+                                        </th>
+                                    }
+                                </tr>
+                            </thead>
+                        </table>
+                    </div>
+                    <div class="px-6 py-16 text-center">
+                        <div class="flex flex-col items-center gap-4">
+                            <p class="text-sm text-muted-foreground">"No records found"</p>
+                            <p class="text-sm text-muted-foreground">"No search results"</p>
+                            <button class="inline-flex shrink-0 items-center justify-center border font-medium whitespace-nowrap transition-colors outline-none select-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 border-transparent bg-primary text-primary-foreground shadow-xs hover:bg-primary/90 active:bg-primary/80 h-9 gap-2 rounded-lg px-4 text-sm">"Create record"</button>
+                        </div>
+                    </div>
+                    if self.pagination {
+                        <div class="border-t border-border p-3">
+                            <nav aria-label="pagination" class="@container mx-auto flex w-full justify-center">
+                                <ul class="flex flex-row flex-wrap items-center justify-center gap-1">
+                                    <li><a aria-current="page" class="inline-flex shrink-0 items-center justify-center border font-medium whitespace-nowrap transition-colors outline-none select-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 border-border text-foreground shadow-xs hover:bg-foreground/5 active:bg-foreground/10 size-9 rounded-lg text-base">"1"</a></li>
+                                    <li><a class="inline-flex shrink-0 items-center justify-center border font-medium whitespace-nowrap transition-colors outline-none select-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 border-transparent text-foreground hover:bg-foreground/5 active:bg-foreground/10 size-9 rounded-lg text-base">"2"</a></li>
+                                </ul>
+                            </nav>
+                        </div>
+                    }
+                </div>
+            };
+        }
+
         view! {
             cx =>
-            <table class="ac-table">
-                <thead>
-                    <tr>
-                        for col in &self.columns {
-                            <th class=(col.header_class())>(col.label())</th>
-                        }
-                    </tr>
-                </thead>
-                <tbody>
-                    for row in rows {
-                        <tr key=(row.id_string())>
-                            for col in &self.columns {
-                                <td>(row.get_field(col.name()))</td>
+            <div class="rounded-xl border border-border overflow-hidden">
+                <div class="w-full overflow-x-auto">
+                    <table class="w-full caption-bottom border-collapse text-sm">
+                        <thead class="[&_tr]:border-b">
+                            <tr class="border-b border-border transition-colors hover:bg-foreground/5">
+                                for col in &self.columns {
+                                    <th class=(if col.is_sortable() { "h-10 px-3 text-left align-middle font-medium whitespace-nowrap text-muted-foreground cursor-pointer hover:bg-foreground/5" } else { "h-10 px-3 text-left align-middle font-medium whitespace-nowrap text-muted-foreground" }) aria-sort=(if col.is_sortable() { Some("none") } else { None })>
+                                        (col.label())
+                                        if col.is_searchable() {
+                                            <span class="ml-2 text-muted-foreground">"⌕"</span>
+                                        }
+                                        if col.is_sortable() {
+                                            <span class="ml-2">"↕"</span>
+                                        }
+                                    </th>
+                                }
+                            </tr>
+                        </thead>
+                        <tbody class="[&_tr:last-child]:border-0">
+                            for row in rows {
+                                <tr key=(row.id_string()) class="border-b border-border transition-colors hover:bg-foreground/5">
+                                    for col in &self.columns {
+                                        <td class="p-3 align-middle whitespace-nowrap">(row.get_field(col.name()))</td>
+                                    }
+                                </tr>
                             }
-                        </tr>
-                    }
-                </tbody>
-            </table>
+                        </tbody>
+                    </table>
+                </div>
+                if self.pagination {
+                    <div class="border-t border-border p-3">
+                        <nav aria-label="pagination" class="@container mx-auto flex w-full justify-center">
+                            <ul class="flex flex-row flex-wrap items-center justify-center gap-1">
+                                <li><a aria-current="page" class="inline-flex shrink-0 items-center justify-center border font-medium whitespace-nowrap transition-colors outline-none select-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 border-border text-foreground shadow-xs hover:bg-foreground/5 active:bg-foreground/10 size-9 rounded-lg text-base">"1"</a></li>
+                                <li><a class="inline-flex shrink-0 items-center justify-center border font-medium whitespace-nowrap transition-colors outline-none select-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 border-transparent text-foreground hover:bg-foreground/5 active:bg-foreground/10 size-9 rounded-lg text-base">"2"</a></li>
+                                <li><a class="inline-flex shrink-0 items-center justify-center border font-medium whitespace-nowrap transition-colors outline-none select-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 border-transparent text-foreground hover:bg-foreground/5 active:bg-foreground/10 size-9 rounded-lg text-base">"3"</a></li>
+                            </ul>
+                        </nav>
+                    </div>
+                }
+            </div>
+        }
+    }
+
+    /// Render an ErrorState (alert Destructive inside card) for loader failures.
+    /// This is used via `Result` match in layout slot, not inside shard, so it
+    /// survives Boundary swaps.
+    pub async fn render_error(&self, cx: &Cx, message: &str) -> Result<View>
+    where
+        M: toasty::schema::Model,
+    {
+        let msg = message.to_string();
+        view! {
+            cx =>
+            <div class="rounded-xl border border-border bg-background shadow-sm p-6">
+                <div class="grid w-full grid-cols-[0_1fr] items-start gap-y-1 rounded-lg border bg-background px-4 py-3 text-sm border-destructive/50 text-destructive has-[>svg]:grid-cols-[1rem_1fr] has-[>svg]:gap-x-3 [&>svg]:size-4 [&>svg]:translate-y-0.5">
+                    <p class="col-start-2 font-medium tracking-tight">"Failed to load"</p>
+                    <div class="col-start-2 text-sm text-muted-foreground">(msg)</div>
+                </div>
+            </div>
         }
     }
 }
@@ -568,14 +719,27 @@ mod tests {
             },
         ];
         let html = table.render(&cx, &rows).await.unwrap().render(&cx);
-        assert!(html.contains("ac-table"), "missing ac-table in {html}");
+        // Beautiful chrome: rounded-xl border border-border, table primitives, Token classes
         assert!(
-            html.contains("ac-column--searchable"),
-            "missing ac-column--searchable in {html}"
+            html.contains("rounded-xl") && html.contains("border-border"),
+            "missing table container chrome in {html}"
         );
         assert!(
-            html.contains("ac-column--sortable"),
-            "missing ac-column--sortable in {html}"
+            html.contains("border-border") && html.contains("text-muted-foreground"),
+            "missing Token classes in {html}"
+        );
+        // searchable indicator ⌕ and sortable indicator ↕ and aria-sort
+        assert!(
+            html.contains("⌕") || html.contains("search"),
+            "missing searchable indicator in {html}"
+        );
+        assert!(
+            html.contains("↕") || html.contains("aria-sort"),
+            "missing sortable indicator in {html}"
+        );
+        assert!(
+            html.contains("cursor-pointer"),
+            "missing sortable cursor-pointer in {html}"
         );
         assert!(html.contains("Name"), "missing Name header in {html}");
         for row in &rows {

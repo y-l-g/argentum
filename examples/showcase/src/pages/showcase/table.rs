@@ -40,34 +40,34 @@ async fn table_showcase(cx: &Cx) -> Result {
         .order_by();
 
     view! {
-        <div class="ac-showcase">
+        <div class="flex flex-col gap-8 max-w-4xl mx-auto p-6">
             <h1>"Table"</h1>
             <p>"Declarative list view — columns declare how to query (searchable → starts_with, sortable → order_by) and how to render. Table owns the query."</p>
 
-            <section class="ac-showcase-block">
+            <section class="flex flex-col gap-4 rounded-xl border border-border bg-background p-6 shadow-sm">
                 <h2>"TextColumn — plain"</h2>
                 <pre><code>"Table::for::<User>(cx).columns(TextColumn::for(User::fields().name()))"</code></pre>
-                <div class="ac-showcase-result">(plain_html)</div>
+                <div class="rounded-lg border border-border bg-background p-4">(plain_html)</div>
             </section>
 
-            <section class="ac-showcase-block">
+            <section class="flex flex-col gap-4 rounded-xl border border-border bg-background p-6 shadow-sm">
                 <h2>"searchable"</h2>
                 <p>"Marks column for global search → `starts_with` (portable). Table ORs across searchable columns."</p>
                 <pre><code>"let table = Table::for::<User>(cx).columns(TextColumn::for(User::fields().name()).searchable());\ntable.search_expr(\"Ada\") // → starts_with OR"</code></pre>
-                <div class="ac-showcase-result">(searchable_html)</div>
+                <div class="rounded-lg border border-border bg-background p-4">(searchable_html)</div>
             </section>
 
-            <section class="ac-showcase-block">
+            <section class="flex flex-col gap-4 rounded-xl border border-border bg-background p-6 shadow-sm">
                 <h2>"sortable"</h2>
                 <p>"Marks column for ordering → `asc()` with PK tie-breaker via `order_bys()` for deterministic pagination."</p>
                 <pre><code>"let table = Table::for::<User>(cx).columns(TextColumn::for(User::fields().name()).sortable());\ntable.order_by() // → asc\ntable.order_bys() // → [sortable asc, pk asc]"</code></pre>
-                <div class="ac-showcase-result">(sortable_html)</div>
+                <div class="rounded-lg border border-border bg-background p-4">(sortable_html)</div>
             </section>
 
-            <section class="ac-showcase-block">
+            <section class="flex flex-col gap-4 rounded-xl border border-border bg-background p-6 shadow-sm">
                 <h2>"Composition (tuple)"</h2>
                 <pre><code>"Table::for::<User>(cx).columns((\n    TextColumn::for(User::fields().name()).searchable().sortable(),\n    TextColumn::for(User::fields().email()),\n))"</code></pre>
-                <div class="ac-showcase-result">(both_html)</div>
+                <div class="rounded-lg border border-border bg-background p-4">(both_html)</div>
             </section>
 
             <p><a href="/admin/showcase">"← back to showcase"</a></p>
