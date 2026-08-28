@@ -117,15 +117,11 @@ impl Panel {
         use argentum_ui::{
             ButtonSize, ButtonVariant, button, sidebar, sidebar_content, sidebar_footer,
             sidebar_group, sidebar_group_content, sidebar_group_label, sidebar_header,
-            sidebar_menu, sidebar_menu_button, sidebar_menu_item, sidebar_separator,
-            sidebar_trigger,
+            sidebar_inset, sidebar_menu, sidebar_menu_button, sidebar_menu_item,
+            sidebar_provider, sidebar_separator, sidebar_trigger,
         };
 
-        let outer_class = if let Some(extra) = extra_class {
-            format!("flex min-h-screen bg-background {extra}")
-        } else {
-            "flex min-h-screen bg-background".to_string()
-        };
+        let outer_class = extra_class.clone().unwrap_or_default();
 
         // Build menu items with active detection — delegates to
         // `NavigationItem::is_current_path` which mirrors `Href::is_current`
@@ -151,8 +147,9 @@ impl Panel {
 
         view! {
             cx =>
-            <div class=(outer_class)>
-                // Sidebar — persistent rail on desktop, hidden on mobile
+            sidebar_provider(
+                attrs: attributes! { class=(outer_class) },
+                // Sidebar — fixed inset-y-0 h-svh w-(--sidebar-width), hidden on mobile
                 sidebar(
                     sidebar_header(
                         <div class="flex items-center gap-2 font-semibold text-foreground">
@@ -190,13 +187,11 @@ impl Panel {
                         </div>
                     )
                 )
-                // Mobile sheet drawer placeholder — hidden trigger opens sheet
-                <div class="lg:hidden">
-                    sidebar_trigger(attrs: attributes! { class="m-2" })
-                </div>
-                // Main content area
-                <div class="flex flex-1 flex-col min-w-0">
-                    <header class="flex h-16 items-center gap-4 border-b border-border bg-background px-6">
+                // Gap for fixed sidebar — hidden on mobile, w-(--sidebar-width) on lg
+                <div class="hidden w-(--sidebar-width) shrink-0 transition-[width] lg:block" aria-hidden="true"></div>
+                sidebar_inset(
+                    // Main content area — sticky header per shadcn
+                    <header class="sticky top-0 z-10 flex h-16 items-center gap-4 border-b border-border bg-background px-6">
                         sidebar_trigger(attrs: attributes! { class="lg:hidden" })
                         <div class="font-semibold text-foreground">"Admin"</div>
                         <div class="ml-auto flex items-center gap-2">
@@ -211,12 +206,16 @@ impl Panel {
                     <main class="flex-1 mx-auto max-w-7xl w-full p-6">
                         (slot)
                     </main>
-                </div>
+                )
                 // Notification stack — fixed top-right, survives Boundary swaps
                 <div class="fixed top-4 right-4 z-50 flex flex-col gap-2">
                     // Placeholder: notifications render here via Panel shell's top-level Boundary
                 </div>
-            </div>
+            )
+            // Minimal JS for sidebar toggle (cookie + Ctrl+B) and dark toggle (localStorage)
+            <script>
+                "document.addEventListener('DOMContentLoaded',()=>{const s=document.querySelector('[data-sidebar=\"sidebar\"]');const p=document.querySelector('[data-sidebar=\"provider\"]');if(s&&p){document.addEventListener('click',e=>{if(e.target.closest('[data-sidebar=\"trigger\"]')){const c=s.getAttribute('data-state')==='collapsed'?'expanded':'collapsed';s.setAttribute('data-state',c);p.setAttribute('data-state',c);document.cookie=`sidebar_state=${c};path=/;max-age=604800`}});document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key==='b'){e.preventDefault();document.querySelector('[data-sidebar=\"trigger\"]')?.click()}});const m=document.cookie.match(/sidebar_state=([^;]+)/);if(m&&s&&p){s.setAttribute('data-state',m[1]);p.setAttribute('data-state',m[1])}};document.querySelectorAll('[data-theme-toggle]').forEach(b=>b.addEventListener('click',()=>{document.documentElement.classList.toggle('dark');localStorage.setItem('theme',document.documentElement.classList.contains('dark')?'dark':'light')}));if(localStorage.getItem('theme')==='dark')document.documentElement.classList.add('dark')})"
+            </script>
         }
     }
 
@@ -235,16 +234,6 @@ impl Panel {
         let inner = slot?;
         Self::render_shell(cx, nav_items, &current, inner, None).await
     }
-}
-
-/// Default `#[layout("/admin")]` — provides zero-boilerplate shell for
-/// `Panel::new("admin").resource::<R>().build()` (ADR-0008). Discovered via
-/// `Router::builder().discover()`. Apps needing custom nav define their own
-/// `#[layout("/admin")]` which takes precedence or calls `Panel::render_shell`
-/// directly.
-#[topcoat::router::layout("/admin")]
-async fn argentum_shell(cx: &Cx, slot: Result) -> Result {
-    Panel::layout_shell(cx, slot).await
 }
 
 #[cfg(test)]
@@ -339,8 +328,39 @@ mod tests {
             "missing sidebar data attr in {html}"
         );
         assert!(
+            html.contains("data-sidebar=\"provider\""),
+            "missing provider data attr in {html}"
+        );
+        assert!(
+            html.contains("data-sidebar=\"inset\""),
+            "missing inset data attr in {html}"
+        );
+        assert!(
             html.contains("data-sidebar=\"group\"") || html.contains("Navigation"),
             "missing sidebar group in {html}"
+        );
+        // Shadcn parity: fixed + h-svh + w-(--sidebar-width) + gap
+        assert!(
+            html.contains("fixed") && html.contains("inset-y-0"),
+            "missing fixed inset-y-0 in {html}"
+        );
+        assert!(
+            html.contains("h-svh"),
+            "missing h-svh in {html}"
+        );
+        assert!(
+            html.contains("w-(--sidebar-width)") || html.contains("--sidebar-width"),
+            "missing --sidebar-width var in {html}"
+        );
+        // Header sticky
+        assert!(
+            html.contains("sticky") && html.contains("top-0"),
+            "missing sticky top-0 in {html}"
+        );
+        // Data-state for collapsible
+        assert!(
+            html.contains("data-state=\"expanded\"") || html.contains("data-state"),
+            "missing data-state in {html}"
         );
         // Separator
         assert!(

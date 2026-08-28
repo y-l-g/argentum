@@ -7,21 +7,73 @@ use crate::components::primitives::button::{ButtonSize, ButtonVariant, button_va
 use crate::components::primitives::separator::SeparatorOrientation;
 
 // ---------------------------------------------------------------------------
+// Provider & Inset — shadcn parity (ADR-0009)
+// ---------------------------------------------------------------------------
+
+const PROVIDER: StaticClass = class!("group/sidebar-wrapper flex min-h-svh w-full");
+
+/// Sidebar provider — sets CSS vars for width and wraps the entire shell.
+///
+/// Mirrors `SidebarProvider` in `ui/apps/v4/registry/new-york-v4/ui/sidebar.tsx`:
+/// `--sidebar-width:16rem`, `--sidebar-width-icon:3rem`,
+/// `--sidebar-width-mobile:18rem`, `group/sidebar-wrapper flex min-h-svh w-full`,
+/// `data-state` + `data-collapsible` for `group-data-[collapsible=icon]` rules.
+#[component]
+pub async fn sidebar_provider(
+    #[default] mut attrs: Attributes,
+    #[default] child: View,
+) -> Result {
+    view! {
+        <div
+            data-sidebar="provider"
+            data-state="expanded"
+            data-collapsible=""
+            style="--sidebar-width:16rem;--sidebar-width-icon:3rem;--sidebar-width-mobile:18rem"
+            class=(class!(PROVIDER, attrs.remove("class")))
+            (attrs)
+        >
+            (child)
+        </div>
+    }
+}
+
+const INSET: StaticClass = class!("flex flex-1 flex-col min-w-0");
+
+/// Inset for the main content beside the fixed sidebar (shadcn `SidebarInset`).
+#[component]
+pub async fn sidebar_inset(#[default] mut attrs: Attributes, #[default] child: View) -> Result {
+    view! {
+        <div
+            data-sidebar="inset"
+            class=(class!(INSET, attrs.remove("class")))
+            (attrs)
+        >
+            (child)
+        </div>
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Sidebar container
 // ---------------------------------------------------------------------------
 
-const SIDEBAR: StaticClass =
-    class!("hidden h-full w-64 flex-col border-r border-border bg-background lg:flex");
+const SIDEBAR: StaticClass = class!(
+    "fixed inset-y-0 z-10 hidden h-svh w-(--sidebar-width) flex-col border-r border-border bg-background transition-[left,right,width] lg:flex"
+);
 
 /// Sidebar component — the persistent navigation rail on desktop.
 ///
 /// On small viewports it is hidden (`hidden lg:flex`); the mobile drawer is
-/// a `sheet` opened via [`sidebar_trigger`]. The `attrs` class is appended.
+/// a `sheet` opened via [`sidebar_trigger`]. `fixed inset-y-0 h-svh w-(--sidebar-width)`
+/// with `data-state` + `data-collapsible` for `group-data-[collapsible=icon]` rules.
 #[component]
 pub async fn sidebar(#[default] mut attrs: Attributes, #[default] child: View) -> Result {
     view! {
         <div
             data-sidebar="sidebar"
+            data-state="expanded"
+            data-collapsible=""
+            data-variant="sidebar"
             class=(class!(SIDEBAR, attrs.remove("class")))
             (attrs)
         >
@@ -30,14 +82,14 @@ pub async fn sidebar(#[default] mut attrs: Attributes, #[default] child: View) -
     }
 }
 
-/// Header area of the sidebar (brand, topbar).
+/// Header area of the sidebar (brand, topbar) — sticky per shadcn.
 #[component]
 pub async fn sidebar_header(#[default] mut attrs: Attributes, #[default] child: View) -> Result {
     view! {
         <div
             data-sidebar="header"
             class=(class!(
-                "flex h-16 shrink-0 items-center gap-2 border-b border-border px-4",
+                "sticky top-0 z-10 flex h-16 shrink-0 items-center gap-2 border-b border-border bg-background px-4",
                 attrs.remove("class"),
             ))
             (attrs)

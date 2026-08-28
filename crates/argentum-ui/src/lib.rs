@@ -25,10 +25,10 @@ pub use components::pagination::{
 };
 pub use components::separator::{SeparatorOrientation, separator};
 pub use components::sheet::{SheetSide, sheet, sheet_content};
-pub use components::sidebar::{
+pub use components::composites::sidebar::{
     sidebar, sidebar_content, sidebar_footer, sidebar_group, sidebar_group_content,
-    sidebar_group_label, sidebar_header, sidebar_menu, sidebar_menu_button, sidebar_menu_item,
-    sidebar_separator, sidebar_trigger,
+    sidebar_group_label, sidebar_header, sidebar_inset, sidebar_menu, sidebar_menu_button,
+    sidebar_menu_item, sidebar_provider, sidebar_separator, sidebar_trigger,
 };
 pub use components::skeleton::skeleton;
 pub use components::table::{
