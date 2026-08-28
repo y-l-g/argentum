@@ -40,10 +40,14 @@ async fn admin_layout_and_list_page_serve_seeded_users() {
     let body = response.into_body().collect().await.unwrap().to_bytes();
     let html = String::from_utf8_lossy(&body);
 
-    // Layout shell
+    // Layout shell — beautiful: Token classes, sidebar, Token borders
     assert!(
-        html.contains("ac-admin") || html.contains("ac-sidebar"),
-        "missing admin layout in {html}"
+        html.contains("border-border") && html.contains("bg-background"),
+        "missing admin layout Token chrome in {html}"
+    );
+    assert!(
+        html.contains("data-sidebar=\"sidebar\"") || html.contains("data-sidebar=\"menu\""),
+        "missing sidebar in {html}"
     );
     // NavigationItem derived from UserResource
     assert!(html.contains("Users"), "missing navigation label in {html}");

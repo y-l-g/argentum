@@ -1,19 +1,19 @@
-use argentum_core::{Panel, Resource, Schema, Table, TextColumn, TextInput};
+use argentum_core::{NavigationItem, Panel, Resource, Schema, Table, TextColumn, TextInput};
 use toasty::Db;
 use topcoat::{
     Result,
-    asset::Asset,
+    asset::{Asset, AssetBundle, RouterBuilderAssetExt},
     context::Cx,
     font::{Font, fontsource::fontsource_font},
-    router::{Router, layout},
+    router::{RouterBuilderDiscoverExt, layout},
     tailwind,
     view::view,
 };
 
+use crate::models::User;
+
 /// The theme's sans font, pulled from Fontsource and self-hosted as a Topcoat asset.
 const GEIST: Font = fontsource_font!(GEIST, host: Asset);
-
-use crate::models::User;
 
 // ---------------------------------------------------------------------------
 // Resource — single Model → Resource, see CONTEXT.md
@@ -56,10 +56,16 @@ impl Resource for UserResource {
 
 #[layout("/admin")]
 async fn admin_layout(cx: &Cx, slot: Result) -> Result {
-    // Panel-aware navigation — URL respects the Panel mount prefix (e.g. "backoffice" → "/backoffice").
-    let nav = Panel::new("admin").navigation_item::<UserResource>();
-    let label = nav.label.clone();
-    let url = nav.url.clone();
+    let nav_items = vec![
+        Panel::new("admin").navigation_item::<UserResource>(),
+        NavigationItem {
+            label: "Showcase".to_string(),
+            url: "/admin/showcase".to_string(),
+        },
+    ];
+    let current = topcoat::router::request::uri(cx).path().to_string();
+    let inner = slot?;
+    let shell = Panel::render_shell(cx, nav_items, &current, inner, None).await?;
     // Asset-dependent links (tailwind + font) require `AssetConfig` on the router.
     // In `cargo test` without `AssetBundle`, we fall back to a plain style tag.
     let has_assets = topcoat::context::try_app_context::<topcoat::asset::AssetConfig>(cx).is_some();
@@ -71,18 +77,16 @@ async fn admin_layout(cx: &Cx, slot: Result) -> Result {
                 <title>"Admin"</title>
                 topcoat::dev::script()
                 if has_assets {
+                    topcoat::runtime::script()
                     topcoat::font::link(font: GEIST)
                     <link rel="stylesheet" href=(tailwind::stylesheet!())>
                 } else {
+                    // Fallback for tests / offline builds without AssetBundle
                     <style>"/* tailwind and font skipped - no asset config */"</style>
                 }
             </head>
-            <body class="ac-admin">
-                <nav class="ac-sidebar">
-                    <a href=(url) class="ac-nav-item">(label)</a>
-                    <a href="/admin/showcase" class="ac-nav-item">"Showcase"</a>
-                </nav>
-                <main class="ac-main">(slot?)</main>
+            <body>
+                (shell)
             </body>
         </html>
     }
@@ -92,6 +96,19 @@ async fn admin_layout(cx: &Cx, slot: Result) -> Result {
 // Router helper (used by `main.rs` and tests)
 // ---------------------------------------------------------------------------
 
-pub fn router(db: Db) -> Router {
-    Panel::new("admin").app_context(db).build()
+pub fn router(db: Db) -> topcoat::router::Router {
+    // Include AssetBundle so tailwind stylesheet and Geist font assets are served.
+    // In tests, AssetBundle may be absent (offline build), so fall back to no assets
+    // while still keeping the shell's Token classes.
+    match AssetBundle::load() {
+        Ok(bundle) => topcoat::router::Router::builder()
+            .discover()
+            .app_context(db)
+            .assets(bundle)
+            .build(),
+        Err(_) => topcoat::router::Router::builder()
+            .discover()
+            .app_context(db)
+            .build(),
+    }
 }

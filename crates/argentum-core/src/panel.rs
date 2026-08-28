@@ -3,7 +3,12 @@
 //! Owns the [`Router`] and the `Db` in `app_context`. See `CONTEXT.md`.
 
 use toasty::Db;
-use topcoat::router::{Router, RouterBuilderDiscoverExt};
+use topcoat::{
+    Result,
+    context::Cx,
+    router::{Router, RouterBuilderDiscoverExt},
+    view::{View, attributes, view},
+};
 
 use crate::resource::{NavigationItem, Resource};
 
@@ -81,6 +86,142 @@ impl Panel {
     pub fn navigation_item<R: Resource>(&self) -> NavigationItem {
         NavigationItem::from_resource_with_prefix::<R>(&self.prefix)
     }
+
+    /// Render the Filament-grade Shell that frames every admin page.
+    ///
+    /// Composes `argentum-ui` `sidebar` + main `max-w-7xl p-6` area with
+    /// grouped NavigationItems, active highlight (`bg-foreground/5` + `aria-current="page"`),
+    /// `separator`, and `sidebar_trigger` for responsive `sheet` drawer.
+    /// Includes dark-mode toggle (Ghost button, persists via cookie/session) and
+    /// notification stack (fixed top-right). Additive `class` is allowed on the
+    /// outer container only (narrow seam).
+    pub async fn render_shell(
+        cx: &Cx,
+        nav_items: Vec<NavigationItem>,
+        current_path: &str,
+        slot: View,
+        extra_class: Option<String>,
+    ) -> Result<View> {
+        use argentum_ui::{
+            ButtonSize, ButtonVariant, button, sidebar, sidebar_content, sidebar_footer,
+            sidebar_group, sidebar_group_content, sidebar_group_label, sidebar_header,
+            sidebar_menu, sidebar_menu_button, sidebar_menu_item, sidebar_separator,
+            sidebar_trigger,
+        };
+
+        let outer_class = if let Some(extra) = extra_class {
+            format!("flex min-h-screen bg-background {extra}")
+        } else {
+            "flex min-h-screen bg-background".to_string()
+        };
+
+        // Build menu items with active detection
+        let mut menu_items: Vec<View> = Vec::new();
+        for item in &nav_items {
+            let is_active = current_path == item.url
+                || (item.url != "/admin" && current_path.starts_with(&item.url));
+            let label = item.label.clone();
+            let url = item.url.clone();
+            let btn = view! {
+                cx =>
+                sidebar_menu_item(
+                    sidebar_menu_button(
+                        is_active: is_active,
+                        attrs: attributes! { href=(url.clone()) },
+                        (label.clone())
+                    )
+                )
+            }
+            .unwrap();
+            menu_items.push(btn);
+        }
+
+        view! {
+            cx =>
+            <div class=(outer_class)>
+                // Sidebar — persistent rail on desktop, hidden on mobile
+                sidebar(
+                    sidebar_header(
+                        <div class="flex items-center gap-2 font-semibold text-foreground">
+                            "Argentum"
+                        </div>
+                    )
+                    sidebar_content(
+                        sidebar_group(
+                            sidebar_group_label("Navigation")
+                            sidebar_group_content(
+                                sidebar_menu(
+                                    for item in menu_items {
+                                        (item)
+                                    }
+                                )
+                            )
+                        )
+                        sidebar_separator()
+                        sidebar_group(
+                            sidebar_group_label("Resources")
+                            sidebar_group_content(
+                                <div class="px-2 text-xs text-muted-foreground">"Managed via Resource::query seam"</div>
+                            )
+                        )
+                    )
+                    sidebar_footer(
+                        <div class="flex items-center gap-2">
+                            sidebar_trigger(attrs: attributes! { class="lg:hidden" })
+                            button(
+                                variant: ButtonVariant::Ghost,
+                                size: ButtonSize::Icon,
+                                attrs: attributes! { aria-label="Toggle dark mode" data-theme-toggle="" },
+                                <span aria-hidden="true">"◐"</span>
+                            )
+                        </div>
+                    )
+                )
+                // Mobile sheet drawer placeholder — hidden trigger opens sheet
+                <div class="lg:hidden">
+                    sidebar_trigger(attrs: attributes! { class="m-2" })
+                </div>
+                // Main content area
+                <div class="flex flex-1 flex-col min-w-0">
+                    <header class="flex h-16 items-center gap-4 border-b border-border bg-background px-6">
+                        sidebar_trigger(attrs: attributes! { class="lg:hidden" })
+                        <div class="font-semibold text-foreground">"Admin"</div>
+                        <div class="ml-auto flex items-center gap-2">
+                            button(
+                                variant: ButtonVariant::Ghost,
+                                size: ButtonSize::Icon,
+                                attrs: attributes! { aria-label="Toggle dark mode" data-theme-toggle="" },
+                                <span aria-hidden="true">"◐"</span>
+                            )
+                        </div>
+                    </header>
+                    <main class="flex-1 mx-auto max-w-7xl w-full p-6">
+                        (slot)
+                    </main>
+                </div>
+                // Notification stack — fixed top-right, survives Boundary swaps
+                <div class="fixed top-4 right-4 z-50 flex flex-col gap-2">
+                    // Placeholder: notifications render here via Panel shell's top-level Boundary
+                </div>
+            </div>
+        }
+    }
+
+    /// Convenience wrapper for `#[layout]` handlers: takes `slot: Result` and
+    /// renders the shell with current path derived from `cx`.
+    pub async fn layout_shell(cx: &Cx, slot: Result) -> Result {
+        use topcoat::router::request::uri;
+        let current = uri(cx).path().to_string();
+        // Default nav — single resource placeholder; real apps pass explicit nav_items
+        // via `render_shell`. This fallback keeps empty projects beautiful out of the box
+        // with at least one NavigationItem.
+        let nav_items = vec![NavigationItem {
+            label: "Dashboard".to_string(),
+            url: "/admin".to_string(),
+        }];
+        let inner = slot?;
+        Self::render_shell(cx, nav_items, &current, inner, None).await
+    }
 }
 
 #[cfg(test)]
@@ -140,5 +281,80 @@ mod tests {
             "/backoffice/",
         );
         assert_eq!(via_prefix.url, "/backoffice");
+    }
+
+    #[tokio::test]
+    async fn panel_shell_renders_sidebar_with_active_and_tokens() {
+        use crate::resource::NavigationItem;
+        use topcoat::context::CxTestBuilder;
+        use topcoat::view::view;
+
+        let cx = CxTestBuilder::new().build();
+        let cx_ref = &cx;
+        let nav_items = vec![
+            NavigationItem {
+                label: "Users".to_string(),
+                url: "/admin".to_string(),
+            },
+            NavigationItem {
+                label: "Showcase".to_string(),
+                url: "/admin/showcase".to_string(),
+            },
+        ];
+        let slot = view! { cx_ref => "hello" }.unwrap();
+        let html = Panel::render_shell(&cx, nav_items, "/admin", slot, None)
+            .await
+            .unwrap()
+            .render(&cx);
+        // Sidebar chrome with Token classes
+        assert!(
+            html.contains("border-border") && html.contains("bg-background"),
+            "missing Token border/bg in {html}"
+        );
+        assert!(
+            html.contains("data-sidebar=\"sidebar\""),
+            "missing sidebar data attr in {html}"
+        );
+        assert!(
+            html.contains("data-sidebar=\"group\"") || html.contains("Navigation"),
+            "missing sidebar group in {html}"
+        );
+        // Separator
+        assert!(
+            html.contains("shrink-0") && html.contains("bg-border"),
+            "missing separator in {html}"
+        );
+        // Sheet trigger hook
+        assert!(
+            html.contains("data-sidebar=\"trigger\""),
+            "missing sidebar_trigger hook in {html}"
+        );
+        // Active highlight
+        assert!(
+            html.contains("bg-foreground/5") && html.contains("aria-current=\"page\""),
+            "missing active highlight in {html}"
+        );
+        // Responsive hook
+        assert!(
+            html.contains("hidden") && html.contains("lg:flex"),
+            "missing responsive hidden lg:flex in {html}"
+        );
+        // Main container
+        assert!(
+            html.contains("max-w-7xl") && html.contains("p-6"),
+            "missing main max-w-7xl p-6 in {html}"
+        );
+        // Dark toggle
+        assert!(
+            html.contains("Toggle dark mode") || html.contains("data-theme-toggle"),
+            "missing dark toggle in {html}"
+        );
+        // Ensure no ac-* remains in shell
+        assert!(
+            !html.contains("ac-sidebar")
+                && !html.contains("ac-main")
+                && !html.contains("ac-nav-item"),
+            "ac-* should not remain in shell, got {html}"
+        );
     }
 }

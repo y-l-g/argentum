@@ -75,6 +75,7 @@ name = "argentum-core"
 version = "0.1.0"
 dependencies = [
  "argentum-macros",
+ "argentum-ui",
  "toasty",
  "toasty-core",
  "tokio",

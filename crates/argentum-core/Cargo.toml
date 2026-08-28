@@ -8,6 +8,7 @@ description = "The core toolkit types for Argentum, a server-rendered admin tool
 
 [dependencies]
 argentum-macros = { path = "../argentum-macros" }
+argentum-ui = { path = "../argentum-ui" }
 toasty.workspace = true
 toasty-core.workspace = true
 topcoat.workspace = true
