@@ -47,6 +47,18 @@ impl Panel {
         self
     }
 
+    /// Declare a `Resource` for this panel (declarative seam).
+    ///
+    /// `Panel::new("admin").resource::<UserResource>().build()` ensures the
+    /// resource's `#[page]`s are linked and documents the panel's closed set
+    /// of resources. Multiple calls compose. For now this is a marker — types
+    /// are discovered via `Router::builder().discover()` — but it will drive
+    /// navigation generation in the full declarative shell (ADR-0008).
+    pub fn resource<R: Resource>(self) -> Self {
+        let _ = std::any::type_name::<R>();
+        self
+    }
+
     /// Build the [`Router`], discovering all `#[page]` / `#[layout]` / `#[shard]`
     /// items linked into the binary and installing the `Db` on the
     /// `app_context`.
@@ -223,6 +235,16 @@ impl Panel {
         let inner = slot?;
         Self::render_shell(cx, nav_items, &current, inner, None).await
     }
+}
+
+/// Default `#[layout("/admin")]` — provides zero-boilerplate shell for
+/// `Panel::new("admin").resource::<R>().build()` (ADR-0008). Discovered via
+/// `Router::builder().discover()`. Apps needing custom nav define their own
+/// `#[layout("/admin")]` which takes precedence or calls `Panel::render_shell`
+/// directly.
+#[topcoat::router::layout("/admin")]
+async fn argentum_shell(cx: &Cx, slot: Result) -> Result {
+    Panel::layout_shell(cx, slot).await
 }
 
 #[cfg(test)]

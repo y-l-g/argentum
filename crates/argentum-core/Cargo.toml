@@ -11,7 +11,7 @@ argentum-macros = { path = "../argentum-macros" }
 argentum-ui = { path = "../argentum-ui" }
 toasty.workspace = true
 toasty-core.workspace = true
-topcoat.workspace = true
+topcoat = { workspace = true, features = ["view", "router", "discover", "tailwind", "asset", "font", "font-fontsource", "runtime"] }
 
 [dev-dependencies]
 http = "1"
