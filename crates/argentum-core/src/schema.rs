@@ -10,6 +10,9 @@
 //! `toasty_core` import sites; migrate to public `Path::field_name()` /
 //! `Model::primary_key_paths()` when Toasty exposes them.
 
+use argentum_ui::{
+    card, card_content, card_header, card_title, input as ui_input, label as ui_label,
+};
 use topcoat::{Result, context::Cx, view::*};
 
 // ---------------------------------------------------------------------------
@@ -27,7 +30,7 @@ impl Text {
 
     async fn render(&self, cx: &Cx) -> Result<View> {
         let content = self.0.clone();
-        view! { cx => <div class="ac-text">(content)</div> }
+        view! { cx => <div class="text-sm text-foreground">(content)</div> }
     }
 }
 
@@ -49,10 +52,10 @@ impl TextInput {
     where
         M: toasty::schema::Model,
     {
-        let (field_name, label) = lens_field_name_and_label(path);
+        let (field_name, label_str) = lens_field_name_and_label(path);
         Self {
             name: field_name,
-            label,
+            label: label_str,
             required: false,
             is_email: false,
             placeholder: None,
@@ -118,17 +121,37 @@ impl TextInput {
     }
 
     async fn render(&self, cx: &Cx) -> Result<View> {
-        let label = self.label.clone();
+        let label_text = self.label.clone();
         let name = self.name.clone();
         let required = self.required;
         let placeholder = self.placeholder.clone();
         let input_type = if self.is_email { "email" } else { "text" };
-        // Single template — placeholder omitted when None, `required` attr set,
-        // label linked via `for`/`id`, star aria-hidden.
-        // Inline validate() errors are not rendered inside ac-field yet — needs
-        // Schema form state + #[procedure] (see GH #12). Demo in
-        // showcase/schema.rs intentionally shows errors outside ac-field for now.
-        view! { cx => <div class="ac-field"><label class="ac-field-label" for=(name.clone())>(label) if required { <span class="ac-required" aria-hidden="true">"*"</span> } </label><input id=(name.clone()) type=(input_type) name=(name) placeholder=(placeholder) required=(required) class="ac-input" /></div> }
+        // Beautiful rendering via argentum-ui `label` + `input` with Token classes,
+        // proper for/id linking, required star, type branching, and reserved error slot.
+        view! {
+            cx =>
+            <div class="grid gap-1.5">
+                ui_label(
+                    attrs: attributes! { for=(name.clone()) },
+                    (label_text.clone())
+                    if required {
+                        <span class="text-destructive" aria-hidden="true">"*"</span>
+                    }
+                )
+                ui_input(
+                    attrs: attributes! {
+                        id=(name.clone())
+                        r#type=(input_type)
+                        name=(name.clone())
+                        placeholder=(placeholder.clone())
+                        required=(required)
+                        aria-required=(required.then_some("true"))
+                        aria-invalid="false"
+                    }
+                )
+                <p class="text-sm text-destructive" aria-live="polite"></p>
+            </div>
+        }
     }
 }
 
@@ -171,8 +194,8 @@ where
                 std::any::type_name::<M>()
             )
         });
-    let label = capitalize(&field_name);
-    (field_name, label)
+    let label_str = capitalize(&field_name);
+    (field_name, label_str)
 }
 
 fn capitalize(s: &str) -> String {
@@ -208,10 +231,15 @@ where
 }
 
 /// Section — titled container with an optional child `Schema`.
+///
+/// The single customization seam for form layout in v1: additive `class` is
+/// allowed on the `card` container only (narrow seam, no per-field `attrs`).
+/// This keeps Token editing in `styles.css` as the primary theming mechanism.
 #[derive(Debug)]
 pub struct Section {
     title: String,
     children: Option<Schema>,
+    extra_class: Option<String>,
 }
 
 impl Section {
@@ -219,6 +247,7 @@ impl Section {
         Self {
             title: title.into(),
             children: None,
+            extra_class: None,
         }
     }
 
@@ -227,23 +256,33 @@ impl Section {
         self
     }
 
+    /// Additive `class` hook on the `card` container (narrow seam).
+    /// Merged via `class!` against Token classes, never replacing them.
+    pub fn class(mut self, class: impl Into<String>) -> Self {
+        self.extra_class = Some(class.into());
+        self
+    }
+
     async fn render(&self, cx: &Cx) -> Result<View> {
         let title = self.title.clone();
+        let extra = self.extra_class.clone();
         if let Some(schema) = &self.children {
             let child_view = schema.render(cx).await?;
             view! {
                 cx =>
-                <section class="ac-section">
-                    <h2 class="ac-section-title">(title)</h2>
-                    <div class="ac-section-content">(child_view)</div>
-                </section>
+                card(
+                    attrs: attributes! { class=(extra.clone()) },
+                    card_header(card_title((title)))
+                    card_content((child_view))
+                )
             }
         } else {
             view! {
                 cx =>
-                <section class="ac-section">
-                    <h2 class="ac-section-title">(title)</h2>
-                </section>
+                card(
+                    attrs: attributes! { class=(extra.clone()) },
+                    card_header(card_title((title)))
+                )
             }
         }
     }
@@ -274,9 +313,9 @@ impl Group {
     async fn render(&self, cx: &Cx) -> Result<View> {
         if let Some(schema) = &self.children {
             let child_view = schema.render(cx).await?;
-            view! { cx => <div class="ac-group">(child_view)</div> }
+            view! { cx => <div class="flex flex-col gap-4">(child_view)</div> }
         } else {
-            view! { cx => <div class="ac-group"></div> }
+            view! { cx => <div class="flex flex-col gap-4"></div> }
         }
     }
 }
@@ -302,7 +341,7 @@ impl Grid {
     }
 
     async fn render(&self, cx: &Cx) -> Result<View> {
-        let class = format!("ac-grid ac-grid-cols-{}", self.cols);
+        let class = format!("grid grid-cols-{} gap-4", self.cols);
         if let Some(schema) = &self.children {
             let child_view = schema.render(cx).await?;
             view! { cx => <div class=(class)>(child_view)</div> }
@@ -513,8 +552,20 @@ mod tests {
         let cx = cx();
         let schema = Schema::new(TextInput::r#for(DummyUser::fields().name()));
         let html = schema.render(&cx).await.unwrap().render(&cx);
-        assert!(html.contains("ac-field"), "missing ac-field in {html}");
-        assert!(html.contains("ac-input"), "missing ac-input in {html}");
+        // Beautiful: grid gap-1.5 wrapper, label + input with Token classes
+        assert!(
+            html.contains("grid gap-1.5"),
+            "missing grid gap-1.5 in {html}"
+        );
+        assert!(
+            html.contains("border-border"),
+            "missing border-border in {html}"
+        );
+        assert!(
+            html.contains("bg-background"),
+            "missing bg-background in {html}"
+        );
+        assert!(html.contains("shadow-xs"), "missing shadow-xs in {html}");
         assert!(
             html.contains("name=\"name\"")
                 || html.contains("name=\"Name\"")
@@ -522,6 +573,15 @@ mod tests {
             "missing name attr in {html}"
         );
         assert!(html.contains("<input"), "missing input in {html}");
+        assert!(html.contains("<label"), "missing label in {html}");
+        assert!(
+            html.contains("for=\"name\"") || html.contains("for="),
+            "missing for/id linking in {html}"
+        );
+        assert!(
+            html.contains("text-sm text-destructive"),
+            "missing reserved error slot in {html}"
+        );
         // label derived from lens: DummyUser::fields().name() → "name" → "Name"
         assert!(
             html.contains("Name") || html.contains("name"),
@@ -561,12 +621,20 @@ mod tests {
             .unwrap()
             .render(&cx);
         assert!(
-            html_req.contains("ac-required"),
-            "required should render star in {html_req}"
+            html_req.contains("text-destructive"),
+            "required should render star with text-destructive in {html_req}"
         );
         assert!(
             html_req.contains("required"),
             "required attr missing in {html_req}"
+        );
+        assert!(
+            html_req.contains("aria-required"),
+            "aria-required missing in {html_req}"
+        );
+        assert!(
+            html_req.contains("for=\"name\"") && html_req.contains("id=\"name\""),
+            "for/id linking missing in {html_req}"
         );
         let html_email = Schema::new(TextInput::r#for(DummyUser::fields().email()).email())
             .render(&cx)
@@ -585,6 +653,11 @@ mod tests {
         assert!(
             html_text.contains("type=\"text\""),
             "plain should render type=text in {html_text}"
+        );
+        // reserved error slot
+        assert!(
+            html_req.contains("text-sm text-destructive"),
+            "error slot missing in {html_req}"
         );
     }
 
@@ -631,8 +704,12 @@ mod tests {
         ));
         let html = schema.render(&cx).await.unwrap().render(&cx);
         assert!(
-            html.matches("ac-field").count() >= 2,
-            "expected 2 fields in {html}"
+            html.matches("grid gap-1.5").count() >= 2,
+            "expected 2 fields (grid gap-1.5) in {html}"
+        );
+        assert!(
+            html.matches("text-sm text-destructive").count() >= 2,
+            "expected 2 error slots in {html}"
         );
     }
 
@@ -644,9 +721,15 @@ mod tests {
             TextInput::r#for(DummyUser::fields().email()).email(),
         ))));
         let html = schema.render(&cx).await.unwrap().render(&cx);
-        assert!(html.contains("ac-section"), "missing section in {html}");
-        assert!(html.contains("ac-grid"), "missing grid in {html}");
-        assert!(html.contains("ac-field"), "missing field in {html}");
+        // Section now renders as card with Token classes
+        assert!(
+            html.contains("border-border"),
+            "missing card border in {html}"
+        );
+        assert!(html.contains("bg-background"), "missing card bg in {html}");
+        assert!(html.contains("shadow-sm"), "missing card shadow in {html}");
+        assert!(html.contains("grid grid-cols-2"), "missing grid in {html}");
+        assert!(html.contains("grid gap-1.5"), "missing field in {html}");
     }
 
     #[tokio::test]
@@ -656,13 +739,18 @@ mod tests {
         let html = schema.render(&cx).await.unwrap().render(&cx);
         assert!(html.contains("Account"), "missing title in {html}");
         assert!(html.contains("hello"), "missing child in {html}");
+        // Section now renders as card
         assert!(
-            html.contains("ac-section"),
-            "missing section class in {html}"
+            html.contains("rounded-xl") && html.contains("border-border"),
+            "missing card chrome in {html}"
         );
         assert!(
-            html.contains("ac-section-title"),
-            "missing title class in {html}"
+            html.contains("px-6"),
+            "missing card header/content padding in {html}"
+        );
+        assert!(
+            html.contains("font-semibold"),
+            "missing card title in {html}"
         );
     }
 
@@ -672,7 +760,10 @@ mod tests {
         let schema = Schema::new(Group::new().schema(Text::new("inside group")));
         let html = schema.render(&cx).await.unwrap().render(&cx);
         assert!(html.contains("inside group"), "missing child in {html}");
-        assert!(html.contains("ac-group"), "missing group class in {html}");
+        assert!(
+            html.contains("flex flex-col gap-4"),
+            "missing group class flex flex-col gap-4 in {html}"
+        );
     }
 
     #[tokio::test]
@@ -680,17 +771,18 @@ mod tests {
         let cx = cx();
         let schema = Schema::new(Grid::new(2).schema((Text::new("a"), Text::new("b"))));
         let html = schema.render(&cx).await.unwrap().render(&cx);
-        assert!(html.contains("ac-grid"), "missing grid class in {html}");
+        assert!(html.contains("grid"), "missing grid class in {html}");
         assert!(
-            html.contains("ac-grid-cols-2"),
-            "missing cols class in {html}"
+            html.contains("grid-cols-2"),
+            "missing cols class grid-cols-2 in {html}"
         );
+        assert!(html.contains("gap-4"), "missing gap-4 in {html}");
         assert!(
-            html.contains(">a<") || html.contains("ac-text\">a"),
+            html.contains(">a<") || html.contains("text-foreground\">a"),
             "missing a in {html}"
         );
         assert!(
-            html.contains(">b<") || html.contains("ac-text\">b"),
+            html.contains(">b<") || html.contains("text-foreground\">b"),
             "missing b in {html}"
         );
     }
@@ -706,8 +798,11 @@ mod tests {
         assert!(html.contains("Outer"), "missing outer title in {html}");
         assert!(html.contains("left"), "missing left in {html}");
         assert!(html.contains("right"), "missing right in {html}");
-        assert!(html.contains("ac-section"), "missing section in {html}");
-        assert!(html.contains("ac-grid"), "missing grid in {html}");
+        assert!(
+            html.contains("rounded-xl") && html.contains("border-border"),
+            "missing section card in {html}"
+        );
+        assert!(html.contains("grid-cols-2"), "missing grid in {html}");
     }
 
     #[tokio::test]
@@ -718,8 +813,14 @@ mod tests {
             Group::new().schema(Text::new("b")),
         ));
         let html = schema.render(&cx).await.unwrap().render(&cx);
-        assert!(html.contains("ac-section"), "missing section in {html}");
-        assert!(html.contains("ac-group"), "missing group in {html}");
+        assert!(
+            html.contains("rounded-xl") && html.contains("border-border"),
+            "missing section card in {html}"
+        );
+        assert!(
+            html.contains("flex flex-col gap-4"),
+            "missing group in {html}"
+        );
     }
 
     #[tokio::test]
@@ -728,7 +829,7 @@ mod tests {
         let schema = Schema::empty();
         let html = schema.render(&cx).await.unwrap().render(&cx);
         assert!(
-            html.is_empty() || !html.contains("ac-"),
+            html.is_empty() || !html.contains("border-border"),
             "empty schema should render nothing, got {html}"
         );
     }

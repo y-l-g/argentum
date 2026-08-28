@@ -74,22 +74,22 @@ async fn schema_showcase(cx: &Cx) -> Result {
     let empty = Schema::empty().render(cx).await?;
 
     view! {
-        <div class="ac-showcase">
+        <div class="flex flex-col gap-8 max-w-4xl mx-auto p-6">
             <h1>"Schema"</h1>
             <p>"Unified layout primitive for forms/infolists. Text + Section/Group/Grid compose via IntoSchema tuples and render through view!."</p>
 
-            <section class="ac-showcase-block">
+            <section class="flex flex-col gap-4 rounded-xl border border-border bg-background p-6 shadow-sm">
                 <h2>"Text (leaf)"</h2>
                 <p>"Placeholder leaf — will become typed fields (TextInput, Select...)."</p>
                 <pre><code>"Schema::new(Text::new(\"hello\"))"</code></pre>
-                <div class="ac-showcase-result">(text)</div>
+                <div class="rounded-lg border border-border bg-background p-4">(text)</div>
             </section>
 
-            <section class="ac-showcase-block">
+            <section class="flex flex-col gap-4 rounded-xl border border-border bg-background p-6 shadow-sm">
                 <h2>"TextInput (typed field)"</h2>
                 <p>"Bound to a Toasty lens — `TextInput::for(User::fields().name())` fails if column missing. Variants: plain, required, email."</p>
                 <pre><code>"TextInput::for(User::fields().name())\nTextInput::for(User::fields().name()).required()\nTextInput::for(User::fields().email()).required().email()\nSchema::new((TextInput::for(User::fields().name()), TextInput::for(User::fields().email())))"</code></pre>
-                <div class="ac-showcase-result">
+                <div class="rounded-lg border border-border bg-background p-4">
                     <h3>"name"</h3> (input_name)
                     <h3>"required"</h3> (input_required)
                     <h3>"email"</h3> (input_email)
@@ -98,39 +98,39 @@ async fn schema_showcase(cx: &Cx) -> Result {
                 </div>
             </section>
 
-            <section class="ac-showcase-block">
+            <section class="flex flex-col gap-4 rounded-xl border border-border bg-background p-6 shadow-sm">
                 <h2>"Validation (inline)"</h2>
                 <p>"`required` and `email` return per-field errors; empty required → error, bad email → error, valid → no error."</p>
                 <pre><code>"TextInput::for(User::fields().name()).required().validate(\"\") // [\"Name is required\"]\nTextInput::for(User::fields().email()).email().validate(\"bad\") // [\"Email must be a valid email\"]"</code></pre>
-                <div class="ac-showcase-result">
-                    <p>"required empty: " <span class="ac-error">(err_required)</span></p>
-                    <p>"email bad: " <span class="ac-error">(err_email)</span></p>
+                <div class="rounded-lg border border-border bg-background p-4">
+                    <p>"required empty: " <span class="text-sm text-destructive">(err_required)</span></p>
+                    <p>"email bad: " <span class="text-sm text-destructive">(err_email)</span></p>
                     <p>"valid: " (if err_none.is_empty() { "— no errors" } else { &err_none })</p>
                 </div>
             </section>
 
-            <section class="ac-showcase-block">
+            <section class="flex flex-col gap-4 rounded-xl border border-border bg-background p-6 shadow-sm">
                 <h2>"Section"</h2>
                 <p>"Titled container. Empty vs with child."</p>
                 <pre><code>"Section::new(\"Account\")\nSection::new(\"Account\").schema(Text::new(\"hello\"))"</code></pre>
-                <div class="ac-showcase-result">
+                <div class="rounded-lg border border-border bg-background p-4">
                     <h3>"empty"</h3> (section_empty)
                     <h3>"with child"</h3> (section_with_child)
                 </div>
             </section>
 
-            <section class="ac-showcase-block">
+            <section class="flex flex-col gap-4 rounded-xl border border-border bg-background p-6 shadow-sm">
                 <h2>"Group"</h2>
                 <p>"Unlabelled container."</p>
                 <pre><code>"Group::new().schema(Text::new(\"inside group\"))"</code></pre>
-                <div class="ac-showcase-result">(group)</div>
+                <div class="rounded-lg border border-border bg-background p-4">(group)</div>
             </section>
 
-            <section class="ac-showcase-block">
+            <section class="flex flex-col gap-4 rounded-xl border border-border bg-background p-6 shadow-sm">
                 <h2>"Grid"</h2>
                 <p>"Column container, cols 1..12 (clamped). Variants: 1, 2, 12, 15→12, nested in Section."</p>
-                <pre><code>"Grid::new(1).schema(Text::new(\"one col\"))\nGrid::new(2).schema((Text::new(\"a\"), Text::new(\"b\")))\nGrid::new(12).schema(Text::new(\"12 cols\"))\nGrid::new(15).schema(Text::new(\"15 → clamped to 12\")) // ac-grid-cols-12\nSection::new(\"Outer\").schema(Grid::new(2).schema((Text::new(\"left\"), Text::new(\"right\"))))"</code></pre>
-                <div class="ac-showcase-result">
+                <pre><code>"Grid::new(1).schema(Text::new(\"one col\"))\nGrid::new(2).schema((Text::new(\"a\"), Text::new(\"b\")))\nGrid::new(12).schema(Text::new(\"12 cols\"))\nGrid::new(15).schema(Text::new(\"15 → clamped to 12\")) // grid-cols-12\nSection::new(\"Outer\").schema(Grid::new(2).schema((Text::new(\"left\"), Text::new(\"right\"))))"</code></pre>
+                <div class="rounded-lg border border-border bg-background p-4">
                     <h3>"1 col"</h3> (grid_1)
                     <h3>"2 cols"</h3> (grid_2)
                     <h3>"12 cols"</h3> (grid_12)
@@ -139,13 +139,13 @@ async fn schema_showcase(cx: &Cx) -> Result {
                 </div>
             </section>
 
-            <section class="ac-showcase-block">
+            <section class="flex flex-col gap-4 rounded-xl border border-border bg-background p-6 shadow-sm">
                 <h2>"Composition"</h2>
                 <p>"Tuples of IntoSchema become one Schema. Empty renders nothing."</p>
                 <pre><code>"Schema::new((Section::new(\"A\").schema(Text::new(\"a\")), Group::new().schema(Text::new(\"b\"))))\nSchema::empty() // renders \"\""</code></pre>
-                <div class="ac-showcase-result">
+                <div class="rounded-lg border border-border bg-background p-4">
                     <h3>"(Section, Group)"</h3> (composed)
-                    <h3>"empty"</h3> (empty) <span class="ac-muted">"(empty — no ac-* classes)"</span>
+                    <h3>"empty"</h3> (empty) <span class="text-sm text-muted-foreground">"(empty — no ac-* classes)"</span>
                 </div>
             </section>
 

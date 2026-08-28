@@ -176,23 +176,40 @@ async fn showcase_schema_renders_variants() {
     );
     let body = response.into_body().collect().await.unwrap().to_bytes();
     let html = String::from_utf8_lossy(&body);
-    // Snippets + rendered classes
+    // Snippets + rendered classes — beautiful: Token classes
     assert!(html.contains("Text::new"), "missing Text snippet in {html}");
-    assert!(html.contains("ac-text"), "missing ac-text in {html}");
-    assert!(html.contains("ac-section"), "missing ac-section in {html}");
-    assert!(html.contains("ac-group"), "missing ac-group in {html}");
-    assert!(html.contains("ac-grid"), "missing ac-grid in {html}");
     assert!(
-        html.contains("ac-grid-cols-2"),
-        "missing grid cols in {html}"
+        html.contains("text-foreground") || html.contains("text-sm"),
+        "missing Text Token in {html}"
     );
-    // TextInput field
+    assert!(
+        html.contains("rounded-xl") && html.contains("border-border"),
+        "missing Section card chrome in {html}"
+    );
+    assert!(
+        html.contains("flex flex-col gap-4"),
+        "missing Group Token in {html}"
+    );
+    assert!(html.contains("grid"), "missing grid in {html}");
+    assert!(html.contains("grid-cols-2"), "missing grid cols in {html}");
+    // TextInput field — beautiful via label+input Tokens
     assert!(
         html.contains("TextInput::for"),
         "missing TextInput snippet in {html}"
     );
-    assert!(html.contains("ac-field"), "missing ac-field in {html}");
+    assert!(
+        html.contains("grid gap-1.5"),
+        "missing TextInput grid gap-1.5 in {html}"
+    );
+    assert!(
+        html.contains("border-border"),
+        "missing input border-border in {html}"
+    );
     assert!(html.contains("<input"), "missing input in {html}");
+    assert!(
+        html.contains("text-sm text-destructive"),
+        "missing error slot in {html}"
+    );
     // Composition and empty
     assert!(
         html.contains("Schema::empty"),
@@ -413,15 +430,23 @@ async fn admin_form_via_resource_renders_text_inputs() {
     let form = UserResource::form(&cx);
     let html = form.render(&cx).await.unwrap().render(&cx);
     assert!(
-        html.contains("ac-field"),
-        "Resource::form should render TextInput(s) with ac-field in {html}"
+        html.contains("grid gap-1.5"),
+        "Resource::form should render TextInput(s) with grid gap-1.5 in {html}"
+    );
+    assert!(
+        html.contains("border-border") && html.contains("bg-background"),
+        "Resource::form should have Token input chrome in {html}"
     );
     assert!(
         html.contains("<input"),
         "Resource::form should contain <input> in {html}"
     );
     assert!(
-        html.matches("ac-field").count() >= 2,
+        html.contains("text-sm text-destructive"),
+        "Resource::form should have error slot in {html}"
+    );
+    assert!(
+        html.matches("grid gap-1.5").count() >= 2,
         "Resource::form should have at least 2 fields (name, email) in {html}"
     );
 }
