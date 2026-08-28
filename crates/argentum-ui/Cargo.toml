@@ -1,0 +1,13 @@
+[package]
+name = "argentum-ui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Beautiful Topcoat UI primitives for Argentum — owned library over topcoat-ui-registry."
+
+[dependencies]
+topcoat = { workspace = true, features = ["tailwind", "font", "font-fontsource", "asset"] }
+
+[lints]
+workspace = true

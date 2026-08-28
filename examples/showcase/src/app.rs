@@ -2,10 +2,16 @@ use argentum_core::{Panel, Resource, Schema, Table, TextColumn, TextInput};
 use toasty::Db;
 use topcoat::{
     Result,
+    asset::Asset,
     context::Cx,
+    font::{Font, fontsource::fontsource_font},
     router::{Router, layout},
+    tailwind,
     view::view,
 };
+
+/// The theme's sans font, pulled from Fontsource and self-hosted as a Topcoat asset.
+const GEIST: Font = fontsource_font!(GEIST, host: Asset);
 
 use crate::models::User;
 
@@ -49,15 +55,28 @@ impl Resource for UserResource {
 // ---------------------------------------------------------------------------
 
 #[layout("/admin")]
-async fn admin_layout(slot: Result) -> Result {
+async fn admin_layout(cx: &Cx, slot: Result) -> Result {
     // Panel-aware navigation — URL respects the Panel mount prefix (e.g. "backoffice" → "/backoffice").
     let nav = Panel::new("admin").navigation_item::<UserResource>();
     let label = nav.label.clone();
     let url = nav.url.clone();
+    // Asset-dependent links (tailwind + font) require `AssetConfig` on the router.
+    // In `cargo test` without `AssetBundle`, we fall back to a plain style tag.
+    let has_assets = topcoat::context::try_app_context::<topcoat::asset::AssetConfig>(cx).is_some();
     view! {
+        cx =>
         <!DOCTYPE html>
         <html>
-            <head><title>"Admin"</title></head>
+            <head>
+                <title>"Admin"</title>
+                topcoat::dev::script()
+                if has_assets {
+                    topcoat::font::link(font: GEIST)
+                    <link rel="stylesheet" href=(tailwind::stylesheet!())>
+                } else {
+                    <style>"/* tailwind and font skipped - no asset config */"</style>
+                }
+            </head>
             <body class="ac-admin">
                 <nav class="ac-sidebar">
                     <a href=(url) class="ac-nav-item">(label)</a>

@@ -104,6 +104,7 @@ async fn showcase_index_lists_features() {
         "missing Showcase heading in {html}"
     );
     for path in [
+        "/admin/showcase/ui",
         "/admin/showcase/schema",
         "/admin/showcase/resource",
         "/admin/showcase/panel",
@@ -112,6 +113,44 @@ async fn showcase_index_lists_features() {
     ] {
         assert!(html.contains(path), "missing link {path} in {html}");
     }
+}
+
+#[tokio::test]
+async fn showcase_ui_renders_card_and_button_with_tokens() {
+    let db = seeded_db().await;
+    let router = router(db);
+    let response = router
+        .handle(
+            http::Request::builder()
+                .uri("/admin/showcase/ui")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+    assert!(
+        response.status().is_success(),
+        "ui showcase status {}",
+        response.status()
+    );
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let html = String::from_utf8_lossy(&body);
+    assert!(
+        html.contains("Beautiful card") || html.contains("argentum-ui"),
+        "missing card title in {html}"
+    );
+    assert!(
+        html.contains("border-border") && html.contains("bg-background"),
+        "missing Token border/bg in {html}"
+    );
+    assert!(
+        html.contains("text-muted-foreground"),
+        "missing muted text Token in {html}"
+    );
+    assert!(
+        html.contains("shadow-sm") || html.contains("rounded-xl"),
+        "missing card shadow/rounded in {html}"
+    );
+    assert!(html.contains("Primary"), "missing Primary button in {html}");
 }
 
 #[tokio::test]

@@ -9,10 +9,15 @@ description = "Showcase: single example demonstrating every Argentum feature wit
 
 [dependencies]
 argentum-core = { path = "../../crates/argentum-core" }
+argentum-ui = { path = "../../crates/argentum-ui" }
 toasty.workspace = true
 tokio.workspace = true
-topcoat = { workspace = true, features = ["serve"] }
+topcoat = { workspace = true, features = ["serve", "tailwind", "font", "font-fontsource", "asset", "runtime"] }
 uuid.workspace = true
+
+[build-dependencies]
+argentum-ui = { path = "../../crates/argentum-ui" }
+topcoat = { path = "../../../topcoat/crates/topcoat", default-features = false, features = ["tailwind"] }
 
 [dev-dependencies]
 http = "1"

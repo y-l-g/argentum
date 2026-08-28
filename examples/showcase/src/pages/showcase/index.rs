@@ -10,6 +10,7 @@ async fn showcase_index() -> Result {
             <section class="ac-showcase-section">
                 <h2>"Features"</h2>
                 <ul>
+                    <li><a href="/admin/showcase/ui">"UI"</a>" — argentum-ui seam: card, button, badge with Tokens (proves Tailwind seam)"</li>
                     <li><a href="/admin/showcase/panel">"Panel"</a>" — app shell, prefix, Db in app_context, Router discover"</li>
                     <li><a href="/admin/showcase/resource">"Resource"</a>" — #[derive(Resource)] model + query override, navigation"</li>
                     <li><a href="/admin/showcase/schema">"Schema"</a>" — Section / Group / Grid / TextInput + composition variants"</li>

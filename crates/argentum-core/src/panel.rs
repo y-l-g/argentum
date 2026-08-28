@@ -47,8 +47,29 @@ impl Panel {
     /// `app_context`.
     ///
     /// Panics if no `Db` was provided via [`app_context`](Self::app_context).
+    ///
+    /// Also validates the Tailwind stylesheet presence and emits a diagnostic
+    /// when missing (see `examples/showcase/styles.css` and `build.rs`).
     pub fn build(self) -> Router {
         let db = self.db.expect("Panel::build requires a Db via app_context");
+        // Diagnostic for per-app Tailwind contract — see ADR-0006.
+        // The stylesheet is generated at `$OUT_DIR/tailwind.css` via
+        // `argentum_ui::tailwind_build()` in the app's `build.rs`. In tests
+        // or when the build hasn't run, the file is absent; we only warn in
+        // non-test builds to keep `cargo test` green.
+        #[cfg(not(test))]
+        {
+            let out_dir = std::env::var("OUT_DIR").unwrap_or_default();
+            let css = std::path::Path::new(&out_dir).join("tailwind.css");
+            if !css.exists() && std::env::var("ARGENTUM_SKIP_TAILWIND_CHECK").is_err() {
+                eprintln!(
+                    "warning: Tailwind stylesheet not found at {css:?}. \
+                    Ensure `styles.css` (with `@import \"tailwindcss\"` + tokens + `@source` for app and `argentum-ui`) \
+                    and `build.rs` (`argentum_ui::tailwind_build()`) are present, and layout injects \
+                    `tailwind::stylesheet!()` + `fontsource_font!(GEIST)`. See `examples/showcase` as reference (ADR-0006)."
+                );
+            }
+        }
         Router::builder().discover().app_context(db).build()
     }
 

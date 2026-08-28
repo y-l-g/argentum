@@ -4,3 +4,4 @@ pub mod panel;
 pub mod resource;
 pub mod schema;
 pub mod table;
+pub mod ui;
