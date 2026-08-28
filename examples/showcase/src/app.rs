@@ -2,7 +2,7 @@ use argentum_core::{NavigationItem, Panel, Resource, Schema, Table, TextColumn, 
 use toasty::Db;
 use topcoat::{
     Result,
-    asset::{Asset, AssetBundle, RouterBuilderAssetExt},
+    asset::{AssetBundle, RouterBuilderAssetExt},
     context::Cx,
     font::{Font, fontsource::fontsource_font},
     router::{RouterBuilderDiscoverExt, layout},
@@ -85,9 +85,7 @@ async fn admin_layout(cx: &Cx, slot: Result) -> Result {
                     <style>"/* tailwind and font skipped - no asset config */"</style>
                 }
             </head>
-            <body>
-                (shell)
-            </body>
+            <body>(shell)</body>
         </html>
     }
 }

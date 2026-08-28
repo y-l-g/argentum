@@ -335,17 +335,29 @@ impl<M> Table<M> {
                     <div class="w-full overflow-x-auto">
                         <table class="w-full caption-bottom border-collapse text-sm">
                             <thead class="[&_tr]:border-b">
-                                <tr class="border-b border-border transition-colors hover:bg-foreground/5">
+                                <tr
+                                    class="border-b border-border transition-colors hover:bg-foreground/5"
+                                >
                                     for col in &self.columns {
-                                        <th class="h-10 px-3 text-left align-middle font-medium whitespace-nowrap text-muted-foreground">(col.label())</th>
+                                        <th
+                                            class="h-10 px-3 text-left align-middle font-medium whitespace-nowrap text-muted-foreground"
+                                        >
+                                            (col.label())
+                                        </th>
                                     }
                                 </tr>
                             </thead>
                             <tbody class="[&_tr:last-child]:border-0">
                                 for _ in 0..3 {
-                                    <tr class="border-b border-border transition-colors hover:bg-foreground/5">
+                                    <tr
+                                        class="border-b border-border transition-colors hover:bg-foreground/5"
+                                    >
                                         for _ in &self.columns {
-                                            <td class="p-3 align-middle whitespace-nowrap"><div class="animate-pulse rounded-md bg-foreground/10 h-4 w-full"></div></td>
+                                            <td class="p-3 align-middle whitespace-nowrap">
+                                                <div
+                                                    class="animate-pulse rounded-md bg-foreground/10 h-4 w-full"
+                                                ></div>
+                                            </td>
                                         }
                                     </tr>
                                 }
@@ -363,35 +375,86 @@ impl<M> Table<M> {
                     <div class="w-full overflow-x-auto">
                         <table class="w-full caption-bottom border-collapse text-sm">
                             <thead class="[&_tr]:border-b">
-                                <tr class="border-b border-border transition-colors hover:bg-foreground/5">
+                                <tr
+                                    class="border-b border-border transition-colors hover:bg-foreground/5"
+                                >
                                     for col in &self.columns {
-                                    <th class=(if col.is_sortable() { "h-10 px-3 text-left align-middle font-medium whitespace-nowrap text-muted-foreground cursor-pointer hover:bg-foreground/5" } else { "h-10 px-3 text-left align-middle font-medium whitespace-nowrap text-muted-foreground" }) aria-sort=(if col.is_sortable() { Some("none") } else { None })>
-                                        (col.label())
-                                        if col.is_searchable() {
-                                            <span role="img" aria-label="Searchable column" class="ml-2 inline-flex size-4 items-center justify-center align-middle text-base leading-none text-muted-foreground">"⌕"</span>
-                                        }
-                                        if col.is_sortable() {
-                                            <button type="button" aria-label=(format!("Sort by {}", col.label())) class="ml-2 inline-flex size-4 items-center justify-center align-middle text-base leading-none text-muted-foreground hover:text-foreground">"↕"</button>
-                                        }
-                                    </th>
-                                }
-                            </tr>
-                        </thead>
-                    </table>
-                </div>
-                <div class="px-6 py-16 text-center">
+                                        <th
+                                            class=(if col.is_sortable() {
+                                                "h-10 px-3 text-left align-middle font-medium whitespace-nowrap text-muted-foreground cursor-pointer hover:bg-foreground/5"
+                                            } else {
+                                                "h-10 px-3 text-left align-middle font-medium whitespace-nowrap text-muted-foreground"
+                                            })
+                                            aria-sort=(if col.is_sortable() {
+                                                Some("none")
+                                            } else {
+                                                None
+                                            })
+                                        >
+                                            (col.label())
+                                            if col.is_searchable() {
+                                                <span
+                                                    role="img"
+                                                    aria-label="Searchable column"
+                                                    class="ml-2 inline-flex size-4 items-center justify-center align-middle text-base leading-none text-muted-foreground"
+                                                >
+                                                    "⌕"
+                                                </span>
+                                            }
+                                            if col.is_sortable() {
+                                                <button
+                                                    type="button"
+                                                    aria-label=(format!("Sort by {}", col.label()))
+                                                    class="ml-2 inline-flex size-4 items-center justify-center align-middle text-base leading-none text-muted-foreground hover:text-foreground"
+                                                >
+                                                    "↕"
+                                                </button>
+                                            }
+                                        </th>
+                                    }
+                                </tr>
+                            </thead>
+                        </table>
+                    </div>
+                    <div class="px-6 py-16 text-center">
                         <div class="flex flex-col items-center gap-4">
-                            <p class="text-sm text-muted-foreground">"No records found"</p>
-                            <p class="text-sm text-muted-foreground">"No search results"</p>
-                            <button class="inline-flex shrink-0 items-center justify-center border font-medium whitespace-nowrap transition-colors outline-none select-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 border-transparent bg-primary text-primary-foreground shadow-xs hover:bg-primary/90 active:bg-primary/80 h-9 gap-2 rounded-lg px-4 text-sm">"Create record"</button>
+                            <p class="text-sm text-muted-foreground">
+                                "No records found"
+                            </p>
+                            <p class="text-sm text-muted-foreground">
+                                "No search results"
+                            </p>
+                            <button
+                                class="inline-flex shrink-0 items-center justify-center border font-medium whitespace-nowrap transition-colors outline-none select-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 border-transparent bg-primary text-primary-foreground shadow-xs hover:bg-primary/90 active:bg-primary/80 h-9 gap-2 rounded-lg px-4 text-sm"
+                            >
+                                "Create record"
+                            </button>
                         </div>
                     </div>
                     if self.pagination {
                         <div class="border-t border-border p-3">
-                            <nav aria-label="pagination" class="@container mx-auto flex w-full justify-center">
-                                <ul class="flex flex-row flex-wrap items-center justify-center gap-1">
-                                    <li><a aria-current="page" class="inline-flex shrink-0 items-center justify-center border font-medium whitespace-nowrap transition-colors outline-none select-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 border-border text-foreground shadow-xs hover:bg-foreground/5 active:bg-foreground/10 size-9 rounded-lg text-base">"1"</a></li>
-                                    <li><a class="inline-flex shrink-0 items-center justify-center border font-medium whitespace-nowrap transition-colors outline-none select-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 border-transparent text-foreground hover:bg-foreground/5 active:bg-foreground/10 size-9 rounded-lg text-base">"2"</a></li>
+                            <nav
+                                aria-label="pagination"
+                                class="@container mx-auto flex w-full justify-center"
+                            >
+                                <ul
+                                    class="flex flex-row flex-wrap items-center justify-center gap-1"
+                                >
+                                    <li>
+                                        <a
+                                            aria-current="page"
+                                            class="inline-flex shrink-0 items-center justify-center border font-medium whitespace-nowrap transition-colors outline-none select-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 border-border text-foreground shadow-xs hover:bg-foreground/5 active:bg-foreground/10 size-9 rounded-lg text-base"
+                                        >
+                                            "1"
+                                        </a>
+                                    </li>
+                                    <li>
+                                        <a
+                                            class="inline-flex shrink-0 items-center justify-center border font-medium whitespace-nowrap transition-colors outline-none select-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 border-transparent text-foreground hover:bg-foreground/5 active:bg-foreground/10 size-9 rounded-lg text-base"
+                                        >
+                                            "2"
+                                        </a>
+                                    </li>
                                 </ul>
                             </nav>
                         </div>
@@ -406,15 +469,40 @@ impl<M> Table<M> {
                 <div class="w-full overflow-x-auto">
                     <table class="w-full caption-bottom border-collapse text-sm">
                         <thead class="[&_tr]:border-b">
-                            <tr class="border-b border-border transition-colors hover:bg-foreground/5">
+                            <tr
+                                class="border-b border-border transition-colors hover:bg-foreground/5"
+                            >
                                 for col in &self.columns {
-                                    <th class=(if col.is_sortable() { "h-10 px-3 text-left align-middle font-medium whitespace-nowrap text-muted-foreground cursor-pointer hover:bg-foreground/5" } else { "h-10 px-3 text-left align-middle font-medium whitespace-nowrap text-muted-foreground" }) aria-sort=(if col.is_sortable() { Some("none") } else { None })>
+                                    <th
+                                        class=(if col.is_sortable() {
+                                            "h-10 px-3 text-left align-middle font-medium whitespace-nowrap text-muted-foreground cursor-pointer hover:bg-foreground/5"
+                                        } else {
+                                            "h-10 px-3 text-left align-middle font-medium whitespace-nowrap text-muted-foreground"
+                                        })
+                                        aria-sort=(if col.is_sortable() {
+                                            Some("none")
+                                        } else {
+                                            None
+                                        })
+                                    >
                                         (col.label())
                                         if col.is_searchable() {
-                                            <span role="img" aria-label="Searchable column" class="ml-2 inline-flex size-4 items-center justify-center align-middle text-base leading-none text-muted-foreground">"⌕"</span>
+                                            <span
+                                                role="img"
+                                                aria-label="Searchable column"
+                                                class="ml-2 inline-flex size-4 items-center justify-center align-middle text-base leading-none text-muted-foreground"
+                                            >
+                                                "⌕"
+                                            </span>
                                         }
                                         if col.is_sortable() {
-                                            <button type="button" aria-label=(format!("Sort by {}", col.label())) class="ml-2 inline-flex size-4 items-center justify-center align-middle text-base leading-none text-muted-foreground hover:text-foreground">"↕"</button>
+                                            <button
+                                                type="button"
+                                                aria-label=(format!("Sort by {}", col.label()))
+                                                class="ml-2 inline-flex size-4 items-center justify-center align-middle text-base leading-none text-muted-foreground hover:text-foreground"
+                                            >
+                                                "↕"
+                                            </button>
                                         }
                                     </th>
                                 }
@@ -422,9 +510,14 @@ impl<M> Table<M> {
                         </thead>
                         <tbody class="[&_tr:last-child]:border-0">
                             for row in rows {
-                                <tr key=(row.id_string()) class="border-b border-border transition-colors hover:bg-foreground/5">
+                                <tr
+                                    key=(row.id_string())
+                                    class="border-b border-border transition-colors hover:bg-foreground/5"
+                                >
                                     for col in &self.columns {
-                                        <td class="p-3 align-middle whitespace-nowrap">(row.get_field(col.name()))</td>
+                                        <td class="p-3 align-middle whitespace-nowrap">
+                                            (row.get_field(col.name()))
+                                        </td>
                                     }
                                 </tr>
                             }
@@ -433,11 +526,35 @@ impl<M> Table<M> {
                 </div>
                 if self.pagination {
                     <div class="border-t border-border p-3">
-                        <nav aria-label="pagination" class="@container mx-auto flex w-full justify-center">
-                            <ul class="flex flex-row flex-wrap items-center justify-center gap-1">
-                                <li><a aria-current="page" class="inline-flex shrink-0 items-center justify-center border font-medium whitespace-nowrap transition-colors outline-none select-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 border-border text-foreground shadow-xs hover:bg-foreground/5 active:bg-foreground/10 size-9 rounded-lg text-base">"1"</a></li>
-                                <li><a class="inline-flex shrink-0 items-center justify-center border font-medium whitespace-nowrap transition-colors outline-none select-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 border-transparent text-foreground hover:bg-foreground/5 active:bg-foreground/10 size-9 rounded-lg text-base">"2"</a></li>
-                                <li><a class="inline-flex shrink-0 items-center justify-center border font-medium whitespace-nowrap transition-colors outline-none select-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 border-transparent text-foreground hover:bg-foreground/5 active:bg-foreground/10 size-9 rounded-lg text-base">"3"</a></li>
+                        <nav
+                            aria-label="pagination"
+                            class="@container mx-auto flex w-full justify-center"
+                        >
+                            <ul
+                                class="flex flex-row flex-wrap items-center justify-center gap-1"
+                            >
+                                <li>
+                                    <a
+                                        aria-current="page"
+                                        class="inline-flex shrink-0 items-center justify-center border font-medium whitespace-nowrap transition-colors outline-none select-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 border-border text-foreground shadow-xs hover:bg-foreground/5 active:bg-foreground/10 size-9 rounded-lg text-base"
+                                    >
+                                        "1"
+                                    </a>
+                                </li>
+                                <li>
+                                    <a
+                                        class="inline-flex shrink-0 items-center justify-center border font-medium whitespace-nowrap transition-colors outline-none select-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 border-transparent text-foreground hover:bg-foreground/5 active:bg-foreground/10 size-9 rounded-lg text-base"
+                                    >
+                                        "2"
+                                    </a>
+                                </li>
+                                <li>
+                                    <a
+                                        class="inline-flex shrink-0 items-center justify-center border font-medium whitespace-nowrap transition-colors outline-none select-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 border-transparent text-foreground hover:bg-foreground/5 active:bg-foreground/10 size-9 rounded-lg text-base"
+                                    >
+                                        "3"
+                                    </a>
+                                </li>
                             </ul>
                         </nav>
                     </div>
@@ -457,8 +574,12 @@ impl<M> Table<M> {
         view! {
             cx =>
             <div class="rounded-xl border border-border bg-background shadow-sm p-6">
-                <div class="grid w-full grid-cols-[0_1fr] items-start gap-y-1 rounded-lg border bg-background px-4 py-3 text-sm border-destructive/50 text-destructive has-[>svg]:grid-cols-[1rem_1fr] has-[>svg]:gap-x-3 [&>svg]:size-4 [&>svg]:translate-y-0.5">
-                    <p class="col-start-2 font-medium tracking-tight">"Failed to load"</p>
+                <div
+                    class="grid w-full grid-cols-[0_1fr] items-start gap-y-1 rounded-lg border bg-background px-4 py-3 text-sm border-destructive/50 text-destructive has-[>svg]:grid-cols-[1rem_1fr] has-[>svg]:gap-x-3 [&>svg]:size-4 [&>svg]:translate-y-0.5"
+                >
+                    <p class="col-start-2 font-medium tracking-tight">
+                        "Failed to load"
+                    </p>
                     <div class="col-start-2 text-sm text-muted-foreground">(msg)</div>
                 </div>
             </div>
@@ -481,11 +602,16 @@ impl<R> Pages<R> {
     }
 }
 
+/// Predicate deciding whether a [`NavigationItem`] matches the request URI —
+/// factored out of `NavigationItem` so the field signature stays readable.
+pub type HrefCheck = Arc<dyn Fn(&Cx) -> bool + Send + Sync>;
+
 /// Sidebar entry derived from a `Resource` (see `CONTEXT.md`).
+#[derive(Default)]
 pub struct NavigationItem {
     pub label: String,
     pub url: String,
-    pub href_check: Option<Arc<dyn Fn(&Cx) -> bool + Send + Sync>>,
+    pub href_check: Option<HrefCheck>,
 }
 
 impl Clone for NavigationItem {
@@ -514,16 +640,6 @@ impl PartialEq for NavigationItem {
     }
 }
 impl Eq for NavigationItem {}
-
-impl Default for NavigationItem {
-    fn default() -> Self {
-        Self {
-            label: String::new(),
-            url: String::new(),
-            href_check: None,
-        }
-    }
-}
 
 impl NavigationItem {
     /// Derive a sidebar entry from a `Resource` type, using the given panel mount prefix.
@@ -571,8 +687,8 @@ impl NavigationItem {
         Q: HrefQueries + Send + Sync + 'static,
         F: std::fmt::Display + Send + Sync + 'static,
     {
-        let check = Arc::new(move |cx: &Cx| href.is_current(cx))
-            as Arc<dyn Fn(&Cx) -> bool + Send + Sync>;
+        let check =
+            Arc::new(move |cx: &Cx| href.is_current(cx)) as Arc<dyn Fn(&Cx) -> bool + Send + Sync>;
         Self {
             label: label.into(),
             url: url.into(),
@@ -728,11 +844,13 @@ mod tests {
 
     #[test]
     fn navigation_item_is_current_path() {
-        let users = NavigationItem {label: "Users".to_string(),
+        let users = NavigationItem {
+            label: "Users".to_string(),
             url: "/admin".to_string(),
             href_check: None,
         };
-        let showcase = NavigationItem {label: "Showcase".to_string(),
+        let showcase = NavigationItem {
+            label: "Showcase".to_string(),
             url: "/admin/showcase".to_string(),
             href_check: None,
         };
@@ -754,7 +872,8 @@ mod tests {
 
     #[test]
     fn navigation_item_is_current_via_cx() {
-        let item = NavigationItem {label: "Showcase".to_string(),
+        let item = NavigationItem {
+            label: "Showcase".to_string(),
             url: "/admin/showcase".to_string(),
             href_check: None,
         };

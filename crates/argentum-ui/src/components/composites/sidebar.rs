@@ -34,10 +34,11 @@ pub async fn sidebar_provider(
         .and_then(|cookie| {
             for part in cookie.split(';') {
                 let trimmed = part.trim();
-                if let Some(val) = trimmed.strip_prefix("sidebar_state=") {
-                    if val == "collapsed" || val == "expanded" {
-                        return Some(val);
-                    }
+                if let Some(val) = trimmed
+                    .strip_prefix("sidebar_state=")
+                    .filter(|val| *val == "collapsed" || *val == "expanded")
+                {
+                    return Some(val);
                 }
             }
             None
@@ -69,11 +70,7 @@ const INSET: StaticClass = class!("flex flex-1 flex-col min-w-0");
 #[component]
 pub async fn sidebar_inset(#[default] mut attrs: Attributes, #[default] child: View) -> Result {
     view! {
-        <div
-            data-sidebar="inset"
-            class=(class!(INSET, attrs.remove("class")))
-            (attrs)
-        >
+        <div data-sidebar="inset" class=(class!(INSET, attrs.remove("class"))) (attrs)>
             (child)
         </div>
     }

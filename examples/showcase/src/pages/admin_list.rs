@@ -42,11 +42,22 @@ async fn admin_list(cx: &Cx) -> Result {
         argentum_ui::page(
             argentum_ui::page_header(
                 argentum_ui::page_title("Users")
-                argentum_ui::page_description("Real admin list — Table via Resource::table + db(cx) (q=" (q.clone()) ")")
+                argentum_ui::page_description(
+                    "Real admin list — Table via Resource::table + db(cx) (q="
+                    (q.clone())
+                    ")"
+                )
             )
             argentum_ui::page_content((table_view))
             argentum_ui::page_content(
-                <p><a href="/admin/showcase" class="text-sm text-primary hover:underline">"→ Showcase (all features)"</a></p>
+                <p>
+                    <a
+                        href="/admin/showcase"
+                        class="text-sm text-primary hover:underline"
+                    >
+                        "→ Showcase (all features)"
+                    </a>
+                </p>
             )
         )
     }

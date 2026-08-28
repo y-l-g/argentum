@@ -60,7 +60,7 @@ fn sync_topcoat_ui(dry_run: bool) -> anyhow::Result<()> {
 
     // Compute upstream commit for SYNC header — `git -C ../topcoat rev-parse --short HEAD`
     let commit = std::process::Command::new("git")
-        .args(["-C", &repo_root.join("../topcoat").to_string_lossy().to_string(), "rev-parse", "--short", "HEAD"])
+        .args(["-C", repo_root.join("../topcoat").to_string_lossy().as_ref(), "rev-parse", "--short", "HEAD"])
         .output()
         .ok()
         .and_then(|o| if o.status.success() { Some(String::from_utf8_lossy(&o.stdout).trim().to_string()) } else { None })

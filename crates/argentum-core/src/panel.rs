@@ -128,9 +128,8 @@ impl Panel {
         use argentum_ui::{
             ButtonSize, ButtonVariant, SheetSide, button, sheet, sheet_content, sidebar,
             sidebar_content, sidebar_footer, sidebar_group, sidebar_group_content,
-            sidebar_group_label, sidebar_header, sidebar_inset, sidebar_menu,
-            sidebar_menu_button, sidebar_menu_item, sidebar_provider, sidebar_separator,
-            sidebar_trigger,
+            sidebar_group_label, sidebar_header, sidebar_inset, sidebar_menu, sidebar_menu_button,
+            sidebar_menu_item, sidebar_provider, sidebar_separator, sidebar_trigger,
         };
 
         let outer_class = extra_class.clone().unwrap_or_default();
@@ -175,7 +174,9 @@ impl Panel {
                 // Sidebar — fixed inset-y-0 h-svh w-(--sidebar-width), hidden on mobile
                 sidebar(
                     sidebar_header(
-                        <div class="flex items-center gap-2 font-semibold text-foreground">
+                        <div
+                            class="flex items-center gap-2 font-semibold text-foreground"
+                        >
                             "Argentum"
                         </div>
                     )
@@ -194,7 +195,9 @@ impl Panel {
                         sidebar_group(
                             sidebar_group_label("Resources")
                             sidebar_group_content(
-                                <div class="px-2 text-xs text-muted-foreground">"Managed via Resource::query seam"</div>
+                                <div class="px-2 text-xs text-muted-foreground">
+                                    "Managed via Resource::query seam"
+                                </div>
                             )
                         )
                     )
@@ -216,9 +219,15 @@ impl Panel {
                     attrs: attributes! { id="mobile-sidebar-sheet" class="lg:hidden" },
                     sheet_content(
                         side: SheetSide::Left,
-                        attrs: attributes! { class="w-(--sidebar-width-mobile) p-0" data-sidebar="sidebar" data-mobile="true" },
+                        attrs: attributes! {
+                            class="w-(--sidebar-width-mobile) p-0"
+                            data-sidebar="sidebar"
+                            data-mobile="true"
+                        },
                         sidebar_header(
-                            <div class="flex items-center gap-2 font-semibold text-foreground">
+                            <div
+                                class="flex items-center gap-2 font-semibold text-foreground"
+                            >
                                 "Argentum"
                             </div>
                         )
@@ -237,7 +246,9 @@ impl Panel {
                             sidebar_group(
                                 sidebar_group_label("Resources")
                                 sidebar_group_content(
-                                    <div class="px-2 text-xs text-muted-foreground">"Managed via Resource::query seam"</div>
+                                    <div class="px-2 text-xs text-muted-foreground">
+                                        "Managed via Resource::query seam"
+                                    </div>
                                 )
                             )
                         )
@@ -255,14 +266,19 @@ impl Panel {
                     )
                 )
                 // Gap for fixed sidebar — hidden on mobile, w-(--sidebar-width) on lg, collapses to 0 when offcanvas
-                <div class="hidden w-(--sidebar-width) shrink-0 transition-[width] duration-200 group-data-[collapsible=offcanvas]:w-0 lg:block" aria-hidden="true"></div>
+                <div
+                    class="hidden w-(--sidebar-width) shrink-0 transition-[width] duration-200 group-data-[collapsible=offcanvas]:w-0 lg:block"
+                    aria-hidden="true"
+                ></div>
                 sidebar_inset(
                     // Main content area — sticky header per shadcn. The trigger is
                     // always visible (shadcn SidebarTrigger): below lg it opens the
                     // mobile Sheet, on lg it collapses the rail. It must carry no
                     // `hidden`/`lg:flex` pair — the Ghost base's `inline-flex` comes
                     // after `hidden` in the utilities layer and would win anyway.
-                    <header class="sticky top-0 z-10 flex h-16 items-center gap-4 border-b border-border bg-background px-6">
+                    <header
+                        class="sticky top-0 z-10 flex h-16 items-center gap-4 border-b border-border bg-background px-6"
+                    >
                         sidebar_trigger(attrs: attributes! { class="-ml-1" })
                         <div class="font-semibold text-foreground">"Admin"</div>
                         <div class="ml-auto flex items-center gap-2">
@@ -274,9 +290,7 @@ impl Panel {
                             )
                         </div>
                     </header>
-                    <main class="flex-1 mx-auto max-w-7xl w-full p-6">
-                        (slot)
-                    </main>
+                    <main class="flex-1 mx-auto max-w-7xl w-full p-6">(slot)</main>
                 )
                 // Notification stack — fixed top-right, survives Boundary swaps
                 <div class="fixed top-4 right-4 z-50 flex flex-col gap-2">
@@ -386,14 +400,16 @@ mod tests {
         let cx = CxTestBuilder::new().build();
         let cx_ref = &cx;
         let nav_items = vec![
-            NavigationItem {label: "Users".to_string(),
+            NavigationItem {
+                label: "Users".to_string(),
                 url: "/admin".to_string(),
-            href_check: None,
-        },
-            NavigationItem {label: "Showcase".to_string(),
+                href_check: None,
+            },
+            NavigationItem {
+                label: "Showcase".to_string(),
                 url: "/admin/showcase".to_string(),
-            href_check: None,
-        },
+                href_check: None,
+            },
         ];
         let slot = view! { cx_ref => "hello" }.unwrap();
         let html = Panel::render_shell(&cx, nav_items, "/admin", slot, None)
@@ -426,10 +442,7 @@ mod tests {
             html.contains("fixed") && html.contains("inset-y-0"),
             "missing fixed inset-y-0 in {html}"
         );
-        assert!(
-            html.contains("h-svh"),
-            "missing h-svh in {html}"
-        );
+        assert!(html.contains("h-svh"), "missing h-svh in {html}");
         assert!(
             html.contains("w-(--sidebar-width)") || html.contains("--sidebar-width"),
             "missing --sidebar-width var in {html}"

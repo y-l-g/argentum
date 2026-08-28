@@ -75,10 +75,16 @@ pub async fn code_block(
         let dark = View::unescaped_unchecked(Box::leak(dark.into_boxed_str()));
         view! {
             <div class="relative">
-                <pre class=(class!(PRE, "shiki dark:hidden", attrs.remove("class"))) data-lang=(lang.clone())>
+                <pre
+                    class=(class!(PRE, "shiki dark:hidden", attrs.remove("class")))
+                    data-lang=(lang.clone())
+                >
                     <code class=(CODE)>(light)</code>
                 </pre>
-                <pre class=(class!(PRE, "shiki hidden dark:block")) data-lang=(lang.clone())>
+                <pre
+                    class=(class!(PRE, "shiki hidden dark:block"))
+                    data-lang=(lang.clone())
+                >
                     <code class=(CODE)>(dark)</code>
                 </pre>
                 <button
