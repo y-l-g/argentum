@@ -42,11 +42,12 @@ pub async fn sidebar_provider(
             None
         })
         .unwrap_or("expanded");
+    // Use offcanvas for full hide on large screen (left-[calc(...*-1)]), icon for rail is alternative.
     view! {
         <div
             data-sidebar="provider"
             data-state=(state)
-            data-collapsible=""
+            data-collapsible="offcanvas"
             style="--sidebar-width:16rem;--sidebar-width-icon:3rem;--sidebar-width-mobile:18rem"
             class=(class!(PROVIDER, attrs.remove("class")))
             (attrs)
@@ -77,7 +78,7 @@ pub async fn sidebar_inset(#[default] mut attrs: Attributes, #[default] child: V
 // ---------------------------------------------------------------------------
 
 const SIDEBAR: StaticClass = class!(
-    "fixed inset-y-0 z-10 hidden h-svh w-(--sidebar-width) flex-col border-r border-border bg-background transition-[left,right,width,background-color,border-color,color] duration-200 group-data-[collapsible=icon]:w-(--sidebar-width-icon) lg:flex"
+    "fixed inset-y-0 left-0 z-10 hidden h-svh w-(--sidebar-width) flex-col border-r border-border bg-background transition-[left,right,width,background-color,border-color,color] duration-200 group-data-[collapsible=offcanvas]:left-[calc(var(--sidebar-width)*-1)] group-data-[collapsible=icon]:w-(--sidebar-width-icon) lg:flex"
 );
 
 /// Sidebar component — the persistent navigation rail on desktop.
@@ -91,7 +92,7 @@ pub async fn sidebar(#[default] mut attrs: Attributes, #[default] child: View) -
         <div
             data-sidebar="sidebar"
             data-state="expanded"
-            data-collapsible=""
+            data-collapsible="offcanvas"
             data-variant="sidebar"
             class=(class!(SIDEBAR, attrs.remove("class")))
             (attrs)

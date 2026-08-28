@@ -200,7 +200,7 @@ impl Panel {
                     )
                     sidebar_footer(
                         <div class="flex items-center gap-2">
-                            sidebar_trigger(attrs: attributes! { class="lg:hidden" })
+                            sidebar_trigger(attrs: attributes! { class="hidden lg:flex" })
                             button(
                                 variant: ButtonVariant::Ghost,
                                 size: ButtonSize::Icon,
@@ -254,12 +254,12 @@ impl Panel {
                         )
                     )
                 )
-                // Gap for fixed sidebar — hidden on mobile, w-(--sidebar-width) on lg
-                <div class="hidden w-(--sidebar-width) shrink-0 transition-[width] lg:block" aria-hidden="true"></div>
+                // Gap for fixed sidebar — hidden on mobile, w-(--sidebar-width) on lg, collapses to 0 when offcanvas
+                <div class="hidden w-(--sidebar-width) shrink-0 transition-[width] duration-200 group-data-[collapsible=offcanvas]:w-0 lg:block" aria-hidden="true"></div>
                 sidebar_inset(
-                    // Main content area — sticky header per shadcn
+                    // Main content area — sticky header per shadcn, SidebarTrigger visible on lg next to sidebar
                     <header class="sticky top-0 z-10 flex h-16 items-center gap-4 border-b border-border bg-background px-6">
-                        sidebar_trigger(attrs: attributes! { class="lg:hidden" })
+                        sidebar_trigger(attrs: attributes! { class="-ml-1 hidden lg:flex" })
                         <div class="font-semibold text-foreground">"Admin"</div>
                         <div class="ml-auto flex items-center gap-2">
                             button(
