@@ -263,22 +263,15 @@ pub async fn sidebar_separator(
     #[default] orientation: SeparatorOrientation,
     #[default] mut attrs: Attributes,
 ) -> Result {
-    // Primitive separator's `classes`/`aria` are private, so we replicate
-    // the orientation logic here (same as `separator.rs`) and add the
-    // `data-sidebar="separator"` hook expected by tests and shadcn parity.
-    let (cls, aria) = match orientation {
-        SeparatorOrientation::Horizontal => ("h-px w-full", None::<&str>),
-        SeparatorOrientation::Vertical => ("h-full w-px", Some("vertical")),
-    };
     view! {
         <hr
             data-sidebar="separator"
             class=(class!(
                 "shrink-0 border-0 bg-border",
-                cls,
+                orientation.classes(),
                 attrs.remove("class"),
             ))
-            aria-orientation=(aria)
+            aria-orientation=(orientation.aria())
             (attrs)
         >
     }

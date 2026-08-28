@@ -58,6 +58,15 @@ fn sync_topcoat_ui(dry_run: bool) -> anyhow::Result<()> {
         std::fs::create_dir_all(&dst_dir)?;
     }
 
+    // Compute upstream commit for SYNC header — `git -C ../topcoat rev-parse --short HEAD`
+    let commit = std::process::Command::new("git")
+        .args(["-C", &repo_root.join("../topcoat").to_string_lossy().to_string(), "rev-parse", "--short", "HEAD"])
+        .output()
+        .ok()
+        .and_then(|o| if o.status.success() { Some(String::from_utf8_lossy(&o.stdout).trim().to_string()) } else { None })
+        .unwrap_or_else(|| "main".to_string());
+    let header = format!("// SYNC: topcoat-ui-registry@{commit} — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).\n");
+
     let mut count = 0;
     for entry in std::fs::read_dir(&src_dir)? {
         let entry = entry?;
@@ -68,8 +77,13 @@ fn sync_topcoat_ui(dry_run: bool) -> anyhow::Result<()> {
         let file_name = path.file_name().unwrap().to_string_lossy().to_string();
         let dst_path = dst_dir.join(&file_name);
         let src_content = std::fs::read_to_string(&path)?;
-        let header = "// SYNC: topcoat-ui-registry@main — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).\n";
-        let dst_content = format!("{header}{src_content}");
+        let mut dst_content = format!("{header}{src_content}");
+        // Patch separator.rs so composites can delegate without duplicating private logic
+        if file_name == "separator.rs" {
+            dst_content = dst_content
+                .replace("    fn classes(self) -> StaticClass {", "    pub(crate) fn classes(self) -> StaticClass {")
+                .replace("    fn aria(self) -> Option<PromotedStr> {", "    pub(crate) fn aria(self) -> Option<PromotedStr> {");
+        }
         if dry_run {
             println!("would sync {file_name} -> {}", dst_path.display());
         } else {
@@ -79,17 +93,17 @@ fn sync_topcoat_ui(dry_run: bool) -> anyhow::Result<()> {
         count += 1;
     }
     if dry_run {
-        println!("dry-run: {count} files would be synced");
+        println!("dry-run: {count} files would be synced (header @{commit})");
     } else {
-        println!("done: {count} files synced to {}", dst_dir.display());
+        println!("done: {count} files synced to {} (header @{commit})", dst_dir.display());
         println!("note: composites/ was not touched (ADR-0007)");
     }
     // Also ensure primitives/mod.rs lists all files
-    ensure_primitives_mod(&dst_dir, dry_run)?;
+    ensure_primitives_mod(&dst_dir, &header, dry_run)?;
     Ok(())
 }
 
-fn ensure_primitives_mod(dst_dir: &Path, dry_run: bool) -> anyhow::Result<()> {
+fn ensure_primitives_mod(dst_dir: &Path, header: &str, dry_run: bool) -> anyhow::Result<()> {
     let mod_path = dst_dir.join("mod.rs");
     let mut files: Vec<String> = Vec::new();
     for entry in std::fs::read_dir(dst_dir)? {
@@ -105,7 +119,6 @@ fn ensure_primitives_mod(dst_dir: &Path, dry_run: bool) -> anyhow::Result<()> {
         files.push(stem);
     }
     files.sort();
-    let header = "// SYNC: topcoat-ui-registry@main — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).\n";
     let mut content = String::from(header);
     for stem in files {
         content.push_str(&format!("pub mod {stem};\n"));

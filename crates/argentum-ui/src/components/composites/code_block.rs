@@ -25,8 +25,6 @@ pub async fn code_block(
     code: String,
     #[default] mut attrs: Attributes,
 ) -> Result {
-    let lang = lang.clone();
-    let code = code.clone();
     // Shiki class added so tests can assert highlighting hook; actual
     // syntect highlighting will replace plain (code) with spans later.
     view! {
