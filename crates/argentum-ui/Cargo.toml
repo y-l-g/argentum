@@ -11,6 +11,9 @@ http = "1"
 syntect = "5"
 topcoat = { workspace = true, features = ["tailwind", "font", "font-fontsource", "asset", "icon", "icon-iconify"] }
 
+[dev-dependencies]
+tokio = { workspace = true }
+
 [build-dependencies]
 topcoat = { workspace = true, features = ["icon-iconify"] }
 

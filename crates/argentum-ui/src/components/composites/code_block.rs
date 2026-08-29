@@ -1,11 +1,11 @@
 use syntect::easy::HighlightLines;
 use syntect::highlighting::ThemeSet;
-use syntect::html::{styled_line_to_highlighted_html, IncludeBackground};
+use syntect::html::{IncludeBackground, styled_line_to_highlighted_html};
 use syntect::parsing::SyntaxSet;
 use syntect::util::LinesWithEndings;
 use topcoat::{
     Result,
-    view::{Attributes, StaticClass, View, class, component, view},
+    view::{Attributes, StaticClass, Unescaped, class, component, view},
 };
 
 const PRE: StaticClass =
@@ -71,21 +71,21 @@ pub async fn code_block(
         None
     };
     if let Some((light, dark)) = themes {
-        let light = View::unescaped_unchecked(Box::leak(light.into_boxed_str()));
-        let dark = View::unescaped_unchecked(Box::leak(dark.into_boxed_str()));
+        // `Unescaped` is the sanctioned path for trusted pre-rendered markup
+        // (syntect span HTML) — an owned `String`, no leak per render.
         view! {
             <div class="relative">
                 <pre
                     class=(class!(PRE, "shiki dark:hidden", attrs.remove("class")))
                     data-lang=(lang.clone())
                 >
-                    <code class=(CODE)>(light)</code>
+                    <code class=(CODE)>(Unescaped::new_unchecked(light))</code>
                 </pre>
                 <pre
                     class=(class!(PRE, "shiki hidden dark:block"))
                     data-lang=(lang.clone())
                 >
-                    <code class=(CODE)>(dark)</code>
+                    <code class=(CODE)>(Unescaped::new_unchecked(dark))</code>
                 </pre>
                 <button
                     class="absolute right-2 top-2 rounded-md border border-border bg-background px-2 py-1 text-xs text-muted-foreground hover:bg-foreground/5"
@@ -115,5 +115,31 @@ pub async fn code_block(
                 </button>
             </div>
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use topcoat::context::CxTestBuilder;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn rust_highlight_renders_unescaped_span_html() {
+        let cx = CxTestBuilder::new().build();
+        let cx_ref = &cx;
+        let html = view! {
+            cx_ref =>
+            code_block(lang: "rust", code: "fn main() {}")
+        }
+        .unwrap()
+        .render(&cx);
+        // syntect span markup must pass through raw, not escaped
+        assert!(
+            html.contains("<span style=\"color"),
+            "highlighted spans should render unescaped, got {html}"
+        );
+        // both color schemes ship
+        assert!(html.matches("<span style=\"color").count() >= 2);
     }
 }
