@@ -14,11 +14,12 @@ document.addEventListener('DOMContentLoaded', () => {
     document.addEventListener('click', e => {
       if (e.target.closest('[data-sidebar="trigger"]')) {
         if (window.innerWidth < 1024 && sheet) {
+          // showModal() sets `open` itself; setting the attribute first makes
+          // a follow-up showModal() throw InvalidStateError and leaves the
+          // drawer non-modal (no backdrop, no focus trap).
           if (sheet.hasAttribute('open')) {
-            sheet.removeAttribute('open');
             sheet.close?.();
           } else {
-            sheet.setAttribute('open', '');
             sheet.showModal?.();
           }
         } else {
@@ -32,14 +33,15 @@ document.addEventListener('DOMContentLoaded', () => {
         document.querySelector('[data-sidebar="trigger"]')?.click();
       }
     });
-    const m = document.cookie.match(/sidebar_state=([^;]+)/);
+    // Only accept values the server-side parse accepts, mirroring
+    // sidebar_state validation in composites/sidebar.rs.
+    const m = document.cookie.match(/sidebar_state=(expanded|collapsed)/);
     if (m) setState(m[1]);
   }
   if (sheet) {
     // Close the sheet when clicking its backdrop (the <dialog> element itself)
     sheet.addEventListener('click', e => {
       if (e.target === sheet) {
-        sheet.removeAttribute('open');
         sheet.close?.();
       }
     });

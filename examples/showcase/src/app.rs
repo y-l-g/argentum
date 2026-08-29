@@ -76,6 +76,8 @@ async fn admin_layout(cx: &Cx, slot: Result) -> Result {
             <head>
                 <title>"Admin"</title>
                 topcoat::dev::script()
+                // Blocking pre-paint theme apply — kills the dark-mode flash.
+                argentum_ui::theme_init_script()
                 if has_assets {
                     topcoat::runtime::script()
                     topcoat::font::link(font: GEIST)

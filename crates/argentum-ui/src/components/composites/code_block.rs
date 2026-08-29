@@ -128,10 +128,7 @@ mod tests {
     async fn rust_highlight_renders_unescaped_span_html() {
         let cx = CxTestBuilder::new().build();
         let cx_ref = &cx;
-        let html = view! {
-            cx_ref =>
-            code_block(lang: "rust", code: "fn main() {}")
-        }
+        let html = view! { cx_ref => code_block(lang: "rust", code: "fn main() {}") }
         .unwrap()
         .render(&cx);
         // syntect span markup must pass through raw, not escaped

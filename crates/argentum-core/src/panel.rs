@@ -301,11 +301,6 @@ impl Panel {
                 <script src=(argentum_ui::SIDEBAR_JS)></script>
                 <script src=(argentum_ui::THEME_JS)></script>
                 <script src=(argentum_ui::DIALOG_JS)></script>
-            } else {
-                // Fallback for tests / offline builds without AssetBundle
-                <script>
-                    "document.addEventListener('DOMContentLoaded',()=>{const s=document.querySelector('[data-sidebar=\"sidebar\"]');const p=document.querySelector('[data-sidebar=\"provider\"]');const sheet=document.getElementById('mobile-sidebar-sheet');if(s&&p){const setState=c=>{const col=c==='collapsed'?'offcanvas':'';s.setAttribute('data-state',c);s.setAttribute('data-collapsible',col);p.setAttribute('data-state',c);p.setAttribute('data-collapsible',col);document.cookie=`sidebar_state=${c};path=/;max-age=604800`};document.addEventListener('click',e=>{if(e.target.closest('[data-sidebar=\"trigger\"]')){if(window.innerWidth<1024&&sheet){if(sheet.hasAttribute('open')){sheet.removeAttribute('open');sheet.close?.()}else{sheet.setAttribute('open','');sheet.showModal?.()}}else{setState(s.getAttribute('data-state')==='collapsed'?'expanded':'collapsed')}}});document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key==='b'){e.preventDefault();document.querySelector('[data-sidebar=\"trigger\"]')?.click()}});const m=document.cookie.match(/sidebar_state=([^;]+)/);if(m)setState(m[1])}if(sheet){sheet.addEventListener('click',e=>{if(e.target===sheet){sheet.removeAttribute('open');sheet.close?.()}})}document.querySelectorAll('[data-theme-toggle]').forEach(b=>b.addEventListener('click',()=>{document.documentElement.classList.toggle('dark');localStorage.setItem('theme',document.documentElement.classList.contains('dark')?'dark':'light');document.cookie=`theme=${localStorage.getItem('theme')};path=/;max-age=31536000`}));const t=localStorage.getItem('theme')||(document.cookie.match(/theme=([^;]+)/)?.[1]);if(t==='dark')document.documentElement.classList.add('dark'))"
-                </script>
             }
         }
     }

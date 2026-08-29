@@ -40,6 +40,7 @@ pub use components::composites::code_block::code_block;
 pub use components::composites::page::{
     page, page_content, page_description, page_header, page_title,
 };
+pub use components::composites::theme::theme_init_script;
 
 // Assets for shell JS — via `asset!` + `AssetBundle` + `topcoat::runtime::script()` (ADR-0009 / T28.5)
 pub const SIDEBAR_JS: topcoat::asset::Asset = topcoat::asset::asset!("../assets/sidebar.js");

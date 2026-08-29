@@ -15,6 +15,30 @@ use crate::components::primitives::separator::SeparatorOrientation;
 const PROVIDER: StaticClass =
     class!("group group/sidebar-wrapper flex min-h-svh w-full");
 
+/// The sidebar's persisted state from the `sidebar_state` cookie, defaulting
+/// to expanded. Returns the `data-state` value plus the matching
+/// `data-collapsible` value — "offcanvas" only while collapsed, so
+/// `group-data-[collapsible=offcanvas]` rules do not fire when expanded.
+///
+/// Parsed from the raw `Cookie` header on purpose: `topcoat::cookie::cookies`
+/// panics when the cookie router layer is absent (tests, minimal routers),
+/// and the shell must render everywhere.
+fn sidebar_state(cx: &Cx) -> (&'static str, &'static str) {
+    let collapsed = try_request_context::<http::request::Parts>(cx)
+        .and_then(|parts| parts.headers.get(COOKIE))
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|cookie| {
+            cookie
+                .split(';')
+                .any(|part| part.trim().strip_prefix("sidebar_state=") == Some("collapsed"))
+        });
+    if collapsed {
+        ("collapsed", "offcanvas")
+    } else {
+        ("expanded", "")
+    }
+}
+
 /// Sidebar provider — sets CSS vars for width and wraps the entire shell.
 ///
 /// Mirrors `SidebarProvider` in `ui/apps/v4/registry/new-york-v4/ui/sidebar.tsx`:
@@ -28,28 +52,7 @@ pub async fn sidebar_provider(
     #[default] mut attrs: Attributes,
     #[default] child: View,
 ) -> Result {
-    let state = try_request_context::<http::request::Parts>(cx)
-        .and_then(|parts| parts.headers.get(COOKIE))
-        .and_then(|v| v.to_str().ok())
-        .and_then(|cookie| {
-            for part in cookie.split(';') {
-                let trimmed = part.trim();
-                if let Some(val) = trimmed
-                    .strip_prefix("sidebar_state=")
-                    .filter(|val| *val == "collapsed" || *val == "expanded")
-                {
-                    return Some(val);
-                }
-            }
-            None
-        })
-        .unwrap_or("expanded");
-    // `data-collapsible` mirrors the state-derived value in shadcn: the hide
-    // mode names how the sidebar leaves, and is only set while collapsed, so
-    // `group-data-[collapsible=offcanvas]` rules do not fire when expanded.
-    // "offcanvas" fully hides on large screen (left-[calc(...*-1)]); "icon"
-    // would keep an icon rail instead.
-    let collapsible = if state == "collapsed" { "offcanvas" } else { "" };
+    let (state, collapsible) = sidebar_state(cx);
     view! {
         <div
             data-sidebar="provider"
@@ -88,14 +91,17 @@ const SIDEBAR: StaticClass = class!(
 ///
 /// On small viewports it is hidden (`hidden lg:flex`); the mobile drawer is
 /// a `sheet` opened via [`sidebar_trigger`]. `fixed inset-y-0 h-svh w-(--sidebar-width)`
-/// with `data-state` + `data-collapsible` for `group-data-[collapsible=*]` rules.
+/// with `data-state` + `data-collapsible` derived from the `sidebar_state`
+/// cookie — the same state [`sidebar_provider`] ships, so SSR markup is
+/// consistent across the shell.
 #[component]
-pub async fn sidebar(#[default] mut attrs: Attributes, #[default] child: View) -> Result {
+pub async fn sidebar(cx: &Cx, #[default] mut attrs: Attributes, #[default] child: View) -> Result {
+    let (state, collapsible) = sidebar_state(cx);
     view! {
         <div
             data-sidebar="sidebar"
-            data-state="expanded"
-            data-collapsible=""
+            data-state=(state)
+            data-collapsible=(collapsible)
             data-variant="sidebar"
             class=(class!(SIDEBAR, attrs.remove("class")))
             (attrs)
@@ -320,5 +326,60 @@ pub async fn sidebar_trigger(#[default] mut attrs: Attributes) -> Result {
         >
             <span aria-hidden="true">"☰"</span>
         </button>
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use topcoat::context::CxTestBuilder;
+
+    use super::*;
+
+    fn cx_with_cookie(value: &str) -> Cx {
+        let (parts, ()) = http::Request::builder()
+            .uri("/")
+            .header(http::header::COOKIE, value)
+            .body(())
+            .unwrap()
+            .into_parts();
+        CxTestBuilder::new().request_context(parts).build()
+    }
+
+    #[tokio::test]
+    async fn provider_and_sidebar_agree_on_collapsed_cookie() {
+        let cx = cx_with_cookie("theme=dark; sidebar_state=collapsed; other=1");
+        let cx_ref = &cx;
+        let provider = view! { cx_ref => sidebar_provider() }.unwrap().render(&cx);
+        let rail = view! { cx_ref => sidebar() }.unwrap().render(&cx);
+        for html in [provider, rail] {
+            assert!(
+                html.contains("data-state=\"collapsed\"")
+                    && html.contains("data-collapsible=\"offcanvas\""),
+                "collapsed state missing from {html}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn malformed_cookie_falls_back_to_expanded() {
+        let cx = cx_with_cookie("sidebar_state=pwned");
+        let cx_ref = &cx;
+        let provider = view! { cx_ref => sidebar_provider() }.unwrap().render(&cx);
+        let rail = view! { cx_ref => sidebar() }.unwrap().render(&cx);
+        for html in [provider, rail] {
+            assert!(
+                html.contains("data-state=\"expanded\"")
+                    && html.contains("data-collapsible=\"\""),
+                "expected expanded fallback in {html}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn no_request_context_renders_expanded() {
+        let cx = CxTestBuilder::new().build();
+        let cx_ref = &cx;
+        let rail = view! { cx_ref => sidebar() }.unwrap().render(&cx);
+        assert!(rail.contains("data-state=\"expanded\""), "{rail}");
     }
 }
