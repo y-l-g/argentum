@@ -125,7 +125,7 @@ Schema::new((
 - Every field takes a **typed lens** `FieldPath<Model, T>`, not a string. The lens knows `Nullable`, `Unique`, `Deferred`, and `#[column]` renames.
 - Layout primitives: `Section`, `Group`, `Grid(12)`, `Tabs`, `Wizard`, `Flex`, `Fieldset` — mirrors `filament/packages/schemas/src/Components/{Section,Grid,Tabs,Wizard}.php`.
 - State is the Toasty model itself (or a `Create`/`Update` projection). No `data.foo.bar` string path. Hydration is `model -> Schema`, dehydration is `Schema -> Update<'a>` / `Create` + validation.
-- Validation is **app-level** (`required`, `email`, `unique`, `exists`, `regex`) collected per-schema and returned inline. Toasty column constraints (`#[unique]`, type) are DB-level and mapped to field errors on `uniqueViolation` — both layers exist.
+- Validation is **app-level** (`required`, `email`, `unique`, `exists`, `regex`) collected per-schema and returned inline. Toasty column constraints (`#[unique]`, type) are DB-level; toasty does not expose a unique-violation error predicate yet (see `EXTERNAL_GAPS.md`), so DB violations cannot map to field errors today — until then, uniqueness is checked app-side.
 
 ### 4.4 `Table`
 
@@ -316,7 +316,7 @@ Budget v1: list render (25 rows, 2 includes, 1 count) < 40ms p50 on SQLite/Postg
 
 ## 9. Validation, errors & testing
 
-- Validate in `Schema` (field rules), then in `Procedure`/`Shard` handler, then DB constraints. Return inline field errors (not toast-only). Map `toasty::Error::UniqueViolation` → field error on the constrained column.
+- Validate in `Schema` (field rules), then in `Procedure`/`Shard` handler, then DB constraints. Return inline field errors (not toast-only). DB `#[unique]` violations cannot map to inline errors yet — toasty exposes no unique-violation predicate (see `EXTERNAL_GAPS.md`); pre-check uniqueness app-side until it lands.
 - Router errors bubble via `Result` + `?` into layouts (`topcoat-router/docs/error.md`): `slot: Result` match on `NotFoundError` → `(StatusCode::NOT_FOUND) view!{...}`; otherwise `slot?`. Redirects via `Err(redirect("/..."))` — mid-stream redirects become swap instructions under streaming.
 - Forms: `Action` handlers are `#[procedure]`-backed; errors render in modal's `Schema` without losing signal state.
 - Testing: `CxTestBuilder` (`topcoat-core/src/context.rs`) for unit renders, `Page` golden tests, per-resource policy tests (`assert_can_list` / `assert_cannot_delete`). Bench via `benchmarks/` against `axum-maud`/`leptos`.

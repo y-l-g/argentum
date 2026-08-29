@@ -8,31 +8,32 @@ This file tracks **missing or unstable APIs in upstream crates** (Toasty, Topcoa
 
 ---
 
-## Toasty — typed field lens → name / label / column
+## Toasty — building `OrderByExpr` / naming core `stmt::Path` for a field lens
 
-**Where:** `crates/argentum-core/src/schema.rs:lens_field_name_and_label` (`FieldLens<M,T> = Path<M,T>` → `M::schema().fields()[idx].name`).
+**Where:** `crates/argentum-core/src/schema.rs` `lens_field_name_and_label` and `pk_tie_breakers` (the two `toasty_core` import sites); consumers: `TextInput` (`schema.rs`), `TextColumn` / `Table::order_bys` (`resource.rs`).
 
-**Today:** `Path<M,T>` converts to `toasty_core::stmt::Path` (`path.into()`), then `projection.as_slice()[0]` yields the field index, then `M::schema().fields()[idx].name.app_unwrap()` gives the app-level name. Label is `capitalize(name)`. This walks `toasty_core::stmt::Path` and `toasty_core::schema::app::FieldName` internals.
+**Today (accurate as of 2026-08-29):** Most of what this entry used to claim is **public already**: `toasty::schema` re-exports the whole app-schema surface (`crates/toasty/src/schema.rs:49` → `toasty_core::schema::{app, db, diff, mapping}`), so `M::schema()`, `Model::fields()`, `Field.name` (`FieldName::app_unwrap()`), `Field.primary_key`, and `ModelRoot::primary_key_fields()` are all reachable via the `toasty` facade without depending on `toasty-core`. Field-name resolution (`lens_field_name_and_label`) walks `core_path.projection.as_slice()[0]` → `M::schema().fields()[idx].name` — the `Projection` type is even re-exported as `toasty::stmt::Projection`.
 
-**Why fragile:** `Projection` layout and `FieldName::app_unwrap()` are not part of Toasty's public `toasty::schema::Model` surface. A Toasty refactor of `Path`/`Projection` breaks Argentum at compile time without a deprecation.
+What still genuinely requires `toasty_core`:
+1. **Naming the conversion target.** `From<toasty::stmt::Path<M, T>> for toasty_core::stmt::Path` is public (`crates/toasty/src/stmt/path.rs`), but the core `stmt::Path` type itself is not re-exported through the facade, so holding the converted value needs the `toasty_core` path.
+2. **Building PK order-bys.** There is no typed wrapper for `Expr::ref_self_field(field_id)` / `Direction::Asc`, so `pk_tie_breakers` must construct `toasty::stmt::OrderByExpr` from core `stmt` pieces.
+
+**Why fragile:** only those two spots. A toasty refactor of `Path`/`Projection` breaks them at compile time; the rest survives.
 
 **Clean upstream API:**
 ```rust
-// ideal
+// ideal — makes both bridge helpers deletable
 impl<M: Model> Path<M, T> {
     pub fn field_name(&self) -> &str;           // app-level name
     pub fn storage_column_name(&self) -> &str;  // db column name
     pub fn label(&self) -> String;              // capitalize(field_name)
-    pub fn is_nullable(&self) -> bool;
-    pub fn is_unique(&self) -> bool;
 }
- // or
-impl<M: Model> Model for M {
-    fn field_for_path<T>(path: &Path<M,T>) -> &Field; // returns Field with name/ty/nullable
+trait Model {
+    fn primary_key_order_bys() -> Vec<OrderByExpr>; // or Vec<Path<Self, _>>
 }
 ```
 
-**Argentum debt:** `FieldLens` alias only exposes `name`/`label`. Follow-up #11 tracks enriching it with `is_nullable`/`is_unique`/`column_name` once upstream exposes `FieldTy` metadata without going through `toasty_core`. When upstream lands, replace `lens_field_name_and_label` with `path.field_name()` and delete the `toasty_core` import.
+**Argentum debt:** keep both helpers as the single `toasty_core` import sites. Follow-up #11 enriches `FieldLens` with `is_nullable`/`is_unique`/`column_name` — implement those from the **public** `toasty::schema::app` metadata, not via `toasty_core`. When upstream lands the two APIs above, replace the helpers and delete this entry.
 
 ---
 
@@ -40,9 +41,9 @@ impl<M: Model> Model for M {
 
 **Where:** `crates/argentum-core/src/schema.rs:pk_tie_breakers` and `crates/argentum-core/src/resource.rs:Table::order_bys`.
 
-**Today:** `M::schema().as_root().primary_key.fields` → `toasty_core::stmt::Expr::ref_self_field(field_id)` → `OrderByExpr { asc }`. Appends PK asc to the user-chosen `order_by` for stable cursor pagination (spec US10).
+**Today:** `M::schema().as_root().primary_key.fields` (public via `toasty::schema::app`, see the entry above) → `toasty_core::stmt::Expr::ref_self_field(field_id)` → `OrderByExpr { asc }`. Appends PK asc to the user-chosen `order_by` for stable cursor pagination (spec US10).
 
-**Why fragile:** `as_root()`, `PrimaryKey.fields`, `Expr::ref_self_field` are `toasty_core` internals. Public `toasty::schema::Model` does not expose `primary_key()` as typed `Path`s.
+**Why fragile:** only `Expr::ref_self_field` (and naming the core `stmt` types it returns) is unreachable from the `toasty` facade; the schema walk itself is public. See "Toasty — building OrderByExpr / naming core stmt::Path" for the full picture.
 
 **Clean upstream API:**
 ```rust
@@ -103,6 +104,34 @@ trait Model {
 
 ---
 
+## Toasty — unique-violation error predicate
+
+**Where:** `readme.md` §4.3/§9 (unique → inline field-error mapping); future Create/Update hydration (#11, #12). No runtime call site today — the mapping is aspirational.
+
+**Today:** toasty exposes no unique-violation error kind. `toasty-core/src/error/` has `is_record_not_found`, `is_condition_failed`, … but no `is_unique_violation`; `#[unique]` only creates the DB index and duplicates surface as an unclassified driver error (the toasty quickstart example only asserts `dup.is_err()`).
+
+**Why fragile:** any code or doc claiming to map `UniqueViolation` to a field error cannot be implemented without driver-specific string matching.
+
+**Clean upstream API:** `Error::is_unique_violation()` (or `ErrorKind::UniqueViolation { constraint }`) surfaced by the SQL drivers.
+
+**Argentum plan:** keep app-level validation the only error layer until the predicate lands; then map it to the constrained field's inline error and delete this entry. Never string-match driver error messages.
+
+---
+
+## Topcoat — memoize(as_ref) error conversion
+
+**Where:** `examples/showcase/src/pages/showcase/db.rs` `users()` — the only sanctioned stringification site.
+
+**Today:** `#[memoize(as_ref)]` caches `Result<&T, &Error>`; `topcoat::Error` wraps `anyhow::Error`, which is not `Clone`, so a memoized fallible loader cannot hand back an owned `topcoat::Error`. The workaround converts via `std::io::Error::other(e.to_string())`, which erases typed predicates (`is_record_not_found`, …) at the memo boundary.
+
+**Why fragile:** the pattern is easy to cargo-cult into non-memoized call sites (it was, once — removed 2026-08-26 per the Topcoat error-conversion entry above).
+
+**Clean upstream API:** memoize supporting non-`Clone` error types — e.g. cache `Result<Arc<T>, Arc<Error>>` and return `Result<&T, &Arc<Error>>`, or an `Arc`-backed `Error` clone.
+
+**Argentum plan:** keep the workaround localized to `db.rs` `users()`; non-memoized loaders use `.map_err(Into::into)`. Retire when memoize supports `Arc`'d errors.
+
+---
+
 ## How to retire entries
 
 1. Add the upstream API (or feature-flag it).
@@ -110,4 +139,4 @@ trait Model {
 3. Update the bridge helpers to delegate to the new public API, keep signature.
 4. Delete the entry here and reference the Toasty/Topcoat PR that closed it.
 
-Last updated: 2026-08-28 (scaffold argentum-ui + Tailwind seam, #15) — 2026-08-28: Tailwind `@source` moved to ADR-0006 (internal), policy added: use internals freely and document missing public APIs here.
+Last updated: 2026-08-29 (memoize error conversion + missing unique-violation predicate documented; showcase stringification corrected) — 2026-08-28: Tailwind `@source` moved to ADR-0006 (internal), policy added: use internals freely and document missing public APIs here.
