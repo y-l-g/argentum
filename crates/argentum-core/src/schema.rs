@@ -48,7 +48,10 @@ pub struct TextInput {
 
 impl TextInput {
     /// Create a `TextInput` bound to the given field lens.
-    pub fn for_lens<M, T>(path: toasty::stmt::Path<M, T>) -> Self
+    ///
+    /// Only `String` lenses compile: binding a non-text field (a `Uuid` key,
+    /// a `bool`, …) fails at compile time, mirroring `TextColumn`.
+    pub fn for_lens<M>(path: toasty::stmt::Path<M, String>) -> Self
     where
         M: toasty::schema::Model,
     {
@@ -63,7 +66,7 @@ impl TextInput {
     }
 
     /// Convenience alias so call sites read `TextInput::for(User::fields().name())`.
-    pub fn r#for<M, T>(path: toasty::stmt::Path<M, T>) -> Self
+    pub fn r#for<M>(path: toasty::stmt::Path<M, String>) -> Self
     where
         M: toasty::schema::Model,
     {
@@ -212,20 +215,30 @@ fn capitalize(s: &str) -> String {
 /// so `resource.rs` does not directly depend on core internals (see
 /// EXTERNAL_GAPS.md “primary-key tie-breaker”). Returns one `asc`
 /// `OrderByExpr` per PK field, in declared order.
+///
+/// # Panics
+///
+/// Panics if `M` is not a root model: without a primary key there is no
+/// tie-breaker, and silent omission here would surface only as flaky row
+/// order under cursor pagination.
 pub(crate) fn pk_tie_breakers<M>() -> Vec<toasty::stmt::OrderByExpr>
 where
     M: toasty::schema::Model,
 {
-    let mut out = Vec::new();
     let app_model = M::schema();
-    if let Some(root) = app_model.as_root() {
-        for pk_field in &root.primary_key.fields {
-            let expr = toasty_core::stmt::Expr::ref_self_field(*pk_field);
-            out.push(toasty::stmt::OrderByExpr {
-                expr,
-                order: Some(toasty_core::stmt::Direction::Asc),
-            });
-        }
+    let root = app_model.as_root().unwrap_or_else(|| {
+        panic!(
+            "pk_tie_breakers: {} is not a root model; deterministic pagination needs its primary key",
+            std::any::type_name::<M>()
+        )
+    });
+    let mut out = Vec::new();
+    for pk_field in &root.primary_key.fields {
+        let expr = toasty_core::stmt::Expr::ref_self_field(*pk_field);
+        out.push(toasty::stmt::OrderByExpr {
+            expr,
+            order: Some(toasty_core::stmt::Direction::Asc),
+        });
     }
     out
 }
