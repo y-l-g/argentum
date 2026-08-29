@@ -5,3 +5,5 @@
 Considered: (A) two crates, (B) `topcoat ui add` copy-source vendoring per app (rejected: reintroduces breakage on upgrade, ADR-0006).
 
 Consequences: `primitives/` is overwritten by the sync task; `composites/` is never overwritten. `lib.rs` re-exports both but docs distinguish the origin. Future Topcoat components (e.g. upstream `sidebar` once PR'd) land in `primitives/` and `composites/sidebar.rs` becomes a thin wrapper or is retired.
+
+**Status 2026-08-29:** the legacy flat `components/*.rs` tree is deleted and `lib.rs` re-exports point at `components::primitives::*` (previously they re-exported the stale flat copies, which had drifted from the registry — e.g. a hand-edited `card`). `primitives/` is now the single source for synced components; `composites/` holds sidebar, page, code_block and theme.

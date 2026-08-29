@@ -6,32 +6,29 @@
 
 pub mod components;
 
-// Re-export commonly used components at crate root for ergonomic `argentum_ui::card` etc.
-pub use components::alert::{AlertVariant, alert, alert_description, alert_title};
-pub use components::alert_dialog::alert_dialog;
-pub use components::badge::{BadgeVariant, badge, badge_variants};
-pub use components::button::{ButtonSize, ButtonVariant, button, button_variants};
-pub use components::card::{
+// Primitives — verbatim mirror of `topcoat-ui-registry`, synced via
+// `cargo xtask sync-topcoat-ui` (ADR-0007). Re-exported at the crate root for
+// ergonomic `argentum_ui::card` etc.; edit the registry, not these.
+pub use components::primitives::alert::{AlertVariant, alert, alert_description, alert_title};
+pub use components::primitives::alert_dialog::alert_dialog;
+pub use components::primitives::badge::{BadgeVariant, badge, badge_variants};
+pub use components::primitives::button::{ButtonSize, ButtonVariant, button, button_variants};
+pub use components::primitives::card::{
     card, card_content, card_description, card_footer, card_header, card_title,
 };
-pub use components::composites::sidebar::{
-    sidebar, sidebar_content, sidebar_footer, sidebar_group, sidebar_group_content,
-    sidebar_group_label, sidebar_header, sidebar_inset, sidebar_menu, sidebar_menu_button,
-    sidebar_menu_item, sidebar_provider, sidebar_separator, sidebar_trigger,
-};
-pub use components::dialog::{
+pub use components::primitives::dialog::{
     dialog, dialog_content, dialog_description, dialog_footer, dialog_header, dialog_title,
 };
-pub use components::input::input;
-pub use components::label::label;
-pub use components::pagination::{
+pub use components::primitives::input::input;
+pub use components::primitives::label::label;
+pub use components::primitives::pagination::{
     pagination, pagination_content, pagination_ellipsis, pagination_item, pagination_link,
     pagination_next, pagination_previous,
 };
-pub use components::separator::{SeparatorOrientation, separator};
-pub use components::sheet::{SheetSide, sheet, sheet_content};
-pub use components::skeleton::skeleton;
-pub use components::table::{
+pub use components::primitives::separator::{SeparatorOrientation, separator};
+pub use components::primitives::sheet::{SheetSide, sheet, sheet_content};
+pub use components::primitives::skeleton::skeleton;
+pub use components::primitives::table::{
     table, table_body, table_caption, table_cell, table_footer, table_head, table_header, table_row,
 };
 // Composites — owned Argentum components (ADR-0007). Re-exported here for
@@ -39,6 +36,11 @@ pub use components::table::{
 pub use components::composites::code_block::code_block;
 pub use components::composites::page::{
     page, page_content, page_description, page_header, page_title,
+};
+pub use components::composites::sidebar::{
+    sidebar, sidebar_content, sidebar_footer, sidebar_group, sidebar_group_content,
+    sidebar_group_label, sidebar_header, sidebar_inset, sidebar_menu, sidebar_menu_button,
+    sidebar_menu_item, sidebar_provider, sidebar_separator, sidebar_trigger,
 };
 pub use components::composites::theme::theme_init_script;
 
