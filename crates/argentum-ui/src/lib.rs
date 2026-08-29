@@ -14,6 +14,11 @@ pub use components::button::{ButtonSize, ButtonVariant, button, button_variants}
 pub use components::card::{
     card, card_content, card_description, card_footer, card_header, card_title,
 };
+pub use components::composites::sidebar::{
+    sidebar, sidebar_content, sidebar_footer, sidebar_group, sidebar_group_content,
+    sidebar_group_label, sidebar_header, sidebar_inset, sidebar_menu, sidebar_menu_button,
+    sidebar_menu_item, sidebar_provider, sidebar_separator, sidebar_trigger,
+};
 pub use components::dialog::{
     dialog, dialog_content, dialog_description, dialog_footer, dialog_header, dialog_title,
 };
@@ -25,11 +30,6 @@ pub use components::pagination::{
 };
 pub use components::separator::{SeparatorOrientation, separator};
 pub use components::sheet::{SheetSide, sheet, sheet_content};
-pub use components::composites::sidebar::{
-    sidebar, sidebar_content, sidebar_footer, sidebar_group, sidebar_group_content,
-    sidebar_group_label, sidebar_header, sidebar_inset, sidebar_menu, sidebar_menu_button,
-    sidebar_menu_item, sidebar_provider, sidebar_separator, sidebar_trigger,
-};
 pub use components::skeleton::skeleton;
 pub use components::table::{
     table, table_body, table_caption, table_cell, table_footer, table_head, table_header, table_row,

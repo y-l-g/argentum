@@ -12,8 +12,7 @@ use crate::components::primitives::separator::SeparatorOrientation;
 // Provider & Inset — shadcn parity (ADR-0009)
 // ---------------------------------------------------------------------------
 
-const PROVIDER: StaticClass =
-    class!("group group/sidebar-wrapper flex min-h-svh w-full");
+const PROVIDER: StaticClass = class!("group group/sidebar-wrapper flex min-h-svh w-full");
 
 /// The sidebar's persisted state from the `sidebar_state` cookie, defaulting
 /// to expanded. Returns the `data-state` value plus the matching
@@ -368,8 +367,7 @@ mod tests {
         let rail = view! { cx_ref => sidebar() }.unwrap().render(&cx);
         for html in [provider, rail] {
             assert!(
-                html.contains("data-state=\"expanded\"")
-                    && html.contains("data-collapsible=\"\""),
+                html.contains("data-state=\"expanded\"") && html.contains("data-collapsible=\"\""),
                 "expected expanded fallback in {html}"
             );
         }

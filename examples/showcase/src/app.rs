@@ -58,7 +58,8 @@ impl Resource for UserResource {
 async fn admin_layout(cx: &Cx, slot: Result) -> Result {
     let nav_items = vec![
         Panel::new("admin").navigation_item::<UserResource>(),
-        NavigationItem {label: "Showcase".to_string(),
+        NavigationItem {
+            label: "Showcase".to_string(),
             url: "/admin/showcase".to_string(),
             href_check: None,
         },

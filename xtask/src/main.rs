@@ -44,8 +44,7 @@ fn sync_topcoat_ui(dry_run: bool) -> anyhow::Result<()> {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     // xtask is at <repo>/xtask, so repo root is parent of manifest_dir
     let repo_root = manifest_dir.parent().unwrap_or(Path::new("."));
-    let src_dir = repo_root
-        .join("../topcoat/crates/topcoat-ui/registry/src/components");
+    let src_dir = repo_root.join("../topcoat/crates/topcoat-ui/registry/src/components");
     let dst_dir = repo_root.join("crates/argentum-ui/src/components/primitives");
 
     if !src_dir.exists() {
@@ -60,12 +59,26 @@ fn sync_topcoat_ui(dry_run: bool) -> anyhow::Result<()> {
 
     // Compute upstream commit for SYNC header — `git -C ../topcoat rev-parse --short HEAD`
     let commit = std::process::Command::new("git")
-        .args(["-C", repo_root.join("../topcoat").to_string_lossy().as_ref(), "rev-parse", "--short", "HEAD"])
+        .args([
+            "-C",
+            repo_root.join("../topcoat").to_string_lossy().as_ref(),
+            "rev-parse",
+            "--short",
+            "HEAD",
+        ])
         .output()
         .ok()
-        .and_then(|o| if o.status.success() { Some(String::from_utf8_lossy(&o.stdout).trim().to_string()) } else { None })
+        .and_then(|o| {
+            if o.status.success() {
+                Some(String::from_utf8_lossy(&o.stdout).trim().to_string())
+            } else {
+                None
+            }
+        })
         .unwrap_or_else(|| "main".to_string());
-    let header = format!("// SYNC: topcoat-ui-registry@{commit} — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).\n");
+    let header = format!(
+        "// SYNC: topcoat-ui-registry@{commit} — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).\n"
+    );
 
     let mut count = 0;
     for entry in std::fs::read_dir(&src_dir)? {
@@ -81,8 +94,14 @@ fn sync_topcoat_ui(dry_run: bool) -> anyhow::Result<()> {
         // Patch separator.rs so composites can delegate without duplicating private logic
         if file_name == "separator.rs" {
             dst_content = dst_content
-                .replace("    fn classes(self) -> StaticClass {", "    pub(crate) fn classes(self) -> StaticClass {")
-                .replace("    fn aria(self) -> Option<PromotedStr> {", "    pub(crate) fn aria(self) -> Option<PromotedStr> {");
+                .replace(
+                    "    fn classes(self) -> StaticClass {",
+                    "    pub(crate) fn classes(self) -> StaticClass {",
+                )
+                .replace(
+                    "    fn aria(self) -> Option<PromotedStr> {",
+                    "    pub(crate) fn aria(self) -> Option<PromotedStr> {",
+                );
         }
         if dry_run {
             println!("would sync {file_name} -> {}", dst_path.display());
@@ -95,7 +114,10 @@ fn sync_topcoat_ui(dry_run: bool) -> anyhow::Result<()> {
     if dry_run {
         println!("dry-run: {count} files would be synced (header @{commit})");
     } else {
-        println!("done: {count} files synced to {} (header @{commit})", dst_dir.display());
+        println!(
+            "done: {count} files synced to {} (header @{commit})",
+            dst_dir.display()
+        );
         println!("note: composites/ was not touched (ADR-0007)");
     }
     // Also ensure primitives/mod.rs lists all files

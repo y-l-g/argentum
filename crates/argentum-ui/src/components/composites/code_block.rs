@@ -129,8 +129,8 @@ mod tests {
         let cx = CxTestBuilder::new().build();
         let cx_ref = &cx;
         let html = view! { cx_ref => code_block(lang: "rust", code: "fn main() {}") }
-        .unwrap()
-        .render(&cx);
+            .unwrap()
+            .render(&cx);
         // syntect span markup must pass through raw, not escaped
         assert!(
             html.contains("<span style=\"color"),
