@@ -160,8 +160,7 @@ impl Panel {
                         (label.clone())
                     )
                 )
-            }
-            .unwrap();
+            }?;
             menu_items.push(btn);
         }
 

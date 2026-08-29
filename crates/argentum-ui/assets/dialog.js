@@ -32,6 +32,8 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   document.addEventListener('keydown', e => {
     if (e.key !== 'Escape') return;
-    document.querySelector('dialog[open]')?.dispatchEvent(new Event('cancel'));
+    document
+      .querySelector('dialog[open]')
+      ?.dispatchEvent(new Event('cancel', { cancelable: true }));
   });
 });

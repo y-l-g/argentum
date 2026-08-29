@@ -1126,13 +1126,6 @@ mod tests {
         }
         let rows = query.exec(&mut db).await.unwrap();
         assert_eq!(rows.len(), 2);
-        // With PK tie-breaker asc, order is deterministic by id
-        assert!(
-            rows[0].id.to_string() < rows[1].id.to_string()
-                || rows[0].id == a.id && rows[1].id == b.id
-                || rows[0].id == b.id && rows[1].id == a.id,
-            "rows should be ordered deterministically"
-        );
         // Ensure stable ordering is by PK asc (lowest id first)
         let expected_first = if a.id.to_string() < b.id.to_string() {
             a.id

@@ -43,9 +43,7 @@ async fn admin_list(cx: &Cx) -> Result {
             argentum_ui::page_header(
                 argentum_ui::page_title("Users")
                 argentum_ui::page_description(
-                    "Real admin list — Table via Resource::table + db(cx) (q="
-                    (q.clone())
-                    ")"
+                    "Real admin list — Table via Resource::table + db(cx). Search the URL: append ?q=<term>."
                 )
             )
             argentum_ui::page_content((table_view))
