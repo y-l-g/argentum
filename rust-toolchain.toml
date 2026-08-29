@@ -1,4 +1,4 @@
 [toolchain]
 # Track stable rustc, matching tokio-rs/topcoat. Toasty pins 1.97.1 as a floor;
-# stable today satisfies it and keeps up as the sibling path deps advance.
+# stable today satisfies it and keeps up as the topcoat/toasty git deps advance.
 channel = "stable"

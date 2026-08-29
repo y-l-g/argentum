@@ -11,5 +11,5 @@ publish = false
 
 [dependencies]
 argentum-core = { path = "../../crates/argentum-core" }
-topcoat = { path = "../../../topcoat/crates/topcoat", features = ["router", "serve", "runtime", "discover", "asset"] }
+topcoat = { git = "https://github.com/tokio-rs/topcoat", branch = "main", features = ["router", "serve", "runtime", "discover", "asset"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }

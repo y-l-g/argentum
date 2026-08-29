@@ -1,4 +1,4 @@
-// SYNC: topcoat-ui-registry@961e4551 — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
+// SYNC: topcoat-ui-registry@0.6.2 — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
 use topcoat::{
     Result,
     view::{Attributes, StaticClass, View, class, component, view},
@@ -62,13 +62,7 @@ pub async fn card_header(#[default] mut attrs: Attributes, #[default] child: Vie
 #[component]
 pub async fn card_title(#[default] mut attrs: Attributes, #[default] child: View) -> Result {
     view! {
-        <h3
-            class=(class!(
-                "text-lg font-semibold leading-none tracking-tight",
-                attrs.remove("class"),
-            ))
-            (attrs)
-        >
+        <h3 class=(class!("leading-none font-semibold", attrs.remove("class"))) (attrs)>
             (child)
         </h3>
     }

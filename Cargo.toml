@@ -25,12 +25,17 @@ unsafe_code = "deny"
 [workspace.lints.clippy]
 too_many_lines = "allow"
 
-# Topcoat and Toasty are consumed from the sibling clones checked out at their
-# latest commit (`../topcoat`, `../toasty`). Swap these for crates.io versions
-# at publish time; see CONTEXT.md and docs/adr/0003-reactivity-seam.md.
+# Topcoat and Toasty are git dependencies tracking their `main` branches:
+# Cargo fetches them from GitHub and Cargo.lock pins the exact commit, so no
+# sibling clone is needed — locally or in CI. Bump deliberately with
+# `cargo update -p topcoat` / `cargo update -p toasty`. For temporary
+# live-editing against a local checkout, add an uncommitted `[patch]`
+# section redirecting to `../topcoat` / `../toasty` (see ADR-0003).
 [workspace.dependencies]
-topcoat = { path = "../topcoat/crates/topcoat", default-features = false, features = ["view", "router", "discover"] }
-toasty = { path = "../toasty/crates/toasty", default-features = false, features = ["sqlite"] }
-toasty-core = { path = "../toasty/crates/toasty-core" }
+topcoat = { git = "https://github.com/tokio-rs/topcoat", branch = "main", default-features = false, features = ["view", "router", "discover"] }
+toasty = { git = "https://github.com/tokio-rs/toasty", branch = "main", default-features = false, features = ["sqlite"] }
+toasty-core = { git = "https://github.com/tokio-rs/toasty", branch = "main" }
+topcoat-ui = { git = "https://github.com/tokio-rs/topcoat", branch = "main" }
+topcoat-ui-registry = { git = "https://github.com/tokio-rs/topcoat", branch = "main" }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 uuid = "1.23"

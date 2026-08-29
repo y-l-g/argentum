@@ -6,3 +6,6 @@ publish = false
 
 [dependencies]
 anyhow = "1"
+serde_json = "1"
+topcoat-ui = { workspace = true }
+topcoat-ui-registry = { workspace = true }

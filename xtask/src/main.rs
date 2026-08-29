@@ -1,5 +1,7 @@
 use std::path::{Path, PathBuf};
 
+use topcoat_ui::Registry;
+
 fn main() -> anyhow::Result<()> {
     let mut args = std::env::args().skip(1);
     let cmd = args.next().unwrap_or_else(|| "help".to_string());
@@ -28,10 +30,12 @@ USAGE:
     cargo xtask sync-topcoat-ui [--dry-run]
 
 COMMANDS:
-    sync-topcoat-ui    Copy verbatim primitives from topcoat-ui-registry
-                       (../topcoat/crates/topcoat-ui/registry/src/components/*.rs)
-                       into crates/argentum-ui/src/components/primitives/*.rs
-                       with SYNC header. Never touches composites/.
+    sync-topcoat-ui    Copy primitives from the `topcoat-ui-registry` crate
+                       Cargo resolved for this workspace into
+                       crates/argentum-ui/src/components/primitives/*.rs
+                       with a SYNC header. Never touches composites/.
+                       No sibling clone required — the registry comes from
+                       the same git source Cargo compiles against.
 
 OPTIONS:
     --dry-run          Print what would be copied without writing
@@ -40,60 +44,86 @@ OPTIONS:
     );
 }
 
+/// The registry Cargo resolved for this workspace, plus its crate version.
+///
+/// Located through `cargo metadata` — the same mechanism `topcoat ui` itself
+/// uses (topcoat-ui/src/manage/workspace.rs) — so the synced sources always
+/// come from the exact `topcoat-ui-registry` the workspace compiles against,
+/// pinned by `Cargo.lock`. The registry directory is read from the data
+/// crate's `[package.metadata.topcoat-ui] registry` declaration.
+fn locate_registry() -> anyhow::Result<(Registry, String)> {
+    let output = std::process::Command::new("cargo")
+        .args(["metadata", "--format-version", "1"])
+        .output()
+        .map_err(|error| anyhow::anyhow!("failed to run cargo metadata: {error}"))?;
+    if !output.status.success() {
+        anyhow::bail!(
+            "cargo metadata failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    let metadata: serde_json::Value = serde_json::from_slice(&output.stdout)
+        .map_err(|error| anyhow::anyhow!("could not parse cargo metadata: {error}"))?;
+
+    let package = metadata["packages"]
+        .as_array()
+        .and_then(|packages| {
+            packages
+                .iter()
+                .find(|package| package["name"] == "topcoat-ui-registry")
+        })
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "`topcoat-ui-registry` is not in the dependency graph — it must be a \
+                 dependency of xtask (see xtask/Cargo.toml)"
+            )
+        })?;
+
+    let version = package["version"]
+        .as_str()
+        .ok_or_else(|| anyhow::anyhow!("topcoat-ui-registry has no version in cargo metadata"))?
+        .to_string();
+    let manifest_path = package["manifest_path"]
+        .as_str()
+        .ok_or_else(|| anyhow::anyhow!("topcoat-ui-registry has no manifest_path"))?;
+    let relative = package["metadata"]["topcoat-ui"]["registry"]
+        .as_str()
+        .unwrap_or(".");
+    let dir = Path::new(manifest_path)
+        .parent()
+        .unwrap_or(Path::new("."))
+        .join(relative);
+
+    let registry = Registry::load(dir)?;
+    Ok((registry, version))
+}
+
 fn sync_topcoat_ui(dry_run: bool) -> anyhow::Result<()> {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     // xtask is at <repo>/xtask, so repo root is parent of manifest_dir
     let repo_root = manifest_dir.parent().unwrap_or(Path::new("."));
-    let src_dir = repo_root.join("../topcoat/crates/topcoat-ui/registry/src/components");
     let dst_dir = repo_root.join("crates/argentum-ui/src/components/primitives");
+    std::fs::create_dir_all(&dst_dir)?;
 
-    if !src_dir.exists() {
-        anyhow::bail!(
-            "source not found: {} (expected sibling ../topcoat)",
-            src_dir.display()
-        );
-    }
-    if !dst_dir.exists() {
-        std::fs::create_dir_all(&dst_dir)?;
-    }
-
-    // Compute upstream commit for SYNC header — `git -C ../topcoat rev-parse --short HEAD`
-    let commit = std::process::Command::new("git")
-        .args([
-            "-C",
-            repo_root.join("../topcoat").to_string_lossy().as_ref(),
-            "rev-parse",
-            "--short",
-            "HEAD",
-        ])
-        .output()
-        .ok()
-        .and_then(|o| {
-            if o.status.success() {
-                Some(String::from_utf8_lossy(&o.stdout).trim().to_string())
-            } else {
-                None
-            }
-        })
-        .unwrap_or_else(|| "main".to_string());
+    let (registry, version) = locate_registry()?;
     let header = format!(
-        "// SYNC: topcoat-ui-registry@{commit} — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).\n"
+        "// SYNC: topcoat-ui-registry@{version} — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).\n"
     );
 
+    // `Registry::names()` yields BTreeMap keys — already sorted.
+    let names: Vec<String> = registry.names().map(String::from).collect();
+
     let mut count = 0;
-    for entry in std::fs::read_dir(&src_dir)? {
-        let entry = entry?;
-        let path = entry.path();
-        if path.extension().and_then(|s| s.to_str()) != Some("rs") {
-            continue;
-        }
-        let file_name = path.file_name().unwrap().to_string_lossy().to_string();
-        let dst_path = dst_dir.join(&file_name);
-        let src_content = std::fs::read_to_string(&path)?;
-        let mut dst_content = format!("{header}{src_content}");
+    for name in &names {
+        let component = registry
+            .get(name)
+            .ok_or_else(|| anyhow::anyhow!("registry name {name} vanished between load and get"))?;
+        let src = component.read_source()?;
+        let dst_path = dst_dir.join(component.file_name());
+        let mut content = format!("{header}{src}");
         // Patch separator.rs so composites can delegate without duplicating private logic
-        if file_name == "separator.rs" {
-            dst_content = dst_content
+        if name == "separator" {
+            content = content
                 .replace(
                     "    fn classes(self) -> StaticClass {",
                     "    pub(crate) fn classes(self) -> StaticClass {",
@@ -104,46 +134,37 @@ fn sync_topcoat_ui(dry_run: bool) -> anyhow::Result<()> {
                 );
         }
         if dry_run {
-            println!("would sync {file_name} -> {}", dst_path.display());
+            println!("would sync {name} -> {}", dst_path.display());
         } else {
-            std::fs::write(&dst_path, dst_content)?;
-            println!("synced {file_name}");
+            std::fs::write(&dst_path, content)?;
+            println!("synced {name}");
         }
         count += 1;
     }
     if dry_run {
-        println!("dry-run: {count} files would be synced (header @{commit})");
+        println!("dry-run: {count} components would be synced (topcoat-ui-registry@{version})");
     } else {
         println!(
-            "done: {count} files synced to {} (header @{commit})",
+            "done: {count} components synced to {} (topcoat-ui-registry@{version})",
             dst_dir.display()
         );
         println!("note: composites/ was not touched (ADR-0007)");
     }
-    // Also ensure primitives/mod.rs lists all files
-    ensure_primitives_mod(&dst_dir, &header, dry_run)?;
+    // Also ensure primitives/mod.rs lists every component in the registry
+    ensure_primitives_mod(&dst_dir, &header, &names, dry_run)?;
     Ok(())
 }
 
-fn ensure_primitives_mod(dst_dir: &Path, header: &str, dry_run: bool) -> anyhow::Result<()> {
+fn ensure_primitives_mod(
+    dst_dir: &Path,
+    header: &str,
+    names: &[String],
+    dry_run: bool,
+) -> anyhow::Result<()> {
     let mod_path = dst_dir.join("mod.rs");
-    let mut files: Vec<String> = Vec::new();
-    for entry in std::fs::read_dir(dst_dir)? {
-        let entry = entry?;
-        let p = entry.path();
-        if p.extension().and_then(|s| s.to_str()) != Some("rs") {
-            continue;
-        }
-        let stem = p.file_stem().unwrap().to_string_lossy().to_string();
-        if stem == "mod" {
-            continue;
-        }
-        files.push(stem);
-    }
-    files.sort();
     let mut content = String::from(header);
-    for stem in files {
-        content.push_str(&format!("pub mod {stem};\n"));
+    for name in names {
+        content.push_str(&format!("pub mod {name};\n"));
     }
     if dry_run {
         println!("would write {}", mod_path.display());
