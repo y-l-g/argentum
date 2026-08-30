@@ -31,11 +31,11 @@ impl Resource for UserResource {
     type Model = User;
 
     fn table(cx: &Cx) -> Table<User> {
-        Table::r#for(cx).columns((
-            TextColumn::r#for(User::fields().name())
+        Table::r#for(cx).id(|u: &User| u.id.to_string()).columns((
+            TextColumn::r#for(User::fields().name(), |u: &User| u.name.clone())
                 .searchable()
                 .sortable(),
-            TextColumn::r#for(User::fields().email()),
+            TextColumn::r#for(User::fields().email(), |u: &User| u.email.clone()),
         ))
     }
 

@@ -14,13 +14,24 @@ use topcoat::{Result, view::*};
 
 use crate::schema::{FieldLens, Schema, lens_field_name_and_label, pk_tie_breakers};
 
-/// Text column bound to a typed lens. `TextColumn::for(User::fields().name())`
-/// fails if the column does not exist (ADR-0001).
-#[derive(Debug, Clone)]
+/// Text column bound to a typed lens **and** a typed projection.
+///
+/// The lens (`FieldLens<M, String>`) is the query side: it names the column
+/// and produces search/sort predicates — `TextColumn::for(User::fields().name(), ..)`
+/// fails to compile if the field does not exist (ADR-0001).
+///
+/// The projection closure is the render side: it reads the value off a model
+/// instance for the cell (`|u| u.name.clone()`). Toasty models are plain
+/// structs and expose no instance→field reflection, so the closure is the
+/// only way to read a field generically (see `EXTERNAL_GAPS.md` "instance →
+/// field-value extraction"). A typo in the closure body fails at compile
+/// time — there is no string dispatch and no panic at render.
+#[derive(Clone)]
 pub struct TextColumn<M> {
     path: FieldLens<M, String>,
     name: String,
     label: String,
+    project: Arc<dyn Fn(&M) -> String + Send + Sync>,
     searchable: bool,
     sortable: bool,
 }
@@ -29,19 +40,33 @@ impl<M> TextColumn<M>
 where
     M: toasty::schema::Model,
 {
-    pub fn for_lens(path: FieldLens<M, String>) -> Self {
+    /// Bind a column to a `String` field lens plus a projection closure.
+    ///
+    /// The closure receives each rendered row and returns the cell text, so
+    /// computed cells (`|u| u.active.then(|| "Active".into()).unwrap_or_default()`)
+    /// are as natural as plain field reads.
+    pub fn for_lens(
+        path: FieldLens<M, String>,
+        project: impl Fn(&M) -> String + Send + Sync + 'static,
+    ) -> Self {
         let (field_name, label) = lens_field_name_and_label(path.clone());
         Self {
             path,
             name: field_name,
             label,
+            project: Arc::new(project),
             searchable: false,
             sortable: false,
         }
     }
 
-    pub fn r#for(path: FieldLens<M, String>) -> Self {
-        Self::for_lens(path)
+    /// Convenience alias so call sites read
+    /// `TextColumn::for(User::fields().name(), |u| u.name.clone())`.
+    pub fn r#for(
+        path: FieldLens<M, String>,
+        project: impl Fn(&M) -> String + Send + Sync + 'static,
+    ) -> Self {
+        Self::for_lens(path, project)
     }
 
     pub fn searchable(mut self) -> Self {
@@ -66,16 +91,15 @@ where
         &self.label
     }
 
-    pub fn header_class(&self) -> String {
-        // Legacy helper kept for compat; new Table chrome uses Token classes directly.
-        let mut cls = "text-muted-foreground".to_string();
-        if self.searchable {
-            cls.push_str(" searchable");
-        }
-        if self.sortable {
-            cls.push_str(" sortable cursor-pointer");
-        }
-        cls
+    /// App-level field name (from the lens). Identifies the column in the
+    /// `?sort=` URL parameter.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// Render the cell for one row via the typed projection.
+    pub fn render_cell(&self, row: &M) -> String {
+        (self.project)(row)
     }
 
     pub fn to_search_expr(&self, term: &str) -> Option<Expr<bool>> {
@@ -86,18 +110,30 @@ where
         Some(self.path.clone().starts_with(t.to_string()))
     }
 
-    pub fn to_order_by(&self) -> Option<OrderByExpr> {
+    pub fn to_order_by(&self, descending: bool) -> Option<OrderByExpr> {
         if self.sortable {
             // PK tie-breaker lives in Table::order_bys() (deterministic pagination).
-            Some(self.path.clone().asc())
+            let path = self.path.clone();
+            Some(if descending { path.desc() } else { path.asc() })
         } else {
             None
         }
     }
 }
 
+impl<M> std::fmt::Debug for TextColumn<M> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TextColumn")
+            .field("name", &self.name)
+            .field("label", &self.label)
+            .field("searchable", &self.searchable)
+            .field("sortable", &self.sortable)
+            .finish_non_exhaustive()
+    }
+}
+
 /// Column enum — Phase 1: only `Text`. Will generalize to `Number`, `Badge`, etc. later.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum Column<M> {
     Text(TextColumn<M>),
 }
@@ -118,15 +154,10 @@ where
         }
     }
 
-    pub fn header_class(&self) -> String {
-        match self {
-            Column::Text(c) => c.header_class(),
-        }
-    }
-
+    /// App-level field name (from the lens); identifies the column in URLs.
     pub fn name(&self) -> &str {
         match self {
-            Column::Text(c) => &c.name,
+            Column::Text(c) => c.name(),
         }
     }
 
@@ -139,6 +170,25 @@ where
     pub fn is_sortable(&self) -> bool {
         match self {
             Column::Text(c) => c.is_sortable(),
+        }
+    }
+
+    /// Render the cell for one row via the column's typed projection.
+    pub fn render_cell(&self, row: &M) -> String {
+        match self {
+            Column::Text(c) => c.render_cell(row),
+        }
+    }
+
+    pub fn to_search_expr(&self, term: &str) -> Option<Expr<bool>> {
+        match self {
+            Column::Text(c) => c.to_search_expr(term),
+        }
+    }
+
+    pub fn to_order_by(&self, descending: bool) -> Option<OrderByExpr> {
+        match self {
+            Column::Text(c) => c.to_order_by(descending),
         }
     }
 }
@@ -198,29 +248,44 @@ where
     }
 }
 
-/// Row identity — `key: &row.id` per CONTEXT.md. Simple string id for Phase 1.
-///
-/// Stringly-typed `GetField` contradicts ADR-0001 typed lens and is
-/// intentional tech debt (see GH #10). Will become a typed projection
-/// (`Column` holding `Fn(&M)->String` or lens-aware `Cell`); panic-on-unknown
-/// now preserves typo visibility without over-design.
-pub trait HasId {
-    fn id_string(&self) -> String;
-}
-
-/// Field accessor for Table cell rendering. Minimal stringly-typed for Phase 1,
-/// will be replaced by typed lens projection (see `HasId` doc, GH #10).
-pub trait GetField {
-    fn get_field(&self, name: &str) -> String;
-}
+/// Row-key projection: reads the row identity off one model instance
+/// (typically `|u| u.id.to_string()`). Toasty models are plain structs with
+/// no instance→field reflection, so the key cannot be extracted generically
+/// (see `EXTERNAL_GAPS.md`).
+pub type RowKey<M> = Arc<dyn Fn(&M) -> String + Send + Sync>;
 
 /// Table description of a `Resource`'s list view. Declares columns and how they map to queries.
-#[derive(Debug)]
+///
+/// Row identity is mandatory and typed: [`Table::id`] declares the row-key
+/// projection and [`Table::render`] errors without it — the old stringly-typed
+/// `HasId`/`GetField` dispatch (GH #10) is gone, cells render via
+/// [`TextColumn`]'s lens-bound closure where typos fail at compile time
+/// instead of panicking at render.
 pub struct Table<M> {
     columns: Vec<Column<M>>,
+    row_key: Option<RowKey<M>>,
     pagination: bool,
     show_skeleton: bool,
     _marker: PhantomData<M>,
+}
+
+impl<M> std::fmt::Debug for Table<M> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Table")
+            .field("columns", &self.columns)
+            .field("row_key", &self.row_key.is_some())
+            .field("pagination", &self.pagination)
+            .field("show_skeleton", &self.show_skeleton)
+            .finish()
+    }
+}
+
+impl<M> std::fmt::Debug for Column<M> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Column::Text(c) => std::fmt::Debug::fmt(c, f),
+        }
+    }
 }
 
 impl<M> Default for Table<M> {
@@ -233,6 +298,7 @@ impl<M> Table<M> {
     pub fn new() -> Self {
         Self {
             columns: Vec::new(),
+            row_key: None,
             pagination: false,
             show_skeleton: false,
             _marker: PhantomData,
@@ -242,6 +308,16 @@ impl<M> Table<M> {
     /// Create a table for the given model. `cx` is reserved for future tenancy/policy scoping.
     pub fn r#for(_cx: &Cx) -> Self {
         Self::new()
+    }
+
+    /// Declare the row-key projection (typically `|u| u.id.to_string()`).
+    ///
+    /// Required before [`Self::render`]: row identity is not optional
+    /// (`CONTEXT.md` Table) — renders without it return an error rather than
+    /// falling back to loop indices.
+    pub fn id(mut self, key: impl Fn(&M) -> String + Send + Sync + 'static) -> Self {
+        self.row_key = Some(Arc::new(key));
+        self
     }
 
     /// Declare columns. Accepts a single column or tuple of columns.
@@ -275,22 +351,18 @@ impl<M> Table<M> {
         if t.is_empty() {
             return None;
         }
-        let mut exprs = self.columns.iter().filter_map(|c| match c {
-            Column::Text(col) => col.to_search_expr(t),
-        });
+        let mut exprs = self.columns.iter().filter_map(|c| c.to_search_expr(t));
         let first = exprs.next()?;
         Some(exprs.fold(first, |acc, e| acc.or(e)))
     }
 
-    /// First sortable column's order_by (asc). Deterministic pagination requires
+    /// First sortable column's order_by. Deterministic pagination requires
     /// a PK tie-breaker — use [`Self::order_bys`] for the full ordering.
-    pub fn order_by(&self) -> Option<OrderByExpr>
+    pub fn order_by(&self, descending: bool) -> Option<OrderByExpr>
     where
         M: toasty::schema::Model,
     {
-        self.columns.iter().find_map(|c| match c {
-            Column::Text(col) => col.to_order_by(),
-        })
+        self.columns.iter().find_map(|c| c.to_order_by(descending))
     }
 
     /// Ordered list for the query: first sortable column asc + PK tie-breaker(s)
@@ -306,7 +378,7 @@ impl<M> Table<M> {
     where
         M: toasty::schema::Model,
     {
-        let Some(first) = self.order_by() else {
+        let Some(first) = self.order_by(false) else {
             return Vec::new();
         };
         let mut out = vec![first];
@@ -315,7 +387,8 @@ impl<M> Table<M> {
     }
 
     /// Render the table for the given rows. Header shows searchable/sortable indicators;
-    /// rows are keyed by `row.id` per CONTEXT.md.
+    /// rows are keyed by the projection declared via [`Self::id`] per `CONTEXT.md`,
+    /// cells render via each column's typed projection.
     ///
     /// Beautiful chrome: `rounded-xl border border-border overflow-hidden` container,
     /// `table` primitives (w-full, border-border, text-muted-foreground, hover:bg-foreground/5),
@@ -324,10 +397,28 @@ impl<M> Table<M> {
     /// skeleton rows when `skeleton` is set.
     /// Delegates visually to `argentum-ui` token classes (`bg-background`, `border-border`,
     /// `shadow-sm`, `text-muted-foreground`) — no raw colors, no `ac-*`.
+    ///
+    /// # Errors
+    ///
+    /// Errors when the table has no row key ([`Self::id`]) or no columns —
+    /// row identity is not optional, and neither is something to show.
     pub async fn render(&self, cx: &Cx, rows: &[M]) -> Result<View>
     where
-        M: toasty::schema::Model + HasId + GetField + std::fmt::Debug + Send + Sync + 'static,
+        M: toasty::schema::Model + Send + Sync + 'static,
     {
+        if self.columns.is_empty() {
+            return Err(std::io::Error::other(
+                "Table::render: no columns declared — declare columns via Table::columns(..)",
+            )
+            .into());
+        }
+        let Some(row_key) = &self.row_key else {
+            return Err(std::io::Error::other(
+                "Table::render: no row key declared — declare one via Table::id(|row| ..)",
+            )
+            .into());
+        };
+        let row_key = row_key.clone();
         if self.show_skeleton {
             return view! {
                 cx =>
@@ -510,13 +601,16 @@ impl<M> Table<M> {
                         </thead>
                         <tbody class="[&_tr:last-child]:border-0">
                             for row in rows {
+                                let key = row_key(row);
+                                let cells: Vec<String> =
+                                    self.columns.iter().map(|col| col.render_cell(row)).collect();
                                 <tr
-                                    key=(row.id_string())
+                                    key=(key)
                                     class="border-b border-border transition-colors hover:bg-foreground/5"
                                 >
-                                    for col in &self.columns {
+                                    for cell in cells {
                                         <td class="p-3 align-middle whitespace-nowrap">
-                                            (row.get_field(col.name()))
+                                            (cell)
                                         </td>
                                     }
                                 </tr>
@@ -791,26 +885,6 @@ mod tests {
         name: String,
     }
 
-    impl HasId for User {
-        fn id_string(&self) -> String {
-            self.id.to_string()
-        }
-    }
-
-    impl GetField for User {
-        fn get_field(&self, name: &str) -> String {
-            match name {
-                "name" => self.name.clone(),
-                "id" => self.id.to_string(),
-                _ => panic!(
-                    "GetField: unknown column '{}' for {}",
-                    name,
-                    std::any::type_name::<Self>()
-                ),
-            }
-        }
-    }
-
     struct UserResource;
 
     impl Resource for UserResource {
@@ -942,13 +1016,13 @@ mod tests {
 
     #[test]
     fn text_column_searchable_produces_starts_with() {
-        let col = TextColumn::r#for(User::fields().name()).searchable();
+        let col = TextColumn::r#for(User::fields().name(), |u| u.name.clone()).searchable();
         assert!(
             col.to_search_expr("Ada").is_some(),
             "searchable should produce expr"
         );
         assert!(
-            TextColumn::r#for(User::fields().name())
+            TextColumn::r#for(User::fields().name(), |u| u.name.clone())
                 .to_search_expr("Ada")
                 .is_none(),
             "non-searchable should be None"
@@ -957,25 +1031,61 @@ mod tests {
 
     #[test]
     fn text_column_sortable_produces_order_by() {
-        let col = TextColumn::r#for(User::fields().name()).sortable();
+        let col = TextColumn::r#for(User::fields().name(), |u| u.name.clone()).sortable();
         assert!(
-            col.to_order_by().is_some(),
+            col.to_order_by(false).is_some(),
             "sortable should produce order_by"
         );
         assert!(
-            TextColumn::r#for(User::fields().name())
-                .to_order_by()
+            TextColumn::r#for(User::fields().name(), |u| u.name.clone())
+                .to_order_by(false)
                 .is_none(),
             "non-sortable should be None"
+        );
+    }
+
+    #[test]
+    fn text_column_renders_cells_via_typed_projection() {
+        let plain = TextColumn::r#for(User::fields().name(), |u| u.name.clone());
+        let decorated = TextColumn::r#for(User::fields().name(), |u| format!("{}!", u.name));
+        let row = User {
+            id: uuid::Uuid::nil(),
+            name: "Ada".to_string(),
+        };
+        assert_eq!(plain.render_cell(&row), "Ada");
+        assert_eq!(decorated.render_cell(&row), "Ada!");
+        assert_eq!(plain.name(), "name");
+        assert_eq!(plain.label(), "Name");
+    }
+
+    #[tokio::test]
+    async fn table_render_requires_row_key_and_columns() {
+        let cx = CxTestBuilder::new().build();
+        let rows = vec![User {
+            id: uuid::Uuid::nil(),
+            name: "Ada".to_string(),
+        }];
+        // No columns → error
+        let no_columns = Table::<User>::r#for(&cx).id(|u| u.id.to_string());
+        assert!(
+            no_columns.render(&cx, &rows).await.is_err(),
+            "render without columns must error"
+        );
+        // Columns but no row key → error (replaces the old panic-on-unknown dispatch)
+        let no_key = Table::<User>::r#for(&cx)
+            .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()));
+        assert!(
+            no_key.render(&cx, &rows).await.is_err(),
+            "render without row key must error"
         );
     }
 
     #[tokio::test]
     async fn table_for_columns_renders_with_keyed_rows() {
         let cx = CxTestBuilder::new().build();
-        let table = Table::<User>::r#for(&cx).columns((
-            TextColumn::r#for(User::fields().name()).searchable(),
-            TextColumn::r#for(User::fields().name()).sortable(),
+        let table = Table::<User>::r#for(&cx).id(|u| u.id.to_string()).columns((
+            TextColumn::r#for(User::fields().name(), |u| u.name.clone()).searchable(),
+            TextColumn::r#for(User::fields().name(), |u| u.name.clone()).sortable(),
         ));
         // Use dummy rows for render check (no DB) — keyed by row.id
         let rows = vec![
@@ -1038,7 +1148,7 @@ mod tests {
             .await
             .unwrap();
         let cx = CxTestBuilder::new().app_context(db).build();
-        let col = TextColumn::r#for(User::fields().name()).searchable();
+        let col = TextColumn::r#for(User::fields().name(), |u| u.name.clone()).searchable();
         let expr = col.to_search_expr("Ada").unwrap();
         let mut db = crate::db::db(&cx);
         let rows = User::filter(expr).exec(&mut db).await.unwrap();
@@ -1053,14 +1163,14 @@ mod tests {
     fn table_search_expr_ors_across_searchable_columns() {
         let cx = CxTestBuilder::new().build();
         let table = Table::<User>::r#for(&cx).columns((
-            TextColumn::r#for(User::fields().name()).searchable(),
-            TextColumn::r#for(User::fields().name()).searchable(),
+            TextColumn::r#for(User::fields().name(), |u| u.name.clone()).searchable(),
+            TextColumn::r#for(User::fields().name(), |u| u.name.clone()).searchable(),
         ));
         assert!(table.search_expr("Ada").is_some());
         assert!(table.search_expr("").is_none());
         assert!(table.search_expr("   ").is_none());
-        let table_none =
-            Table::<User>::r#for(&cx).columns(TextColumn::r#for(User::fields().name()));
+        let table_none = Table::<User>::r#for(&cx)
+            .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()));
         assert!(table_none.search_expr("Ada").is_none());
     }
 
@@ -1068,20 +1178,20 @@ mod tests {
     fn table_order_by_returns_first_sortable() {
         let cx = CxTestBuilder::new().build();
         let table = Table::<User>::r#for(&cx).columns((
-            TextColumn::r#for(User::fields().name()).sortable(),
-            TextColumn::r#for(User::fields().name()),
+            TextColumn::r#for(User::fields().name(), |u| u.name.clone()).sortable(),
+            TextColumn::r#for(User::fields().name(), |u| u.name.clone()),
         ));
-        assert!(table.order_by().is_some());
-        let table_none =
-            Table::<User>::r#for(&cx).columns(TextColumn::r#for(User::fields().name()));
-        assert!(table_none.order_by().is_none());
+        assert!(table.order_by(false).is_some());
+        let table_none = Table::<User>::r#for(&cx)
+            .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()));
+        assert!(table_none.order_by(false).is_none());
     }
 
     #[test]
     fn table_order_bys_includes_pk_tie_breaker() {
         let cx = CxTestBuilder::new().build();
-        let table =
-            Table::<User>::r#for(&cx).columns(TextColumn::r#for(User::fields().name()).sortable());
+        let table = Table::<User>::r#for(&cx)
+            .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()).sortable());
         let orders = table.order_bys();
         // first is sortable, second is PK asc for deterministic pagination
         assert_eq!(
@@ -1090,8 +1200,8 @@ mod tests {
             "sortable + PK tie-breaker expected, got {orders:?}"
         );
         // No sortable → empty
-        let table_none =
-            Table::<User>::r#for(&cx).columns(TextColumn::r#for(User::fields().name()));
+        let table_none = Table::<User>::r#for(&cx)
+            .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()));
         assert!(
             table_none.order_bys().is_empty(),
             "non-sortable should have no order_bys"
@@ -1117,8 +1227,9 @@ mod tests {
             .unwrap();
         assert_ne!(a.id, b.id);
         let cx = CxTestBuilder::new().app_context(db).build();
-        let table =
-            Table::<User>::r#for(&cx).columns(TextColumn::r#for(User::fields().name()).sortable());
+        let table = Table::<User>::r#for(&cx)
+            .id(|u| u.id.to_string())
+            .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()).sortable());
         let mut db = crate::db::db(&cx);
         let mut query = User::all();
         for ord in table.order_bys() {

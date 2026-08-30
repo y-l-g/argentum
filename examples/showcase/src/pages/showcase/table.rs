@@ -12,18 +12,21 @@ async fn table_showcase(cx: &Cx) -> Result {
     let rows = UserResource::query(cx).exec(&mut conn).await?;
 
     // Variants for snippet display
-    let plain = Table::<User>::r#for(cx).columns(TextColumn::r#for(User::fields().name()));
-    let searchable =
-        Table::<User>::r#for(cx).columns(TextColumn::r#for(User::fields().name()).searchable());
-    let sortable =
-        Table::<User>::r#for(cx).columns(TextColumn::r#for(User::fields().name()).sortable());
-    let both = Table::<User>::r#for(cx).columns((
-        TextColumn::r#for(User::fields().name())
+    let plain = Table::<User>::r#for(cx)
+        .id(|u| u.id.to_string())
+        .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()));
+    let searchable = Table::<User>::r#for(cx)
+        .id(|u| u.id.to_string())
+        .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()).searchable());
+    let sortable = Table::<User>::r#for(cx)
+        .id(|u| u.id.to_string())
+        .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()).sortable());
+    let both = Table::<User>::r#for(cx).id(|u| u.id.to_string()).columns((
+        TextColumn::r#for(User::fields().name(), |u| u.name.clone())
             .searchable()
             .sortable(),
-        TextColumn::r#for(User::fields().email()),
+        TextColumn::r#for(User::fields().email(), |u| u.email.clone()),
     ));
-
     let plain_html = plain.render(cx, &rows).await?;
     let searchable_html = searchable.render(cx, &rows).await?;
     let sortable_html = sortable.render(cx, &rows).await?;
@@ -31,13 +34,13 @@ async fn table_showcase(cx: &Cx) -> Result {
 
     // Demonstrate Table owns query — OR across searchable, first sortable
     let demo_search = Table::<User>::r#for(cx).columns((
-        TextColumn::r#for(User::fields().name()).searchable(),
-        TextColumn::r#for(User::fields().email()).searchable(),
+        TextColumn::r#for(User::fields().name(), |u| u.name.clone()).searchable(),
+        TextColumn::r#for(User::fields().email(), |u| u.email.clone()).searchable(),
     ));
     let _search_expr = demo_search.search_expr("Ada"); // OR
     let _order_by = Table::<User>::r#for(cx)
-        .columns(TextColumn::r#for(User::fields().name()).sortable())
-        .order_by();
+        .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()).sortable())
+        .order_by(false);
 
     view! {
         cx =>

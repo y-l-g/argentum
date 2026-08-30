@@ -132,6 +132,30 @@ trait Model {
 
 ---
 
+## Toasty — instance → field-value extraction (row keys, cells)
+
+**Where:** `crates/argentum-core/src/resource.rs` — `Table::id` row-key closure and `TextColumn`'s projection closure.
+
+**Today (accurate as of 2026-08-30):** Toasty models are plain structs; the `Model`/`Field` traits expose paths and schema metadata but **no way to read a field value off an instance generically** (`Load` only goes `Value → model`). Argentum therefore requires the projection as a user-written closure:
+- `Table::id(|u| u.id.to_string())` — the row key for `key:`-ed rows (row identity is mandatory; render errors without it).
+- `TextColumn::for_lens(lens, |u| u.name.clone())` — the cell projection.
+
+Typos in either closure fail at compile time, so the old stringly-typed `HasId`/`GetField` dispatch (GH #10, panic-on-unknown) is gone — but every table/column repeats the field read.
+
+**Why fragile:** nothing breaks (closures are typed); the cost is ergonomic repetition, and a silent mismatch between the lens (query side) and the closure (render side) cannot be detected — e.g. a column whose lens says `email` but whose closure reads `name` still compiles.
+
+**Clean upstream API:**
+```rust
+trait Model {
+    fn primary_key(&self) -> Self::PrimaryKey;        // row keys without the closure
+    // and/or: generated per-field accessors usable as `Fn(&Self) -> &T`
+}
+```
+
+**Argentum plan:** keep the closures until upstream exposes instance→value access; then default `Table::id` / `TextColumn` projections from the lens and delete this entry. Follow-up #10 tracks the Argentum side.
+
+---
+
 ## How to retire entries
 
 1. Add the upstream API (or feature-flag it).
@@ -139,4 +163,4 @@ trait Model {
 3. Update the bridge helpers to delegate to the new public API, keep signature.
 4. Delete the entry here and reference the Toasty/Topcoat PR that closed it.
 
-Last updated: 2026-08-29 (memoize error conversion + missing unique-violation predicate documented; showcase stringification corrected) — 2026-08-28: Tailwind `@source` moved to ADR-0006 (internal), policy added: use internals freely and document missing public APIs here.
+Last updated: 2026-08-30 (instance→field-value extraction gap documented with the typed Table projection, GH #10). 2026-08-29: memoize error conversion + missing unique-violation predicate documented; showcase stringification corrected. 2026-08-28: Tailwind `@source` moved to ADR-0006 (internal), policy added: use internals freely and document missing public APIs here.

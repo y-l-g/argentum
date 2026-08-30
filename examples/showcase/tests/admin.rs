@@ -430,7 +430,7 @@ async fn admin_table_via_resource_has_searchable_sortable() {
         "searchable column should produce expr"
     );
     assert!(
-        table.order_by().is_some(),
+        table.order_by(false).is_some(),
         "sortable column should produce order_by"
     );
 }
