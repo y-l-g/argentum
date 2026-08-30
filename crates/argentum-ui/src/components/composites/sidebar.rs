@@ -83,7 +83,7 @@ pub async fn sidebar_inset(#[default] mut attrs: Attributes, #[default] child: V
 // ---------------------------------------------------------------------------
 
 const SIDEBAR: StaticClass = class!(
-    "fixed inset-y-0 left-0 z-10 hidden h-svh w-(--sidebar-width) flex-col border-r border-border bg-background transition-[left,right,width,background-color,border-color,color] duration-200 group-data-[collapsible=offcanvas]:left-[calc(var(--sidebar-width)*-1)] group-data-[collapsible=icon]:w-(--sidebar-width-icon) lg:flex"
+    "fixed inset-y-0 left-0 z-10 hidden h-svh w-(--sidebar-width) flex-col border-r border-border bg-background transition-[left,right,width] duration-200 group-data-[collapsible=offcanvas]:left-[calc(var(--sidebar-width)*-1)] group-data-[collapsible=icon]:w-(--sidebar-width-icon) lg:flex"
 );
 
 /// Sidebar component — the persistent navigation rail on desktop.

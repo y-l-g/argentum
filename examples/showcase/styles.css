@@ -36,6 +36,7 @@
 }
 
 :root {
+  color-scheme: light;
   --background: oklch(0.995 0.003 260);
   --foreground: oklch(0.24 0.012 260);
   --muted: oklch(0.96 0.005 260);
@@ -53,6 +54,7 @@
 }
 
 .dark {
+  color-scheme: dark;
   --background: oklch(0.17 0.012 260);
   --foreground: oklch(0.93 0.006 260);
   --muted: oklch(0.22 0.01 260);
@@ -70,14 +72,6 @@
 
 @layer base {
   body {
-    @apply bg-background font-sans text-foreground transition-colors duration-200;
-  }
-  /* Sync dark transition for shell surfaces that otherwise snap */
-  [data-sidebar="sidebar"],
-  [data-sidebar="header"],
-  [data-sidebar="provider"],
-  header,
-  .card {
-    @apply transition-colors duration-200;
+    @apply bg-background font-sans text-foreground;
   }
 }
