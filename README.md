@@ -2,7 +2,7 @@
 
 > **Filament for Rust** — a server-rendered admin toolkit on **Topcoat** (UI / reactivity) and **Toasty** (ORM).
 
-Status: **spec** — no code yet. This document is the reference for the first implementation. It is intentionally short: enough to pick crate and trait shapes, not so detailed it freezes decisions that belong in code.
+Status: **early implementation** — three crates exist (`argentum-core`, `argentum-macros`, `argentum-ui`) plus a showcase example. Shipped today: the typed-lens vertical slice (ADR-0005), `Panel` + `Resource` + `Table` + `Schema` (ADR-0006/0007/0008), a real list view — search toolbar, sort links, cursor pagination, honest empty states (ADR-0009 shell) — and the `db(cx)`/`#[memoize]` glue. Not shipped yet: Action, Policy, Notification, Create/Edit hydration, the shard/boundary reactivity seam (tracked in GH issue #38). The sections below mix shipped design with the original spec; where they disagree, the **code and `docs/adr/` win** — this document is being brought back in sync (GH issue #53).
 
 ---
 
@@ -44,7 +44,7 @@ argentum/
   argentum-ui/        // optional: vendored topcoat-ui wrappers (table chrome, dialog, skeleton) — copied via `topcoat ui add`
 ```
 
-Only `argentum-core` + `argentum-macros` are hard dependencies. UI chrome is vendored from `topcoat-ui-registry` (`registry/registry.toml`: `table`, `pagination`, `dialog`, `skeleton`, `input`, `select`, …) with `topcoat ui add table dialog skeleton` — the sources are then owned by the app and freely edited.
+Only `argentum-core` + `argentum-macros` are hard dependencies. UI chrome lives in **`argentum-ui`** (ADR-0006/0007): its *primitives* are a verbatim mirror of `topcoat-ui-registry`, synced by `cargo xtask sync-topcoat-ui` and never hand-edited; its *composites* (Sidebar, Page, CodeBlock) are owned Argentum components. Apps depend on the crate — they do not run `topcoat ui add`.
 
 Topcoat stack assumptions (tracking `topcoat@main`): `view!` / `#[component]` (concurrent), `#[page]` / `#[layout]` / `module_router!` + `href!`/`rewrite`/`sitemaps`, `Cx` with `cx.with(...)` + `#[memoize]` (128-bit, no `Clone`/`Eq`), `cookie`/`session`, `asset!`, `tailwind`. Runtime (`signal`/`$(...)`/`#[shard]`/`#[procedure]`) is used as documented in `topcoat/docs/runtime.md` and `topcoat-runtime/macro/docs/shard.md`. Streaming `defer`+`boundary` and Signals v2 are **designs** (`SIGNALS.md`, `DESIGN.md`/`DESIGN-2.md`) — Argentum must work on today's `#[shard]` and migrate without rewriting every resource (see §7).
 
@@ -131,27 +131,27 @@ Schema::new((
 
 Composition, not a 30-trait God object (`filament/packages/tables/src/Table.php`). `Table<M>` is a value describing the list view; Argentum renders it.
 
+As shipped today (compiles — see `examples/showcase/src/app.rs` for the full resource):
+
 ```rust
-Table::for::<User>(cx)
+Table::r#for(cx)
+    .id(|u: &User| u.id.to_string())       // mandatory typed row key
     .columns((
-        TextColumn::for(User::fields().name()).searchable().sortable(),
-        TextColumn::for(User::fields().email()).copyable(),
-        BadgeColumn::for(User::fields().role()),
+        TextColumn::r#for(User::fields().name(), |u: &User| u.name.clone())
+            .searchable()
+            .sortable(),
+        TextColumn::r#for(User::fields().email(), |u: &User| u.email.clone())
+            .searchable(),
+        TextColumn::computed("Status", |u: &User| {
+            if u.active { "Active" } else { "Inactive" }.to_string()
+        }),
     ))
-    .filters((
-        SelectFilter::for(User::fields().role()).options(Role::variants()),
-        TernaryFilter::for(User::fields().active()),
-    ))
-    .searchable(true)                      // global search box
-    .default_sort(User::fields().created_at().desc())
-    .pagination(25)                        // cursor pagination
-    .actions((Action::edit(), Action::delete().requires_confirmation()))
-    .bulk_actions((BulkAction::delete(),))
+    .paginate(2)                           // real cursor pagination (?after=/?before=)
 ```
 
-Columns/filters declare **how to query**, not just how to render: `searchable()` marks a column for `starts_with`/`like` search, `sortable()` requires an `order_by` mapping, filters produce `Expr<bool>`. The table is the authority that builds the Toasty query (see §6).
+Columns/filters declare **how to query**, not just how to render: `searchable()` marks a column for portable `starts_with` search, `sortable()` requires an `order_by` mapping (PK tie-breaker appended for deterministic cursors), and the URL is the one truth — `?q=`, `?sort=`, `?dir=`, `?after=`, `?before=` parsed once into `TableState`. Filters (`SelectFilter`/`TernaryFilter`), `BadgeColumn`, bulk actions and `.copyable()` remain spec-level (GH #13/#38).
 
-UI chrome: `Table` renders into `topcoat-ui` `table` + `pagination` + `skeleton` (skeleton shown via `defer`/`boundary` while loading — §7).
+UI chrome: `Table` renders into `argentum-ui` (synced `topcoat-ui-registry`) `table` + `pagination` + `skeleton` primitives (skeleton shown via `defer`/`boundary` while loading — §7).
 
 ### 4.5 `Action`
 

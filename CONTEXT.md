@@ -2,6 +2,8 @@
 
 Admin toolkit for Rust — server-rendered on Topcoat, persisted with Toasty. Provides the CRUD core of Filament (Panel + Resource → Table + Schema + Action) with no Livewire port, single-panel/single-tenant in Phase 1, explicit preloading and cursor pagination, and a narrow reactivity seam that works on today's shard runtime and migrates to signals v2 + boundary streaming.
 
+> **Shipped vs spec:** every term below is vocabulary-level truth, but some surfaces have no code yet — **Action, Policy, Notification, Boundary, Page, Theme/Token** are design targets tracked by the spec-surfaces umbrella issue (#38) and the readme roadmap. The Table/Resource/Schema/Navigation vocabulary described above ships in `argentum-core`.
+
 ## Language
 
 ### Panel
@@ -20,9 +22,14 @@ The unified layout primitive for forms and infolists. A composition of layout bl
 _Avoid_: Form, Infolist, Fieldset (as top-level term), statePath
 
 ### Table
-The declarative description of a list view. Declares columns, filters, search, sort, pagination, and row/bulk actions. It also declares how to query — searchable and filterable columns produce Toasty predicates, sortable columns map to order_by. Owns the row loop: row identity is enforced by construction via `key: &row.id`, never left to the user.
+The declarative description of a list view. Declares columns, filters, search, sort, pagination, and row/bulk actions. It also declares how to query — searchable and filterable columns produce Toasty predicates, sortable columns map to order_by. Owns the row loop: row identity is mandatory and typed, declared once via the table's row-key closure (`Table::id(|u| u.id.to_string())`) until Toasty exposes instance→PK extraction, and render errors without it — never a loop index.
 
 _Avoid_: Grid, Listing, DataTable
+
+### Column
+A typed projection of a Model field (or a computed value) displayed in a Table row, rendered through a lens-bound closure where typos fail at compile time. `searchable`/`sortable` map to Toasty predicates and order_by; computed columns render values but declare none. Badge, Number and other variants remain spec-level.
+
+_Avoid_: Field (in table context), Cell, Attribute
 
 ### Action
 A user-invoked operation, optionally with a modal Schema. Runs via a procedure endpoint, inside a transaction, with authorization checked against the passed record inside the handler.

@@ -72,7 +72,7 @@ trait Model {
 
 ## Toasty — LIKE escaping helper
 
-**Where:** `readme.md §6` and future Table `like_with_escape`.
+**Where:** `README.md §6` and future Table `like_with_escape`.
 
 **Today:** Portable search uses `starts_with` (safe, parameterised). Substring search would need `like_with_escape` with manual `q.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")` + `format!("%{esc}%")`.
 
@@ -106,7 +106,7 @@ trait Model {
 
 ## Toasty — unique-violation error predicate
 
-**Where:** `readme.md` §4.3/§9 (unique → inline field-error mapping); future Create/Update hydration (#11, #12). No runtime call site today — the mapping is aspirational.
+**Where:** `README.md` §4.3/§9 (unique → inline field-error mapping); future Create/Update hydration (#11, #12). No runtime call site today — the mapping is aspirational.
 
 **Today:** toasty exposes no unique-violation error kind. `toasty-core/src/error/` has `is_record_not_found`, `is_condition_failed`, … but no `is_unique_violation`; `#[unique]` only creates the DB index and duplicates surface as an unclassified driver error (the toasty quickstart example only asserts `dup.is_err()`).
 
