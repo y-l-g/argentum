@@ -30,9 +30,9 @@ async fn load_users(cx: &Cx, state: &TableState) -> Result<TablePage<User>> {
         Some(per_page) => {
             let mut paginated = query.paginate(per_page);
             if let Some(cursor) = &state.after {
-                paginated = paginated.after(argentum_core::decode_cursor(cursor)?);
+                paginated = paginated.after(argentum_core::cursor::decode(cursor)?);
             } else if let Some(cursor) = &state.before {
-                paginated = paginated.before(argentum_core::decode_cursor(cursor)?);
+                paginated = paginated.before(argentum_core::cursor::decode(cursor)?);
             }
             let page: toasty::stmt::Page<User> = paginated
                 .exec(&mut db)

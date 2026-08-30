@@ -21,7 +21,6 @@ pub mod schema;
 pub mod view;
 
 pub use argentum_macros::Resource;
-pub use cursor::{decode as decode_cursor, encode as encode_cursor};
 pub use panel::Panel;
 pub use resource::{
     Column, NavigationItem, Pages, Resource, RowKey, Sort, Table, TablePage, TableState, TextColumn,
