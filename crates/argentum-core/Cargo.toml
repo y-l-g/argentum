@@ -9,14 +9,19 @@ description = "The core toolkit types for Argentum, a server-rendered admin tool
 [dependencies]
 argentum-macros = { path = "../argentum-macros" }
 argentum-ui = { path = "../argentum-ui" }
+http = "1"
+jiff.workspace = true
+serde.workspace = true
 toasty.workspace = true
 toasty-core.workspace = true
 topcoat = { workspace = true, features = ["view", "router", "discover", "tailwind", "asset", "font", "font-fontsource", "runtime"] }
+uuid.workspace = true
 
 [dev-dependencies]
 http = "1"
 tokio.workspace = true
 uuid.workspace = true
+jiff.workspace = true
 
 [lints]
 workspace = true

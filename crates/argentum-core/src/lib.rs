@@ -13,6 +13,7 @@ pub mod __macro {
 // The full toolkit surface lands in later phases. For now, expose a single
 // renderable component and the `Db` glue so the crate has vertical slices
 // through Topcoat and Toasty.
+pub mod cursor;
 pub mod db;
 pub mod panel;
 pub mod resource;
@@ -20,6 +21,9 @@ pub mod schema;
 pub mod view;
 
 pub use argentum_macros::Resource;
+pub use cursor::{decode as decode_cursor, encode as encode_cursor};
 pub use panel::Panel;
-pub use resource::{Column, NavigationItem, Pages, Resource, Table, TextColumn};
+pub use resource::{
+    Column, NavigationItem, Pages, Resource, RowKey, Sort, Table, TablePage, TableState, TextColumn,
+};
 pub use schema::{FieldLens, Grid, Group, IntoSchema, Schema, Section, Text, TextInput};

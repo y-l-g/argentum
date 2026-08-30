@@ -7,7 +7,12 @@
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-use argentum_ui::{table, table_body, table_cell, table_head, table_header, table_row};
+use argentum_ui::{
+    ButtonSize, ButtonVariant, button, input as ui_input, pagination, pagination_content,
+    pagination_item, pagination_next, pagination_previous, table, table_body, table_cell,
+    table_head, table_header, table_row,
+};
+use serde::Deserialize;
 use toasty::stmt::{Expr, List, OrderByExpr};
 use topcoat::context::Cx;
 use topcoat::router::{Href, HrefParams, HrefQueries, HrefTarget};
@@ -29,7 +34,9 @@ use crate::schema::{FieldLens, Schema, lens_field_name_and_label, pk_tie_breaker
 /// time — there is no string dispatch and no panic at render.
 #[derive(Clone)]
 pub struct TextColumn<M> {
-    path: FieldLens<M, String>,
+    /// The query-side lens; `None` for [`Self::computed`] columns, which
+    /// render a value but declare no predicates.
+    path: Option<FieldLens<M, String>>,
     name: String,
     label: String,
     project: Arc<dyn Fn(&M) -> String + Send + Sync>,
@@ -52,8 +59,29 @@ where
     ) -> Self {
         let (field_name, label) = lens_field_name_and_label(path.clone());
         Self {
-            path,
+            path: Some(path),
             name: field_name,
+            label,
+            project: Arc::new(project),
+            searchable: false,
+            sortable: false,
+        }
+    }
+
+    /// A computed, display-only column (CONTEXT.md Column: "a computed value").
+    ///
+    /// No field lens — so it cannot be searchable or sortable (it maps to no
+    /// query predicate) — but any cell projection compiles: booleans,
+    /// timestamps, joined values.
+    pub fn computed(
+        label: impl Into<String>,
+        project: impl Fn(&M) -> String + Send + Sync + 'static,
+    ) -> Self {
+        let label = label.into();
+        let name = label.to_lowercase();
+        Self {
+            path: None,
+            name,
             label,
             project: Arc::new(project),
             searchable: false,
@@ -108,13 +136,13 @@ where
         if !self.searchable || t.is_empty() {
             return None;
         }
-        Some(self.path.clone().starts_with(t.to_string()))
+        Some(self.path.clone()?.starts_with(t.to_string()))
     }
 
     pub fn to_order_by(&self, descending: bool) -> Option<OrderByExpr> {
         if self.sortable {
             // PK tie-breaker lives in Table::order_bys() (deterministic pagination).
-            let path = self.path.clone();
+            let path = self.path.clone()?;
             Some(if descending { path.desc() } else { path.asc() })
         } else {
             None
@@ -196,10 +224,9 @@ where
 
 /// Convert a single column or tuple of columns into `Vec<Column<M>>`.
 ///
-/// 4-tuple limit is intentional: without variadic generics this is idiomatic
-/// Rust — matches `IntoSchema` in `schema.rs`. Extending to 5+ columns adds
-/// boilerplate for little gain; a macro is deferred until a real Resource
-/// needs 5 columns.
+/// 5-tuple limit: without variadic generics this is idiomatic Rust — matches
+/// `IntoSchema` in `schema.rs`. Tables wider than five columns are rare in
+/// admin UIs; extend (or macro-ify) when a real Resource needs it.
 pub trait IntoColumns<M> {
     fn into_columns(self) -> Vec<Column<M>>;
 }
@@ -249,6 +276,25 @@ where
     }
 }
 
+impl<M, A, B, C, D, E> IntoColumns<M> for (A, B, C, D, E)
+where
+    A: Into<Column<M>>,
+    B: Into<Column<M>>,
+    C: Into<Column<M>>,
+    D: Into<Column<M>>,
+    E: Into<Column<M>>,
+{
+    fn into_columns(self) -> Vec<Column<M>> {
+        vec![
+            self.0.into(),
+            self.1.into(),
+            self.2.into(),
+            self.3.into(),
+            self.4.into(),
+        ]
+    }
+}
+
 /// Row-key projection: reads the row identity off one model instance
 /// (typically `|u| u.id.to_string()`). Toasty models are plain structs with
 /// no instance→field reflection, so the key cannot be extracted generically
@@ -265,7 +311,8 @@ pub type RowKey<M> = Arc<dyn Fn(&M) -> String + Send + Sync>;
 pub struct Table<M> {
     columns: Vec<Column<M>>,
     row_key: Option<RowKey<M>>,
-    pagination: bool,
+    page_size: Option<usize>,
+    search_ui: Option<bool>,
     show_skeleton: bool,
     _marker: PhantomData<M>,
 }
@@ -275,7 +322,8 @@ impl<M> std::fmt::Debug for Table<M> {
         f.debug_struct("Table")
             .field("columns", &self.columns)
             .field("row_key", &self.row_key.is_some())
-            .field("pagination", &self.pagination)
+            .field("page_size", &self.page_size)
+            .field("search_ui", &self.search_ui)
             .field("show_skeleton", &self.show_skeleton)
             .finish()
     }
@@ -300,7 +348,8 @@ impl<M> Table<M> {
         Self {
             columns: Vec::new(),
             row_key: None,
-            pagination: false,
+            page_size: None,
+            search_ui: None,
             show_skeleton: false,
             _marker: PhantomData,
         }
@@ -327,9 +376,31 @@ impl<M> Table<M> {
         self
     }
 
-    /// Enable pagination chrome (visual stub; query pagination is out of scope this slice).
-    pub fn pagination(mut self, enabled: bool) -> Self {
-        self.pagination = enabled;
+    /// Enable real cursor pagination with the given page size.
+    ///
+    /// Loaders pair this with toasty's `.paginate(per_page)` (via
+    /// [`TablePage::from_toasty_page`]); the render then shows Previous/Next
+    /// links built from the executed page's cursors — never fake page
+    /// numbers. Also implies a deterministic PK ordering when the table
+    /// declares no sortable column (see [`Self::order_bys_for_state`]).
+    pub fn paginate(mut self, per_page: usize) -> Self {
+        assert!(per_page > 0, "pagination page size must be > 0");
+        self.page_size = Some(per_page);
+        self
+    }
+
+    /// Whether the page size was declared via [`Self::paginate`].
+    pub fn page_size(&self) -> Option<usize> {
+        self.page_size
+    }
+
+    /// Force the search toolbar on or off.
+    ///
+    /// Defaults to showing the toolbar whenever at least one column is
+    /// `searchable()` — the header indicators never promise a search the
+    /// page does not have.
+    pub fn search(mut self, enabled: bool) -> Self {
+        self.search_ui = Some(enabled);
         self
     }
 
@@ -337,10 +408,6 @@ impl<M> Table<M> {
     pub fn skeleton(mut self, enabled: bool) -> Self {
         self.show_skeleton = enabled;
         self
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.columns.is_empty()
     }
 
     /// Global search predicate — OR across searchable columns (portable `starts_with`).
@@ -387,23 +454,65 @@ impl<M> Table<M> {
         out
     }
 
-    /// Render the table for the given rows. Header shows searchable/sortable indicators;
-    /// rows are keyed by the projection declared via [`Self::id`] per `CONTEXT.md`,
-    /// cells render via each column's typed projection.
+    /// Resolve the full query ordering for a request.
     ///
-    /// Beautiful chrome: `rounded-xl border border-border overflow-hidden` container,
-    /// `table` primitives (w-full, border-border, text-muted-foreground, hover:bg-foreground/5),
-    /// sortable `cursor-pointer`, searchable/sortable indicators with `aria-sort`,
-    /// pagination chrome when `pagination` is set, EmptyState via card when `rows` is empty,
-    /// skeleton rows when `skeleton` is set.
-    /// Delegates visually to `argentum-ui` token classes (`bg-background`, `border-border`,
-    /// `shadow-sm`, `text-muted-foreground`) — no raw colors, no `ac-*`.
+    /// Single source of truth for loaders and render:
+    /// 1. `?sort=<column>&dir=asc|desc` when `<column>` names a declared
+    ///    sortable column — that column's direction plus PK tie-breaker(s);
+    /// 2. otherwise the declared default (first sortable column asc plus PK
+    ///    tie-breaker(s), see [`Self::order_bys`]);
+    /// 3. otherwise, when the table is paginated, the PK alone — cursor
+    ///    pagination requires a deterministic order even with no sortable
+    ///    column.
+    pub fn order_bys_from_cx(&self, cx: &Cx) -> Vec<OrderByExpr>
+    where
+        M: toasty::schema::Model,
+    {
+        self.order_bys_for_state(&TableState::from_cx(cx))
+    }
+
+    /// [`Self::order_bys_from_cx`] for an already-parsed [`TableState`].
+    pub fn order_bys_for_state(&self, state: &TableState) -> Vec<OrderByExpr>
+    where
+        M: toasty::schema::Model,
+    {
+        if let Some(sort) = &state.sort
+            && let Some(col) = self
+                .columns
+                .iter()
+                .find(|c| c.is_sortable() && c.name() == sort.column)
+            && let Some(ord) = col.to_order_by(sort.descending)
+        {
+            let mut out = vec![ord];
+            out.extend(pk_tie_breakers::<M>());
+            return out;
+        }
+        let mut out = self.order_bys();
+        if out.is_empty() && self.page_size.is_some() {
+            out.extend(pk_tie_breakers::<M>());
+        }
+        out
+    }
+
+    /// Render the table for the given loaded page.
+    ///
+    /// Real chrome, no fake affordances: the header renders sort **links**
+    /// driving `?sort=`/`?dir=` and a search toolbar driving `?q=` (shown by
+    /// default when any column is `searchable()`), rows are keyed by the
+    /// projection declared via [`Self::id`] per `CONTEXT.md` and rendered via
+    /// each column's typed projection, pagination shows Previous/Next links
+    /// built from the executed page's **real** cursors (never invented page
+    /// numbers), and the empty state reflects whether a search was active.
+    ///
+    /// Composes the synced `argentum-ui` primitives and Token classes
+    /// (`bg-background`, `border-border`, `shadow-sm`, `text-muted-foreground`)
+    /// — no raw colors, no `ac-*`.
     ///
     /// # Errors
     ///
     /// Errors when the table has no row key ([`Self::id`]) or no columns —
     /// row identity is not optional, and neither is something to show.
-    pub async fn render(&self, cx: &Cx, rows: &[M]) -> Result<View>
+    pub async fn render(&self, cx: &Cx, page: &TablePage<M>) -> Result<View>
     where
         M: toasty::schema::Model + Send + Sync + 'static,
     {
@@ -420,7 +529,19 @@ impl<M> Table<M> {
             .into());
         };
         let row_key = row_key.clone();
-        let head = self.render_thead(cx).await?;
+        let state = TableState::from_cx(cx);
+        let path = topcoat::context::try_request_context::<http::request::Parts>(cx)
+            .map(|parts| parts.uri.path().to_string())
+            .unwrap_or_default();
+        let head = self.render_thead(cx, &state, &path).await?;
+        let show_search = self.search_enabled();
+        let search_bar = if show_search {
+            Some(self.render_search_bar(cx, &state, &path).await?)
+        } else {
+            None
+        };
+        let pager = self.render_pager(cx, &state, &path, page).await?;
+
         if self.show_skeleton {
             return view! {
                 cx =>
@@ -446,54 +567,18 @@ impl<M> Table<M> {
             };
         }
 
-        if rows.is_empty() {
+        if page.rows.is_empty() {
+            let empty_cell = self.render_empty_cell(cx, &state, &path).await?;
             return view! {
                 cx =>
                 <div class="rounded-xl border border-border overflow-hidden">
-                    table((head))
-                    <div class="px-6 py-16 text-center">
-                        <div class="flex flex-col items-center gap-4">
-                            <p class="text-sm text-muted-foreground">
-                                "No records found"
-                            </p>
-                            <p class="text-sm text-muted-foreground">
-                                "No search results"
-                            </p>
-                            <button
-                                class="inline-flex shrink-0 items-center justify-center border font-medium whitespace-nowrap transition-colors outline-none select-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 border-transparent bg-primary text-primary-foreground shadow-xs hover:bg-primary/90 active:bg-primary/80 h-9 gap-2 rounded-lg px-4 text-sm"
-                            >
-                                "Create record"
-                            </button>
-                        </div>
-                    </div>
-                    if self.pagination {
-                        <div class="border-t border-border p-3">
-                            <nav
-                                aria-label="pagination"
-                                class="@container mx-auto flex w-full justify-center"
-                            >
-                                <ul
-                                    class="flex flex-row flex-wrap items-center justify-center gap-1"
-                                >
-                                    <li>
-                                        <a
-                                            aria-current="page"
-                                            class="inline-flex shrink-0 items-center justify-center border font-medium whitespace-nowrap transition-colors outline-none select-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 border-border text-foreground shadow-xs hover:bg-foreground/5 active:bg-foreground/10 size-9 rounded-lg text-base"
-                                        >
-                                            "1"
-                                        </a>
-                                    </li>
-                                    <li>
-                                        <a
-                                            class="inline-flex shrink-0 items-center justify-center border font-medium whitespace-nowrap transition-colors outline-none select-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 border-transparent text-foreground hover:bg-foreground/5 active:bg-foreground/10 size-9 rounded-lg text-base"
-                                        >
-                                            "2"
-                                        </a>
-                                    </li>
-                                </ul>
-                            </nav>
-                        </div>
+                    if show_search {
+                        (search_bar.expect("search bar built when enabled"))
                     }
+                    table(
+                        (head)
+                        (empty_cell)
+                    )
                 </div>
             };
         }
@@ -501,10 +586,13 @@ impl<M> Table<M> {
         view! {
             cx =>
             <div class="rounded-xl border border-border overflow-hidden">
+                if show_search {
+                    (search_bar.expect("search bar built when enabled"))
+                }
                 table(
                     (head)
                     table_body(
-                        for row in rows {
+                        for row in &page.rows {
                             let key = row_key(row);
                             let cells: Vec<String> =
                                 self.columns.iter().map(|col| col.render_cell(row)).collect();
@@ -517,88 +605,292 @@ impl<M> Table<M> {
                         }
                     )
                 )
-                if self.pagination {
-                    <div class="border-t border-border p-3">
-                        <nav
-                            aria-label="pagination"
-                            class="@container mx-auto flex w-full justify-center"
-                        >
-                            <ul
-                                class="flex flex-row flex-wrap items-center justify-center gap-1"
-                            >
-                                <li>
-                                    <a
-                                        aria-current="page"
-                                        class="inline-flex shrink-0 items-center justify-center border font-medium whitespace-nowrap transition-colors outline-none select-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 border-border text-foreground shadow-xs hover:bg-foreground/5 active:bg-foreground/10 size-9 rounded-lg text-base"
-                                    >
-                                        "1"
-                                    </a>
-                                </li>
-                                <li>
-                                    <a
-                                        class="inline-flex shrink-0 items-center justify-center border font-medium whitespace-nowrap transition-colors outline-none select-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 border-transparent text-foreground hover:bg-foreground/5 active:bg-foreground/10 size-9 rounded-lg text-base"
-                                    >
-                                        "2"
-                                    </a>
-                                </li>
-                                <li>
-                                    <a
-                                        class="inline-flex shrink-0 items-center justify-center border font-medium whitespace-nowrap transition-colors outline-none select-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 border-transparent text-foreground hover:bg-foreground/5 active:bg-foreground/10 size-9 rounded-lg text-base"
-                                    >
-                                        "3"
-                                    </a>
-                                </li>
-                            </ul>
-                        </nav>
-                    </div>
+                for p in pager {
+                    (p)
                 }
             </div>
         }
     }
 
-    /// The shared column-header row — the single source of the `<thead>`
-    /// markup (labels, searchable `⌕` / sortable `↕` indicators, `aria-sort`).
-    /// Every render branch (skeleton / empty / rows) composes it, so an
-    /// a11y or styling change happens once.
-    async fn render_thead(&self, cx: &Cx) -> Result<View>
+    /// Whether the search toolbar renders: the explicit `search(bool)` value,
+    /// or auto — at least one `searchable()` column.
+    fn search_enabled(&self) -> bool
     where
         M: toasty::schema::Model,
     {
+        self.search_ui
+            .unwrap_or_else(|| self.columns.iter().any(|c| c.is_searchable()))
+    }
+
+    /// The GET search toolbar: submits `?q=` back to the current path,
+    /// preserving the active sort and resetting pagination (a new search is a
+    /// new result set). Renders a Clear link while a search is active.
+    async fn render_search_bar(&self, cx: &Cx, state: &TableState, path: &str) -> Result<View> {
+        let action = path.to_string();
+        let q_display = state.search.clone().unwrap_or_default();
+        let sort_hidden = state.sort.as_ref().map(|s| s.column.clone());
+        let dir_hidden = state
+            .sort
+            .as_ref()
+            .map(|s| if s.descending { "desc" } else { "asc" });
+        let clear_url = state.sort.as_ref().map(|s| {
+            build_url(
+                path,
+                &[
+                    ("sort", Some(s.column.as_str())),
+                    ("dir", Some(if s.descending { "desc" } else { "asc" })),
+                ],
+            )
+        });
+        view! {
+            cx =>
+            <form
+                method="get"
+                action=(action)
+                class="flex flex-wrap items-center gap-2 border-b border-border p-3"
+            >
+                if let Some(sort) = sort_hidden {
+                    <input type="hidden" name="sort" value=(sort)>
+                }
+                if let Some(dir) = dir_hidden {
+                    <input type="hidden" name="dir" value=(dir)>
+                }
+                ui_input(
+                    attrs: attributes! {
+                        type="search"
+                        name="q"
+                        value=(q_display)
+                        placeholder="Search…"
+                        aria-label="Search table"
+                        class="w-64"
+                    },
+                )
+                button(
+                    variant: ButtonVariant::Secondary,
+                    size: ButtonSize::Md,
+                    attrs: attributes! { type="submit" },
+                    "Search"
+                )
+                if let Some(url) = clear_url {
+                    <a
+                        href=(url)
+                        class="text-sm text-muted-foreground hover:text-foreground"
+                    >
+                        "Clear"
+                    </a>
+                }
+            </form>
+        }
+    }
+
+    /// The zero-rows cell — one honest message, not two: "no records yet"
+    /// when unfiltered, "no results" with a Clear link when a search is
+    /// active. The dead Create button is gone (create pages are not wired
+    /// yet). Wrapped in a single cell spanning the table so it sits inside
+    /// the grid.
+    async fn render_empty_cell(&self, cx: &Cx, state: &TableState, path: &str) -> Result<View>
+    where
+        M: toasty::schema::Model,
+    {
+        let colspan = self.columns.len();
+        let clear_url = if state.search.is_some() {
+            Some(match &state.sort {
+                Some(s) => build_url(
+                    path,
+                    &[
+                        ("sort", Some(s.column.as_str())),
+                        ("dir", Some(if s.descending { "desc" } else { "asc" })),
+                    ],
+                ),
+                None => path.to_string(),
+            })
+        } else {
+            None
+        };
+        let message = match &state.search {
+            Some(term) => format!("No results for \u{201c}{term}\u{201d}"),
+            None => "No records yet".to_string(),
+        };
+        Ok(view! { cx =>
+            table_body(
+                table_row(
+                    key: "empty",
+                    table_cell(
+                        attrs: attributes! {
+                            colspan=(colspan)
+                            class="px-6 py-16 text-center"
+                        },
+                        <div class="flex flex-col items-center gap-4">
+                            <p class="text-sm text-muted-foreground">
+                                (message)
+                            </p>
+                            if let Some(url) = clear_url {
+                                <a
+                                    href=(url)
+                                    class="text-sm text-primary hover:underline"
+                                >
+                                    "Clear search"
+                                </a>
+                            }
+                        </div>
+                    )
+                )
+            )
+        }?)
+    }
+
+    /// Previous/Next pagination links from the executed page's real cursors.
+    /// Empty when the table is not paginated or the page has no neighbors —
+    /// no invented page numbers. Links preserve the search and sort state;
+    /// cursors travel via `?after=`/`?before=`.
+    async fn render_pager(
+        &self,
+        cx: &Cx,
+        state: &TableState,
+        path: &str,
+        page: &TablePage<M>,
+    ) -> Result<Vec<View>> {
+        if self.page_size.is_none() {
+            return Ok(Vec::new());
+        }
+        // Cursors only carry ordering values; the loader re-applies search and
+        // sort, so the links must carry that state along.
+        let dir = state
+            .sort
+            .as_ref()
+            .map(|s| if s.descending { "desc" } else { "asc" });
+        let preserve: Vec<(&str, Option<&str>)> = vec![
+            ("q", state.search.as_deref()),
+            ("sort", state.sort.as_ref().map(|s| s.column.as_str())),
+            ("dir", dir),
+        ];
+        let href = |param: &str, cursor: &str| {
+            let mut params = Vec::with_capacity(preserve.len() + 1);
+            params.push((param, Some(cursor)));
+            params.extend(preserve.clone());
+            build_url(path, &params)
+        };
+        let next_href = page
+            .next_cursor
+            .as_ref()
+            .map(|cursor| href("after", cursor));
+        let prev_href = page
+            .prev_cursor
+            .as_ref()
+            .map(|cursor| href("before", cursor));
+        if prev_href.is_none() && next_href.is_none() {
+            return Ok(Vec::new());
+        }
+        let pager = view! {
+            cx =>
+            <div class="border-t border-border p-3">
+                pagination(
+                    pagination_content(
+                        if let Some(href) = prev_href {
+                            pagination_item(
+                                pagination_previous(
+                                    attrs: attributes! { href=(href) },
+                                )
+                            )
+                        }
+                        if let Some(href) = next_href {
+                            pagination_item(
+                                pagination_next(
+                                    attrs: attributes! { href=(href) },
+                                )
+                            )
+                        }
+                    )
+                )
+            </div>
+        }?;
+        Ok(vec![pager])
+    }
+
+    /// The shared column-header row — the single source of the `<thead>`
+    /// markup: labels, `⌕` on searchable columns, and **links** on sortable
+    /// columns that toggle `?sort=`/`?dir=` (↑/↓ with `aria-sort` when active,
+    /// ↕ when inactive). Every render branch (skeleton / empty / rows)
+    /// composes it, so an a11y or styling change happens once.
+    async fn render_thead(&self, cx: &Cx, state: &TableState, path: &str) -> Result<View>
+    where
+        M: toasty::schema::Model,
+    {
+        // The active sort only counts when it names a declared sortable column.
+        let active = state.sort.as_ref().filter(|s| {
+            self.columns
+                .iter()
+                .any(|c| c.is_sortable() && c.name() == s.column)
+        });
         let mut heads = Vec::with_capacity(self.columns.len());
         for col in &self.columns {
             let label = col.label().to_string();
-            let sortable = col.is_sortable();
             let searchable = col.is_searchable();
-            let head_class = if sortable {
-                "cursor-pointer hover:bg-foreground/5"
+            let (head_class, aria_sort, header) = if col.is_sortable() {
+                let (aria, glyph, next_desc) = match active {
+                    Some(s) if s.column == col.name() => (
+                        if s.descending {
+                            "descending"
+                        } else {
+                            "ascending"
+                        },
+                        if s.descending { "\u{2193}" } else { "\u{2191}" },
+                        // toggling the active column flips the direction
+                        !s.descending,
+                    ),
+                    _ => ("none", "\u{2195}", false),
+                };
+                let href = build_url(
+                    path,
+                    &[
+                        ("q", state.search.as_deref()),
+                        ("sort", Some(col.name())),
+                        ("dir", Some(if next_desc { "desc" } else { "asc" })),
+                    ],
+                );
+                let aria_label = format!(
+                    "Sort by {} {}",
+                    label,
+                    if next_desc { "descending" } else { "ascending" }
+                );
+                (
+                    "cursor-pointer hover:bg-foreground/5",
+                    Some(aria),
+                    view! { cx =>
+                        <a
+                            href=(href)
+                            aria-label=(aria_label)
+                            class="inline-flex items-center gap-1 hover:text-foreground"
+                        >
+                            (label.clone())
+                            <span
+                                role="img"
+                                aria-hidden="true"
+                                class="inline-flex size-4 items-center justify-center align-middle text-base leading-none text-muted-foreground"
+                            >
+                                (glyph)
+                            </span>
+                        </a>
+                    }?,
+                )
             } else {
-                ""
+                ("", None, view! { cx => (label.clone()) }?)
             };
-            let aria_sort = if sortable { Some("none") } else { None };
             heads.push(view! { cx =>
                 table_head(
                     attrs: attributes! {
                         class=(head_class)
                         aria-sort=(aria_sort)
                     },
-                    (label.clone())
+                    (header)
                     if searchable {
                         <span
                             role="img"
                             aria-label="Searchable column"
                             class="ml-2 inline-flex size-4 items-center justify-center align-middle text-base leading-none text-muted-foreground"
                         >
-                            "⌕"
+                            "\u{2315}"
                         </span>
-                    }
-                    if sortable {
-                        <button
-                            type="button"
-                            aria-label=(format!("Sort by {}", &label))
-                            class="ml-2 inline-flex size-4 items-center justify-center align-middle text-base leading-none text-muted-foreground hover:text-foreground"
-                        >
-                            "↕"
-                        </button>
                     }
                 )
             }?);
@@ -613,7 +905,6 @@ impl<M> Table<M> {
             )
         }
     }
-
     /// Render an ErrorState (alert Destructive inside card) for loader failures.
     /// This is used via `Result` match in layout slot, not inside shard, so it
     /// survives Boundary swaps.
@@ -635,6 +926,162 @@ impl<M> Table<M> {
                 </div>
             </div>
         }
+    }
+}
+
+/// One executed page of rows for [`Table::render`].
+///
+/// For paginated tables build it from toasty's `Page` via
+/// [`Self::from_toasty_page`] (which URL-encodes the engine cursors); for
+/// unpaginated tables `Vec<M>` converts directly. An absent cursor simply
+/// means no Previous/Next link is rendered — the chrome never invents pages.
+#[derive(Debug, Clone)]
+pub struct TablePage<M> {
+    /// The rows of this page.
+    pub rows: Vec<M>,
+    /// Encoded cursor for the next page (`?after=`), when one exists.
+    pub next_cursor: Option<String>,
+    /// Encoded cursor for the previous page (`?before=`), when one exists.
+    pub prev_cursor: Option<String>,
+}
+
+impl<M> From<Vec<M>> for TablePage<M> {
+    fn from(rows: Vec<M>) -> Self {
+        Self {
+            rows,
+            next_cursor: None,
+            prev_cursor: None,
+        }
+    }
+}
+
+impl<M: toasty::schema::Model> TablePage<M> {
+    /// Wrap a toasty cursor-pagination result, encoding its cursors for URLs.
+    ///
+    /// # Errors
+    ///
+    /// Errors when a cursor contains a value the URL codec cannot represent
+    /// (see `crate::cursor`).
+    pub fn from_toasty_page(page: toasty::stmt::Page<M>) -> Result<Self> {
+        Ok(Self {
+            rows: page.items,
+            next_cursor: page
+                .next_cursor
+                .as_ref()
+                .map(crate::cursor::encode)
+                .transpose()?,
+            prev_cursor: page
+                .prev_cursor
+                .as_ref()
+                .map(crate::cursor::encode)
+                .transpose()?,
+        })
+    }
+}
+
+/// Which column the table is currently sorted by, parsed from
+/// `?sort=<column>&dir=asc|desc`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Sort {
+    /// The app-level field name of the column (matches [`Column::name`]).
+    pub column: String,
+    /// `true` for `dir=desc`.
+    pub descending: bool,
+}
+
+/// Request-scoped table state, parsed from the current URL query.
+///
+/// The single parse point shared by loaders ([`Table::order_bys_from_cx`],
+/// the search term) and render (active sort, toolbar values, pagination
+/// links), so the URL is the one truth for list state. The fixed parameter
+/// names assume one table per page — per-table prefixes are deferred until a
+/// real page needs two tables.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
+pub struct TableState {
+    /// `?q=` — trimmed; `None` when absent or blank.
+    pub search: Option<String>,
+    /// `?sort=` + `?dir=` — `None` when absent or blank.
+    pub sort: Option<Sort>,
+    /// `?after=` — encoded forward cursor.
+    pub after: Option<String>,
+    /// `?before=` — encoded backward cursor.
+    pub before: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct TableQuery {
+    q: Option<String>,
+    sort: Option<String>,
+    dir: Option<String>,
+    after: Option<String>,
+    before: Option<String>,
+}
+
+impl TableState {
+    /// Parse the state from the request in `cx`.
+    ///
+    /// A malformed query string parses as empty state rather than failing the
+    /// request — a garbage `?q=` filters to nothing, and cursor errors surface
+    /// later, at decode time, where they are precise. Renders without a
+    /// request context (e.g. unit tests) get neutral state instead of a panic.
+    pub fn from_cx(cx: &Cx) -> Self {
+        if topcoat::context::try_request_context::<http::request::Parts>(cx).is_none() {
+            return Self::default();
+        }
+        let parsed: TableQuery = topcoat::router::parse_query_params(cx).unwrap_or_default();
+        let search = parsed
+            .q
+            .as_deref()
+            .map(str::trim)
+            .filter(|t| !t.is_empty())
+            .map(str::to_string);
+        let sort = parsed
+            .sort
+            .as_deref()
+            .map(str::trim)
+            .filter(|t| !t.is_empty())
+            .map(|column| Sort {
+                column: column.to_string(),
+                descending: parsed.dir.as_deref() == Some("desc"),
+            });
+        let non_empty = |v: Option<String>| {
+            v.filter(|t| !t.trim().is_empty())
+                .map(|t| t.trim().to_string())
+        };
+        Self {
+            search,
+            sort,
+            after: non_empty(parsed.after),
+            before: non_empty(parsed.before),
+        }
+    }
+}
+
+/// Percent-encode a query parameter value (`unreserved` RFC 3986 set passes).
+fn encode_query_value(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for b in value.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char);
+            }
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
+}
+
+/// Build `path?k=v&…` from ordered optional parameters, skipping `None`.
+fn build_url(path: &str, params: &[(&str, Option<&str>)]) -> String {
+    let query = params
+        .iter()
+        .filter_map(|(k, v)| v.map(|v| format!("{k}={}", encode_query_value(v))))
+        .collect::<Vec<_>>()
+        .join("&");
+    if query.is_empty() {
+        path.to_string()
+    } else {
+        format!("{path}?{query}")
     }
 }
 
@@ -1024,15 +1471,16 @@ mod tests {
         }];
         // No columns → error
         let no_columns = Table::<User>::r#for(&cx).id(|u| u.id.to_string());
+        let page: TablePage<User> = rows.clone().into();
         assert!(
-            no_columns.render(&cx, &rows).await.is_err(),
+            no_columns.render(&cx, &page).await.is_err(),
             "render without columns must error"
         );
         // Columns but no row key → error (replaces the old panic-on-unknown dispatch)
         let no_key = Table::<User>::r#for(&cx)
             .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()));
         assert!(
-            no_key.render(&cx, &rows).await.is_err(),
+            no_key.render(&cx, &page).await.is_err(),
             "render without row key must error"
         );
     }
@@ -1055,7 +1503,8 @@ mod tests {
                 name: "Bob".to_string(),
             },
         ];
-        let html = users_table.render(&cx, &rows).await.unwrap().render(&cx);
+        let page: TablePage<User> = rows.clone().into();
+        let html = users_table.render(&cx, &page).await.unwrap().render(&cx);
         // Beautiful chrome: rounded-xl border border-border, table primitives, Token classes
         assert!(
             html.contains("rounded-xl") && html.contains("border-border"),
@@ -1201,5 +1650,139 @@ mod tests {
             b.id
         };
         assert_eq!(rows[0].id, expected_first);
+    }
+
+    fn cx_with_query(query: &str) -> Cx {
+        let uri = if query.is_empty() {
+            "/admin".to_string()
+        } else {
+            format!("/admin?{query}")
+        };
+        let (parts, ()) = http::Request::builder()
+            .uri(uri)
+            .body(())
+            .unwrap()
+            .into_parts();
+        CxTestBuilder::new().request_context(parts).build()
+    }
+
+    #[test]
+    fn table_state_parses_query_params() {
+        let cx = cx_with_query("q=Ada+Lovelace&sort=name&dir=desc&after=abc123");
+        let state = TableState::from_cx(&cx);
+        assert_eq!(
+            state.search.as_deref(),
+            Some("Ada Lovelace"),
+            "plus must decode to space"
+        );
+        assert_eq!(
+            state.sort,
+            Some(Sort {
+                column: "name".to_string(),
+                descending: true,
+            })
+        );
+        assert_eq!(state.after.as_deref(), Some("abc123"));
+        assert!(state.before.is_none());
+
+        // Absent / blank / malformed → neutral state
+        let cx = cx_with_query("");
+        let state = TableState::from_cx(&cx);
+        assert_eq!(state, TableState::default());
+        let cx = cx_with_query("q=&sort=&dir=weird");
+        let state = TableState::from_cx(&cx);
+        assert_eq!(state, TableState::default());
+    }
+
+    #[test]
+    fn order_bys_for_state_resolves_sort_param_with_fallbacks() {
+        let cx = CxTestBuilder::new().build();
+        let sorted = Table::<User>::r#for(&cx)
+            .paginate(25)
+            .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()).sortable());
+
+        // ?sort=name&dir=desc → name desc + PK tie-breaker
+        let state = TableState {
+            sort: Some(Sort {
+                column: "name".to_string(),
+                descending: true,
+            }),
+            ..TableState::default()
+        };
+        let orders = sorted.order_bys_for_state(&state);
+        assert_eq!(orders.len(), 2, "sort + PK tie-breaker, got {orders:?}");
+
+        // Unknown sort column → declared default (name asc + PK)
+        let state = TableState {
+            sort: Some(Sort {
+                column: "nope".to_string(),
+                descending: false,
+            }),
+            ..TableState::default()
+        };
+        assert_eq!(sorted.order_bys_for_state(&state).len(), 2);
+
+        // No sort at all → declared default
+        assert_eq!(sorted.order_bys_for_state(&TableState::default()).len(), 2);
+
+        // Paginated table with no sortable column → PK-only deterministic order
+        let unsorted = Table::<User>::r#for(&cx)
+            .paginate(25)
+            .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()));
+        let orders = unsorted.order_bys_for_state(&TableState::default());
+        assert_eq!(
+            orders.len(),
+            1,
+            "PK-only for paginated unsorted, got {orders:?}"
+        );
+
+        // Unpaginated and unsorted → empty (query stays unordered)
+        let plain = Table::<User>::r#for(&cx)
+            .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()));
+        assert!(plain.order_bys_for_state(&TableState::default()).is_empty());
+    }
+
+    #[tokio::test]
+    async fn table_page_round_trips_real_cursors() {
+        let mut db = Db::builder()
+            .models(toasty::models!(User))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        for name in ["Ada", "Bob", "Cara"] {
+            toasty::create!(User { name }).exec(&mut db).await.unwrap();
+        }
+        let cx = CxTestBuilder::new().app_context(db).build();
+        let users_table = Table::<User>::r#for(&cx)
+            .id(|u| u.id.to_string())
+            .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()).sortable());
+        let mut db = crate::db::db(&cx);
+
+        // Page 1 of 1-per-page: full page → real next cursor.
+        let page1 = users_table
+            .order_bys()
+            .iter()
+            .fold(User::all(), |q, ord| q.order_by(ord.clone()))
+            .paginate(1)
+            .exec(&mut db)
+            .await
+            .unwrap();
+        let tp1 = TablePage::from_toasty_page(page1).unwrap();
+        assert_eq!(tp1.rows.len(), 1);
+        assert_eq!(tp1.rows[0].name, "Ada");
+        let cursor = tp1.next_cursor.expect("full page has a next cursor");
+
+        // The encoded cursor resumes the walk without skipping tied rows.
+        let tp1_decoded = crate::cursor::decode(&cursor).unwrap();
+        let page2 = User::all()
+            .order_by(User::fields().name().asc())
+            .paginate(1)
+            .after(tp1_decoded)
+            .exec(&mut db)
+            .await
+            .unwrap();
+        let tp2 = TablePage::from_toasty_page(page2).unwrap();
+        assert_eq!(tp2.rows[0].name, "Bob", "cursor must resume after Ada");
     }
 }

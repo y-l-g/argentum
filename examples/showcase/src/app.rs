@@ -31,12 +31,22 @@ impl Resource for UserResource {
     type Model = User;
 
     fn table(cx: &Cx) -> Table<User> {
-        Table::r#for(cx).id(|u: &User| u.id.to_string()).columns((
-            TextColumn::r#for(User::fields().name(), |u: &User| u.name.clone())
-                .searchable()
-                .sortable(),
-            TextColumn::r#for(User::fields().email(), |u: &User| u.email.clone()),
-        ))
+        Table::r#for(cx)
+            .id(|u: &User| u.id.to_string())
+            .columns((
+                TextColumn::r#for(User::fields().name(), |u: &User| u.name.clone())
+                    .searchable()
+                    .sortable(),
+                TextColumn::r#for(User::fields().email(), |u: &User| u.email.clone()).searchable(),
+                TextColumn::r#for(User::fields().role(), |u: &User| u.role.clone()),
+                TextColumn::computed("Status", |u: &User| {
+                    if u.active { "Active" } else { "Inactive" }.to_string()
+                }),
+                TextColumn::computed("Created", |u: &User| {
+                    u.created_at.strftime("%Y-%m-%d").to_string()
+                }),
+            ))
+            .paginate(2)
     }
 
     fn form(_cx: &Cx) -> Schema {

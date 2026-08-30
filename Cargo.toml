@@ -33,9 +33,11 @@ too_many_lines = "allow"
 # section redirecting to `../topcoat` / `../toasty` (see ADR-0003).
 [workspace.dependencies]
 topcoat = { git = "https://github.com/tokio-rs/topcoat", branch = "main", default-features = false, features = ["view", "router", "discover"] }
-toasty = { git = "https://github.com/tokio-rs/toasty", branch = "main", default-features = false, features = ["sqlite"] }
+toasty = { git = "https://github.com/tokio-rs/toasty", branch = "main", default-features = false, features = ["sqlite", "jiff"] }
 toasty-core = { git = "https://github.com/tokio-rs/toasty", branch = "main" }
 topcoat-ui = { git = "https://github.com/tokio-rs/topcoat", branch = "main" }
 topcoat-ui-registry = { git = "https://github.com/tokio-rs/topcoat", branch = "main" }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 uuid = "1.23"
+jiff = "0.2"
+serde = { version = "1", features = ["derive"] }

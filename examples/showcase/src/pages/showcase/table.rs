@@ -1,4 +1,4 @@
-use argentum_core::{Resource, Table, TextColumn, db::db};
+use argentum_core::{Resource, Table, TablePage, TextColumn, db::db};
 use topcoat::{Result, context::Cx, router::page, view::view};
 
 use crate::{app::UserResource, models::User};
@@ -10,6 +10,7 @@ async fn table_showcase(cx: &Cx) -> Result {
     // applies even in showcase demos (P10).
     let mut conn = db(cx);
     let rows = UserResource::query(cx).exec(&mut conn).await?;
+    let page: TablePage<User> = rows.into();
 
     // Variants for snippet display
     let plain = Table::<User>::r#for(cx)
@@ -27,10 +28,10 @@ async fn table_showcase(cx: &Cx) -> Result {
             .sortable(),
         TextColumn::r#for(User::fields().email(), |u| u.email.clone()),
     ));
-    let plain_html = plain.render(cx, &rows).await?;
-    let searchable_html = searchable.render(cx, &rows).await?;
-    let sortable_html = sortable.render(cx, &rows).await?;
-    let both_html = both.render(cx, &rows).await?;
+    let plain_html = plain.render(cx, &page).await?;
+    let searchable_html = searchable.render(cx, &page).await?;
+    let sortable_html = sortable.render(cx, &page).await?;
+    let both_html = both.render(cx, &page).await?;
 
     // Demonstrate Table owns query — OR across searchable, first sortable
     let demo_search = Table::<User>::r#for(cx).columns((

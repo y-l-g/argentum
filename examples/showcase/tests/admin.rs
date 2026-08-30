@@ -55,18 +55,23 @@ async fn admin_layout_and_list_page_serve_seeded_users() {
         html.contains("href=\"/admin\"") || html.contains("/admin"),
         "missing navigation url in {html}"
     );
-    // List page content
+    // List page content — page 1 of the cursor-paginated list (name asc,
+    // 2 per page) shows Ada + Alan; Grace lives on page 2, exercised by
+    // admin_list_pagination_walks_cursor_links.
     assert!(
         html.contains("<h1>Users</h1>") || html.contains("Users"),
         "missing heading in {html}"
     );
-    for (name, email) in [
-        ("Ada Lovelace", "ada@example.com"),
-        ("Grace Hopper", "grace@example.com"),
-    ] {
-        assert!(html.contains(name), "missing {name} in {html}");
-        assert!(html.contains(email), "missing {email} in {html}");
-    }
+    assert!(html.contains("Ada Lovelace"), "missing Ada in {html}");
+    assert!(html.contains("Alan Turing"), "missing Alan in {html}");
+    assert!(
+        html.contains("ada@example.com"),
+        "missing Ada email in {html}"
+    );
+    assert!(
+        html.contains("alan@example.com"),
+        "missing Alan email in {html}"
+    );
 }
 
 #[tokio::test]
@@ -296,7 +301,7 @@ async fn showcase_resource_renders_derives_and_navigation() {
         "missing only_ada snippet in {html}"
     );
     assert!(
-        html.contains("Bare query rows: 2"),
+        html.contains("Bare query rows: 3"),
         "missing all count in {html}"
     );
     assert!(
@@ -422,16 +427,237 @@ async fn admin_table_via_resource_has_searchable_sortable() {
     let cx = CxTestBuilder::new().build();
     let table = UserResource::table(&cx);
     assert!(
-        !table.is_empty(),
-        "UserResource::table should declare columns"
-    );
-    assert!(
         table.search_expr("Ada").is_some(),
         "searchable column should produce expr"
     );
     assert!(
         table.order_by(false).is_some(),
         "sortable column should produce order_by"
+    );
+    assert_eq!(
+        table.page_size(),
+        Some(2),
+        "UserResource::table should declare real pagination"
+    );
+}
+
+#[tokio::test]
+async fn admin_list_renders_search_box_and_sort_links() {
+    let db = seeded_db().await;
+    let router = router(db);
+    let response = router
+        .handle(
+            http::Request::builder()
+                .uri("/admin")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+    assert!(
+        response.status().is_success(),
+        "status {}",
+        response.status()
+    );
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let html = String::from_utf8_lossy(&body);
+    // Real search UI — a GET form with a q input, not a URL-only affordance.
+    assert!(
+        html.contains("<form") && html.contains("name=\"q\""),
+        "missing search form in {html}"
+    );
+    assert!(
+        html.contains("type=\"search\""),
+        "missing search input type in {html}"
+    );
+    // Real sort controls — links that drive ?sort/&dir, aria-sort present.
+    // Unsorted page: the first click sorts ascending; the active column
+    // carries aria-sort="none".
+    assert!(
+        html.contains("sort=name&amp;dir=asc"),
+        "missing sort link in {html}"
+    );
+    assert!(
+        html.contains("aria-sort=\"none\""),
+        "missing aria-sort on sortable column in {html}"
+    );
+
+    // Sorted ascending: the same link toggles to descending and the column
+    // declares aria-sort="ascending".
+    let response = router
+        .handle(
+            http::Request::builder()
+                .uri("/admin?sort=name&dir=asc")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+    assert!(
+        response.status().is_success(),
+        "sorted status {}",
+        response.status()
+    );
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let sorted = String::from_utf8_lossy(&body);
+    assert!(
+        sorted.contains("sort=name&amp;dir=desc"),
+        "missing sort toggle link in {sorted}"
+    );
+    assert!(
+        sorted.contains("aria-sort=\"ascending\""),
+        "missing aria-sort=ascending in {sorted}"
+    );
+
+    // Sorted descending: direction is declared and the link toggles back.
+    let response = router
+        .handle(
+            http::Request::builder()
+                .uri("/admin?sort=name&dir=desc")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+    assert!(
+        response.status().is_success(),
+        "desc status {}",
+        response.status()
+    );
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let desc = String::from_utf8_lossy(&body);
+    assert!(
+        desc.contains("aria-sort=\"descending\""),
+        "missing aria-sort=descending in {desc}"
+    );
+    assert!(
+        desc.contains("sort=name&amp;dir=asc"),
+        "missing toggle back to ascending in {desc}"
+    );
+}
+
+#[tokio::test]
+async fn admin_list_pagination_walks_cursor_links() {
+    let db = seeded_db().await;
+    let router = router(db);
+    let response = router
+        .handle(
+            http::Request::builder()
+                .uri("/admin")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let page1 = String::from_utf8_lossy(&body);
+
+    // Page 1 (name asc, 2 per page): Ada + Alan, not Grace; a real Next link.
+    assert!(page1.contains("Ada Lovelace"), "page1 missing Ada: {page1}");
+    assert!(page1.contains("Alan Turing"), "page1 missing Alan: {page1}");
+    assert!(
+        !page1.contains("Grace Hopper"),
+        "page1 must not show Grace (page size 2): {page1}"
+    );
+    let next_href = find_href_with(&page1, "after=")
+        .unwrap_or_else(|| panic!("page1 missing Next (after=) link: {page1}"));
+
+    let response = router
+        .handle(
+            http::Request::builder()
+                .uri(next_href)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+    assert!(
+        response.status().is_success(),
+        "page2 status {}",
+        response.status()
+    );
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let page2 = String::from_utf8_lossy(&body);
+    assert!(
+        page2.contains("Grace Hopper"),
+        "page2 missing Grace: {page2}"
+    );
+    assert!(
+        !page2.contains("Ada Lovelace") && !page2.contains("Alan Turing"),
+        "page2 must not repeat page 1 rows: {page2}"
+    );
+    assert!(
+        find_href_with(&page2, "before=").is_some(),
+        "page2 missing Previous (before=) link: {page2}"
+    );
+
+    // Following Previous returns to the first page.
+    let prev_href = find_href_with(&page2, "before=").unwrap();
+    let response = router
+        .handle(
+            http::Request::builder()
+                .uri(prev_href)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+    assert!(
+        response.status().is_success(),
+        "page1-again status {}",
+        response.status()
+    );
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let page1_again = String::from_utf8_lossy(&body);
+    assert!(
+        page1_again.contains("Ada Lovelace") || page1_again.contains("Alan Turing"),
+        "previous page must show page-1 rows: {page1_again}"
+    );
+}
+
+/// Extracts the first `href="…" containing `needle` from an HTML string.
+fn find_href_with(html: &str, needle: &str) -> Option<String> {
+    let mut rest = html;
+    loop {
+        let start = rest.find("href=\"")?;
+        rest = &rest[start + "href=\"".len()..];
+        let end = rest.find('"')?;
+        let href = &rest[..end];
+        if href.contains(needle) {
+            return Some(href.to_string());
+        }
+        rest = &rest[end..];
+    }
+}
+
+#[tokio::test]
+async fn admin_list_empty_search_shows_no_results_with_clear() {
+    let db = seeded_db().await;
+    let router = router(db);
+    let response = router
+        .handle(
+            http::Request::builder()
+                .uri("/admin?q=zzz-none")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+    assert!(
+        response.status().is_success(),
+        "status {}",
+        response.status()
+    );
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let html = String::from_utf8_lossy(&body);
+    assert!(
+        html.contains("No results for"),
+        "search-empty state must say No results: {html}"
+    );
+    assert!(
+        !html.contains("No records yet"),
+        "search-empty state must not claim no records: {html}"
+    );
+    assert!(
+        !html.contains("Create record"),
+        "dead Create button must stay gone: {html}"
+    );
+    assert!(
+        html.contains("Clear search"),
+        "missing Clear search link: {html}"
     );
 }
 

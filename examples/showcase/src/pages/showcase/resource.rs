@@ -60,7 +60,7 @@ async fn resource_showcase(cx: &Cx) -> Result {
                     <p class="text-sm text-muted-foreground">
                         "Bare query rows: "
                         (all_count.to_string())
-                        " (expected 2)"
+                        " (expected 3)"
                     </p>
                     <ul>
                         for user in &all {
