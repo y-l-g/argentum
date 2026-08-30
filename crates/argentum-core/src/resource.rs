@@ -7,6 +7,7 @@
 use std::marker::PhantomData;
 use std::sync::Arc;
 
+use argentum_ui::{table, table_body, table_cell, table_head, table_header, table_row};
 use toasty::stmt::{Expr, List, OrderByExpr};
 use topcoat::context::Cx;
 use topcoat::router::{Href, HrefParams, HrefQueries, HrefTarget};
@@ -419,42 +420,28 @@ impl<M> Table<M> {
             .into());
         };
         let row_key = row_key.clone();
+        let head = self.render_thead(cx).await?;
         if self.show_skeleton {
             return view! {
                 cx =>
                 <div class="rounded-xl border border-border overflow-hidden">
-                    <div class="w-full overflow-x-auto">
-                        <table class="w-full caption-bottom border-collapse text-sm">
-                            <thead class="[&_tr]:border-b">
-                                <tr
-                                    class="border-b border-border transition-colors hover:bg-foreground/5"
-                                >
-                                    for col in &self.columns {
-                                        <th
-                                            class="h-10 px-3 text-left align-middle font-medium whitespace-nowrap text-muted-foreground"
-                                        >
-                                            (col.label())
-                                        </th>
+                    table(
+                        (head)
+                        table_body(
+                            for i in 0..3 {
+                                table_row(
+                                    key: i,
+                                    for _ in &self.columns {
+                                        table_cell(
+                                            <div
+                                                class="animate-pulse rounded-md bg-foreground/10 h-4 w-full"
+                                            ></div>
+                                        )
                                     }
-                                </tr>
-                            </thead>
-                            <tbody class="[&_tr:last-child]:border-0">
-                                for _ in 0..3 {
-                                    <tr
-                                        class="border-b border-border transition-colors hover:bg-foreground/5"
-                                    >
-                                        for _ in &self.columns {
-                                            <td class="p-3 align-middle whitespace-nowrap">
-                                                <div
-                                                    class="animate-pulse rounded-md bg-foreground/10 h-4 w-full"
-                                                ></div>
-                                            </td>
-                                        }
-                                    </tr>
-                                }
-                            </tbody>
-                        </table>
-                    </div>
+                                )
+                            }
+                        )
+                    )
                 </div>
             };
         }
@@ -463,50 +450,7 @@ impl<M> Table<M> {
             return view! {
                 cx =>
                 <div class="rounded-xl border border-border overflow-hidden">
-                    <div class="w-full overflow-x-auto">
-                        <table class="w-full caption-bottom border-collapse text-sm">
-                            <thead class="[&_tr]:border-b">
-                                <tr
-                                    class="border-b border-border transition-colors hover:bg-foreground/5"
-                                >
-                                    for col in &self.columns {
-                                        <th
-                                            class=(if col.is_sortable() {
-                                                "h-10 px-3 text-left align-middle font-medium whitespace-nowrap text-muted-foreground cursor-pointer hover:bg-foreground/5"
-                                            } else {
-                                                "h-10 px-3 text-left align-middle font-medium whitespace-nowrap text-muted-foreground"
-                                            })
-                                            aria-sort=(if col.is_sortable() {
-                                                Some("none")
-                                            } else {
-                                                None
-                                            })
-                                        >
-                                            (col.label())
-                                            if col.is_searchable() {
-                                                <span
-                                                    role="img"
-                                                    aria-label="Searchable column"
-                                                    class="ml-2 inline-flex size-4 items-center justify-center align-middle text-base leading-none text-muted-foreground"
-                                                >
-                                                    "⌕"
-                                                </span>
-                                            }
-                                            if col.is_sortable() {
-                                                <button
-                                                    type="button"
-                                                    aria-label=(format!("Sort by {}", col.label()))
-                                                    class="ml-2 inline-flex size-4 items-center justify-center align-middle text-base leading-none text-muted-foreground hover:text-foreground"
-                                                >
-                                                    "↕"
-                                                </button>
-                                            }
-                                        </th>
-                                    }
-                                </tr>
-                            </thead>
-                        </table>
-                    </div>
+                    table((head))
                     <div class="px-6 py-16 text-center">
                         <div class="flex flex-col items-center gap-4">
                             <p class="text-sm text-muted-foreground">
@@ -557,67 +501,22 @@ impl<M> Table<M> {
         view! {
             cx =>
             <div class="rounded-xl border border-border overflow-hidden">
-                <div class="w-full overflow-x-auto">
-                    <table class="w-full caption-bottom border-collapse text-sm">
-                        <thead class="[&_tr]:border-b">
-                            <tr
-                                class="border-b border-border transition-colors hover:bg-foreground/5"
-                            >
-                                for col in &self.columns {
-                                    <th
-                                        class=(if col.is_sortable() {
-                                            "h-10 px-3 text-left align-middle font-medium whitespace-nowrap text-muted-foreground cursor-pointer hover:bg-foreground/5"
-                                        } else {
-                                            "h-10 px-3 text-left align-middle font-medium whitespace-nowrap text-muted-foreground"
-                                        })
-                                        aria-sort=(if col.is_sortable() {
-                                            Some("none")
-                                        } else {
-                                            None
-                                        })
-                                    >
-                                        (col.label())
-                                        if col.is_searchable() {
-                                            <span
-                                                role="img"
-                                                aria-label="Searchable column"
-                                                class="ml-2 inline-flex size-4 items-center justify-center align-middle text-base leading-none text-muted-foreground"
-                                            >
-                                                "⌕"
-                                            </span>
-                                        }
-                                        if col.is_sortable() {
-                                            <button
-                                                type="button"
-                                                aria-label=(format!("Sort by {}", col.label()))
-                                                class="ml-2 inline-flex size-4 items-center justify-center align-middle text-base leading-none text-muted-foreground hover:text-foreground"
-                                            >
-                                                "↕"
-                                            </button>
-                                        }
-                                    </th>
+                table(
+                    (head)
+                    table_body(
+                        for row in rows {
+                            let key = row_key(row);
+                            let cells: Vec<String> =
+                                self.columns.iter().map(|col| col.render_cell(row)).collect();
+                            table_row(
+                                key: key,
+                                for cell in cells {
+                                    table_cell((cell))
                                 }
-                            </tr>
-                        </thead>
-                        <tbody class="[&_tr:last-child]:border-0">
-                            for row in rows {
-                                let key = row_key(row);
-                                let cells: Vec<String> =
-                                    self.columns.iter().map(|col| col.render_cell(row)).collect();
-                                <tr
-                                    key=(key)
-                                    class="border-b border-border transition-colors hover:bg-foreground/5"
-                                >
-                                    for cell in cells {
-                                        <td class="p-3 align-middle whitespace-nowrap">
-                                            (cell)
-                                        </td>
-                                    }
-                                </tr>
-                            }
-                        </tbody>
-                    </table>
-                </div>
+                            )
+                        }
+                    )
+                )
                 if self.pagination {
                     <div class="border-t border-border p-3">
                         <nav
@@ -654,6 +553,64 @@ impl<M> Table<M> {
                     </div>
                 }
             </div>
+        }
+    }
+
+    /// The shared column-header row — the single source of the `<thead>`
+    /// markup (labels, searchable `⌕` / sortable `↕` indicators, `aria-sort`).
+    /// Every render branch (skeleton / empty / rows) composes it, so an
+    /// a11y or styling change happens once.
+    async fn render_thead(&self, cx: &Cx) -> Result<View>
+    where
+        M: toasty::schema::Model,
+    {
+        let mut heads = Vec::with_capacity(self.columns.len());
+        for col in &self.columns {
+            let label = col.label().to_string();
+            let sortable = col.is_sortable();
+            let searchable = col.is_searchable();
+            let head_class = if sortable {
+                "cursor-pointer hover:bg-foreground/5"
+            } else {
+                ""
+            };
+            let aria_sort = if sortable { Some("none") } else { None };
+            heads.push(view! { cx =>
+                table_head(
+                    attrs: attributes! {
+                        class=(head_class)
+                        aria-sort=(aria_sort)
+                    },
+                    (label.clone())
+                    if searchable {
+                        <span
+                            role="img"
+                            aria-label="Searchable column"
+                            class="ml-2 inline-flex size-4 items-center justify-center align-middle text-base leading-none text-muted-foreground"
+                        >
+                            "⌕"
+                        </span>
+                    }
+                    if sortable {
+                        <button
+                            type="button"
+                            aria-label=(format!("Sort by {}", &label))
+                            class="ml-2 inline-flex size-4 items-center justify-center align-middle text-base leading-none text-muted-foreground hover:text-foreground"
+                        >
+                            "↕"
+                        </button>
+                    }
+                )
+            }?);
+        }
+        view! { cx =>
+            table_header(
+                table_row(
+                    for h in heads {
+                        (h)
+                    }
+                )
+            )
         }
     }
 
@@ -1083,7 +1040,7 @@ mod tests {
     #[tokio::test]
     async fn table_for_columns_renders_with_keyed_rows() {
         let cx = CxTestBuilder::new().build();
-        let table = Table::<User>::r#for(&cx).id(|u| u.id.to_string()).columns((
+        let users_table = Table::<User>::r#for(&cx).id(|u| u.id.to_string()).columns((
             TextColumn::r#for(User::fields().name(), |u| u.name.clone()).searchable(),
             TextColumn::r#for(User::fields().name(), |u| u.name.clone()).sortable(),
         ));
@@ -1098,7 +1055,7 @@ mod tests {
                 name: "Bob".to_string(),
             },
         ];
-        let html = table.render(&cx, &rows).await.unwrap().render(&cx);
+        let html = users_table.render(&cx, &rows).await.unwrap().render(&cx);
         // Beautiful chrome: rounded-xl border border-border, table primitives, Token classes
         assert!(
             html.contains("rounded-xl") && html.contains("border-border"),
@@ -1162,13 +1119,13 @@ mod tests {
     #[test]
     fn table_search_expr_ors_across_searchable_columns() {
         let cx = CxTestBuilder::new().build();
-        let table = Table::<User>::r#for(&cx).columns((
+        let users_table = Table::<User>::r#for(&cx).columns((
             TextColumn::r#for(User::fields().name(), |u| u.name.clone()).searchable(),
             TextColumn::r#for(User::fields().name(), |u| u.name.clone()).searchable(),
         ));
-        assert!(table.search_expr("Ada").is_some());
-        assert!(table.search_expr("").is_none());
-        assert!(table.search_expr("   ").is_none());
+        assert!(users_table.search_expr("Ada").is_some());
+        assert!(users_table.search_expr("").is_none());
+        assert!(users_table.search_expr("   ").is_none());
         let table_none = Table::<User>::r#for(&cx)
             .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()));
         assert!(table_none.search_expr("Ada").is_none());
@@ -1177,11 +1134,11 @@ mod tests {
     #[test]
     fn table_order_by_returns_first_sortable() {
         let cx = CxTestBuilder::new().build();
-        let table = Table::<User>::r#for(&cx).columns((
+        let users_table = Table::<User>::r#for(&cx).columns((
             TextColumn::r#for(User::fields().name(), |u| u.name.clone()).sortable(),
             TextColumn::r#for(User::fields().name(), |u| u.name.clone()),
         ));
-        assert!(table.order_by(false).is_some());
+        assert!(users_table.order_by(false).is_some());
         let table_none = Table::<User>::r#for(&cx)
             .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()));
         assert!(table_none.order_by(false).is_none());
@@ -1190,9 +1147,9 @@ mod tests {
     #[test]
     fn table_order_bys_includes_pk_tie_breaker() {
         let cx = CxTestBuilder::new().build();
-        let table = Table::<User>::r#for(&cx)
+        let users_table = Table::<User>::r#for(&cx)
             .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()).sortable());
-        let orders = table.order_bys();
+        let orders = users_table.order_bys();
         // first is sortable, second is PK asc for deterministic pagination
         assert_eq!(
             orders.len(),
@@ -1227,12 +1184,12 @@ mod tests {
             .unwrap();
         assert_ne!(a.id, b.id);
         let cx = CxTestBuilder::new().app_context(db).build();
-        let table = Table::<User>::r#for(&cx)
+        let users_table = Table::<User>::r#for(&cx)
             .id(|u| u.id.to_string())
             .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()).sortable());
         let mut db = crate::db::db(&cx);
         let mut query = User::all();
-        for ord in table.order_bys() {
+        for ord in users_table.order_bys() {
             query = query.order_by(ord);
         }
         let rows = query.exec(&mut db).await.unwrap();
