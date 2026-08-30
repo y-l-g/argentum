@@ -152,7 +152,7 @@ trait Model {
 }
 ```
 
-**Argentum plan:** keep the closures until upstream exposes instance→value access; then default `Table::id` / `TextColumn` projections from the lens and delete this entry. Follow-up #10 tracks the Argentum side.
+**Argentum plan:** keep the closures until upstream exposes instance→value access; then default `Table::id` / `TextColumn` projections from the lens and delete this entry. #10 shipped the closures in 7689381; this entry tracks the upstream API that would retire them.
 
 ---
 

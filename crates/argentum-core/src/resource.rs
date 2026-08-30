@@ -464,14 +464,10 @@ impl<M> Table<M> {
     /// 3. otherwise, when the table is paginated, the PK alone — cursor
     ///    pagination requires a deterministic order even with no sortable
     ///    column.
-    pub fn order_bys_from_cx(&self, cx: &Cx) -> Vec<OrderByExpr>
-    where
-        M: toasty::schema::Model,
-    {
-        self.order_bys_for_state(&TableState::from_cx(cx))
-    }
-
-    /// [`Self::order_bys_from_cx`] for an already-parsed [`TableState`].
+    ///
+    /// Loaders that also need the search term parse the state once with
+    /// [`TableState::from_cx`] and pass it here (see
+    /// `examples/showcase/src/pages/admin_list.rs`).
     pub fn order_bys_for_state(&self, state: &TableState) -> Vec<OrderByExpr>
     where
         M: toasty::schema::Model,
@@ -991,9 +987,9 @@ pub struct Sort {
 
 /// Request-scoped table state, parsed from the current URL query.
 ///
-/// The single parse point shared by loaders ([`Table::order_bys_from_cx`],
-/// the search term) and render (active sort, toolbar values, pagination
-/// links), so the URL is the one truth for list state. The fixed parameter
+/// The single parse point shared by loaders (the search term, ordering via
+/// [`Table::order_bys_for_state`]) and render (active sort, toolbar values,
+/// pagination links), so the URL is the one truth for list state. The fixed parameter
 /// names assume one table per page — per-table prefixes are deferred until a
 /// real page needs two tables.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
