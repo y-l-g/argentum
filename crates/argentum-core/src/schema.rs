@@ -10,6 +10,8 @@
 //! `toasty_core` import sites; migrate to public `Path::field_name()` /
 //! `Model::primary_key_paths()` when Toasty exposes them.
 
+use std::collections::HashMap;
+
 use argentum_ui::{
     card, card_content, card_header, card_title, input as ui_input, label as ui_label,
 };
@@ -43,6 +45,7 @@ pub struct TextInput {
     label: String,
     required: bool,
     is_email: bool,
+    unique: bool,
     placeholder: Option<String>,
 }
 
@@ -61,6 +64,7 @@ impl TextInput {
             label: label_str,
             required: false,
             is_email: false,
+            unique: false,
             placeholder: None,
         }
     }
@@ -83,6 +87,11 @@ impl TextInput {
         self
     }
 
+    pub fn unique(mut self) -> Self {
+        self.unique = true;
+        self
+    }
+
     pub fn placeholder(mut self, p: impl Into<String>) -> Self {
         self.placeholder = Some(p.into());
         self
@@ -91,6 +100,14 @@ impl TextInput {
     pub fn label(mut self, l: impl Into<String>) -> Self {
         self.label = l.into();
         self
+    }
+
+    pub fn is_unique(&self) -> bool {
+        self.unique
+    }
+
+    pub fn field_name(&self) -> &str {
+        &self.name
     }
 
     /// Validate a raw string value against the configured rules.
@@ -123,12 +140,25 @@ impl TextInput {
         domain.contains('.')
     }
 
+    #[allow(dead_code)]
     async fn render(&self, cx: &Cx) -> Result<View> {
+        self.render_with(cx, None, &[]).await
+    }
+
+    pub(crate) async fn render_with(
+        &self,
+        cx: &Cx,
+        value: Option<&str>,
+        errors: &[String],
+    ) -> Result<View> {
         let label_text = self.label.clone();
         let name = self.name.clone();
         let required = self.required;
         let placeholder = self.placeholder.clone();
         let input_type = if self.is_email { "email" } else { "text" };
+        let has_error = !errors.is_empty();
+        let error_text = errors.first().cloned().unwrap_or_default();
+        let value_owned = value.map(|s| s.to_string());
         // Beautiful rendering via argentum-ui `label` + `input` with Token classes,
         // proper for/id linking, required star, type branching, and reserved error slot.
         view! {
@@ -146,13 +176,14 @@ impl TextInput {
                         id=(name.clone())
                         r#type=(input_type)
                         name=(name.clone())
+                        value=(value_owned.clone())
                         placeholder=(placeholder.clone())
                         required=(required)
                         aria-required=(required.then_some("true"))
-                        aria-invalid="false"
+                        aria-invalid=(if has_error { "true" } else { "false" })
                     }
                 )
-                <p class="text-sm text-destructive" aria-live="polite"></p>
+                <p class="text-sm text-destructive" aria-live="polite">(error_text)</p>
             </div>
         }
     }
@@ -276,11 +307,21 @@ impl Section {
         self
     }
 
+    #[allow(dead_code)]
     async fn render(&self, cx: &Cx) -> Result<View> {
+        self.render_with(cx, &HashMap::new(), &HashMap::new()).await
+    }
+
+    pub(crate) async fn render_with(
+        &self,
+        cx: &Cx,
+        values: &HashMap<String, String>,
+        errors: &HashMap<String, Vec<String>>,
+    ) -> Result<View> {
         let title = self.title.clone();
         let extra = self.extra_class.clone();
         if let Some(schema) = &self.children {
-            let child_view = schema.render(cx).await?;
+            let child_view = schema.render_with(cx, values, errors).await?;
             view! {
                 cx =>
                 card(
@@ -323,9 +364,19 @@ impl Group {
         self
     }
 
+    #[allow(dead_code)]
     async fn render(&self, cx: &Cx) -> Result<View> {
+        self.render_with(cx, &HashMap::new(), &HashMap::new()).await
+    }
+
+    pub(crate) async fn render_with(
+        &self,
+        cx: &Cx,
+        values: &HashMap<String, String>,
+        errors: &HashMap<String, Vec<String>>,
+    ) -> Result<View> {
         if let Some(schema) = &self.children {
-            let child_view = schema.render(cx).await?;
+            let child_view = schema.render_with(cx, values, errors).await?;
             view! { cx => <div class="flex flex-col gap-4">(child_view)</div> }
         } else {
             view! { cx => <div class="flex flex-col gap-4"></div> }
@@ -353,7 +404,17 @@ impl Grid {
         self
     }
 
+    #[allow(dead_code)]
     async fn render(&self, cx: &Cx) -> Result<View> {
+        self.render_with(cx, &HashMap::new(), &HashMap::new()).await
+    }
+
+    pub(crate) async fn render_with(
+        &self,
+        cx: &Cx,
+        values: &HashMap<String, String>,
+        errors: &HashMap<String, Vec<String>>,
+    ) -> Result<View> {
         // Static literals for Tailwind scanner — `format!("grid grid-cols-{}")` would be
         // purged because Tailwind only sees literal substrings. See ADR-0007 / T2.
         let class: &'static str = match self.cols {
@@ -371,7 +432,7 @@ impl Grid {
             _ => "grid grid-cols-12 gap-4",
         };
         if let Some(schema) = &self.children {
-            let child_view = schema.render(cx).await?;
+            let child_view = schema.render_with(cx, values, errors).await?;
             view! { cx => <div class=(class)>(child_view)</div> }
         } else {
             view! { cx => <div class=(class)></div> }
@@ -394,13 +455,30 @@ enum Node {
 }
 
 impl Node {
+    #[allow(dead_code)]
     async fn render(&self, cx: &Cx) -> Result<View> {
+        self.render_with(cx, &HashMap::new(), &HashMap::new()).await
+    }
+
+    async fn render_with(
+        &self,
+        cx: &Cx,
+        values: &HashMap<String, String>,
+        errors: &HashMap<String, Vec<String>>,
+    ) -> Result<View> {
         match self {
             Node::Text(t) => t.render(cx).await,
-            Node::TextInput(f) => Box::pin(f.render(cx)).await,
-            Node::Section(s) => Box::pin(s.render(cx)).await,
-            Node::Group(g) => Box::pin(g.render(cx)).await,
-            Node::Grid(g) => Box::pin(g.render(cx)).await,
+            Node::TextInput(f) => {
+                let val = values.get(&f.field_name().to_string()).map(|s| s.as_str());
+                let errs: &[String] = errors
+                    .get(&f.field_name().to_string())
+                    .map(|v| v.as_slice())
+                    .unwrap_or(&[]);
+                Box::pin(f.render_with(cx, val, errs)).await
+            }
+            Node::Section(s) => Box::pin(s.render_with(cx, values, errors)).await,
+            Node::Group(g) => Box::pin(g.render_with(cx, values, errors)).await,
+            Node::Grid(g) => Box::pin(g.render_with(cx, values, errors)).await,
         }
     }
 }
@@ -450,9 +528,19 @@ impl Schema {
 
     /// Render the schema to a `View` (no DB access).
     pub async fn render(&self, cx: &Cx) -> Result<View> {
+        self.render_with(cx, &HashMap::new(), &HashMap::new()).await
+    }
+
+    /// Render with pre-filled values and inline errors.
+    pub async fn render_with(
+        &self,
+        cx: &Cx,
+        values: &HashMap<String, String>,
+        errors: &HashMap<String, Vec<String>>,
+    ) -> Result<View> {
         let mut views = Vec::with_capacity(self.nodes.len());
         for node in &self.nodes {
-            views.push(Box::pin(node.render(cx)).await?);
+            views.push(Box::pin(node.render_with(cx, values, errors)).await?);
         }
         view! {
             cx =>
@@ -460,6 +548,95 @@ impl Schema {
                 (v)
             }
         }
+    }
+
+    /// Collect field names for validation (TextInput only for now).
+    pub fn field_names(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        for node in &self.nodes {
+            collect_field_names(node, &mut out);
+        }
+        out
+    }
+
+    /// Build a map of `field_name -> TextInput` for validation.
+    pub fn text_inputs(&self) -> HashMap<String, TextInput> {
+        let mut map = HashMap::new();
+        for node in &self.nodes {
+            collect_inputs(node, &mut map);
+        }
+        map
+    }
+
+    pub fn validate(&self, values: &HashMap<String, String>) -> HashMap<String, Vec<String>> {
+        let inputs = self.text_inputs();
+        let mut errors: HashMap<String, Vec<String>> = HashMap::new();
+        for (name, input) in inputs {
+            let val = values.get(&name).map(|s| s.as_str()).unwrap_or("");
+            let errs = input.validate(val);
+            if !errs.is_empty() {
+                errors.insert(name, errs);
+            }
+        }
+        errors
+    }
+}
+
+fn collect_field_names(node: &Node, out: &mut Vec<String>) {
+    match node {
+        Node::TextInput(f) => out.push(f.field_name().to_string()),
+        Node::Section(s) => {
+            if let Some(schema) = &s.children {
+                for n in &schema.nodes {
+                    collect_field_names(n, out);
+                }
+            }
+        }
+        Node::Group(g) => {
+            if let Some(schema) = &g.children {
+                for n in &schema.nodes {
+                    collect_field_names(n, out);
+                }
+            }
+        }
+        Node::Grid(g) => {
+            if let Some(schema) = &g.children {
+                for n in &schema.nodes {
+                    collect_field_names(n, out);
+                }
+            }
+        }
+        Node::Text(_) => {}
+    }
+}
+
+fn collect_inputs(node: &Node, map: &mut HashMap<String, TextInput>) {
+    match node {
+        Node::TextInput(f) => {
+            map.insert(f.field_name().to_string(), (**f).clone());
+        }
+        Node::Section(s) => {
+            if let Some(schema) = &s.children {
+                for n in &schema.nodes {
+                    collect_inputs(n, map);
+                }
+            }
+        }
+        Node::Group(g) => {
+            if let Some(schema) = &g.children {
+                for n in &schema.nodes {
+                    collect_inputs(n, map);
+                }
+            }
+        }
+        Node::Grid(g) => {
+            if let Some(schema) = &g.children {
+                for n in &schema.nodes {
+                    collect_inputs(n, map);
+                }
+            }
+        }
+        Node::Text(_) => {}
     }
 }
 

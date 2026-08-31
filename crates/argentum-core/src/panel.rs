@@ -4,19 +4,26 @@
 //! declared [`Resource`]'s list page at `{prefix}/{slug}` (Filament-style
 //! routes — ADR-0008). See `CONTEXT.md`.
 
+use std::collections::HashMap;
+
 use toasty::Db;
 use topcoat::{
     Result,
     asset::{Asset, AssetConfig, RouterBuilderAssetExt},
     context::{Cx, app_context},
+    cookie::RouterBuilderCookieExt,
     font::Font,
-    router::{Body, PageFn, Router, RouterBuilderDiscoverExt, ViewFuture, error::redirect},
+    router::{
+        Body, PageFn, Router, RouterBuilderDiscoverExt, ViewFuture,
+        error::{forbidden, redirect},
+        request::{Bytes, FromRequest},
+    },
     view::{View, attributes, view},
 };
 
-use crate::resource::{NavigationItem, Resource, TablePage, TableState};
-
 use crate::db::db;
+use crate::notification::{Notification, set_notification, take_notification};
+use crate::resource::{NavigationItem, Resource, TablePage, TableState};
 use topcoat::router::Path;
 
 /// The admin application.
@@ -122,6 +129,44 @@ impl Panel {
             route_path(&url),
             resource_list::<R>,
         ));
+        // Create page — GET renders form, POST handles submission.
+        let create_url = format!("{}/create", url);
+        self.pages.push(PageFn::new(
+            http::Method::GET,
+            route_path(&create_url),
+            resource_create::<R>,
+        ));
+        self.pages.push(PageFn::new(
+            http::Method::POST,
+            route_path(&create_url),
+            resource_create_post::<R>,
+        ));
+        // Edit page — GET renders hydrated form, POST handles update.
+        let edit_url = format!("{}/{{id}}/edit", url);
+        self.pages.push(PageFn::new(
+            http::Method::GET,
+            route_path(&edit_url),
+            resource_edit::<R>,
+        ));
+        self.pages.push(PageFn::new(
+            http::Method::POST,
+            route_path(&edit_url),
+            resource_edit_post::<R>,
+        ));
+        // Delete action — POST via row button (requires confirmation).
+        let delete_url = format!("{}/{{id}}/delete", url);
+        self.pages.push(PageFn::new(
+            http::Method::POST,
+            route_path(&delete_url),
+            resource_delete::<R>,
+        ));
+        // Bulk delete — POST with `ids` form field (comma-separated).
+        let bulk_delete_url = format!("{}/bulk-delete", url);
+        self.pages.push(PageFn::new(
+            http::Method::POST,
+            route_path(&bulk_delete_url),
+            resource_bulk_delete::<R>,
+        ));
         if self.root_target.is_none() {
             self.root_target = Some(url);
         }
@@ -162,7 +207,7 @@ impl Panel {
             root_target,
         } = self;
         let db = db.expect("Panel::build requires a Db via app_context");
-        let mut builder = Router::builder().discover().app_context(db);
+        let mut builder = Router::builder().discover().cookies().app_context(db);
         if !nav_items.is_empty() {
             builder = builder.app_context(nav_items);
         }
@@ -316,6 +361,19 @@ impl Panel {
         let sidebar_theme_toggle = Self::theme_toggle(cx).await?;
         let mobile_theme_toggle = Self::theme_toggle(cx).await?;
         let header_theme_toggle = Self::theme_toggle(cx).await?;
+        let notification_view = if let Some(notification) =
+            take_notification(cx).or_else(|| notification_from_query(cx))
+        {
+            let title = notification.title.clone();
+            view! {
+                cx =>
+                <div class="rounded-xl border border-border bg-background shadow-sm p-4">
+                    <p class="text-sm font-medium text-foreground">(title)</p>
+                </div>
+            }?
+        } else {
+            view! { cx => <span></span> }?
+        };
 
         view! {
             cx =>
@@ -377,7 +435,7 @@ impl Panel {
                 )
                 // Notification stack — fixed top-right, survives Boundary swaps
                 <div class="fixed top-4 right-4 z-50 flex flex-col gap-2">
-                    // Placeholder: notifications render here via Panel shell's top-level Boundary
+                    (notification_view)
                 </div>
             )
             // Scripts are owned by the document (layout_shell).
@@ -458,8 +516,22 @@ fn route_path(path: &str) -> topcoat::router::PathBuf {
 /// renders behind Boundaries — the reactivity slice of GH #13.)
 fn resource_list<R: Resource>(cx: &Cx, _body: Body) -> ViewFuture<'_> {
     Box::pin(async move {
+        if !R::can_view_any(cx) {
+            return Err(forbidden().into());
+        }
         let state = TableState::from_cx(cx);
-        let table = R::table(cx);
+        let mut table = R::table(cx);
+        // Wire delete prefix so Table rows show Delete buttons.
+        let prefix = {
+            let path = topcoat::context::try_request_context::<http::request::Parts>(cx)
+                .map(|parts| parts.uri.path().to_string())
+                .unwrap_or_default();
+            // Derive base prefix: current path is list path like /admin/users
+            // For create/edit/delete we need base like /admin/users
+            // Use path as prefix for delete actions.
+            path
+        };
+        table = table.with_delete(prefix.clone());
         let mut query = R::query(cx);
         if let Some(term) = &state.search
             && let Some(expr) = table.search_expr(term)
@@ -528,6 +600,424 @@ fn resource_list<R: Resource>(cx: &Cx, _body: Body) -> ViewFuture<'_> {
                 argentum_ui::page_content((table_view))
             )
         }
+    })
+}
+
+/// Helper: parse `application/x-www-form-urlencoded` body into a map.
+/// Falls back to empty map on read error or non-utf8.
+async fn parse_form_values(cx: &Cx, body: Body) -> HashMap<String, String> {
+    let bytes = match Bytes::from_request(cx, body).await {
+        Ok(b) => b,
+        Err(_) => return HashMap::new(),
+    };
+    if bytes.is_empty() {
+        return HashMap::new();
+    }
+    let s = match String::from_utf8(bytes.to_vec()) {
+        Ok(s) => s,
+        Err(_) => return HashMap::new(),
+    };
+    let mut map = HashMap::new();
+    for pair in s.split('&') {
+        if pair.is_empty() {
+            continue;
+        }
+        let (k, v) = pair.split_once('=').unwrap_or((pair, ""));
+        let k_dec = percent_decode(k);
+        let v_dec = percent_decode(v);
+        map.insert(k_dec, v_dec);
+    }
+    map
+}
+
+fn percent_decode(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    let mut chars = input.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '%' {
+            let hi = chars.next().unwrap_or('0');
+            let lo = chars.next().unwrap_or('0');
+            let hex = format!("{hi}{lo}");
+            if let Ok(byte) = u8::from_str_radix(&hex, 16) {
+                out.push(byte as char);
+            } else {
+                out.push('%');
+                out.push(hi);
+                out.push(lo);
+            }
+        } else if c == '+' {
+            out.push(' ');
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// Helper: compute list URL from current request path (e.g. /admin/users/create -> /admin/users).
+fn list_url_for_current(cx: &Cx, fallback_slug: &str) -> String {
+    let path = topcoat::router::request::uri(cx).path().to_string();
+    if path.ends_with("/create") {
+        path.trim_end_matches("/create").to_string()
+    } else if path.ends_with("/edit") {
+        // /admin/users/{id}/edit -> /admin/users
+        // Remove last two segments: /{id}/edit
+        let mut segs: Vec<&str> = path.split('/').collect();
+        // segs like ["", "admin", "users", "id", "edit"]
+        if segs.len() >= 4 {
+            segs.truncate(segs.len() - 2);
+            let out = segs.join("/");
+            if out.is_empty() { "/".to_string() } else { out }
+        } else {
+            format!("/admin/{}", fallback_slug)
+        }
+    } else if path.contains("/delete") || path.contains("/bulk-delete") {
+        let mut segs: Vec<&str> = path.split('/').collect();
+        // Remove last segment(s) to get back to list
+        if segs.last() == Some(&"delete") {
+            segs.pop();
+            segs.pop(); // id
+        } else if segs.last() == Some(&"bulk-delete") {
+            segs.pop();
+        }
+        let out = segs.join("/");
+        if out.is_empty() { "/".to_string() } else { out }
+    } else {
+        // Default to /admin/{slug}
+        format!("/admin/{}", fallback_slug)
+    }
+}
+
+fn notification_from_query(cx: &Cx) -> Option<Notification> {
+    let query = topcoat::router::request::uri(cx).query()?;
+    for pair in query.split('&') {
+        let (k, v) = pair.split_once('=')?;
+        if k == "notification" {
+            let title = percent_decode(v);
+            // Decode '+' to space already handled in percent_decode, but ensure.
+            return Some(Notification::success(title));
+        }
+    }
+    None
+}
+
+async fn render_create_page<R: Resource>(
+    cx: &Cx,
+    values: &HashMap<String, String>,
+    errors: &HashMap<String, Vec<String>>,
+) -> Result<View> {
+    let schema = R::form(cx);
+    let form_html = schema.render_with(cx, values, errors).await?;
+    let action = topcoat::router::request::uri(cx).path().to_string();
+    let title = format!("Create {}", R::navigation_label());
+    view! { cx =>
+        argentum_ui::page(
+            argentum_ui::page_header(argentum_ui::page_title((title.clone())))
+            argentum_ui::page_content(
+                <form method="post" action=(action) class="flex flex-col gap-4">
+                    (form_html)
+                    <div class="flex gap-2">
+                        argentum_ui::button(
+                            variant: argentum_ui::ButtonVariant::Primary,
+                            attrs: attributes! { r#type="submit" },
+                            "Create"
+                        )
+                        <a
+                            href=(list_url_for_current(cx, &R::slug()))
+                            class="inline-flex items-center justify-center rounded-md border border-border bg-background px-4 py-2 text-sm"
+                        >
+                            "Cancel"
+                        </a>
+                    </div>
+                </form>
+            )
+        )
+    }
+}
+
+async fn render_edit_page<R: Resource>(
+    cx: &Cx,
+    _id: &str,
+    values: &HashMap<String, String>,
+    errors: &HashMap<String, Vec<String>>,
+) -> Result<View> {
+    let schema = R::form(cx);
+    let form_html = schema.render_with(cx, values, errors).await?;
+    let action = topcoat::router::request::uri(cx).path().to_string();
+    let title = format!("Edit {}", R::navigation_label());
+    view! { cx =>
+        argentum_ui::page(
+            argentum_ui::page_header(argentum_ui::page_title((title.clone())))
+            argentum_ui::page_content(
+                <form method="post" action=(action) class="flex flex-col gap-4">
+                    (form_html)
+                    <div class="flex gap-2">
+                        argentum_ui::button(
+                            variant: argentum_ui::ButtonVariant::Primary,
+                            attrs: attributes! { r#type="submit" },
+                            "Save"
+                        )
+                        <a
+                            href=(list_url_for_current(cx, &R::slug()))
+                            class="inline-flex items-center justify-center rounded-md border border-border bg-background px-4 py-2 text-sm"
+                        >
+                            "Cancel"
+                        </a>
+                    </div>
+                </form>
+            )
+        )
+    }
+}
+
+/// Create page GET.
+fn resource_create<R: Resource>(cx: &Cx, _body: Body) -> ViewFuture<'_> {
+    Box::pin(async move {
+        if !R::can_create(cx) {
+            return Err(forbidden().into());
+        }
+        let html = render_create_page::<R>(cx, &HashMap::new(), &HashMap::new()).await?;
+        Ok(html)
+    })
+}
+
+/// Create page POST.
+fn resource_create_post<R: Resource>(cx: &Cx, body: Body) -> ViewFuture<'_> {
+    Box::pin(async move {
+        if !R::can_create(cx) {
+            return Err(forbidden().into());
+        }
+        let values = parse_form_values(cx, body).await;
+        let schema = R::form(cx);
+        let errors = schema.validate(&values);
+        // Unique check: delegate to resource's create_record? For now check via
+        // direct query for email uniqueness if field is marked unique and value present.
+        // This is app-side check until Toasty exposes is_unique_violation.
+        if errors.is_empty()
+            && let Some(email) = values.get("email").map(|s| s.trim().to_string())
+            && !email.is_empty()
+            && schema
+                .text_inputs()
+                .get("email")
+                .is_some_and(|inp| inp.is_unique())
+        {
+            // Use Resource::query to see if any record already has this email.
+            // For generic, we try to find via query + in-memory filter.
+            // For User, this will be done via R::create_record's own check or here.
+            // Do a lightweight check via try to create and catch duplicate?
+            // Instead, attempt to query via R::query and filter in memory.
+            // This requires loading all candidates.
+            let mut db = db(cx);
+            if let Ok(candidates) = R::query(cx).exec(&mut db).await {
+                // Need to check if any candidate has same email.
+                // We don't have generic way to read email from model.
+                // For now, rely on R::create_record to handle unique via DB error
+                // and we will map error to field error below.
+                let _ = candidates;
+            }
+        }
+        if !errors.is_empty() {
+            let html = render_create_page::<R>(cx, &values, &errors).await?;
+            return Ok(html);
+        }
+        // Attempt creation via Resource hook (transaction inside).
+        match R::create_record(cx, values.clone()).await {
+            Ok(()) => {
+                let base = list_url_for_current(cx, &R::slug());
+                let list_url = format!("{base}?notification=Created");
+                // Also set cookie for Boundary survival (if layer present)
+                set_notification(cx, Notification::success("Created"));
+                Err(redirect(list_url).into())
+            }
+            Err(e) => {
+                // Map unique violation or other errors to inline errors if possible.
+                // For now, if error string contains "UNIQUE" or "unique", map to email.
+                let msg = e.to_string().to_lowercase();
+                if msg.contains("unique") || msg.contains("duplicate") {
+                    let mut errs = HashMap::new();
+                    errs.insert(
+                        "email".to_string(),
+                        vec!["Email has already been taken".to_string()],
+                    );
+                    let html = render_create_page::<R>(cx, &values, &errs).await?;
+                    Ok(html)
+                } else {
+                    Err(e)
+                }
+            }
+        }
+    })
+}
+
+/// Edit page GET — hydrates form from model via Resource::query seam.
+fn resource_edit<R: Resource>(cx: &Cx, _body: Body) -> ViewFuture<'_> {
+    Box::pin(async move {
+        let id = topcoat::router::path_param_segment(cx, "id").to_string();
+        // Load via query seam and find by id string via Table row key.
+        let mut db = db(cx);
+        let candidates = R::query(cx)
+            .exec(&mut db)
+            .await
+            .map_err(topcoat::Error::from)?;
+        let table = R::table(cx);
+        let record = candidates
+            .into_iter()
+            .find(|m| table.key_for(m).as_deref() == Some(id.as_str()))
+            .ok_or_else(topcoat::router::error::not_found)?;
+        if !R::can_view(cx, &record) {
+            return Err(forbidden().into());
+        }
+        if !R::can_update(cx, &record) {
+            return Err(forbidden().into());
+        }
+        let values = R::hydrate_form_values(&record);
+        let html = render_edit_page::<R>(cx, &id, &values, &HashMap::new()).await?;
+        Ok(html)
+    })
+}
+
+/// Edit page POST — validates, checks Policy::update, mutates via Update projection.
+fn resource_edit_post<R: Resource>(cx: &Cx, body: Body) -> ViewFuture<'_> {
+    Box::pin(async move {
+        let id = topcoat::router::path_param_segment(cx, "id").to_string();
+        let mut db = db(cx);
+        let candidates = R::query(cx)
+            .exec(&mut db)
+            .await
+            .map_err(topcoat::Error::from)?;
+        let table = R::table(cx);
+        let record = candidates
+            .into_iter()
+            .find(|m| table.key_for(m).as_deref() == Some(id.as_str()))
+            .ok_or_else(topcoat::router::error::not_found)?;
+        if !R::can_update(cx, &record) {
+            return Err(forbidden().into());
+        }
+        let values = parse_form_values(cx, body).await;
+        let schema = R::form(cx);
+        let errors = schema.validate(&values);
+        if !errors.is_empty() {
+            let html = render_edit_page::<R>(cx, &id, &values, &errors).await?;
+            return Ok(html);
+        }
+        match R::update_record(cx, id.clone(), values.clone()).await {
+            Ok(()) => {
+                let base = list_url_for_current(cx, &R::slug());
+                let list_url = format!("{base}?notification=Updated");
+                set_notification(cx, Notification::success("Updated"));
+                Err(redirect(list_url).into())
+            }
+            Err(e) => {
+                let msg = e.to_string().to_lowercase();
+                if msg.contains("unique") || msg.contains("duplicate") {
+                    let mut errs = HashMap::new();
+                    errs.insert(
+                        "email".to_string(),
+                        vec!["Email has already been taken".to_string()],
+                    );
+                    let html = render_edit_page::<R>(cx, &id, &values, &errs).await?;
+                    Ok(html)
+                } else {
+                    Err(e)
+                }
+            }
+        }
+    })
+}
+
+/// Delete action POST — requires confirmation, runs in transaction, re-checks Policy.
+fn resource_delete<R: Resource>(cx: &Cx, body: Body) -> ViewFuture<'_> {
+    Box::pin(async move {
+        let id = topcoat::router::path_param_segment(cx, "id").to_string();
+        let mut db = db(cx);
+        let candidates = R::query(cx)
+            .exec(&mut db)
+            .await
+            .map_err(topcoat::Error::from)?;
+        let table = R::table(cx);
+        let record = candidates
+            .into_iter()
+            .find(|m| table.key_for(m).as_deref() == Some(id.as_str()))
+            .ok_or_else(topcoat::router::error::not_found)?;
+        if !R::can_delete(cx, &record) {
+            return Err(forbidden().into());
+        }
+        let values = parse_form_values(cx, body).await;
+        let confirmed = values
+            .get("confirm")
+            .is_some_and(|v| v == "1" || v == "true" || v == "yes");
+        if !confirmed {
+            // Render confirmation page.
+            let html = view! { cx =>
+                argentum_ui::page(
+                    argentum_ui::page_header(argentum_ui::page_title("Confirm delete"))
+                    argentum_ui::page_content(
+                        <div class="rounded-xl border border-border bg-background p-6 shadow-sm flex flex-col gap-4">
+                            <p class="text-sm text-foreground">"Are you sure you want to delete this record? This action cannot be undone."</p>
+                            <form method="post" action=(topcoat::router::request::uri(cx).path().to_string()) class="flex gap-2">
+                                <input type="hidden" name="confirm" value="1">
+                                argentum_ui::button(
+                                    variant: argentum_ui::ButtonVariant::Primary,
+                                    attrs: attributes! { r#type="submit" },
+                                    "Confirm"
+                                )
+                                <a
+                                    href=(list_url_for_current(cx, &R::slug()))
+                                    class="inline-flex items-center justify-center rounded-md border border-border bg-background px-4 py-2 text-sm"
+                                >
+                                    "Cancel"
+                                </a>
+                            </form>
+                        </div>
+                    )
+                )
+            }?;
+            return Ok(html);
+        }
+        // Perform delete via Resource hook (transaction inside).
+        R::delete_record(cx, id).await?;
+        let base = list_url_for_current(cx, &R::slug());
+        let list_url = format!("{base}?notification=Deleted");
+        set_notification(cx, Notification::success("Deleted"));
+        Err(redirect(list_url).into())
+    })
+}
+
+/// Bulk delete POST — ids via `ids` form field (comma-separated).
+fn resource_bulk_delete<R: Resource>(cx: &Cx, body: Body) -> ViewFuture<'_> {
+    Box::pin(async move {
+        let values = parse_form_values(cx, body).await;
+        let ids_raw = values.get("ids").cloned().unwrap_or_default();
+        let ids: Vec<String> = ids_raw
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+        if ids.is_empty() {
+            return Err(topcoat::router::error::bad_request("no ids provided").into());
+        }
+        // Load candidates via query and check each id exists and passes policy.
+        let mut db = db(cx);
+        let candidates = R::query(cx)
+            .exec(&mut db)
+            .await
+            .map_err(topcoat::Error::from)?;
+        let table = R::table(cx);
+        for id in &ids {
+            let rec = candidates
+                .iter()
+                .find(|m| table.key_for(m).as_deref() == Some(id.as_str()))
+                .ok_or_else(topcoat::router::error::not_found)?;
+            if !R::can_delete(cx, rec) {
+                return Err(forbidden().into());
+            }
+        }
+        // All checks passed — perform bulk delete.
+        R::bulk_delete_records(cx, ids).await?;
+        let base = list_url_for_current(cx, &R::slug());
+        let list_url = format!("{base}?notification=Bulk+deleted");
+        set_notification(cx, Notification::success("Bulk deleted"));
+        Err(redirect(list_url).into())
     })
 }
 

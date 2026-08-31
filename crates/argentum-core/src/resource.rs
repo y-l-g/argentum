@@ -7,6 +7,8 @@
 use std::marker::PhantomData;
 use std::sync::Arc;
 
+use std::collections::HashMap;
+
 use argentum_ui::{
     ButtonSize, ButtonVariant, button, input as ui_input, pagination, pagination_content,
     pagination_item, pagination_next, pagination_previous, table, table_body, table_cell,
@@ -314,6 +316,7 @@ pub struct Table<M> {
     page_size: Option<usize>,
     search_ui: Option<bool>,
     show_skeleton: bool,
+    delete_prefix: Option<String>,
     _marker: PhantomData<M>,
 }
 
@@ -325,6 +328,7 @@ impl<M> std::fmt::Debug for Table<M> {
             .field("page_size", &self.page_size)
             .field("search_ui", &self.search_ui)
             .field("show_skeleton", &self.show_skeleton)
+            .field("delete_prefix", &self.delete_prefix)
             .finish()
     }
 }
@@ -351,6 +355,7 @@ impl<M> Table<M> {
             page_size: None,
             search_ui: None,
             show_skeleton: false,
+            delete_prefix: None,
             _marker: PhantomData,
         }
     }
@@ -394,6 +399,11 @@ impl<M> Table<M> {
         self.page_size
     }
 
+    /// Return the row-key for a record, if the table has one.
+    pub fn key_for(&self, record: &M) -> Option<String> {
+        self.row_key.as_ref().map(|f| f(record))
+    }
+
     /// Force the search toolbar on or off.
     ///
     /// Defaults to showing the toolbar whenever at least one column is
@@ -407,6 +417,14 @@ impl<M> Table<M> {
     /// Enable skeleton placeholder rows (reserved for future `Boundary` `defer`).
     pub fn skeleton(mut self, enabled: bool) -> Self {
         self.show_skeleton = enabled;
+        self
+    }
+
+    /// Enable row-level `Delete` action. When set, each row renders a
+    /// `Delete` button that POSTs to `{prefix}/{id}/delete` with
+    /// `requires_confirmation` semantics.
+    pub fn with_delete(mut self, prefix: String) -> Self {
+        self.delete_prefix = Some(prefix);
         self
     }
 
@@ -529,7 +547,10 @@ impl<M> Table<M> {
         let path = topcoat::context::try_request_context::<http::request::Parts>(cx)
             .map(|parts| parts.uri.path().to_string())
             .unwrap_or_default();
-        let head = self.render_thead(cx, &state, &path).await?;
+        let delete_prefix = self.delete_prefix.clone();
+        let head = self
+            .render_thead(cx, &state, &path, delete_prefix.is_some())
+            .await?;
         let show_search = self.search_enabled();
         let search_bar = if show_search {
             Some(self.render_search_bar(cx, &state, &path).await?)
@@ -555,6 +576,13 @@ impl<M> Table<M> {
                                             ></div>
                                         )
                                     }
+                                    if delete_prefix.is_some() {
+                                        table_cell(
+                                            <div
+                                                class="animate-pulse rounded-md bg-foreground/10 h-4 w-12"
+                                            ></div>
+                                        )
+                                    }
                                 )
                             }
                         )
@@ -564,7 +592,9 @@ impl<M> Table<M> {
         }
 
         if page.rows.is_empty() {
-            let empty_cell = self.render_empty_cell(cx, &state, &path).await?;
+            let empty_cell = self
+                .render_empty_cell(cx, &state, &path, delete_prefix.is_some())
+                .await?;
             return view! {
                 cx =>
                 <div class="rounded-xl border border-border overflow-hidden">
@@ -590,12 +620,30 @@ impl<M> Table<M> {
                     table_body(
                         for row in &page.rows {
                             let key = row_key(row);
+                            let key_for_row = key.clone();
+                            let key_for_action = key.clone();
                             let cells: Vec<String> =
                                 self.columns.iter().map(|col| col.render_cell(row)).collect();
+                            let delete_prefix_clone = delete_prefix.clone();
                             table_row(
-                                key: key,
+                                key: key_for_row,
                                 for cell in cells {
                                     table_cell((cell))
+                                }
+                                if let Some(prefix) = delete_prefix_clone {
+                                    table_cell(
+                                        <form
+                                            method="post"
+                                            action=(format!("{}/{}/delete", prefix, key_for_action))
+                                        >
+                                            button(
+                                                variant: ButtonVariant::Ghost,
+                                                size: ButtonSize::Md,
+                                                attrs: attributes! { r#type="submit" },
+                                                "Delete"
+                                            )
+                                        </form>
+                                    )
                                 }
                             )
                         }
@@ -684,11 +732,20 @@ impl<M> Table<M> {
     /// active. The dead Create button is gone (create pages are not wired
     /// yet). Wrapped in a single cell spanning the table so it sits inside
     /// the grid.
-    async fn render_empty_cell(&self, cx: &Cx, state: &TableState, path: &str) -> Result<View>
+    async fn render_empty_cell(
+        &self,
+        cx: &Cx,
+        state: &TableState,
+        path: &str,
+        with_delete: bool,
+    ) -> Result<View>
     where
         M: toasty::schema::Model,
     {
-        let colspan = self.columns.len();
+        let mut colspan = self.columns.len();
+        if with_delete {
+            colspan += 1;
+        }
         let clear_url = if state.search.is_some() {
             Some(match &state.sort {
                 Some(s) => build_url(
@@ -808,7 +865,13 @@ impl<M> Table<M> {
     /// columns that toggle `?sort=`/`?dir=` (↑/↓ with `aria-sort` when active,
     /// ↕ when inactive). Every render branch (skeleton / empty / rows)
     /// composes it, so an a11y or styling change happens once.
-    async fn render_thead(&self, cx: &Cx, state: &TableState, path: &str) -> Result<View>
+    async fn render_thead(
+        &self,
+        cx: &Cx,
+        state: &TableState,
+        path: &str,
+        with_delete: bool,
+    ) -> Result<View>
     where
         M: toasty::schema::Model,
     {
@@ -890,6 +953,9 @@ impl<M> Table<M> {
                     }
                 )
             }?);
+        }
+        if with_delete {
+            heads.push(view! { cx => table_head("Actions") }?);
         }
         view! { cx =>
             table_header(
@@ -1230,6 +1296,31 @@ pub trait Resource: Sized + Send + Sync + 'static {
     /// for concurrent rendering of the resource's pages.
     type Model: toasty::schema::Model + Send + Sync + 'static;
 
+    /// Whether the current user may view the list page.
+    fn can_view_any(_cx: &Cx) -> bool {
+        false
+    }
+
+    /// Whether the current user may view the given record.
+    fn can_view(_cx: &Cx, _record: &Self::Model) -> bool {
+        false
+    }
+
+    /// Whether the current user may create a new record.
+    fn can_create(_cx: &Cx) -> bool {
+        false
+    }
+
+    /// Whether the current user may update the given record.
+    fn can_update(_cx: &Cx, _record: &Self::Model) -> bool {
+        false
+    }
+
+    /// Whether the current user may delete the given record.
+    fn can_delete(_cx: &Cx, _record: &Self::Model) -> bool {
+        false
+    }
+
     /// The URL slug for this resource's pages, e.g. `"users"` mounts the list
     /// at `{panel prefix}/users`.
     ///
@@ -1291,6 +1382,86 @@ pub trait Resource: Sized + Send + Sync + 'static {
     /// Sidebar entry for the resource.
     fn navigation() -> NavigationItem {
         NavigationItem::from_resource::<Self>()
+    }
+
+    /// Create a new record from form values.
+    ///
+    /// The `Panel` create handler validates `required`/`email` inline and checks
+    /// `Policy::can_create` before calling this. The default implementation
+    /// returns an error; resources should override to perform the actual
+    /// `toasty::create!` (or `Insert`) inside a transaction.
+    fn create_record(
+        _cx: &Cx,
+        _values: HashMap<String, String>,
+    ) -> impl std::future::Future<Output = Result<()>> + Send
+    where
+        Self: Sized,
+    {
+        async move {
+            Err(std::io::Error::other(format!(
+                "create not implemented for {}",
+                std::any::type_name::<Self>()
+            ))
+            .into())
+        }
+    }
+
+    /// Update an existing record identified by `id` (the string form of its
+    /// primary key, as produced by `Table::id`) from form values.
+    fn update_record(
+        _cx: &Cx,
+        _id: String,
+        _values: HashMap<String, String>,
+    ) -> impl std::future::Future<Output = Result<()>> + Send
+    where
+        Self: Sized,
+    {
+        async move {
+            Err(std::io::Error::other(format!(
+                "update not implemented for {}",
+                std::any::type_name::<Self>()
+            ))
+            .into())
+        }
+    }
+
+    /// Delete a record by its string id.
+    fn delete_record(_cx: &Cx, _id: String) -> impl std::future::Future<Output = Result<()>> + Send
+    where
+        Self: Sized,
+    {
+        async move {
+            Err(std::io::Error::other(format!(
+                "delete not implemented for {}",
+                std::any::type_name::<Self>()
+            ))
+            .into())
+        }
+    }
+
+    /// Bulk-delete records by their string ids. Default is per-row `delete_record`
+    /// in a transaction; override for efficiency if needed.
+    fn bulk_delete_records(
+        _cx: &Cx,
+        _ids: Vec<String>,
+    ) -> impl std::future::Future<Output = Result<()>> + Send
+    where
+        Self: Sized,
+    {
+        async move {
+            Err(std::io::Error::other(format!(
+                "bulk delete not implemented for {}",
+                std::any::type_name::<Self>()
+            ))
+            .into())
+        }
+    }
+
+    /// Hydrate form values from a record for the Edit page.
+    /// Default returns empty; resources should override to return field->value
+    /// mappings (e.g. `name -> user.name`).
+    fn hydrate_form_values(_record: &Self::Model) -> HashMap<String, String> {
+        HashMap::new()
     }
 }
 

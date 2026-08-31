@@ -4568,6 +4568,7 @@ dependencies = [
  "sha2 0.11.0",
  "thiserror",
  "tokio",
+ "topcoat-cookie",
  "topcoat-core",
  "topcoat-router",
  "web-time",
