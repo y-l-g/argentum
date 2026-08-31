@@ -17,6 +17,16 @@ use argentum_ui::{
 };
 use topcoat::{Result, context::Cx, view::*};
 
+#[allow(clippy::type_complexity)]
+type RelationshipLoader = std::sync::Arc<
+    dyn Fn(
+            &Cx,
+        ) -> std::pin::Pin<
+            Box<dyn std::future::Future<Output = Result<Vec<(String, String)>>> + Send>,
+        > + Send
+        + Sync,
+>;
+
 // ---------------------------------------------------------------------------
 // Public layout primitives
 // ---------------------------------------------------------------------------
@@ -183,6 +193,240 @@ impl TextInput {
                         aria-invalid=(if has_error { "true" } else { "false" })
                     }
                 )
+                <p class="text-sm text-destructive" aria-live="polite">(error_text)</p>
+            </div>
+        }
+    }
+}
+
+/// Select field bound to a lens (often a foreign key like `author_id`).
+///
+/// `Select::for(Post::fields().author_id()).relationship(AuthorResource::query, |a| a.name.clone())`
+/// loads options via `AuthorResource::query(cx)` (tenancy-aware) and stores `author.id`
+/// as the value. Typos in the lens fail at compile time. The relationship loader
+/// reuses `Resource::query` + `Resource::table` for tenancy and PK extraction (no new seam).
+pub struct Select {
+    name: String,
+    label: String,
+    required: bool,
+    options_static: Vec<(String, String)>,
+    #[allow(clippy::type_complexity)]
+    relationship: Option<RelationshipLoader>,
+}
+
+impl std::fmt::Debug for Select {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Select")
+            .field("name", &self.name)
+            .field("label", &self.label)
+            .field("required", &self.required)
+            .field("options_static", &self.options_static)
+            .field("relationship", &self.relationship.is_some())
+            .finish()
+    }
+}
+
+impl Clone for Select {
+    fn clone(&self) -> Self {
+        Self {
+            name: self.name.clone(),
+            label: self.label.clone(),
+            required: self.required,
+            options_static: self.options_static.clone(),
+            relationship: self.relationship.clone(),
+        }
+    }
+}
+
+impl Select {
+    /// Create a `Select` bound to the given field lens (e.g. `Post::fields().author_id()`).
+    pub fn for_lens<M, T>(path: toasty::stmt::Path<M, T>) -> Self
+    where
+        M: toasty::schema::Model,
+    {
+        let (field_name, label_str) = lens_field_name_and_label(path);
+        Self {
+            name: field_name,
+            label: label_str,
+            required: false,
+            options_static: Vec::new(),
+            relationship: None,
+        }
+    }
+
+    /// Convenience alias so call sites read `Select::for(Post::fields().author_id())`.
+    pub fn r#for<M, T>(path: toasty::stmt::Path<M, T>) -> Self
+    where
+        M: toasty::schema::Model,
+    {
+        Self::for_lens(path)
+    }
+
+    /// Mark the field as required.
+    pub fn required(mut self) -> Self {
+        self.required = true;
+        self
+    }
+
+    /// Override the label.
+    pub fn label(mut self, l: impl Into<String>) -> Self {
+        self.label = l.into();
+        self
+    }
+
+    /// Static options where value == label.
+    pub fn options(mut self, options: Vec<String>) -> Self {
+        self.options_static = options.into_iter().map(|s| (s.clone(), s)).collect();
+        self
+    }
+
+    /// Static options with explicit (value, label) pairs.
+    pub fn options_with_labels(mut self, pairs: Vec<(String, String)>) -> Self {
+        self.options_static = pairs;
+        self
+    }
+
+    /// Load options via a related `Resource::query` (tenancy-aware) and a label closure.
+    ///
+    /// The first argument is the resource's `query` fn (e.g. `AuthorResource::query`) — it is
+    /// only used for type inference; the loader calls `R::query(cx)` directly so tenancy is
+    /// preserved. The second argument maps the related record to its display label.
+    pub fn relationship<R>(
+        mut self,
+        _query: fn(&Cx) -> toasty::stmt::Query<toasty::stmt::List<R::Model>>,
+        label: impl Fn(&R::Model) -> String + Send + Sync + 'static,
+    ) -> Self
+    where
+        R: crate::resource::Resource + 'static,
+        R::Model: Send + Sync + 'static,
+    {
+        let label = std::sync::Arc::new(label);
+        let loader = std::sync::Arc::new(move |cx: &Cx| {
+            let label = label.clone();
+            let cx = cx.clone();
+            Box::pin(async move {
+                let mut db = crate::db::db(&cx);
+                let records = R::query(&cx)
+                    .exec(&mut db)
+                    .await
+                    .map_err(topcoat::Error::from)?;
+                let table = R::table(&cx);
+                let mut opts = Vec::new();
+                for rec in &records {
+                    if let Some(k) = table.key_for(rec) {
+                        opts.push((k, label(rec)));
+                    }
+                }
+                Ok(opts)
+            })
+                as std::pin::Pin<
+                    Box<
+                        dyn std::future::Future<Output = topcoat::Result<Vec<(String, String)>>>
+                            + Send,
+                    >,
+                >
+        }) as RelationshipLoader;
+        self.relationship = Some(loader);
+        self
+    }
+
+    pub fn field_name(&self) -> &str {
+        &self.name
+    }
+
+    /// Validate a raw string value (required + empty). Existence is async via `validate_async`.
+    pub fn validate(&self, value: &str) -> Vec<String> {
+        let v = value.trim();
+        let mut errs = Vec::new();
+        if self.required && v.is_empty() {
+            errs.push(format!("{} is required", self.label));
+        }
+        errs
+    }
+
+    /// Async existence check: if relationship is configured and value non-empty, ensure it matches a loaded option.
+    pub async fn validate_async(&self, cx: &Cx, value: &str) -> Vec<String> {
+        let mut errs = self.validate(value);
+        if errs.is_empty() && !value.trim().is_empty() {
+            if let Some(loader) = &self.relationship {
+                match loader(cx).await {
+                    Ok(opts) => {
+                        let trimmed = value.trim();
+                        if !opts.iter().any(|(v, _)| v == trimmed) {
+                            errs.push(format!("{} is invalid", self.label));
+                        }
+                    }
+                    Err(_) => {
+                        // If loader fails, don't add error here; DB will surface.
+                    }
+                }
+            } else if !self.options_static.is_empty() {
+                let trimmed = value.trim();
+                if !self.options_static.iter().any(|(v, _)| v == trimmed) {
+                    errs.push(format!("{} is invalid", self.label));
+                }
+            }
+        }
+        errs
+    }
+
+    async fn load_options(&self, cx: &Cx) -> topcoat::Result<Vec<(String, String)>> {
+        if let Some(loader) = &self.relationship {
+            loader(cx).await
+        } else {
+            Ok(self.options_static.clone())
+        }
+    }
+
+    pub(crate) async fn render_with(
+        &self,
+        cx: &Cx,
+        value: Option<&str>,
+        errors: &[String],
+    ) -> topcoat::Result<View> {
+        let label_text = self.label.clone();
+        let name = self.name.clone();
+        let required = self.required;
+        let has_error = !errors.is_empty();
+        let error_text = errors.first().cloned().unwrap_or_default();
+        let current = value.unwrap_or("").trim().to_string();
+        let options = self.load_options(cx).await.unwrap_or_default();
+        // Build option views.
+        let mut option_views: Vec<View> = Vec::new();
+        // Placeholder empty option
+        let empty_selected = current.is_empty();
+        option_views.push(
+            view! { cx => <option value="" selected=(empty_selected)>"-- Select --"</option> }?,
+        );
+        for (val, lab) in &options {
+            let selected = current == *val;
+            let val_c = val.clone();
+            let lab_c = lab.clone();
+            option_views
+                .push(view! { cx => <option value=(val_c) selected=(selected)>(lab_c)</option> }?);
+        }
+        view! {
+            cx =>
+            <div class="grid gap-1.5">
+                argentum_ui::label(
+                    attrs: attributes! { for=(name.clone()) },
+                    (label_text.clone())
+                    if required {
+                        <span class="text-destructive" aria-hidden="true">"*"</span>
+                    }
+                )
+                <select
+                    id=(name.clone())
+                    name=(name.clone())
+                    required=(required)
+                    aria-required=(required.then_some("true"))
+                    aria-invalid=(if has_error { "true" } else { "false" })
+                    class="flex h-9 w-full rounded-md border border-border bg-background px-3 py-1 text-sm shadow-xs"
+                >
+                    for opt in option_views {
+                        (opt)
+                    }
+                </select>
                 <p class="text-sm text-destructive" aria-live="polite">(error_text)</p>
             </div>
         }
@@ -449,6 +693,7 @@ impl Grid {
 enum Node {
     Text(Text),
     TextInput(Box<TextInput>),
+    Select(Box<Select>),
     Section(Box<Section>),
     Group(Box<Group>),
     Grid(Box<Grid>),
@@ -469,6 +714,14 @@ impl Node {
         match self {
             Node::Text(t) => t.render(cx).await,
             Node::TextInput(f) => {
+                let val = values.get(&f.field_name().to_string()).map(|s| s.as_str());
+                let errs: &[String] = errors
+                    .get(&f.field_name().to_string())
+                    .map(|v| v.as_slice())
+                    .unwrap_or(&[]);
+                Box::pin(f.render_with(cx, val, errs)).await
+            }
+            Node::Select(f) => {
                 let val = values.get(&f.field_name().to_string()).map(|s| s.as_str());
                 let errs: &[String] = errors
                     .get(&f.field_name().to_string())
@@ -506,6 +759,11 @@ impl From<Group> for Node {
 impl From<Grid> for Node {
     fn from(v: Grid) -> Self {
         Node::Grid(Box::new(v))
+    }
+}
+impl From<Select> for Node {
+    fn from(v: Select) -> Self {
+        Node::Select(Box::new(v))
     }
 }
 
@@ -550,7 +808,7 @@ impl Schema {
         }
     }
 
-    /// Collect field names for validation (TextInput only for now).
+    /// Collect field names for validation (TextInput + Select).
     pub fn field_names(&self) -> Vec<String> {
         let mut out = Vec::new();
         for node in &self.nodes {
@@ -568,6 +826,15 @@ impl Schema {
         map
     }
 
+    /// Build a map of `field_name -> Select` for validation.
+    pub fn select_inputs(&self) -> HashMap<String, Select> {
+        let mut map = HashMap::new();
+        for node in &self.nodes {
+            collect_selects(node, &mut map);
+        }
+        map
+    }
+
     pub fn validate(&self, values: &HashMap<String, String>) -> HashMap<String, Vec<String>> {
         let inputs = self.text_inputs();
         let mut errors: HashMap<String, Vec<String>> = HashMap::new();
@@ -578,6 +845,42 @@ impl Schema {
                 errors.insert(name, errs);
             }
         }
+        for (name, sel) in self.select_inputs() {
+            let val = values.get(&name).map(|s| s.as_str()).unwrap_or("");
+            let errs = sel.validate(val);
+            if !errs.is_empty() {
+                errors.insert(name, errs);
+            }
+        }
+        errors
+    }
+
+    /// Async validation for Select relationship existence (tenancy-aware).
+    pub async fn validate_async(
+        &self,
+        cx: &Cx,
+        values: &HashMap<String, String>,
+    ) -> HashMap<String, Vec<String>> {
+        let mut errors = self.validate(values);
+        for (name, sel) in self.select_inputs() {
+            if errors.contains_key(&name) {
+                continue;
+            }
+            if sel.relationship.is_some() || !sel.options_static.is_empty() {
+                let val = values.get(&name).map(|s| s.as_str()).unwrap_or("");
+                if !val.trim().is_empty() {
+                    let async_errs = sel.validate_async(cx, val).await;
+                    // validate_async returns required errs plus existence; we already did required, so filter.
+                    let existence_errs: Vec<String> = async_errs
+                        .into_iter()
+                        .filter(|e| !e.contains("is required"))
+                        .collect();
+                    if !existence_errs.is_empty() {
+                        errors.insert(name, existence_errs);
+                    }
+                }
+            }
+        }
         errors
     }
 }
@@ -585,6 +888,7 @@ impl Schema {
 fn collect_field_names(node: &Node, out: &mut Vec<String>) {
     match node {
         Node::TextInput(f) => out.push(f.field_name().to_string()),
+        Node::Select(f) => out.push(f.field_name().to_string()),
         Node::Section(s) => {
             if let Some(schema) = &s.children {
                 for n in &schema.nodes {
@@ -615,6 +919,7 @@ fn collect_inputs(node: &Node, map: &mut HashMap<String, TextInput>) {
         Node::TextInput(f) => {
             map.insert(f.field_name().to_string(), (**f).clone());
         }
+        Node::Select(_) => {}
         Node::Section(s) => {
             if let Some(schema) = &s.children {
                 for n in &schema.nodes {
@@ -633,6 +938,37 @@ fn collect_inputs(node: &Node, map: &mut HashMap<String, TextInput>) {
             if let Some(schema) = &g.children {
                 for n in &schema.nodes {
                     collect_inputs(n, map);
+                }
+            }
+        }
+        Node::Text(_) => {}
+    }
+}
+
+fn collect_selects(node: &Node, map: &mut HashMap<String, Select>) {
+    match node {
+        Node::Select(f) => {
+            map.insert(f.field_name().to_string(), (**f).clone());
+        }
+        Node::TextInput(_) => {}
+        Node::Section(s) => {
+            if let Some(schema) = &s.children {
+                for n in &schema.nodes {
+                    collect_selects(n, map);
+                }
+            }
+        }
+        Node::Group(g) => {
+            if let Some(schema) = &g.children {
+                for n in &schema.nodes {
+                    collect_selects(n, map);
+                }
+            }
+        }
+        Node::Grid(g) => {
+            if let Some(schema) = &g.children {
+                for n in &schema.nodes {
+                    collect_selects(n, map);
                 }
             }
         }
@@ -682,6 +1018,13 @@ impl IntoSchema for Grid {
     }
 }
 impl IntoSchema for TextInput {
+    fn into_schema(self) -> Schema {
+        Schema {
+            nodes: vec![self.into()],
+        }
+    }
+}
+impl IntoSchema for Select {
     fn into_schema(self) -> Schema {
         Schema {
             nodes: vec![self.into()],

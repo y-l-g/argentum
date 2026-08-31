@@ -29,4 +29,4 @@ pub use policy::{AllowAll, DenyAll, Policy};
 pub use resource::{
     Column, NavigationItem, Pages, Resource, RowKey, Sort, Table, TablePage, TableState, TextColumn,
 };
-pub use schema::{FieldLens, Grid, Group, IntoSchema, Schema, Section, Text, TextInput};
+pub use schema::{FieldLens, Grid, Group, IntoSchema, Schema, Section, Select, Text, TextInput};

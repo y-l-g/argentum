@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 
-use argentum_core::{NavigationItem, Panel, Resource, Schema, Table, TextColumn, TextInput};
+use argentum_core::{
+    NavigationItem, Panel, Resource, Schema, Select, Table, TextColumn, TextInput,
+};
 use toasty::Db;
 use topcoat::{
     Result,
@@ -11,7 +13,7 @@ use topcoat::{
     tailwind,
 };
 
-use crate::models::User;
+use crate::models::{Author, Post, User};
 
 /// The theme's sans font, pulled from Fontsource and self-hosted as a Topcoat asset.
 const GEIST: Font = fontsource_font!(GEIST, host: Asset);
@@ -237,6 +239,439 @@ impl Resource for UserResource {
     }
 }
 
+pub struct AuthorResource;
+
+impl Resource for AuthorResource {
+    type Model = Author;
+
+    fn can_view_any(_cx: &Cx) -> bool {
+        true
+    }
+    fn can_view(_cx: &Cx, _record: &Author) -> bool {
+        true
+    }
+    fn can_create(_cx: &Cx) -> bool {
+        true
+    }
+    fn can_update(_cx: &Cx, _record: &Author) -> bool {
+        true
+    }
+    fn can_delete(_cx: &Cx, _record: &Author) -> bool {
+        true
+    }
+
+    fn table(cx: &Cx) -> Table<Author> {
+        Table::r#for(cx)
+            .id(|a: &Author| a.id.to_string())
+            .columns((
+                TextColumn::r#for(Author::fields().name(), |a: &Author| a.name.clone())
+                    .searchable()
+                    .sortable(),
+                TextColumn::r#for(Author::fields().email(), |a: &Author| a.email.clone())
+                    .searchable(),
+            ))
+            .paginate(2)
+    }
+
+    fn form(_cx: &Cx) -> Schema {
+        Schema::new((
+            TextInput::r#for(Author::fields().name()).required(),
+            TextInput::r#for(Author::fields().email())
+                .required()
+                .email()
+                .unique(),
+        ))
+    }
+
+    fn hydrate_form_values(record: &Author) -> HashMap<String, String> {
+        let mut m = HashMap::new();
+        m.insert("name".to_string(), record.name.clone());
+        m.insert("email".to_string(), record.email.clone());
+        m
+    }
+
+    fn create_record(
+        cx: &Cx,
+        values: HashMap<String, String>,
+    ) -> impl std::future::Future<Output = Result<()>> + Send
+    where
+        Self: Sized,
+    {
+        let cx = cx.clone();
+        async move {
+            let name = values
+                .get("name")
+                .cloned()
+                .unwrap_or_default()
+                .trim()
+                .to_string();
+            let email = values
+                .get("email")
+                .cloned()
+                .unwrap_or_default()
+                .trim()
+                .to_string();
+            let mut db = argentum_core::db::db(&cx);
+            toasty::create!(Author {
+                name: name,
+                email: email
+            })
+            .exec(&mut db)
+            .await
+            .map_err(|e| -> topcoat::Error { e.into() })?;
+            Ok(())
+        }
+    }
+
+    fn update_record(
+        cx: &Cx,
+        id: String,
+        values: HashMap<String, String>,
+    ) -> impl std::future::Future<Output = Result<()>> + Send
+    where
+        Self: Sized,
+    {
+        let cx = cx.clone();
+        async move {
+            let uuid = id.parse::<uuid::Uuid>().map_err(|e| {
+                topcoat::Error::from(std::io::Error::other(format!("invalid id: {e}")))
+            })?;
+            let mut db = argentum_core::db::db(&cx);
+            let mut rec = Self::query(&cx)
+                .filter(Author::fields().id().eq(uuid))
+                .first()
+                .exec(&mut db)
+                .await
+                .map_err(|e| -> topcoat::Error { e.into() })?
+                .ok_or_else(topcoat::router::error::not_found)?;
+            let name = values
+                .get("name")
+                .cloned()
+                .unwrap_or_default()
+                .trim()
+                .to_string();
+            let email = values
+                .get("email")
+                .cloned()
+                .unwrap_or_default()
+                .trim()
+                .to_string();
+            toasty::update!(rec {
+                name: name,
+                email: email
+            })
+            .exec(&mut db)
+            .await
+            .map_err(|e| -> topcoat::Error { e.into() })?;
+            Ok(())
+        }
+    }
+
+    fn delete_record(cx: &Cx, id: String) -> impl std::future::Future<Output = Result<()>> + Send
+    where
+        Self: Sized,
+    {
+        let cx = cx.clone();
+        async move {
+            let uuid = id.parse::<uuid::Uuid>().map_err(|e| {
+                topcoat::Error::from(std::io::Error::other(format!("invalid id: {e}")))
+            })?;
+            let mut db = argentum_core::db::db(&cx);
+            let rec = Self::query(&cx)
+                .filter(Author::fields().id().eq(uuid))
+                .first()
+                .exec(&mut db)
+                .await
+                .map_err(|e| -> topcoat::Error { e.into() })?
+                .ok_or_else(topcoat::router::error::not_found)?;
+            Self::query(&cx)
+                .filter(Author::fields().id().eq(rec.id))
+                .delete()
+                .exec(&mut db)
+                .await
+                .map_err(|e| -> topcoat::Error { e.into() })?;
+            Ok(())
+        }
+    }
+
+    fn bulk_delete_records(
+        cx: &Cx,
+        ids: Vec<String>,
+    ) -> impl std::future::Future<Output = Result<()>> + Send
+    where
+        Self: Sized,
+    {
+        let cx = cx.clone();
+        async move {
+            let mut db = argentum_core::db::db(&cx);
+            for id in &ids {
+                let uuid = id.parse::<uuid::Uuid>().map_err(|e| {
+                    topcoat::Error::from(std::io::Error::other(format!("invalid id: {e}")))
+                })?;
+                let rec = Self::query(&cx)
+                    .filter(Author::fields().id().eq(uuid))
+                    .first()
+                    .exec(&mut db)
+                    .await
+                    .map_err(|e| -> topcoat::Error { e.into() })?
+                    .ok_or_else(topcoat::router::error::not_found)?;
+                if !Self::can_delete(&cx, &rec) {
+                    return Err(topcoat::router::error::forbidden().into());
+                }
+            }
+            for id in ids {
+                let uuid = id.parse::<uuid::Uuid>().map_err(|e| {
+                    topcoat::Error::from(std::io::Error::other(format!("invalid id: {e}")))
+                })?;
+                Self::query(&cx)
+                    .filter(Author::fields().id().eq(uuid))
+                    .delete()
+                    .exec(&mut db)
+                    .await
+                    .map_err(|e| -> topcoat::Error { e.into() })?;
+            }
+            Ok(())
+        }
+    }
+}
+
+pub struct PostResource;
+
+impl Resource for PostResource {
+    type Model = Post;
+
+    fn query(_cx: &Cx) -> toasty::stmt::Query<toasty::stmt::List<Post>> {
+        // Explicit include for author relation (one round-trip, no N+1).
+        // `Post::fields().author()` yields `AuthorFields<Post>` which converts to
+        // `Include<Post, Author>` via `Into`; we convert explicitly to satisfy the
+        // `Into<core::Include>` bound (two-step `Into` is not chained automatically).
+        let inc: toasty::stmt::Include<Post, Author> = Post::fields().author().into();
+        toasty::stmt::Query::<toasty::stmt::List<Post>>::all().include(inc)
+    }
+
+    fn can_view_any(_cx: &Cx) -> bool {
+        true
+    }
+    fn can_view(_cx: &Cx, _record: &Post) -> bool {
+        true
+    }
+    fn can_create(_cx: &Cx) -> bool {
+        true
+    }
+    fn can_update(_cx: &Cx, _record: &Post) -> bool {
+        true
+    }
+    fn can_delete(_cx: &Cx, _record: &Post) -> bool {
+        true
+    }
+
+    fn table(cx: &Cx) -> Table<Post> {
+        Table::r#for(cx)
+            .id(|p: &Post| p.id.to_string())
+            .columns((
+                TextColumn::r#for(Post::fields().title(), |p: &Post| p.title.clone())
+                    .searchable()
+                    .sortable(),
+                TextColumn::computed("Author", |p: &Post| {
+                    if p.author.is_unloaded() {
+                        "-".to_string()
+                    } else {
+                        p.author.get().name.clone()
+                    }
+                }),
+                TextColumn::computed("Author Email", |p: &Post| {
+                    if p.author.is_unloaded() {
+                        String::new()
+                    } else {
+                        p.author.get().email.clone()
+                    }
+                }),
+            ))
+            .paginate(2)
+    }
+
+    fn form(_cx: &Cx) -> Schema {
+        Schema::new((
+            TextInput::r#for(Post::fields().title()).required(),
+            Select::r#for(Post::fields().author_id())
+                .relationship::<AuthorResource>(AuthorResource::query, |a: &Author| a.name.clone())
+                .required()
+                .label("Author"),
+        ))
+    }
+
+    fn hydrate_form_values(record: &Post) -> HashMap<String, String> {
+        let mut m = HashMap::new();
+        m.insert("title".to_string(), record.title.clone());
+        m.insert("author_id".to_string(), record.author_id.to_string());
+        m
+    }
+
+    fn create_record(
+        cx: &Cx,
+        values: HashMap<String, String>,
+    ) -> impl std::future::Future<Output = Result<()>> + Send
+    where
+        Self: Sized,
+    {
+        let cx = cx.clone();
+        async move {
+            let title = values
+                .get("title")
+                .cloned()
+                .unwrap_or_default()
+                .trim()
+                .to_string();
+            let author_id_str = values
+                .get("author_id")
+                .cloned()
+                .unwrap_or_default()
+                .trim()
+                .to_string();
+            let author_id = author_id_str.parse::<uuid::Uuid>().map_err(|e| {
+                topcoat::Error::from(std::io::Error::other(format!("invalid author_id: {e}")))
+            })?;
+            // Verify author exists via AuthorResource::query (tenancy-aware) - existence already checked in validation but double.
+            let mut db = argentum_core::db::db(&cx);
+            let author_exists = AuthorResource::query(&cx)
+                .filter(Author::fields().id().eq(author_id))
+                .first()
+                .exec(&mut db)
+                .await
+                .map_err(|e| -> topcoat::Error { e.into() })?
+                .is_some();
+            if !author_exists {
+                return Err(topcoat::Error::from(std::io::Error::other(
+                    "author not found",
+                )));
+            }
+            toasty::create!(Post {
+                title: title,
+                body: String::new(),
+                author_id: author_id,
+            })
+            .exec(&mut db)
+            .await
+            .map_err(|e| -> topcoat::Error { e.into() })?;
+            Ok(())
+        }
+    }
+
+    fn update_record(
+        cx: &Cx,
+        id: String,
+        values: HashMap<String, String>,
+    ) -> impl std::future::Future<Output = Result<()>> + Send
+    where
+        Self: Sized,
+    {
+        let cx = cx.clone();
+        async move {
+            let uuid = id.parse::<uuid::Uuid>().map_err(|e| {
+                topcoat::Error::from(std::io::Error::other(format!("invalid id: {e}")))
+            })?;
+            let mut db = argentum_core::db::db(&cx);
+            let mut rec = Self::query(&cx)
+                .filter(Post::fields().id().eq(uuid))
+                .first()
+                .exec(&mut db)
+                .await
+                .map_err(|e| -> topcoat::Error { e.into() })?
+                .ok_or_else(topcoat::router::error::not_found)?;
+            let title = values
+                .get("title")
+                .cloned()
+                .unwrap_or_default()
+                .trim()
+                .to_string();
+            let author_id_str = values
+                .get("author_id")
+                .cloned()
+                .unwrap_or_default()
+                .trim()
+                .to_string();
+            let author_id = author_id_str.parse::<uuid::Uuid>().map_err(|e| {
+                topcoat::Error::from(std::io::Error::other(format!("invalid author_id: {e}")))
+            })?;
+            toasty::update!(rec {
+                title: title,
+                author_id: author_id
+            })
+            .exec(&mut db)
+            .await
+            .map_err(|e| -> topcoat::Error { e.into() })?;
+            Ok(())
+        }
+    }
+
+    fn delete_record(cx: &Cx, id: String) -> impl std::future::Future<Output = Result<()>> + Send
+    where
+        Self: Sized,
+    {
+        let cx = cx.clone();
+        async move {
+            let uuid = id.parse::<uuid::Uuid>().map_err(|e| {
+                topcoat::Error::from(std::io::Error::other(format!("invalid id: {e}")))
+            })?;
+            let mut db = argentum_core::db::db(&cx);
+            let rec = Self::query(&cx)
+                .filter(Post::fields().id().eq(uuid))
+                .first()
+                .exec(&mut db)
+                .await
+                .map_err(|e| -> topcoat::Error { e.into() })?
+                .ok_or_else(topcoat::router::error::not_found)?;
+            Self::query(&cx)
+                .filter(Post::fields().id().eq(rec.id))
+                .delete()
+                .exec(&mut db)
+                .await
+                .map_err(|e| -> topcoat::Error { e.into() })?;
+            Ok(())
+        }
+    }
+
+    fn bulk_delete_records(
+        cx: &Cx,
+        ids: Vec<String>,
+    ) -> impl std::future::Future<Output = Result<()>> + Send
+    where
+        Self: Sized,
+    {
+        let cx = cx.clone();
+        async move {
+            let mut db = argentum_core::db::db(&cx);
+            for id in &ids {
+                let uuid = id.parse::<uuid::Uuid>().map_err(|e| {
+                    topcoat::Error::from(std::io::Error::other(format!("invalid id: {e}")))
+                })?;
+                let rec = Self::query(&cx)
+                    .filter(Post::fields().id().eq(uuid))
+                    .first()
+                    .exec(&mut db)
+                    .await
+                    .map_err(|e| -> topcoat::Error { e.into() })?
+                    .ok_or_else(topcoat::router::error::not_found)?;
+                if !Self::can_delete(&cx, &rec) {
+                    return Err(topcoat::router::error::forbidden().into());
+                }
+            }
+            for id in ids {
+                let uuid = id.parse::<uuid::Uuid>().map_err(|e| {
+                    topcoat::Error::from(std::io::Error::other(format!("invalid id: {e}")))
+                })?;
+                Self::query(&cx)
+                    .filter(Post::fields().id().eq(uuid))
+                    .delete()
+                    .exec(&mut db)
+                    .await
+                    .map_err(|e| -> topcoat::Error { e.into() })?;
+            }
+            Ok(())
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Layout — Panel shell at /admin, wraps every /admin/* page
 // ---------------------------------------------------------------------------
@@ -267,6 +702,8 @@ fn build_router(db: Db, bundle: Option<AssetBundle>) -> Router {
     let panel = Panel::new("admin")
         .app_context(db)
         .resource::<UserResource>()
+        .resource::<AuthorResource>()
+        .resource::<PostResource>()
         .navigation(NavigationItem::from_href(
             "Showcase",
             href!("/admin/showcase"),

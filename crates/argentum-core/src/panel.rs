@@ -893,7 +893,7 @@ fn resource_create_post<R: Resource>(cx: &Cx, body: Body) -> ViewFuture<'_> {
         }
         let values = parse_form_values(cx, body).await;
         let schema = R::form(cx);
-        let errors = schema.validate(&values);
+        let errors = schema.validate_async(cx, &values).await;
         // Unique check: delegate to resource's create_record? For now check via
         // direct query for email uniqueness if field is marked unique and value present.
         // This is app-side check until Toasty exposes is_unique_violation.
@@ -999,7 +999,7 @@ fn resource_edit_post<R: Resource>(cx: &Cx, body: Body) -> ViewFuture<'_> {
         }
         let values = parse_form_values(cx, body).await;
         let schema = R::form(cx);
-        let errors = schema.validate(&values);
+        let errors = schema.validate_async(cx, &values).await;
         if !errors.is_empty() {
             let html = render_edit_page::<R>(cx, &id, &values, &errors).await?;
             return Ok(html);
