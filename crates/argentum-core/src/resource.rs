@@ -613,9 +613,12 @@ pub type RowKey<M> = Arc<dyn Fn(&M) -> String + Send + Sync>;
 /// `HasId`/`GetField` dispatch (GH #10) is gone, cells render via
 /// [`TextColumn`]'s lens-bound closure where typos fail at compile time
 /// instead of panicking at render.
+pub type GroupKey<M> = Arc<dyn Fn(&M) -> String + Send + Sync>;
+
 pub struct Table<M> {
     columns: Vec<Column<M>>,
     filters: Vec<Filter<M>>,
+    group_by: Option<GroupKey<M>>,
     row_key: Option<RowKey<M>>,
     page_size: Option<usize>,
     search_ui: Option<bool>,
@@ -632,6 +635,7 @@ impl<M> std::fmt::Debug for Table<M> {
         f.debug_struct("Table")
             .field("columns", &self.columns)
             .field("filters", &self.filters.len())
+            .field("group_by", &self.group_by.is_some())
             .field("row_key", &self.row_key.is_some())
             .field("page_size", &self.page_size)
             .field("search_ui", &self.search_ui)
@@ -663,6 +667,7 @@ impl<M> Table<M> {
         Self {
             columns: Vec::new(),
             filters: Vec::new(),
+            group_by: None,
             row_key: None,
             page_size: None,
             search_ui: None,
@@ -728,6 +733,12 @@ impl<M> Table<M> {
             let first = iter.next().unwrap();
             Some(iter.fold(first, |acc, e| acc.and(e)))
         }
+    }
+
+    /// Group rows in-memory by a key (count summarizer). No GROUP BY SQL.
+    pub fn group_by(mut self, key: impl Fn(&M) -> String + Send + Sync + 'static) -> Self {
+        self.group_by = Some(Arc::new(key));
+        self
     }
 
     /// Enable real cursor pagination with the given page size.
@@ -972,6 +983,82 @@ impl<M> Table<M> {
         };
         let pager = self.render_pager(cx, &state, &path, page).await?;
 
+        // Grouping (in-memory, count summarizer) — when `?group_by=` is present and table has a group key.
+        if let (Some(group_fn), Some(_)) = (&self.group_by, &state.group_by) {
+            use std::collections::BTreeMap;
+            let mut groups: BTreeMap<String, usize> = BTreeMap::new();
+            for row in &page.rows {
+                *groups.entry(group_fn(row)).or_insert(0) += 1;
+            }
+            let mut group_views: Vec<View> = Vec::new();
+            for (key, count) in groups {
+                let text = format!("{} ({})", key, count);
+                group_views.push(
+                    view! { cx => <div class="px-4 py-2 bg-muted text-sm font-medium">(text)</div> }?,
+                );
+            }
+            let bulk_clone = bulk_bar_view.clone();
+            let search_clone = search_bar.clone();
+            let filter_clone = filter_bar.clone();
+            let inner = view! {
+                cx =>
+                <div class="rounded-xl border border-border overflow-hidden">
+                    if show_search {
+                        (search_clone.expect("search bar built when enabled"))
+                    }
+                    if show_filters {
+                        (filter_clone.expect("filter bar built when enabled"))
+                    }
+                    (bulk_clone)
+                    for gv in group_views {
+                        (gv)
+                    }
+                    table(
+                        (head)
+                        table_body(
+                            for row in &page.rows {
+                                let key = row_key(row);
+                                let key_for_row = key.clone();
+                                let key_for_action = key.clone();
+                                let cells: Vec<String> =
+                                    self.columns.iter().map(|col| col.render_cell(row)).collect();
+                                let delete_prefix_clone = delete_prefix.clone();
+                                table_row(
+                                    key: key_for_row,
+                                    for cell in cells {
+                                        table_cell((cell))
+                                    }
+                                    if let Some(prefix) = delete_prefix_clone {
+                                        table_cell(
+                                            <form
+                                                method="post"
+                                                action=(format!("{}/{}/delete", prefix, key_for_action))
+                                            >
+                                                button(
+                                                    variant: ButtonVariant::Ghost,
+                                                    size: ButtonSize::Md,
+                                                    attrs: attributes! { r#type="submit" },
+                                                    "Delete"
+                                                )
+                                            </form>
+                                        )
+                                    }
+                                )
+                            }
+                        )
+                    )
+                    for p in pager {
+                        (p)
+                    }
+                </div>
+            }?;
+            if self.is_boundary {
+                return view! { cx => <div data-boundary="table">(inner)</div> };
+            } else {
+                return Ok(inner);
+            }
+        }
+
         if self.show_skeleton {
             let bulk_clone = bulk_bar_view.clone();
             let inner = view! {
@@ -1098,6 +1185,33 @@ impl<M> Table<M> {
         } else {
             Ok(inner)
         }
+    }
+
+    /// Generate CSV for the given page (header + rows, RFC4180 escaped).
+    pub fn to_csv(&self, page: &TablePage<M>) -> String
+    where
+        M: toasty::schema::Model,
+    {
+        let mut out = String::new();
+        let headers: Vec<String> = self.columns.iter().map(|c| c.label().to_string()).collect();
+        out.push_str(&headers.join(","));
+        out.push('\n');
+        for row in &page.rows {
+            let cells: Vec<String> = self
+                .columns
+                .iter()
+                .map(|c| {
+                    let mut cell = c.render_cell(row);
+                    if cell.contains(',') || cell.contains('"') || cell.contains('\n') {
+                        cell = format!("\"{}\"", cell.replace('"', "\"\""));
+                    }
+                    cell
+                })
+                .collect();
+            out.push_str(&cells.join(","));
+            out.push('\n');
+        }
+        out
     }
 
     /// Whether the search toolbar renders: the explicit `search(bool)` value,
@@ -1579,6 +1693,8 @@ pub struct TableState {
     pub before: Option<String>,
     /// `?filters=` — `key:value,key2:value2` (comma-separated, colon-delimited).
     pub filters: HashMap<String, String>,
+    /// `?group_by=` — field name to group by (in-memory, `count` summarizer).
+    pub group_by: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -1589,6 +1705,7 @@ struct TableQuery {
     after: Option<String>,
     before: Option<String>,
     filters: Option<String>,
+    group_by: Option<String>,
 }
 
 impl TableState {
@@ -1633,6 +1750,7 @@ impl TableState {
             after: non_empty(parsed.after),
             before: non_empty(parsed.before),
             filters,
+            group_by: non_empty(parsed.group_by),
         }
     }
 

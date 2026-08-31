@@ -1128,6 +1128,66 @@ fn resource_bulk_delete<R: Resource>(cx: &Cx, body: Body) -> ViewFuture<'_> {
     })
 }
 
+/// CSV export — reuses `Resource::query` + `Table` filters/sort, streams `text/csv`.
+fn resource_export<R: Resource>(cx: &Cx, _body: Body) -> ViewFuture<'_> {
+    Box::pin(async move {
+        if !R::can_view_any(cx) {
+            return Err(forbidden().into());
+        }
+        let state = TableState::from_cx(cx);
+        let table = R::table(cx);
+        let mut query = R::query(cx);
+        if let Some(term) = &state.search
+            && let Some(expr) = table.search_expr(term)
+        {
+            query = query.filter(expr);
+        }
+        if let Some(expr) = table.filter_expr(&state) {
+            query = query.filter(expr);
+        }
+        for ord in table.order_bys_for_state(&state) {
+            query = query.order_by(ord);
+        }
+        let mut db = db(cx);
+        let rows: Vec<R::Model> = query.exec(&mut db).await.map_err(topcoat::Error::from)?;
+        // Build TablePage without pagination for CSV (all rows)
+        let page: TablePage<R::Model> = rows.into();
+        let csv = table.to_csv(&page);
+        let filename = format!("{}.csv", R::slug());
+        Err(CsvResponse { csv, filename }.into())
+    })
+}
+
+#[derive(Debug)]
+struct CsvResponse {
+    csv: String,
+    filename: String,
+}
+
+impl std::fmt::Display for CsvResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "csv export {}", self.filename)
+    }
+}
+
+impl std::error::Error for CsvResponse {}
+
+impl topcoat::router::response::IntoResponse for CsvResponse {
+    fn into_response(self, _cx: &Cx) -> topcoat::Result<http::Response<Body>> {
+        let body = Body::from(self.csv);
+        let res = http::Response::builder()
+            .status(200)
+            .header(http::header::CONTENT_TYPE, "text/csv")
+            .header(
+                http::header::CONTENT_DISPOSITION,
+                format!("attachment; filename=\"{}\"", self.filename),
+            )
+            .body(body)
+            .map_err(|e| std::io::Error::other(e.to_string()))?;
+        Ok(res)
+    }
+}
+
 /// The panel root: a temporary redirect to the first declared resource's
 /// list, so the mount point is never a dead URL (until Dashboards exist,
 /// GH #38). Filament registers a Dashboard page here.
