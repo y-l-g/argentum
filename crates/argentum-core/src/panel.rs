@@ -617,6 +617,9 @@ fn resource_list<R: Resource>(cx: &Cx, _body: Body) -> ViewFuture<'_> {
         {
             query = query.filter(expr);
         }
+        if let Some(expr) = table.filter_expr(&state) {
+            query = query.filter(expr);
+        }
         for ord in table.order_bys_for_state(&state) {
             query = query.order_by(ord);
         }

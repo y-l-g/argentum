@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 
 use argentum_core::{
-    NavigationItem, Panel, Resource, Schema, Select, Table, TextColumn, TextInput, tenant_id,
+    DateFilter, NavigationItem, Panel, Resource, Schema, Select, SelectFilter, Table,
+    TernaryFilter, TextColumn, TextInput, tenant_id,
 };
 use toasty::Db;
 use topcoat::{
@@ -517,6 +518,14 @@ impl Resource for PostResource {
                     }
                 }),
             ))
+            .filters((
+                SelectFilter::r#for(
+                    Post::fields().status(),
+                    vec!["draft".into(), "published".into()],
+                ),
+                TernaryFilter::r#for(Post::fields().featured()),
+                DateFilter::r#for(Post::fields().created_at()),
+            ))
             .paginate(2)
     }
 
@@ -580,6 +589,9 @@ impl Resource for PostResource {
                 tenant_id: tid,
                 title: title,
                 body: String::new(),
+                status: "draft".to_string(),
+                featured: false,
+                created_at: jiff::Timestamp::now(),
                 author_id: author_id,
             })
             .exec(&mut db)

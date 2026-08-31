@@ -28,7 +28,8 @@ pub use notification::{Notification, NotificationStatus};
 pub use panel::{Brand, DarkMode, Panel};
 pub use policy::{AllowAll, DenyAll, Policy};
 pub use resource::{
-    Column, NavigationItem, Pages, Resource, RowKey, Sort, Table, TablePage, TableState, TextColumn,
+    Column, DateFilter, Filter, IntoFilters, NavigationItem, Pages, Resource, RowKey, SelectFilter,
+    Sort, Table, TablePage, TableState, TernaryFilter, TextColumn,
 };
 pub use schema::{FieldLens, Grid, Group, IntoSchema, Schema, Section, Select, Text, TextInput};
 pub use tenancy::{Tenant, tenant_id};

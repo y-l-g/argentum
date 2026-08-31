@@ -42,6 +42,9 @@ async fn tenanted_db() -> (Db, uuid::Uuid, uuid::Uuid) {
         tenant_id: t1,
         title: "T1 Post",
         body: "body",
+        status: "published".to_string(),
+        featured: true,
+        created_at: "2024-01-15T09:30:00Z".parse::<jiff::Timestamp>().unwrap(),
         author_id: a1.id,
     })
     .exec(&mut db)
@@ -51,6 +54,9 @@ async fn tenanted_db() -> (Db, uuid::Uuid, uuid::Uuid) {
         tenant_id: t2,
         title: "T2 Post",
         body: "body",
+        status: "draft".to_string(),
+        featured: false,
+        created_at: "2024-06-01T12:00:00Z".parse::<jiff::Timestamp>().unwrap(),
         author_id: a2.id,
     })
     .exec(&mut db)

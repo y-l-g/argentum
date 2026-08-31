@@ -47,6 +47,10 @@ pub struct Post {
     pub title: String,
     pub body: String,
     #[index]
+    pub status: String,
+    pub featured: bool,
+    pub created_at: Timestamp,
+    #[index]
     pub author_id: uuid::Uuid,
     #[belongs_to(key = author_id, references = id)]
     pub author: Deferred<Author>,
@@ -126,6 +130,9 @@ pub async fn seed_phase2(db: &mut Db) -> toasty::Result<()> {
             tenant_id: tenant,
             title: "Hello Toasty",
             body: "First post body",
+            status: "published".to_string(),
+            featured: true,
+            created_at: "2024-01-15T09:30:00Z".parse::<Timestamp>().unwrap(),
             author_id: ada_author.id,
         })
         .exec(db)
@@ -134,6 +141,9 @@ pub async fn seed_phase2(db: &mut Db) -> toasty::Result<()> {
             tenant_id: tenant,
             title: "Second Post",
             body: "More content",
+            status: "draft".to_string(),
+            featured: false,
+            created_at: "2024-06-01T12:00:00Z".parse::<Timestamp>().unwrap(),
             author_id: alan_author.id,
         })
         .exec(db)

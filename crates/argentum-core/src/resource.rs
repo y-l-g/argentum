@@ -22,6 +22,309 @@ use topcoat::{Result, view::*};
 
 use crate::schema::{FieldLens, Schema, capitalize, lens_field_name_and_label, pk_tie_breakers};
 
+/// Select filter — exact match on a `String` field (e.g. `status = "published"`).
+pub struct SelectFilter<M> {
+    name: String,
+    label: String,
+    lens: FieldLens<M, String>,
+    options: Vec<String>,
+}
+
+impl<M> std::fmt::Debug for SelectFilter<M> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SelectFilter")
+            .field("name", &self.name)
+            .field("label", &self.label)
+            .field("options", &self.options)
+            .finish()
+    }
+}
+
+impl<M> Clone for SelectFilter<M> {
+    fn clone(&self) -> Self {
+        Self {
+            name: self.name.clone(),
+            label: self.label.clone(),
+            lens: self.lens.clone(),
+            options: self.options.clone(),
+        }
+    }
+}
+
+impl<M> SelectFilter<M>
+where
+    M: toasty::schema::Model,
+{
+    pub fn new(lens: FieldLens<M, String>, options: Vec<String>) -> Self {
+        let (name, label) = lens_field_name_and_label(lens.clone());
+        Self {
+            name,
+            label,
+            lens,
+            options,
+        }
+    }
+
+    /// Convenience so call sites read `SelectFilter::for(Post::fields().status(), vec![...])`.
+    pub fn r#for(lens: FieldLens<M, String>, options: Vec<String>) -> Self {
+        Self::new(lens, options)
+    }
+
+    pub fn label(mut self, l: impl Into<String>) -> Self {
+        self.label = l.into();
+        self
+    }
+
+    pub fn to_expr(&self, value: &str) -> Option<Expr<bool>> {
+        let v = value.trim();
+        if v.is_empty() {
+            return None;
+        }
+        // Only allow values in options; otherwise ignore (no filter).
+        if !self.options.is_empty() && !self.options.contains(&v.to_string()) {
+            return None;
+        }
+        Some(self.lens.clone().eq(v.to_string()))
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+    pub fn label_str(&self) -> &str {
+        &self.label
+    }
+    pub fn options(&self) -> &[String] {
+        &self.options
+    }
+}
+
+/// Ternary filter — `true` / `false` / `all` (no filter) on a `bool` field.
+pub struct TernaryFilter<M> {
+    name: String,
+    label: String,
+    lens: FieldLens<M, bool>,
+}
+
+impl<M> std::fmt::Debug for TernaryFilter<M> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TernaryFilter")
+            .field("name", &self.name)
+            .field("label", &self.label)
+            .finish()
+    }
+}
+
+impl<M> Clone for TernaryFilter<M> {
+    fn clone(&self) -> Self {
+        Self {
+            name: self.name.clone(),
+            label: self.label.clone(),
+            lens: self.lens.clone(),
+        }
+    }
+}
+
+impl<M> TernaryFilter<M>
+where
+    M: toasty::schema::Model,
+{
+    pub fn new(lens: FieldLens<M, bool>) -> Self {
+        let (name, label) = lens_field_name_and_label(lens.clone());
+        Self { name, label, lens }
+    }
+
+    pub fn r#for(lens: FieldLens<M, bool>) -> Self {
+        Self::new(lens)
+    }
+
+    pub fn label(mut self, l: impl Into<String>) -> Self {
+        self.label = l.into();
+        self
+    }
+
+    pub fn to_expr(&self, value: &str) -> Option<Expr<bool>> {
+        match value.trim() {
+            "true" => Some(self.lens.clone().eq(true)),
+            "false" => Some(self.lens.clone().eq(false)),
+            _ => None,
+        }
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+    pub fn label_str(&self) -> &str {
+        &self.label
+    }
+}
+
+/// Date filter — exact match on a `Timestamp` field (e.g. `created_at = "2024-01-15"`).
+/// For now exact `Timestamp` equality; range support is future.
+pub struct DateFilter<M> {
+    name: String,
+    label: String,
+    lens: FieldLens<M, jiff::Timestamp>,
+}
+
+impl<M> std::fmt::Debug for DateFilter<M> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DateFilter")
+            .field("name", &self.name)
+            .field("label", &self.label)
+            .finish()
+    }
+}
+
+impl<M> Clone for DateFilter<M> {
+    fn clone(&self) -> Self {
+        Self {
+            name: self.name.clone(),
+            label: self.label.clone(),
+            lens: self.lens.clone(),
+        }
+    }
+}
+
+impl<M> DateFilter<M>
+where
+    M: toasty::schema::Model,
+{
+    pub fn new(lens: FieldLens<M, jiff::Timestamp>) -> Self {
+        let (name, label) = lens_field_name_and_label(lens.clone());
+        Self { name, label, lens }
+    }
+
+    pub fn r#for(lens: FieldLens<M, jiff::Timestamp>) -> Self {
+        Self::new(lens)
+    }
+
+    pub fn label(mut self, l: impl Into<String>) -> Self {
+        self.label = l.into();
+        self
+    }
+
+    pub fn to_expr(&self, value: &str) -> Option<Expr<bool>> {
+        let v = value.trim();
+        if v.is_empty() {
+            return None;
+        }
+        // Accept RFC3339 or YYYY-MM-DD (midnight UTC)
+        if let Ok(ts) = v.parse::<jiff::Timestamp>() {
+            return Some(self.lens.clone().eq(ts));
+        }
+        if let Ok(date) = v.parse::<jiff::civil::Date>() {
+            let ts = date.to_string() + "T00:00:00Z";
+            if let Ok(ts) = ts.parse::<jiff::Timestamp>() {
+                return Some(self.lens.clone().eq(ts));
+            }
+        }
+        None
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+    pub fn label_str(&self) -> &str {
+        &self.label
+    }
+}
+
+/// Filter enum — the `Table::filters` seam.
+#[derive(Debug, Clone)]
+pub enum Filter<M> {
+    Select(SelectFilter<M>),
+    Ternary(TernaryFilter<M>),
+    Date(DateFilter<M>),
+}
+
+impl<M> From<SelectFilter<M>> for Filter<M> {
+    fn from(v: SelectFilter<M>) -> Self {
+        Filter::Select(v)
+    }
+}
+impl<M> From<TernaryFilter<M>> for Filter<M> {
+    fn from(v: TernaryFilter<M>) -> Self {
+        Filter::Ternary(v)
+    }
+}
+impl<M> From<DateFilter<M>> for Filter<M> {
+    fn from(v: DateFilter<M>) -> Self {
+        Filter::Date(v)
+    }
+}
+
+impl<M> Filter<M>
+where
+    M: toasty::schema::Model,
+{
+    pub fn name(&self) -> &str {
+        match self {
+            Filter::Select(f) => f.name(),
+            Filter::Ternary(f) => f.name(),
+            Filter::Date(f) => f.name(),
+        }
+    }
+    pub fn label(&self) -> &str {
+        match self {
+            Filter::Select(f) => f.label_str(),
+            Filter::Ternary(f) => f.label_str(),
+            Filter::Date(f) => f.label_str(),
+        }
+    }
+    pub fn to_expr(&self, value: &str) -> Option<Expr<bool>> {
+        match self {
+            Filter::Select(f) => f.to_expr(value),
+            Filter::Ternary(f) => f.to_expr(value),
+            Filter::Date(f) => f.to_expr(value),
+        }
+    }
+}
+
+/// Convert a single filter or tuple of filters into `Vec<Filter<M>>`.
+pub trait IntoFilters<M> {
+    fn into_filters(self) -> Vec<Filter<M>>;
+}
+
+impl<M> IntoFilters<M> for Filter<M> {
+    fn into_filters(self) -> Vec<Filter<M>> {
+        vec![self]
+    }
+}
+impl<M> IntoFilters<M> for SelectFilter<M> {
+    fn into_filters(self) -> Vec<Filter<M>> {
+        vec![self.into()]
+    }
+}
+impl<M> IntoFilters<M> for TernaryFilter<M> {
+    fn into_filters(self) -> Vec<Filter<M>> {
+        vec![self.into()]
+    }
+}
+impl<M> IntoFilters<M> for DateFilter<M> {
+    fn into_filters(self) -> Vec<Filter<M>> {
+        vec![self.into()]
+    }
+}
+impl<M, A, B> IntoFilters<M> for (A, B)
+where
+    A: Into<Filter<M>>,
+    B: Into<Filter<M>>,
+{
+    fn into_filters(self) -> Vec<Filter<M>> {
+        vec![self.0.into(), self.1.into()]
+    }
+}
+impl<M, A, B, C> IntoFilters<M> for (A, B, C)
+where
+    A: Into<Filter<M>>,
+    B: Into<Filter<M>>,
+    C: Into<Filter<M>>,
+{
+    fn into_filters(self) -> Vec<Filter<M>> {
+        vec![self.0.into(), self.1.into(), self.2.into()]
+    }
+}
+
 /// Text column bound to a typed lens **and** a typed projection.
 ///
 /// The lens (`FieldLens<M, String>`) is the query side: it names the column
@@ -312,6 +615,7 @@ pub type RowKey<M> = Arc<dyn Fn(&M) -> String + Send + Sync>;
 /// instead of panicking at render.
 pub struct Table<M> {
     columns: Vec<Column<M>>,
+    filters: Vec<Filter<M>>,
     row_key: Option<RowKey<M>>,
     page_size: Option<usize>,
     search_ui: Option<bool>,
@@ -327,6 +631,7 @@ impl<M> std::fmt::Debug for Table<M> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Table")
             .field("columns", &self.columns)
+            .field("filters", &self.filters.len())
             .field("row_key", &self.row_key.is_some())
             .field("page_size", &self.page_size)
             .field("search_ui", &self.search_ui)
@@ -357,6 +662,7 @@ impl<M> Table<M> {
     pub fn new() -> Self {
         Self {
             columns: Vec::new(),
+            filters: Vec::new(),
             row_key: None,
             page_size: None,
             search_ui: None,
@@ -388,6 +694,40 @@ impl<M> Table<M> {
     pub fn columns(mut self, cols: impl IntoColumns<M>) -> Self {
         self.columns = cols.into_columns();
         self
+    }
+
+    /// Declare filters. Accepts a single filter or tuple of filters.
+    pub fn filters(mut self, filters: impl IntoFilters<M>) -> Self {
+        self.filters = filters.into_filters();
+        self
+    }
+
+    /// Filters as slice (for testing).
+    pub fn filter_list(&self) -> &[Filter<M>] {
+        &self.filters
+    }
+
+    /// Filter predicate for the current `TableState` — `AND` of active filter exprs.
+    pub fn filter_expr(&self, state: &TableState) -> Option<Expr<bool>>
+    where
+        M: toasty::schema::Model,
+    {
+        let mut exprs = Vec::new();
+        for f in &self.filters {
+            if let Some(v) = state.filters.get(f.name())
+                && let Some(e) = f.to_expr(v)
+            {
+                exprs.push(e);
+            }
+        }
+        if exprs.is_empty() {
+            None
+        } else {
+            // `Expr::and` chain: first and all.
+            let mut iter = exprs.into_iter();
+            let first = iter.next().unwrap();
+            Some(iter.fold(first, |acc, e| acc.and(e)))
+        }
     }
 
     /// Enable real cursor pagination with the given page size.
@@ -600,6 +940,12 @@ impl<M> Table<M> {
         } else {
             None
         };
+        let show_filters = !self.filters.is_empty();
+        let filter_bar = if show_filters {
+            Some(self.render_filter_bar(cx, &state, &path).await?)
+        } else {
+            None
+        };
         let bulk_bar_view = if self.bulk_delete && self.delete_prefix.is_some() {
             let bulk_action = format!("{}/bulk-delete", self.delete_prefix.clone().unwrap());
             view! { cx =>
@@ -670,11 +1016,16 @@ impl<M> Table<M> {
                 .render_empty_cell(cx, &state, &path, delete_prefix.is_some())
                 .await?;
             let bulk_clone = bulk_bar_view.clone();
+            let search_clone = search_bar.clone();
+            let filter_clone = filter_bar.clone();
             let inner = view! {
                 cx =>
                 <div class="rounded-xl border border-border overflow-hidden">
                     if show_search {
-                        (search_bar.expect("search bar built when enabled"))
+                        (search_clone.expect("search bar built when enabled"))
+                    }
+                    if show_filters {
+                        (filter_clone.expect("filter bar built when enabled"))
                     }
                     (bulk_clone)
                     table(
@@ -691,11 +1042,16 @@ impl<M> Table<M> {
         }
 
         let bulk_clone = bulk_bar_view.clone();
+        let search_clone = search_bar.clone();
+        let filter_clone = filter_bar.clone();
         let inner = view! {
             cx =>
             <div class="rounded-xl border border-border overflow-hidden">
                 if show_search {
-                    (search_bar.expect("search bar built when enabled"))
+                    (search_clone.expect("search bar built when enabled"))
+                }
+                if show_filters {
+                    (filter_clone.expect("filter bar built when enabled"))
                 }
                 (bulk_clone)
                 table(
@@ -765,15 +1121,25 @@ impl<M> Table<M> {
             .sort
             .as_ref()
             .map(|s| if s.descending { "desc" } else { "asc" });
-        let clear_url = state.sort.as_ref().map(|s| {
-            build_url(
-                path,
-                &[
-                    ("sort", Some(s.column.as_str())),
-                    ("dir", Some(if s.descending { "desc" } else { "asc" })),
-                ],
-            )
-        });
+        let filters_hidden = state.filters_param();
+        let clear_url = state
+            .sort
+            .as_ref()
+            .map(|s| {
+                build_url(
+                    path,
+                    &[
+                        ("sort", Some(s.column.as_str())),
+                        ("dir", Some(if s.descending { "desc" } else { "asc" })),
+                        ("filters", filters_hidden.as_deref()),
+                    ],
+                )
+            })
+            .or_else(|| {
+                filters_hidden
+                    .as_ref()
+                    .map(|f| build_url(path, &[("filters", Some(f.as_str()))]))
+            });
         view! {
             cx =>
             <form
@@ -786,6 +1152,9 @@ impl<M> Table<M> {
                 }
                 if let Some(dir) = dir_hidden {
                     <input type="hidden" name="dir" value=(dir)>
+                }
+                if let Some(filters) = filters_hidden.clone() {
+                    <input type="hidden" name="filters" value=(filters)>
                 }
                 ui_input(
                     attrs: attributes! {
@@ -809,6 +1178,77 @@ impl<M> Table<M> {
                         class="text-sm text-muted-foreground hover:text-foreground"
                     >
                         "Clear"
+                    </a>
+                }
+            </form>
+        }
+    }
+
+    async fn render_filter_bar(&self, cx: &Cx, state: &TableState, path: &str) -> Result<View>
+    where
+        M: toasty::schema::Model,
+    {
+        if self.filters.is_empty() {
+            return view! { cx => <span></span> };
+        }
+        let action = path.to_string();
+        let filters_display = state.filters_param().unwrap_or_default();
+        let sort_hidden = state.sort.as_ref().map(|s| s.column.clone());
+        let dir_hidden = state
+            .sort
+            .as_ref()
+            .map(|s| if s.descending { "desc" } else { "asc" });
+        let q_hidden = state.search.clone();
+        let clear_url = if !state.filters.is_empty() {
+            Some(build_url(
+                path,
+                &[
+                    ("q", state.search.as_deref()),
+                    ("sort", state.sort.as_ref().map(|s| s.column.as_str())),
+                    ("dir", dir_hidden),
+                ],
+            ))
+        } else {
+            None
+        };
+        view! {
+            cx =>
+            <form
+                method="get"
+                action=(action)
+                class="flex flex-wrap items-center gap-2 border-b border-border p-3"
+            >
+                if let Some(q) = q_hidden {
+                    <input type="hidden" name="q" value=(q)>
+                }
+                if let Some(sort) = sort_hidden {
+                    <input type="hidden" name="sort" value=(sort)>
+                }
+                if let Some(dir) = dir_hidden {
+                    <input type="hidden" name="dir" value=(dir)>
+                }
+                ui_input(
+                    attrs: attributes! {
+                        type="text"
+                        name="filters"
+                        value=(filters_display)
+                        placeholder="filters e.g. status:published"
+                        aria-label="Filter table"
+                        class="w-64"
+                    },
+                )
+                button(
+                    variant: ButtonVariant::Secondary,
+                    size: ButtonSize::Md,
+                    attrs: attributes! { type="submit" },
+                    "Apply filters"
+                )
+                if let Some(url) = clear_url {
+                    <a
+                        href=(url)
+                        class="text-sm text-muted-foreground hover:text-foreground"
+                    >
+                        "Clear filters"
                     </a>
                 }
             </form>
@@ -900,10 +1340,12 @@ impl<M> Table<M> {
             .sort
             .as_ref()
             .map(|s| if s.descending { "desc" } else { "asc" });
+        let filters_param = state.filters_param();
         let preserve: Vec<(&str, Option<&str>)> = vec![
             ("q", state.search.as_deref()),
             ("sort", state.sort.as_ref().map(|s| s.column.as_str())),
             ("dir", dir),
+            ("filters", filters_param.as_deref()),
         ];
         let href = |param: &str, cursor: &str| {
             let mut params = Vec::with_capacity(preserve.len() + 1);
@@ -993,6 +1435,7 @@ impl<M> Table<M> {
                         ("q", state.search.as_deref()),
                         ("sort", Some(col.name())),
                         ("dir", Some(if next_desc { "desc" } else { "asc" })),
+                        ("filters", state.filters_param().as_deref()),
                     ],
                 );
                 let aria_label = format!(
@@ -1124,7 +1567,7 @@ pub struct Sort {
 /// pagination links), so the URL is the one truth for list state. The fixed parameter
 /// names assume one table per page — per-table prefixes are deferred until a
 /// real page needs two tables.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TableState {
     /// `?q=` — trimmed; `None` when absent or blank.
     pub search: Option<String>,
@@ -1134,6 +1577,8 @@ pub struct TableState {
     pub after: Option<String>,
     /// `?before=` — encoded backward cursor.
     pub before: Option<String>,
+    /// `?filters=` — `key:value,key2:value2` (comma-separated, colon-delimited).
+    pub filters: HashMap<String, String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -1143,6 +1588,7 @@ struct TableQuery {
     dir: Option<String>,
     after: Option<String>,
     before: Option<String>,
+    filters: Option<String>,
 }
 
 impl TableState {
@@ -1176,13 +1622,53 @@ impl TableState {
             v.filter(|t| !t.trim().is_empty())
                 .map(|t| t.trim().to_string())
         };
+        let filters = parsed
+            .filters
+            .as_deref()
+            .map(parse_filters_param)
+            .unwrap_or_default();
         Self {
             search,
             sort,
             after: non_empty(parsed.after),
             before: non_empty(parsed.before),
+            filters,
         }
     }
+
+    /// Serialized `filters` for URL (`key:value,key2:value2`), or `None` when empty.
+    pub fn filters_param(&self) -> Option<String> {
+        if self.filters.is_empty() {
+            None
+        } else {
+            let mut pairs: Vec<String> = self
+                .filters
+                .iter()
+                .map(|(k, v)| format!("{}:{}", k, v))
+                .collect();
+            pairs.sort();
+            Some(pairs.join(","))
+        }
+    }
+}
+
+/// Parse `filters` query param: `key:value,key2:value2` (trimmed, blank ignored).
+fn parse_filters_param(raw: &str) -> HashMap<String, String> {
+    let mut map = HashMap::new();
+    for part in raw.split(',') {
+        let part = part.trim();
+        if part.is_empty() {
+            continue;
+        }
+        if let Some((k, v)) = part.split_once(':') {
+            let k = k.trim().to_string();
+            let v = v.trim().to_string();
+            if !k.is_empty() && !v.is_empty() {
+                map.insert(k, v);
+            }
+        }
+    }
+    map
 }
 
 /// Percent-encode a query parameter value (`unreserved` RFC 3986 set passes).
