@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use argentum_core::{
-    NavigationItem, Panel, Resource, Schema, Select, Table, TextColumn, TextInput,
+    NavigationItem, Panel, Resource, Schema, Select, Table, TextColumn, TextInput, tenant_id,
 };
 use toasty::Db;
 use topcoat::{
@@ -244,20 +244,33 @@ pub struct AuthorResource;
 impl Resource for AuthorResource {
     type Model = Author;
 
-    fn can_view_any(_cx: &Cx) -> bool {
+    fn query(cx: &Cx) -> toasty::stmt::Query<toasty::stmt::List<Author>> {
+        let mut q = toasty::stmt::Query::<toasty::stmt::List<Author>>::all();
+        if let Some(tid) = tenant_id(cx) {
+            q = q.filter(Author::fields().tenant_id().eq(tid));
+        }
+        q
+    }
+
+    fn can_view_any(cx: &Cx) -> bool {
+        if let Some(tid) = tenant_id(cx)
+            && tid == uuid::Uuid::from_u128(9999)
+        {
+            return false;
+        }
         true
     }
-    fn can_view(_cx: &Cx, _record: &Author) -> bool {
-        true
+    fn can_view(cx: &Cx, _record: &Author) -> bool {
+        Self::can_view_any(cx)
     }
-    fn can_create(_cx: &Cx) -> bool {
-        true
+    fn can_create(cx: &Cx) -> bool {
+        Self::can_view_any(cx)
     }
-    fn can_update(_cx: &Cx, _record: &Author) -> bool {
-        true
+    fn can_update(cx: &Cx, _record: &Author) -> bool {
+        Self::can_view_any(cx)
     }
-    fn can_delete(_cx: &Cx, _record: &Author) -> bool {
-        true
+    fn can_delete(cx: &Cx, _record: &Author) -> bool {
+        Self::can_view_any(cx)
     }
 
     fn table(cx: &Cx) -> Table<Author> {
@@ -311,8 +324,10 @@ impl Resource for AuthorResource {
                 .unwrap_or_default()
                 .trim()
                 .to_string();
+            let tid = tenant_id(&cx).unwrap_or(uuid::Uuid::nil());
             let mut db = argentum_core::db::db(&cx);
             toasty::create!(Author {
+                tenant_id: tid,
                 name: name,
                 email: email
             })
@@ -440,30 +455,37 @@ pub struct PostResource;
 impl Resource for PostResource {
     type Model = Post;
 
-    fn query(_cx: &Cx) -> toasty::stmt::Query<toasty::stmt::List<Post>> {
-        // Explicit includes for author (BelongsTo) and comments (HasMany) — one round-trip, no N+1.
+    fn query(cx: &Cx) -> toasty::stmt::Query<toasty::stmt::List<Post>> {
+        // Tenancy + explicit includes (one round-trip, no N+1).
+        let mut q = toasty::stmt::Query::<toasty::stmt::List<Post>>::all();
+        if let Some(tid) = tenant_id(cx) {
+            q = q.filter(Post::fields().tenant_id().eq(tid));
+        }
         let inc_author: toasty::stmt::Include<Post, Author> = Post::fields().author().into();
         let inc_comments: toasty::stmt::Include<Post, toasty::stmt::List<Comment>> =
             Post::fields().comments().into();
-        toasty::stmt::Query::<toasty::stmt::List<Post>>::all()
-            .include(inc_author)
-            .include(inc_comments)
+        q.include(inc_author).include(inc_comments)
     }
 
-    fn can_view_any(_cx: &Cx) -> bool {
+    fn can_view_any(cx: &Cx) -> bool {
+        if let Some(tid) = tenant_id(cx)
+            && tid == uuid::Uuid::from_u128(9999)
+        {
+            return false;
+        }
         true
     }
-    fn can_view(_cx: &Cx, _record: &Post) -> bool {
-        true
+    fn can_view(cx: &Cx, _record: &Post) -> bool {
+        Self::can_view_any(cx)
     }
-    fn can_create(_cx: &Cx) -> bool {
-        true
+    fn can_create(cx: &Cx) -> bool {
+        Self::can_view_any(cx)
     }
-    fn can_update(_cx: &Cx, _record: &Post) -> bool {
-        true
+    fn can_update(cx: &Cx, _record: &Post) -> bool {
+        Self::can_view_any(cx)
     }
-    fn can_delete(_cx: &Cx, _record: &Post) -> bool {
-        true
+    fn can_delete(cx: &Cx, _record: &Post) -> bool {
+        Self::can_view_any(cx)
     }
 
     fn table(cx: &Cx) -> Table<Post> {
@@ -553,7 +575,9 @@ impl Resource for PostResource {
                     "author not found",
                 )));
             }
+            let tid = tenant_id(&cx).unwrap_or(uuid::Uuid::nil());
             toasty::create!(Post {
+                tenant_id: tid,
                 title: title,
                 body: String::new(),
                 author_id: author_id,

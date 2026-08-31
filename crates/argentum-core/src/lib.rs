@@ -20,6 +20,7 @@ pub mod panel;
 pub mod policy;
 pub mod resource;
 pub mod schema;
+pub mod tenancy;
 pub mod view;
 
 pub use argentum_macros::Resource;
@@ -30,3 +31,4 @@ pub use resource::{
     Column, NavigationItem, Pages, Resource, RowKey, Sort, Table, TablePage, TableState, TextColumn,
 };
 pub use schema::{FieldLens, Grid, Group, IntoSchema, Schema, Section, Select, Text, TextInput};
+pub use tenancy::{Tenant, tenant_id};

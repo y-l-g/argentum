@@ -25,6 +25,8 @@ pub struct Author {
     #[key]
     #[auto]
     pub id: uuid::Uuid,
+    #[index]
+    pub tenant_id: uuid::Uuid,
     /// Display name.
     pub name: String,
     #[unique]
@@ -39,6 +41,8 @@ pub struct Post {
     #[key]
     #[auto]
     pub id: uuid::Uuid,
+    #[index]
+    pub tenant_id: uuid::Uuid,
     #[index]
     pub title: String,
     pub body: String,
@@ -103,19 +107,23 @@ pub async fn seed(db: &mut Db) -> toasty::Result<()> {
 pub async fn seed_phase2(db: &mut Db) -> toasty::Result<()> {
     // Authors
     if Author::all().exec(db).await?.is_empty() {
+        let tenant = uuid::Uuid::nil();
         let ada_author = toasty::create!(Author {
+            tenant_id: tenant,
             name: "Ada Author",
             email: "ada.author@example.com",
         })
         .exec(db)
         .await?;
         let alan_author = toasty::create!(Author {
+            tenant_id: tenant,
             name: "Alan Author",
             email: "alan.author@example.com",
         })
         .exec(db)
         .await?;
         toasty::create!(Post {
+            tenant_id: tenant,
             title: "Hello Toasty",
             body: "First post body",
             author_id: ada_author.id,
@@ -123,6 +131,7 @@ pub async fn seed_phase2(db: &mut Db) -> toasty::Result<()> {
         .exec(db)
         .await?;
         toasty::create!(Post {
+            tenant_id: tenant,
             title: "Second Post",
             body: "More content",
             author_id: alan_author.id,
