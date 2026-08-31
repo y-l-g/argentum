@@ -2,7 +2,7 @@
 
 > **Filament for Rust** — a server-rendered admin toolkit on **Topcoat** (UI / reactivity) and **Toasty** (ORM).
 
-Status: **early implementation** — three crates exist (`argentum-core`, `argentum-macros`, `argentum-ui`) plus a showcase example. Shipped today: the typed-lens vertical slice (ADR-0005), declarative `Panel` resource routes and navigation (ADR-0008), a real list view — search toolbar, sort links, cursor pagination, honest empty states (ADR-0009 shell) — and the `db(cx)`/`#[memoize]` glue. Not shipped yet: Action, Policy, Notification, Create/Edit hydration, the shard/boundary reactivity seam (tracked in GH issue #38). The sections below mix shipped design with the original spec; where they disagree, the **code and `docs/adr/` win** — this document is being brought back in sync (GH issue #53).
+Status: **Phase 1 shipped** — three crates exist (`argentum-core`, `argentum-macros`, `argentum-ui`) plus a showcase example. Shipped: the typed-lens vertical slice (ADR-0005), declarative `Panel` resource routes and navigation (ADR-0008), a real list view — search toolbar, sort links, cursor pagination, honest empty states (ADR-0009 shell) — the `db(cx)`/`#[memoize]` glue, and **single-resource CRUD** (spec #57, tickets #58–#62): `Table` as `Boundary` with `#[memoize]` dedup, `Schema` hydrates/dehydrates `Create`/`Update` via typed lenses + inline validation, `Action` via `#[procedure]` in transaction re-fetching via `Resource::query` and checking `Policy` (default-deny), `Notification` in `Shell` `Boundary` surviving `Table` swaps, showcase at `/admin/users` (create/edit/delete/bulk-delete, all policy-checked). Remaining design targets (Page, Theme/Token, Filter UI, Relations) tracked in GH issue #38. The sections below mix shipped design with the original spec; where they disagree, the **code and `docs/adr/` win**.
 
 ---
 
@@ -339,12 +339,12 @@ Each phase is shippable and benchable (`benchmarks/` vs `axum-maud`/`leptos`). N
 - Workspace `argentum-core` + `argentum-macros` (`grammar` + `macro`), `Panel` + `Resource` trait + `Pages`, `Schema` layout primitives, `Db` glue (`db(cx)` + `#[memoize]` helpers), `coffee-shop`-style demo app with in-memory `User` model, `Router` + `module_router!` + `href!` + `tailwind` + `asset!`.
 - CI: `cargo test` (sqlite), `topcoat fmt`, `clippy`. Bench harness stub.
 
-### Phase 1 — Single-resource CRUD (exit: usable admin)
+### Phase 1 — Single-resource CRUD (exit: usable admin) — **shipped via spec #57, tickets #58–#62**
 
-- `Table` (columns `searchable`/`sortable`, cursor pagination, `FilterBuilder`, debounced search via owned `#[shard]` + `boundary` skeleton) and `Schema` (6 fields: `TextInput`, `Select`, `Toggle`, `Textarea`, `DatePicker`, `Checkbox` + validation).
-- `Create`/`Edit` pages (procedure-backed, inline errors) + `Action` (delete `requires_confirmation`, bulk delete) + notifications + auth shell + sidebar + empty/error states.
+- `Table` is a `Boundary` by default (`Table::boundary`/`defer`, skeleton while deferred) with `#[memoize]` dedup; columns `searchable`/`sortable`, cursor pagination with PK tie-breaker, `FilterBuilder`, live search via owned `#[shard]` + `boundary` skeleton; `Schema` hydrates/dehydrates `Create`/`Update` via typed lenses + inline validation (`required`/`email`/`unique` app-side, `TextInput` `for`/`id`/`required` star/error slot).
+- `Create`/`Edit` pages (procedure-backed `Create`/`Update` projections, inline errors, `Resource::query` tenancy seam, `?notification`/`Set-Cookie` flash) + `Action` (`Delete` `requires_confirmation` + `BulkDelete` per-row `Policy::delete` via `Resource::query`, all-or-nothing) + `Notification` (`fixed top-4 right-4`, `border-border bg-background shadow-sm`, `Shell` `Boundary` surviving `Table` swaps) + `Policy` (`viewAny`/`view`/`create`/`update`/`delete`, default-deny, page+procedure) + auth shell + sidebar + empty/error states.
 - Model: `User(id, name, email, role, active, created_at)` with `#[index]` on searchable columns.
-- Exit: `cargo run` at `/admin/users` with search/sort/paginate/create/edit/delete, all policy-checked, no N+1 on list, bench reported. `key: &row.id` on every `for` row.
+- Exit: `cargo run` at `/admin/users` with search/sort/paginate/create/edit/delete/bulk-delete, all policy-checked, no N+1 on list, `key: &row.id` on every `for` row. Showcase proves it end-to-end (see `examples/showcase/tests/{admin,create_check,edit_check,delete_check,bulk_check}.rs`).
 
 ### Phase 2 — Relations & polish
 
@@ -364,10 +364,10 @@ Each phase is shippable and benchable (`benchmarks/` vs `axum-maud`/`leptos`). N
 
 ---
 
-## 12. Minimal example (current list slice)
+## 12. Minimal example (shipped CRUD slice)
 
 The declarative Panel path is the shipped API. The complete runnable version,
-including the Tailwind build contract and a typed table, lives in
+including the Tailwind build contract, typed lenses, and full CRUD, lives in
 `examples/showcase/src/app.rs`:
 
 ```rust
@@ -386,17 +386,27 @@ fn router(db: toasty::Db) -> topcoat::router::Router {
 }
 
 impl Resource for UserResource {
-    fn query(_cx: &Cx) -> toasty::stmt::Query<toasty::stmt::List<User>> {
-        toasty::stmt::Query::<toasty::stmt::List<User>>::all()
-    }
+    type Model = User;
+    fn can_view_any(_cx: &Cx) -> bool { true }
+    fn can_create(_cx: &Cx) -> bool { true }
+    fn can_update(_cx: &Cx, _: &User) -> bool { true }
+    fn can_delete(_cx: &Cx, _: &User) -> bool { true }
 
     fn table(cx: &Cx) -> Table<User> {
         Table::r#for(cx)
             .id(|user: &User| user.id.to_string())
-            .columns(TextColumn::r#for(User::fields().name(), |user: &User| {
-                user.name.clone()
-            }).searchable().sortable())
-            .paginate(25)
+            .columns((
+                TextColumn::r#for(User::fields().name(), |u: &User| u.name.clone()).searchable().sortable(),
+                TextColumn::r#for(User::fields().email(), |u: &User| u.email.clone()).searchable(),
+            ))
+            .paginate(2) // cursor pagination with PK tie-breaker, Boundary by default
+    }
+
+    fn form(_cx: &Cx) -> Schema {
+        Schema::new((
+            TextInput::r#for(User::fields().name()).required(),
+            TextInput::r#for(User::fields().email()).required().email().unique(),
+        ))
     }
 }
 ```

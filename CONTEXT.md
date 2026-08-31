@@ -2,7 +2,7 @@
 
 Admin toolkit for Rust — server-rendered on Topcoat, persisted with Toasty. Provides the CRUD core of Filament (Panel + Resource → Table + Schema + Action) with no Livewire port, single-panel/single-tenant in Phase 1, explicit preloading and cursor pagination, and a narrow reactivity seam that works on today's shard runtime and migrates to signals v2 + boundary streaming.
 
-> **Shipped vs spec:** every term below is vocabulary-level truth, but some surfaces have no code yet — **Action, Policy, Notification, Boundary, Page, Theme/Token** are design targets tracked by the spec-surfaces umbrella issue (#38) and the readme roadmap. The Table/Resource/Schema/Navigation vocabulary described above ships in `argentum-core`.
+> **Shipped vs spec:** every term below is vocabulary-level truth. As of Phase 1 (single-resource CRUD, spec #57, tickets #58–#62) — **Panel, Resource, Table, Schema, Action, Policy, Notification, Boundary, Navigation, Query** ship in `argentum-core` with showcase at `/admin/users` (list/search/sort/paginate/create/edit/delete/bulk-delete, all policy-checked, notification, boundary). **Page, Theme/Token, Filter UI, Relations** remain design targets tracked by #38.
 
 ## Language
 
