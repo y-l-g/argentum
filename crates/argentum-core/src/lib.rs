@@ -24,7 +24,7 @@ pub mod view;
 
 pub use argentum_macros::Resource;
 pub use notification::{Notification, NotificationStatus};
-pub use panel::Panel;
+pub use panel::{Brand, DarkMode, Panel};
 pub use policy::{AllowAll, DenyAll, Policy};
 pub use resource::{
     Column, NavigationItem, Pages, Resource, RowKey, Sort, Table, TablePage, TableState, TextColumn,

@@ -36,12 +36,42 @@ use topcoat::runtime::{Event, shard};
 ///     .resource::<UserResource>()
 ///     .build()
 /// ```
-#[derive(Debug)]
+/// Branding for the admin shell (panel header + sidebar header).
+#[derive(Debug, Clone)]
+pub struct Brand {
+    /// Display name (e.g. `"Acme"`).
+    pub name: String,
+    /// Optional logo URL (e.g. `"/logo.svg"`). Rendered as an `<img>` when present.
+    pub logo: Option<String>,
+}
+
+impl Brand {
+    /// Create a brand with the given name.
+    pub fn new(name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            logo: None,
+        }
+    }
+
+    /// Attach a logo URL.
+    pub fn logo(mut self, logo: impl Into<String>) -> Self {
+        self.logo = Some(logo.into());
+        self
+    }
+}
+
+/// Whether the shell starts in dark mode. Persisted via `theme.js` (`localStorage` + `theme` cookie).
+#[derive(Debug, Clone, Copy)]
+pub struct DarkMode(pub bool);
+
 pub struct Panel {
     prefix: String,
     db: Option<Db>,
     assets: Option<AssetConfig>,
     shell_assets: Option<ShellAssets>,
+    brand: Option<Brand>,
+    dark_mode: Option<bool>,
     nav_items: Vec<NavigationItem>,
     pages: Vec<PageFn>,
     root_target: Option<String>,
@@ -80,6 +110,8 @@ impl Panel {
             db: None,
             assets: None,
             shell_assets: None,
+            brand: None,
+            dark_mode: None,
             nav_items: Vec::new(),
             pages: Vec::new(),
             root_target: None,
@@ -188,6 +220,18 @@ impl Panel {
         self
     }
 
+    /// Set branding for the shell (header + sidebar). Additive `class` stays the only Shell seam.
+    pub fn brand(mut self, brand: Brand) -> Self {
+        self.brand = Some(brand);
+        self
+    }
+
+    /// Enable dark mode toggle persistence (cookie + localStorage via `theme.js`).
+    pub fn dark_mode(mut self, enabled: bool) -> Self {
+        self.dark_mode = Some(enabled);
+        self
+    }
+
     /// Build the [`Router`], discovering all `#[page]` / `#[layout]` / `#[shard]`
     /// items linked into the binary, installing the `Db` and the panel
     /// navigation on the `app_context`, registering each declared resource's
@@ -204,6 +248,8 @@ impl Panel {
             db,
             assets,
             shell_assets,
+            brand,
+            dark_mode,
             nav_items,
             pages,
             root_target,
@@ -218,6 +264,12 @@ impl Panel {
         }
         if let Some(shell_assets) = shell_assets {
             builder = builder.app_context(shell_assets);
+        }
+        if let Some(brand) = brand {
+            builder = builder.app_context(brand);
+        }
+        if let Some(enabled) = dark_mode {
+            builder = builder.app_context(DarkMode(enabled));
         }
         for page in pages {
             builder = builder.page(page);
@@ -264,12 +316,29 @@ impl Panel {
         }
     }
 
-    async fn brand(cx: &Cx) -> Result<View> {
-        view! {
-            cx =>
-            <div class="flex items-center gap-2 font-semibold text-foreground">
-                "Argentum"
-            </div>
+    async fn render_brand(cx: &Cx) -> Result<View> {
+        use topcoat::context::try_app_context;
+        let (name, logo) = if let Some(brand) = try_app_context::<Brand>(cx) {
+            (brand.name.clone(), brand.logo.clone())
+        } else {
+            ("Argentum".to_string(), None)
+        };
+        if let Some(logo_url) = logo {
+            let alt = name.clone();
+            view! {
+                cx =>
+                <div class="flex items-center gap-2 font-semibold text-foreground">
+                    <img src=(logo_url) alt=(alt) class="h-6 w-6 rounded">
+                    (name)
+                </div>
+            }
+        } else {
+            view! {
+                cx =>
+                <div class="flex items-center gap-2 font-semibold text-foreground">
+                    (name)
+                </div>
+            }
         }
     }
 
@@ -325,6 +394,9 @@ impl Panel {
         };
 
         let outer_class = extra_class.clone().unwrap_or_default();
+        let header_title = topcoat::context::try_app_context::<Brand>(cx)
+            .map(|b| b.name.clone())
+            .unwrap_or_else(|| "Admin".to_string());
         // Build menu items with active detection — delegates to
         // `NavigationItem::is_current_path` (slash-boundary, exact for
         // "/admin") which mirrors `Href::is_current` for string urls;
@@ -358,8 +430,8 @@ impl Panel {
         // tree to maintain.
         let desktop_navigation = Self::sidebar_navigation(cx, menu_items.clone()).await?;
         let mobile_navigation = Self::sidebar_navigation(cx, menu_items).await?;
-        let sidebar_brand = Self::brand(cx).await?;
-        let mobile_brand = Self::brand(cx).await?;
+        let sidebar_brand = Self::render_brand(cx).await?;
+        let mobile_brand = Self::render_brand(cx).await?;
         let sidebar_theme_toggle = Self::theme_toggle(cx).await?;
         let mobile_theme_toggle = Self::theme_toggle(cx).await?;
         let header_theme_toggle = Self::theme_toggle(cx).await?;
@@ -428,7 +500,7 @@ impl Panel {
                         class="sticky top-0 z-10 flex h-16 items-center gap-4 border-b border-border bg-background px-6"
                     >
                         sidebar_trigger(attrs: attributes! { class="-ml-1" })
-                        <div class="font-semibold text-foreground">"Admin"</div>
+                        <div class="font-semibold text-foreground">(header_title)</div>
                         <div class="ml-auto flex items-center gap-2">
                             (header_theme_toggle)
                         </div>
@@ -485,12 +557,17 @@ impl Panel {
                 argentum_ui::theme_init_script()
             }?,
         };
+        let brand_title = try_app_context::<Brand>(cx)
+            .map(|b| b.name.clone())
+            .unwrap_or_else(|| "Admin".to_string());
+        let html_class =
+            try_app_context::<DarkMode>(cx).and_then(|dm| if dm.0 { Some("dark") } else { None });
         view! {
             cx =>
             <!DOCTYPE html>
-            <html>
+            <html class=(html_class)>
                 <head>
-                    <title>"Admin"</title>
+                    <title>(brand_title)</title>
                     (head)
                 </head>
                 <body>(shell)</body>
