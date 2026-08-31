@@ -84,7 +84,7 @@ trait Model {
 
 ## Topcoat — error conversion
 
-**Where:** `examples/showcase/src/pages/admin_list.rs`, `examples/showcase/src/pages/showcase/*.rs`, `examples/showcase/src/pages/showcase/db.rs`.
+**Where:** `crates/argentum-core/src/panel.rs`, `examples/showcase/src/pages/showcase/*.rs`, `examples/showcase/src/pages/showcase/db.rs`.
 
 **Today (clean):** `toasty::Error` implements `std::error::Error + Send + Sync` → `anyhow::Error` → `topcoat::Error` via `impl<T: Into<anyhow::Error>> From<T> for topcoat::Error`. Correct pattern is `.map_err(Into::into)?` or `?` directly.
 
@@ -96,9 +96,9 @@ trait Model {
 
 ## Topcoat — Panel prefix vs NavigationItem
 
-**Where:** `crates/argentum-core/src/panel.rs:Panel::navigation_item` and `crates/argentum-core/src/resource.rs:NavigationItem::from_resource_with_prefix`.
+**Where:** `crates/argentum-core/src/panel.rs:Panel::nav_item` and `crates/argentum-core/src/resource.rs:NavigationItem::from_resource_with_prefix`.
 
-**Today (clean):** `NavigationItem::from_resource_with_prefix::<R>(prefix)` and `Panel::navigation_item::<R>(&self)` respect `Panel::prefix()`. `from_resource` remains as `"/admin"` shorthand for Phase-1 single-panel compat.
+**Today (clean):** `NavigationItem::from_resource_with_prefix::<R>(prefix)` and `Panel::nav_item::<R>(&self)` respect `Panel::prefix()`. `from_resource` remains as `"/admin"` shorthand for Phase-1 single-panel compat.
 
 **Previous gap:** `NavigationItem::from_resource` hard-coded `url: "/admin"`, breaking `Panel::new("backoffice")`. No upstream gap — fix was internal.
 

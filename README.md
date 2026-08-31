@@ -2,7 +2,7 @@
 
 > **Filament for Rust** — a server-rendered admin toolkit on **Topcoat** (UI / reactivity) and **Toasty** (ORM).
 
-Status: **early implementation** — three crates exist (`argentum-core`, `argentum-macros`, `argentum-ui`) plus a showcase example. Shipped today: the typed-lens vertical slice (ADR-0005), `Panel` + `Resource` + `Table` + `Schema` (ADR-0006/0007/0008), a real list view — search toolbar, sort links, cursor pagination, honest empty states (ADR-0009 shell) — and the `db(cx)`/`#[memoize]` glue. Not shipped yet: Action, Policy, Notification, Create/Edit hydration, the shard/boundary reactivity seam (tracked in GH issue #38). The sections below mix shipped design with the original spec; where they disagree, the **code and `docs/adr/` win** — this document is being brought back in sync (GH issue #53).
+Status: **early implementation** — three crates exist (`argentum-core`, `argentum-macros`, `argentum-ui`) plus a showcase example. Shipped today: the typed-lens vertical slice (ADR-0005), declarative `Panel` resource routes and navigation (ADR-0008), a real list view — search toolbar, sort links, cursor pagination, honest empty states (ADR-0009 shell) — and the `db(cx)`/`#[memoize]` glue. Not shipped yet: Action, Policy, Notification, Create/Edit hydration, the shard/boundary reactivity seam (tracked in GH issue #38). The sections below mix shipped design with the original spec; where they disagree, the **code and `docs/adr/` win** — this document is being brought back in sync (GH issue #53).
 
 ---
 
@@ -58,14 +58,14 @@ The admin app. Mirrors Filament's `Panel` builder but as Rust values.
 
 ```rust
 Panel::new("admin")
-    .tenant::<Organization>()               // optional; scopes every Resource::query
-    .auth(require_admin)                    // fn(&Cx) -> Result<User>
-    .resources(resources![UserResource, PostResource])
-    .navigation(|nav| nav.group("Content", |g| g.items([nav::item::<PostResource>()])))
-    .build() // -> Router via module_router! + discover + assets
+    .app_context(db)
+    .assets(AssetBundle::load().expect("generated assets"))
+    .shell_assets(tailwind::stylesheet!(), GEIST)
+    .resource::<UserResource>()
+    .build() // -> Router via discover + app_context
 ```
 
-`Panel` owns the `Router`, registers `Db` in `app_context`, mounts layouts, and exposes `href!(resource::list)` helpers for nav.
+`Panel` owns the `Router`, registers `Db` and declared resources in `app_context`, registers each resource list at `/{prefix}/{slug}`, and redirects the panel root to the first resource. An app registers the shell with one layout handler: `Panel::layout_shell(cx, slot).await`. Custom pages can add a typed `NavigationItem::from_href` through `Panel::navigation(..)`.
 
 ### 4.2 `Resource`
 
@@ -73,22 +73,16 @@ The mapping from a Toasty model to its admin UI. One resource = one model = a se
 
 ```rust
 pub trait Resource: Sized + Send + Sync + 'static {
-    type Model: toasty::Model;
-    type Policy: Policy<Model = Self::Model> + Default; // viewAny/create/update/delete
+    type Model: toasty::schema::Model + Send + Sync + 'static;
 
-    fn model_name() -> &'static str { std::any::type_name::<Self::Model>() }
-
-    /// Base query. Override to scope tenancy / soft-deletes.
-    /// Single seam for row-level scoping — every loader goes through it.
+    fn slug() -> String { /* Filament-style: UserResource -> users */ }
+    fn navigation_label() -> String { /* plural model name */ }
     fn query(cx: &Cx) -> toasty::stmt::Query<toasty::stmt::List<Self::Model>> {
-        Self::Model::all()
+        toasty::stmt::Query::<toasty::stmt::List<Self::Model>>::all()
     }
-
     fn table(cx: &Cx) -> Table<Self::Model>;
-    fn form(cx: &Cx) -> Schema;            // unified field layout (see §5)
-    fn infolist(cx: &Cx) -> Schema { Schema::empty() }
-
-    fn pages() -> Pages<Self> { Pages::crud() } // list/create/edit/view; opt-out per page
+    fn form(cx: &Cx) -> Schema;
+    fn pages() -> Pages<Self> { Pages::crud() }
     fn navigation() -> NavigationItem { NavigationItem::from_resource::<Self>() }
 }
 ```
@@ -97,13 +91,17 @@ pub trait Resource: Sized + Send + Sync + 'static {
 
 ```rust
 #[derive(Resource)]
-#[resource(model = User, policy = UserPolicy)]
+#[resource(model = User)]
 struct UserResource;
+
+#[derive(Resource)]
+#[resource(model = User, query = only_ada)]
+struct ScopedUserResource;
 ```
 
-The derive reads `User::fields()` to generate a typed field lens, navigation defaults, and route registrations. It does **not** generate stringly-typed `field!("email")` — lenses are `User::fields().email()` (`toasty-macros/model/expand/fields.rs`).
+The derive implements `Resource` for the annotated type with the given `Model` and optional `query` override. It does **not** generate stringly-typed `field!("email")` — lenses are `User::fields().email()` (`toasty-macros/model/expand/fields.rs`).
 
-`Pages` registers `#[page]` handlers (`/admin/users`, `/admin/users/create`, `/admin/users/{id}/edit`) and a `#[layout("/admin")]` shell. `Resource::query` is the single tenancy seam: `fn query(cx:&Cx) -> Query { User::filter(User::fields().tenant_id().eq(tenant_id(cx))) }` via `cx.with(Tenant(id))`.
+`Panel::resource::<UserResource>()` registers the resource list at `/admin/users` (the slug is derived from the resource type: `BlogPostResource` becomes `/admin/blog-posts`) and derives the matching sidebar item. `Resource::query` is the single tenancy seam: `fn query(cx: &Cx) -> Query<List<User>> { Query::<List<User>>::all().filter(User::fields().tenant_id().eq(tenant_id(cx))) }` via `cx.with(Tenant(id))`. CRUD pages remain a target of `Pages`.
 
 ### 4.3 `Schema` (forms + infolists)
 
@@ -175,10 +173,10 @@ Action::make("delete")
 
 ## 5. Pages, routing, navigation
 
-- **Routes:** Resources declare pages via `Pages::crud()` → `#[page("/admin/users")]` (list), `#[page("/admin/users/create")]`, `#[page("/admin/users/{id}/edit")]`. IDs use `path_param!(UserId)` + `href!(user_edit(UserId(id)))` typed URLs (`topcoat-router/src/href.rs`). No string URLs.
-- **Layouts:** `#[layout("/admin")]` shell with header, sidebar, `topcoat::runtime::script()`, `topcoat::font::link`, `tailwind::stylesheet!`. Portionally: `Panel/Concerns/HasNavigation/HasBrandLogo/HasDarkMode` → `Panel::brand(...).dark_mode(true)`.
-- **Navigation:** `NavigationItem::make("Users").icon(...).group("Manage").is_active_when(|cx| cx.path().starts_with("/admin/users"))` — built from `Resource::navigation()` + manual items, sorted, collapsible groups.
-- **Errors & redirects:** Layouts receive `slot: Result` and match `NotFoundError` etc. (`topcoat-router/docs/error.md`). Tables/forms propagate `?`; list layouts catch and render branded empty/error states.
+- **Routes:** `Panel::resource::<UserResource>()` registers `GET /admin/users` and `Panel` redirects `GET /admin` to the first declared resource. Additional `#[page]` handlers are discovered normally. CRUD routes remain a target.
+- **Layouts:** An app's `#[layout("/admin")]` handler delegates to `Panel::layout_shell(cx, slot)`. The shell owns the complete document, sidebar, runtime scripts, and links to the app-provided `tailwind::stylesheet!()` and `fontsource_font!(.., host: Asset)` handles.
+- **Navigation:** `Panel::resource` derives one item per resource from its slug; `Panel::navigation(NavigationItem::from_href(..))` adds typed links for custom pages. Resource items use exact paths plus slash-boundary subpages for active state.
+- **Errors & redirects:** `Panel::layout_shell` currently propagates `slot` errors unchanged. Tables propagate `?`; branded empty states are rendered by `Table`, while a dedicated `ErrorState` for load failures is deferred (see `CONTEXT.md`).
 
 ---
 
@@ -366,63 +364,40 @@ Each phase is shippable and benchable (`benchmarks/` vs `axum-maud`/`leptos`). N
 
 ---
 
-## 12. Minimal example (target DX)
+## 12. Minimal example (current list slice)
 
-Compiles against today's `main` (not the pseudo-API of the old spec):
+The declarative Panel path is the shipped API. The complete runnable version,
+including the Tailwind build contract and a typed table, lives in
+`examples/showcase/src/app.rs`:
 
 ```rust
-use topcoat::{Result, context::{Cx, app_context, memoize}, view::*};
-use argentum::{Resource, Table, Schema, Panel};
-
-#[derive(Debug, toasty::Model)]
-struct User {
-    #[key] #[auto] id: uuid::Uuid,
-    name: String,
-    #[unique] email: String,
-    role: Role,
+#[layout("/admin")]
+async fn admin_layout(cx: &Cx, slot: Result) -> Result {
+    Panel::layout_shell(cx, slot).await
 }
 
-#[derive(Resource)]
-#[resource(model = User)]
-struct UserResource;
+fn router(db: toasty::Db) -> topcoat::router::Router {
+    Panel::new("admin")
+        .app_context(db)
+        .assets(AssetBundle::load().expect("generated assets"))
+        .shell_assets(tailwind::stylesheet!(), GEIST)
+        .resource::<UserResource>()
+        .build()
+}
 
 impl Resource for UserResource {
+    fn query(_cx: &Cx) -> toasty::stmt::Query<toasty::stmt::List<User>> {
+        toasty::stmt::Query::<toasty::stmt::List<User>>::all()
+    }
+
     fn table(cx: &Cx) -> Table<User> {
-        Table::for::<User>(cx)
-            .columns((
-                TextColumn::for(User::fields().name()).searchable().sortable(),
-                TextColumn::for(User::fields().email()).copyable(),
-                BadgeColumn::for(User::fields().role()),
-            ))
-            .default_sort(User::fields().name().asc())
-            .pagination(25)
-            .actions((Action::edit(), Action::delete().requires_confirmation()))
+        Table::r#for(cx)
+            .id(|user: &User| user.id.to_string())
+            .columns(TextColumn::r#for(User::fields().name(), |user: &User| {
+                user.name.clone()
+            }).searchable().sortable())
+            .paginate(25)
     }
-
-    fn form(_cx: &Cx) -> Schema {
-        Schema::new((
-            TextInput::for(User::fields().name()).required(),
-            TextInput::for(User::fields().email()).required().email(),
-            Select::for(User::fields().role()).options(Role::variants()),
-        ))
-    }
-}
-
-fn db(cx: &Cx) -> toasty::Db { app_context::<toasty::Db>(cx).clone() }
-
-#[memoize(as_ref)]
-async fn load_users(cx: &Cx, q: String) -> Result<Vec<User>> {
-    let mut db = db(cx);
-    let mut query = UserResource::query(cx);
-    if !q.is_empty() {
-        // escape LIKE wildcards from user input; like_with_escape is SQL-only
-        let esc = q.replace('\\', r"\\").replace('%', r"\%").replace('_', r"\_");
-        let pat = format!("%{esc}%");
-        query = query.filter(User::fields().name().like_with_escape(pat, '\\'));
-        // portable alternative: .filter(User::fields().name().starts_with(q))
-    }
-    query.order_by(User::fields().name().asc()).limit(25).exec(&mut db).await
-        .map_err(Into::into)
 }
 ```
 
@@ -443,4 +418,3 @@ async fn load_users(cx: &Cx, q: String) -> Result<Vec<User>> {
 - Designs: `SIGNALS.md` (#335), `DESIGN.md` + `DESIGN-2.md` + `DESIGN_DELTA.md` (ssr-proposal #332, ssr-proposal-2).
 - Toasty: `crates/toasty/docs/guide/{querying-records,filtering-with-expressions,sorting-limits-and-pagination,preloading-associations,schema-management}.md`, `docs/dev/roadmap.md`, `docs/dev/architecture/query-engine.md`, `examples/{quickstart-blog,forum-relationships,product-search}/*.rs`, `demos/coffee-shop/src/{app,models}.rs`.
 - Filament (spirit, not API): `filament/packages/panels/src/Resources/Resource.php`, `packages/schemas/src/{Schema,Components/Component}.php`, `packages/forms/src/Components/Field.php`, `packages/tables/src/{Table,Columns/Column}.php`, `packages/actions/src/Action.php`, `packages/support/src/Concerns/EvaluatesClosures.php`, `CLAUDE.md`.
-

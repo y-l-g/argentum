@@ -3,7 +3,7 @@ use toasty::Db;
 use topcoat::router::Body;
 
 use showcase::{
-    app::router,
+    app::router_for_tests as router,
     models::{User, seed},
 };
 
@@ -19,14 +19,14 @@ async fn seeded_db() -> Db {
 }
 
 #[tokio::test]
-async fn admin_layout_and_list_page_serve_seeded_users() {
+async fn admin_resource_list_page_serve_seeded_users() {
     let db = seeded_db().await;
     let router = router(db);
 
     let response = router
         .handle(
             http::Request::builder()
-                .uri("/admin")
+                .uri("/admin/users")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -49,11 +49,15 @@ async fn admin_layout_and_list_page_serve_seeded_users() {
         html.contains("data-sidebar=\"sidebar\"") || html.contains("data-sidebar=\"menu\""),
         "missing sidebar in {html}"
     );
-    // NavigationItem derived from UserResource
+    // NavigationItem derived from UserResource and the custom Showcase item.
     assert!(html.contains("Users"), "missing navigation label in {html}");
     assert!(
-        html.contains("href=\"/admin\"") || html.contains("/admin"),
+        html.contains("href=\"/admin/users\"") || html.contains("/admin/users"),
         "missing navigation url in {html}"
+    );
+    assert!(
+        html.contains("href=\"/admin/showcase\""),
+        "missing custom Showcase navigation url in {html}"
     );
     // List page content — page 1 of the cursor-paginated list (name asc,
     // 2 per page) shows Ada + Alan; Grace lives on page 2, exercised by
@@ -90,6 +94,26 @@ async fn admin_unknown_route_is_not_found() {
 }
 
 #[tokio::test]
+async fn admin_root_redirects_to_first_resource() {
+    let db = seeded_db().await;
+    let router = router(db);
+    let response = router
+        .handle(
+            http::Request::builder()
+                .uri("/admin")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+
+    assert_eq!(response.status(), http::StatusCode::TEMPORARY_REDIRECT);
+    assert_eq!(
+        response.headers().get(http::header::LOCATION).unwrap(),
+        "/admin/users"
+    );
+}
+
+#[tokio::test]
 async fn showcase_index_lists_features() {
     let db = seeded_db().await;
     let router = router(db);
@@ -111,6 +135,10 @@ async fn showcase_index_lists_features() {
     assert!(
         html.contains("Showcase"),
         "missing Showcase heading in {html}"
+    );
+    assert!(
+        html.contains("href=\"/admin/showcase\"") && html.contains("aria-current=\"page\""),
+        "typed Showcase navigation item should be current on its page: {html}"
     );
     for path in [
         "/admin/showcase/ui",
@@ -313,6 +341,10 @@ async fn showcase_resource_renders_derives_and_navigation() {
         "missing scoped user in {html}"
     );
     assert!(html.contains("Users"), "missing navigation label in {html}");
+    assert!(
+        html.contains("/admin/bare-users"),
+        "missing derived resource URL in {html}"
+    );
 }
 
 #[tokio::test]
@@ -448,7 +480,7 @@ async fn admin_list_renders_search_box_and_sort_links() {
     let response = router
         .handle(
             http::Request::builder()
-                .uri("/admin")
+                .uri("/admin/users")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -486,7 +518,7 @@ async fn admin_list_renders_search_box_and_sort_links() {
     let response = router
         .handle(
             http::Request::builder()
-                .uri("/admin?sort=name&dir=asc")
+                .uri("/admin/users?sort=name&dir=asc")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -511,7 +543,7 @@ async fn admin_list_renders_search_box_and_sort_links() {
     let response = router
         .handle(
             http::Request::builder()
-                .uri("/admin?sort=name&dir=desc")
+                .uri("/admin/users?sort=name&dir=desc")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -540,7 +572,7 @@ async fn admin_list_pagination_walks_cursor_links() {
     let response = router
         .handle(
             http::Request::builder()
-                .uri("/admin")
+                .uri("/admin/users")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -631,7 +663,7 @@ async fn admin_list_empty_search_shows_no_results_with_clear() {
     let response = router
         .handle(
             http::Request::builder()
-                .uri("/admin?q=zzz-none")
+                .uri("/admin/users?q=zzz-none")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -668,7 +700,7 @@ async fn admin_list_filters_via_q_param() {
     let response = router
         .handle(
             http::Request::builder()
-                .uri("/admin?q=Ada")
+                .uri("/admin/users?q=Ada")
                 .body(Body::empty())
                 .unwrap(),
         )

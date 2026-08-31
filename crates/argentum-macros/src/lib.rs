@@ -61,7 +61,7 @@ impl Parse for ResourceArgs {
 ///
 /// Expects `#[resource(model = Type)]` where `Type` is the Toasty `Model`.
 /// Optionally `query = path` scopes the base query, where `path` is a
-/// function `fn(&Cx) -> Query<List<Model>>`.
+/// function `fn(&Cx) -> toasty::stmt::Query<toasty::stmt::List<Model>>`.
 ///
 /// ```ignore
 /// #[derive(Resource)]
@@ -72,8 +72,9 @@ impl Parse for ResourceArgs {
 /// #[resource(model = User, query = my_scope)]
 /// struct ScopedResource;
 ///
-/// fn my_scope(cx: &Cx) -> <User as toasty::schema::Model>::Query<toasty::stmt::List<User>> {
-///     User::filter(User::fields().name().eq("Ada"))
+/// fn my_scope(cx: &Cx) -> toasty::stmt::Query<toasty::stmt::List<User>> {
+///     toasty::stmt::Query::<toasty::stmt::List<User>>::all()
+///         .filter(User::fields().name().eq("Ada"))
 /// }
 /// ```
 #[proc_macro_derive(Resource, attributes(resource))]
@@ -103,7 +104,7 @@ pub fn resource(input: TokenStream) -> TokenStream {
             impl #impl_generics ::argentum_core::Resource for #ident #ty_generics #where_clause {
                 type Model = #model_ty;
                 fn query(cx: &::argentum_core::__macro::Cx)
-                    -> <Self::Model as ::argentum_core::__macro::schema::Model>::Query<
+                    -> ::argentum_core::__macro::stmt::Query<
                         ::argentum_core::__macro::stmt::List<Self::Model>>
                 {
                     #path(cx)

@@ -8,8 +8,9 @@ use crate::models::User;
 #[resource(model = crate::models::User)]
 struct BareUserResource;
 
-fn only_ada(_cx: &Cx) -> <User as toasty::schema::Model>::Query<toasty::stmt::List<User>> {
-    User::filter(User::fields().name().eq("Ada Lovelace"))
+fn only_ada(_cx: &Cx) -> toasty::stmt::Query<toasty::stmt::List<User>> {
+    toasty::stmt::Query::<toasty::stmt::List<User>>::all()
+        .filter(User::fields().name().eq("Ada Lovelace"))
 }
 
 #[derive(Resource)]
@@ -81,7 +82,7 @@ async fn resource_showcase(cx: &Cx) -> Result {
                 </p>
                 argentum_ui::code_block(
                     lang: "rust",
-                    code: "fn only_ada(cx: &Cx) -> Query<List<User>> {\n    User::filter(User::fields().name().eq(\"Ada Lovelace\"))\n}\n#[derive(Resource)]\n#[resource(model = User, query = only_ada)]\nstruct ScopedUserResource;"
+                    code: "fn only_ada(cx: &Cx) -> toasty::stmt::Query<toasty::stmt::List<User>> {\n    toasty::stmt::Query::<toasty::stmt::List<User>>::all()\n        .filter(User::fields().name().eq(\"Ada Lovelace\"))\n}\n#[derive(Resource)]\n#[resource(model = User, query = only_ada)]\nstruct ScopedUserResource;"
                 )
                 <div class="rounded-lg border border-border bg-background p-4">
                     <p class="text-sm text-muted-foreground">
@@ -112,7 +113,7 @@ async fn resource_showcase(cx: &Cx) -> Result {
                 </p>
                 argentum_ui::code_block(
                     lang: "rust",
-                    code: "BareUserResource::navigation() // → NavigationItem { label: \"Users\", url: \"/admin\" }"
+                    code: "BareUserResource::navigation() // → NavigationItem { label: \"Users\", url: \"/admin/bare-users\" }"
                 )
                 <div class="rounded-lg border border-border bg-background p-4">
                     <p class="text-sm text-muted-foreground">

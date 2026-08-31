@@ -47,7 +47,7 @@ async fn showcase_index() -> Result {
                         " — db(cx) glue and per-request memoization"
                     </li>
                     <li>
-                        <a href="/admin">"Admin list (/admin)"</a>
+                        <a href="/admin/users">"Admin list (/admin/users)"</a>
                         " — real app page (Panel + Resource → table)"
                     </li>
                 </ul>

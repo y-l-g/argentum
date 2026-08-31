@@ -26,7 +26,7 @@ async fn panel_showcase() -> Result {
                 </h2>
                 argentum_ui::code_block(
                     lang: "rust",
-                    code: "Panel::new(\"admin\").app_context(db).build() // → Router via discover + app_context(Db)\n// mounts at \"/admin\", discovers #[layout(\"/admin\")] + #[page(\"/admin...\")] "
+                    code: "Panel::new(\"admin\")\n    .app_context(db)\n    .resource::<UserResource>()\n    .build() // → Router via discover + app_context\n// mounts UserResource at \"/admin/users\" and redirects \"/admin\""
                 )
                 <div class="rounded-lg border border-border bg-background p-4">
                     <p class="text-sm text-muted-foreground">

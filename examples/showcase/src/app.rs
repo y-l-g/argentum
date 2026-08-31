@@ -2,12 +2,11 @@ use argentum_core::{NavigationItem, Panel, Resource, Schema, Table, TextColumn, 
 use toasty::Db;
 use topcoat::{
     Result,
-    asset::{AssetBundle, RouterBuilderAssetExt},
+    asset::AssetBundle,
     context::Cx,
     font::{Font, fontsource::fontsource_font},
-    router::{RouterBuilderDiscoverExt, layout},
+    router::{Router, href, layout},
     tailwind,
-    view::view,
 };
 
 use crate::models::User;
@@ -66,60 +65,72 @@ impl Resource for UserResource {
 
 #[layout("/admin")]
 async fn admin_layout(cx: &Cx, slot: Result) -> Result {
-    let nav_items = vec![
-        Panel::new("admin").navigation_item::<UserResource>(),
-        NavigationItem {
-            label: "Showcase".to_string(),
-            url: "/admin/showcase".to_string(),
-            href_check: None,
-        },
-    ];
-    let current = topcoat::router::request::uri(cx).path().to_string();
-    let inner = slot?;
-    let shell = Panel::render_shell(cx, nav_items, &current, inner, None).await?;
-    // Asset-dependent links (tailwind + font) require `AssetConfig` on the router.
-    // In `cargo test` without `AssetBundle`, we fall back to a plain style tag.
-    let has_assets = topcoat::context::try_app_context::<topcoat::asset::AssetConfig>(cx).is_some();
-    view! {
-        cx =>
-        <!DOCTYPE html>
-        <html>
-            <head>
-                <title>"Admin"</title>
-                topcoat::dev::script()
-                // Blocking pre-paint theme apply — kills the dark-mode flash.
-                argentum_ui::theme_init_script()
-                if has_assets {
-                    topcoat::runtime::script()
-                    topcoat::font::link(font: GEIST)
-                    <link rel="stylesheet" href=(tailwind::stylesheet!())>
-                } else {
-                    // Fallback for tests / offline builds without AssetBundle
-                    <style>"/* tailwind and font skipped - no asset config */"</style>
-                }
-            </head>
-            <body>(shell)</body>
-        </html>
-    }
+    Panel::layout_shell(cx, slot).await
 }
 
 // ---------------------------------------------------------------------------
 // Router helper (used by `main.rs` and tests)
 // ---------------------------------------------------------------------------
 
-pub fn router(db: Db) -> topcoat::router::Router {
-    // Include AssetBundle so tailwind stylesheet and Geist font assets are served.
-    // In tests, AssetBundle may be absent (offline build), so fall back to no assets
-    // while still keeping the shell's Token classes.
-    match AssetBundle::load() {
-        Ok(bundle) => topcoat::router::Router::builder()
-            .discover()
-            .app_context(db)
+pub fn router(db: Db) -> Router {
+    build_router(db, Some(load_assets()))
+}
+
+/// Build the showcase router without filesystem assets for markup tests.
+///
+/// This is deliberately separate from [`router`]: the application path fails
+/// loudly when its generated bundle is missing, while tests can exercise the
+/// server-rendered markup without pretending an asset bundle exists.
+pub fn router_for_tests(db: Db) -> Router {
+    build_router(db, None)
+}
+
+fn build_router(db: Db, bundle: Option<AssetBundle>) -> Router {
+    let panel = Panel::new("admin")
+        .app_context(db)
+        .resource::<UserResource>()
+        .navigation(NavigationItem::from_href(
+            "Showcase",
+            href!("/admin/showcase"),
+            "/admin/showcase",
+        ));
+    match bundle {
+        Some(bundle) => panel
             .assets(bundle)
+            .shell_assets(tailwind::stylesheet!(), GEIST)
             .build(),
-        Err(_) => topcoat::router::Router::builder()
-            .discover()
-            .app_context(db)
-            .build(),
+        None => panel.build(),
+    }
+}
+
+fn load_assets() -> AssetBundle {
+    match AssetBundle::load() {
+        Ok(bundle) => bundle,
+        Err(near_executable) => {
+            // Cargo places test executables in `target/*/deps`, while the
+            // bundle remains beside the package binary in `target/*`.
+            let test_bundle = std::env::current_exe()
+                .ok()
+                .and_then(|exe| {
+                    let dir = exe.parent()?;
+                    if dir.file_name().is_some_and(|name| name == "deps") {
+                        Some(dir.parent()?.to_path_buf())
+                    } else {
+                        None
+                    }
+                })
+                .map(|dir| dir.join("assets"));
+            match test_bundle {
+                Some(dir) => AssetBundle::load_dir(&dir).unwrap_or_else(|test_error| {
+                    panic!(
+                        "showcase asset bundle is unavailable: executable lookup failed ({near_executable}); tried {} ({test_error})",
+                        dir.display()
+                    )
+                }),
+                None => panic!(
+                    "showcase asset bundle is unavailable: executable lookup failed ({near_executable})"
+                ),
+            }
+        }
     }
 }

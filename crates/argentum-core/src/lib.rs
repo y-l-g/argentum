@@ -7,7 +7,7 @@
 
 #[doc(hidden)]
 pub mod __macro {
-    pub use toasty::{schema, stmt};
+    pub use toasty::stmt;
     pub use topcoat::context::Cx;
 }
 // The full toolkit surface lands in later phases. For now, expose a single

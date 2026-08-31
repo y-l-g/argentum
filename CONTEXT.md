@@ -7,7 +7,7 @@ Admin toolkit for Rust — server-rendered on Topcoat, persisted with Toasty. Pr
 ## Language
 
 ### Panel
-The admin application. Owns the Router, the Db in app_context, the layout Shell, and its declared Resources. Declaring a Panel with Resources yields the Shell and navigation with no manual HTML.
+The admin application. Owns the Router, the Db in app_context, the layout Shell, and its declared Resources. Declaring a Panel with Resources yields resource routes and navigation; an app's layout delegates to `Panel::layout_shell` for the Shell with no manual document HTML.
 
 _Avoid_: Admin, Dashboard, App, Site
 
@@ -82,7 +82,7 @@ The Table's zero-rows rendering (icon + title + optional action), shown for "no 
 _Avoid_: NoResults, Placeholder, ZeroState
 
 ### ErrorState
-The Table's failed-load rendering, produced by the layout's slot: Result match rather than inside the shard, so it survives boundary swaps.
+The Table's failed-load rendering (deferred — load failures currently propagate via `Result`).
 
 _Avoid_: ErrorPage, Fallback
 

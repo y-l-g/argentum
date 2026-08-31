@@ -1,6 +1,10 @@
 use argentum_core::Resource;
-use toasty::{Db, stmt::List};
+use toasty::Db;
 use topcoat::context::{Cx, CxTestBuilder};
+
+fn scoped(_cx: &Cx) -> toasty::stmt::Query<toasty::stmt::List<User>> {
+    toasty::stmt::Query::<toasty::stmt::List<User>>::all().filter(User::fields().name().eq("Ada"))
+}
 
 #[derive(Debug, toasty::Model)]
 struct User {
@@ -10,16 +14,12 @@ struct User {
     name: String,
 }
 
-fn only_ada(_cx: &Cx) -> <User as toasty::schema::Model>::Query<List<User>> {
-    User::filter(User::fields().name().eq("Ada"))
-}
-
 #[derive(Resource)]
 #[resource(model = User)]
 struct Everyone;
 
 #[derive(Resource)]
-#[resource(model = User, query = only_ada)]
+#[resource(model = User, query = scoped)]
 struct JustAda;
 
 #[tokio::test]

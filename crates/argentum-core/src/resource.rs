@@ -18,7 +18,7 @@ use topcoat::context::Cx;
 use topcoat::router::{Href, HrefParams, HrefQueries, HrefTarget};
 use topcoat::{Result, view::*};
 
-use crate::schema::{FieldLens, Schema, lens_field_name_and_label, pk_tie_breakers};
+use crate::schema::{FieldLens, Schema, capitalize, lens_field_name_and_label, pk_tie_breakers};
 
 /// Text column bound to a typed lens **and** a typed projection.
 ///
@@ -467,7 +467,7 @@ impl<M> Table<M> {
     ///
     /// Loaders that also need the search term parse the state once with
     /// [`TableState::from_cx`] and pass it here (see
-    /// `examples/showcase/src/pages/admin_list.rs`).
+    /// `crate::panel::Panel`'s generic resource list handler).
     pub fn order_bys_for_state(&self, state: &TableState) -> Vec<OrderByExpr>
     where
         M: toasty::schema::Model,
@@ -901,28 +901,6 @@ impl<M> Table<M> {
             )
         }
     }
-    /// Render an ErrorState (alert Destructive inside card) for loader failures.
-    /// This is used via `Result` match in layout slot, not inside shard, so it
-    /// survives Boundary swaps.
-    pub async fn render_error(&self, cx: &Cx, message: &str) -> Result<View>
-    where
-        M: toasty::schema::Model,
-    {
-        let msg = message.to_string();
-        view! {
-            cx =>
-            <div class="rounded-xl border border-border bg-background shadow-sm p-6">
-                <div
-                    class="grid w-full grid-cols-[0_1fr] items-start gap-y-1 rounded-lg border bg-background px-4 py-3 text-sm border-destructive/50 text-destructive has-[>svg]:grid-cols-[1rem_1fr] has-[>svg]:gap-x-3 [&>svg]:size-4 [&>svg]:translate-y-0.5"
-                >
-                    <p class="col-start-2 font-medium tracking-tight">
-                        "Failed to load"
-                    </p>
-                    <div class="col-start-2 text-sm text-muted-foreground">(msg)</div>
-                </div>
-            </div>
-        }
-    }
 }
 
 /// One executed page of rows for [`Table::render`].
@@ -1136,30 +1114,23 @@ impl PartialEq for NavigationItem {
 impl Eq for NavigationItem {}
 
 impl NavigationItem {
-    /// Derive a sidebar entry from a `Resource` type, using the given panel mount prefix.
+    /// Derive a sidebar entry from a `Resource` type, using the given panel
+    /// mount prefix.
     ///
-    /// Label is the `Model`'s type name without module path and with a
-    /// trailing `s` for pluralisation (matching Filament's `User` → `Users`).
-    /// URL is the panel prefix for the single-resource Phase 1 shell; multi-resource
-    /// routing will become `{prefix}/<kebab-plural>` (ADR-0002 query seam
-    /// handles scoping, Panel prefix owns the mount point).
+    /// Label comes from [`Resource::navigation_label`] (the pluralized model
+    /// name), URL from [`Resource::slug`] under the prefix — the same URL
+    /// [`crate::panel::Panel::resource`] registers the list page at, so the
+    /// sidebar and the router can never disagree.
     pub fn from_resource_with_prefix<R: Resource>(prefix: &str) -> Self {
-        let model_name = std::any::type_name::<R::Model>();
-        let short = model_name.rsplit("::").next().unwrap_or(model_name);
-        let label = format!("{short}s");
-        let url = if prefix.is_empty() {
+        let trimmed = prefix.trim_matches('/').trim();
+        let base = if trimmed.is_empty() {
             "/admin".to_string()
         } else {
-            let trimmed = prefix.trim_matches('/').trim();
-            if trimmed.is_empty() {
-                "/admin".to_string()
-            } else {
-                format!("/{trimmed}")
-            }
+            format!("/{trimmed}")
         };
         Self {
-            label,
-            url,
+            label: R::navigation_label(),
+            url: format!("{base}/{}", R::slug()),
             href_check: None,
         }
     }
@@ -1181,11 +1152,28 @@ impl NavigationItem {
         Q: HrefQueries + Send + Sync + 'static,
         F: std::fmt::Display + Send + Sync + 'static,
     {
-        let check =
-            Arc::new(move |cx: &Cx| href.is_current(cx)) as Arc<dyn Fn(&Cx) -> bool + Send + Sync>;
+        // Sidebar sections (e.g. Showcase) should stay active on their
+        // sub-pages, while Href::is_current is exact (path + query). Use a
+        // slash-boundary prefix check on the href's resolved path so
+        // from_href items behave like is_current_path but still benefit from
+        // href's encoding-aware path generation.
+        let url_string: String = url.into();
+        let prefix = url_string.clone();
+        let check = Arc::new(move |cx: &Cx| {
+            if href.is_current(cx) {
+                return true;
+            }
+            let current = topcoat::router::request::uri(cx).path();
+            if current == prefix {
+                return true;
+            }
+            current
+                .strip_prefix(prefix.as_str())
+                .is_some_and(|rest| rest.starts_with('/'))
+        }) as Arc<dyn Fn(&Cx) -> bool + Send + Sync>;
         Self {
             label: label.into(),
-            url: url.into(),
+            url: url_string,
             href_check: Some(check),
         }
     }
@@ -1194,7 +1182,7 @@ impl NavigationItem {
     ///
     /// Shorthand for `from_resource_with_prefix::<R>("/admin")` — kept for
     /// single-panel Phase 1 call sites. New code should use
-    /// `from_resource_with_prefix` or `Panel::navigation_item`.
+    /// `from_resource_with_prefix` or `Panel::nav_item`.
     pub fn from_resource<R: Resource>() -> Self {
         Self::from_resource_with_prefix::<R>("/admin")
     }
@@ -1215,7 +1203,12 @@ impl NavigationItem {
         self.is_current_path(current)
     }
 
-    /// Whether this item is current for the given request path (without query).
+    /// Whether this item is current for the given request path (without query):
+    /// an exact match, or a prefix match on a slash boundary (so
+    /// `/admin/users` is active on `/admin/users/create` but not on
+    /// `/admin/userships`). Uniform for every item — since resources mount at
+    /// `{prefix}/{slug}` (GH #39), no generated item points at the bare panel
+    /// prefix that needed the old root-exact special case.
     ///
     /// Split from `is_current` so `Panel::render_shell` can stay testable
     /// without constructing a full `http::request::Parts` in `Cx`.
@@ -1223,34 +1216,64 @@ impl NavigationItem {
         if current_path == self.url {
             return true;
         }
-        if self.url == "/admin" {
-            return false;
-        }
-        if current_path.starts_with(&self.url) {
-            let rest = &current_path[self.url.len()..];
-            return rest.starts_with('/');
-        }
-        false
+        current_path
+            .strip_prefix(&self.url)
+            .is_some_and(|rest| rest.starts_with('/'))
     }
 }
 
 /// Maps one Toasty `Model` to its admin UI.
 pub trait Resource: Sized + Send + Sync + 'static {
     /// The persisted model this resource administers.
-    type Model: toasty::schema::Model;
+    ///
+    /// `Send + Sync` holds for every data-only model struct and is required
+    /// for concurrent rendering of the resource's pages.
+    type Model: toasty::schema::Model + Send + Sync + 'static;
+
+    /// The URL slug for this resource's pages, e.g. `"users"` mounts the list
+    /// at `{panel prefix}/users`.
+    ///
+    /// Defaults to the Filament convention (`HasRoutes::resolveDefaultSlug`):
+    /// take the resource type's name, strip a trailing `Resource`, pluralize
+    /// (`UserResource` → `Users`, `CategoryResource` → `Categories`), then
+    /// kebab-case (`BlogPostResource` → `blog-posts`). Override for irregular
+    /// naming the rules cannot guess (`UsersResource` pluralizes to
+    /// `userses` — name resources singular, or override).
+    fn slug() -> String {
+        let name = type_short_name::<Self>();
+        let singular = name.strip_suffix("Resource").unwrap_or(name);
+        kebab_case(&pluralize(singular))
+    }
+
+    /// The sidebar label, e.g. `"Users"`.
+    ///
+    /// Defaults to the pluralized `Model` type name (Filament's plural model
+    /// label): `User` → `Users`, `Category` → `Categories`, `Person` →
+    /// `People`. Override for custom wording.
+    fn navigation_label() -> String {
+        pluralize(type_short_name::<Self::Model>())
+    }
 
     /// Base query — the **single seam** for tenancy/soft-delete scoping
     /// (ADR-0002). Every loader starts from this query.
-    fn query(_cx: &Cx) -> <Self::Model as toasty::schema::Model>::Query<List<Self::Model>>
-    where
-        Self::Model: toasty::schema::Model,
-    {
-        <Self::Model as toasty::schema::Model>::wrap_query(
-            toasty::stmt::Query::<List<Self::Model>>::all(),
-        )
+    ///
+    /// Returns the raw typed statement query (the spec's original signature):
+    /// raw queries compose generically — `filter`, `order_by`, and
+    /// `Paginate::new` are available on the raw form for any `M: Model` —
+    /// which is what lets [`crate::panel::Panel`] drive every resource's list
+    /// page through one handler. Scoping it via `Model::filter(..)` in an
+    /// override stays as ergonomic as before; the wrapper's extra methods are
+    /// only needed by hand-written loaders.
+    fn query(_cx: &Cx) -> toasty::stmt::Query<List<Self::Model>> {
+        toasty::stmt::Query::<List<Self::Model>>::all()
     }
 
-    /// Description of the list view. Phase 1: stub.
+    /// Description of the list view.
+    ///
+    /// The default is empty, and an empty table **cannot render**: the
+    /// default `Resource` is not listable until it declares columns via
+    /// `Table::columns(..)` and a row key via `Table::id(..)` (see
+    /// [`Table::render`]).
     fn table(_cx: &Cx) -> Table<Self::Model> {
         Table::new()
     }
@@ -1269,6 +1292,109 @@ pub trait Resource: Sized + Send + Sync + 'static {
     fn navigation() -> NavigationItem {
         NavigationItem::from_resource::<Self>()
     }
+}
+
+/// The last segment of a type's full path, e.g.
+/// `argentum_core::resource::tests::UserResource` → `UserResource`.
+fn type_short_name<T: ?Sized>() -> &'static str {
+    let name = std::any::type_name::<T>();
+    name.rsplit("::").next().unwrap_or(name)
+}
+
+/// Pluralize a capitalized English word with a compact ruleset (Filament
+/// pluralizes via Laravel's `Str::plural`; this is the admin-grade subset):
+/// a small irregular table (`person` → `people`, …), consonant-`y` → `ies`
+/// (`Category` → `Categories`), sibilant endings → `es` (`Box` → `Boxes`),
+/// `f`/`fe` → `ves` (`Knife` → `Knives`) with a few `+s` exceptions, and the
+/// default `+s`.
+fn pluralize(word: &str) -> String {
+    if word.is_empty() {
+        return word.to_string();
+    }
+    let lower = word.to_lowercase();
+    const IRREGULAR: &[(&str, &str)] = &[
+        ("person", "people"),
+        ("man", "men"),
+        ("woman", "women"),
+        ("child", "children"),
+        ("mouse", "mice"),
+        ("goose", "geese"),
+        ("foot", "feet"),
+        ("tooth", "teeth"),
+        ("datum", "data"),
+        ("criterion", "criteria"),
+        ("index", "indices"),
+        ("matrix", "matrices"),
+        ("vertex", "vertices"),
+        ("axis", "axes"),
+        ("crisis", "crises"),
+        ("analysis", "analyses"),
+    ];
+    if let Some((_, plural)) = IRREGULAR.iter().find(|(singular, _)| *singular == lower) {
+        return match word.chars().next() {
+            Some(first) if first.is_uppercase() => capitalize(plural),
+            _ => (*plural).to_string(),
+        };
+    }
+    // `f`/`fe` → `ves`, except the words that simply take `s`.
+    const F_EXCEPTIONS: &[&str] = &["roof", "chief", "belief", "chef", "cliff", "cuff"];
+    const UNCOUNTABLE: &[&str] = &[
+        "fish",
+        "sheep",
+        "deer",
+        "moose",
+        "series",
+        "species",
+        "news",
+        "equipment",
+        "information",
+        "rice",
+    ];
+    if UNCOUNTABLE.contains(&lower.as_str()) {
+        return word.to_string();
+    }
+    if F_EXCEPTIONS.contains(&lower.as_str()) {
+        format!("{word}s")
+    } else if lower.ends_with('f') {
+        format!("{}ves", &word[..word.len() - 1])
+    } else if lower.ends_with("fe") {
+        format!("{}ves", &word[..word.len() - 2])
+    } else if lower.ends_with('y')
+        && word.len() > 1
+        && !"aeiou".contains(word.chars().nth(word.len() - 2).unwrap_or(' '))
+    {
+        format!("{}ies", &word[..word.len() - 1])
+    } else if ["s", "ss", "sh", "ch", "x", "z"]
+        .iter()
+        .any(|suffix| lower.ends_with(suffix))
+    {
+        format!("{word}es")
+    } else {
+        format!("{word}s")
+    }
+}
+
+/// Convert a CamelCase identifier to kebab-case: `BlogPost` → `blog-post`,
+/// `APIKey` → `api-key`.
+fn kebab_case(name: &str) -> String {
+    let chars: Vec<char> = name.chars().collect();
+    let mut out = String::with_capacity(name.len() + 8);
+    for (i, &current) in chars.iter().enumerate() {
+        if current.is_uppercase() {
+            let boundary = i > 0
+                && (chars[i - 1].is_lowercase()
+                    || chars[i - 1].is_ascii_digit()
+                    || (chars[i - 1].is_uppercase()
+                        && chars.get(i + 1).is_some_and(|next| next.is_lowercase())));
+            if boundary {
+                out.push('-');
+            }
+            out.extend(current.to_lowercase());
+        } else {
+            out.push(current);
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -1290,9 +1416,9 @@ mod tests {
     impl Resource for UserResource {
         type Model = User;
 
-        fn query(_cx: &Cx) -> <User as toasty::schema::Model>::Query<List<User>> {
+        fn query(_cx: &Cx) -> toasty::stmt::Query<List<User>> {
             // Custom scoping example: only users named Ada
-            User::filter(User::fields().name().eq("Ada"))
+            toasty::stmt::Query::<List<User>>::all().filter(User::fields().name().eq("Ada"))
         }
     }
 
@@ -1312,15 +1438,47 @@ mod tests {
     #[test]
     fn navigation_derives_label_and_url_from_model() {
         let item = NavigationItem::from_resource::<UserResource>();
+        // Label: pluralized model name; URL: panel prefix + resource slug
+        // (the same URL Panel::resource registers the list page at).
         assert_eq!(item.label, "Users");
-        assert_eq!(item.url, "/admin");
+        assert_eq!(item.url, "/admin/users");
+    }
+
+    #[test]
+    fn slugs_follow_the_filament_convention() {
+        // UserResource → strip "Resource" → pluralize → kebab-case
+        assert_eq!(<UserResource as Resource>::slug(), "users");
+        assert_eq!(UserResource::navigation_label(), "Users");
+    }
+
+    #[test]
+    fn pluralize_and_kebab_follow_english_rules() {
+        use super::{kebab_case, pluralize};
+        // rules
+        assert_eq!(pluralize("User"), "Users");
+        assert_eq!(pluralize("Category"), "Categories");
+        assert_eq!(pluralize("Dummy"), "Dummies");
+        assert_eq!(pluralize("Day"), "Days");
+        assert_eq!(pluralize("Box"), "Boxes");
+        assert_eq!(pluralize("Bus"), "Buses");
+        assert_eq!(pluralize("Church"), "Churches");
+        assert_eq!(pluralize("Knife"), "Knives");
+        assert_eq!(pluralize("Roof"), "Roofs");
+        // irregulars (case preserved)
+        assert_eq!(pluralize("Person"), "People");
+        assert_eq!(pluralize("Child"), "Children");
+        assert_eq!(pluralize("Index"), "Indices");
+        // kebab
+        assert_eq!(kebab_case("Users"), "users");
+        assert_eq!(kebab_case("BlogPost"), "blog-post");
+        assert_eq!(kebab_case("APIKey"), "api-key");
     }
 
     #[test]
     fn navigation_item_is_current_path() {
         let users = NavigationItem {
             label: "Users".to_string(),
-            url: "/admin".to_string(),
+            url: "/admin/users".to_string(),
             href_check: None,
         };
         let showcase = NavigationItem {
@@ -1329,19 +1487,18 @@ mod tests {
             href_check: None,
         };
         // exact
-        assert!(users.is_current_path("/admin"));
+        assert!(users.is_current_path("/admin/users"));
         assert!(showcase.is_current_path("/admin/showcase"));
-        // root exact-only — /admin/showcase should not highlight Users
-        assert!(!users.is_current_path("/admin/showcase"));
-        // slash-boundary — /admin/showcases should not highlight /admin/showcase
+        // slash-boundary — sub-pages active
+        assert!(users.is_current_path("/admin/users/create"));
+        assert!(showcase.is_current_path("/admin/showcase/table"));
+        // slash-boundary — near-misses inactive
+        assert!(!users.is_current_path("/admin/userships"));
         assert!(!showcase.is_current_path("/admin/showcases"));
         assert!(!showcase.is_current_path("/admin/showcase-table"));
-        // prefix with slash — sub-pages active
-        assert!(showcase.is_current_path("/admin/showcase/table"));
-        assert!(showcase.is_current_path("/admin/showcase/db"));
         // unrelated
         assert!(!users.is_current_path("/other"));
-        assert!(!showcase.is_current_path("/admin"));
+        assert!(!showcase.is_current_path("/admin/users"));
     }
 
     #[test]
