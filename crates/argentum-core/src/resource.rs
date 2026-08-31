@@ -316,7 +316,10 @@ pub struct Table<M> {
     page_size: Option<usize>,
     search_ui: Option<bool>,
     show_skeleton: bool,
+    is_boundary: bool,
+    defer_initial: bool,
     delete_prefix: Option<String>,
+    bulk_delete: bool,
     _marker: PhantomData<M>,
 }
 
@@ -328,7 +331,10 @@ impl<M> std::fmt::Debug for Table<M> {
             .field("page_size", &self.page_size)
             .field("search_ui", &self.search_ui)
             .field("show_skeleton", &self.show_skeleton)
+            .field("is_boundary", &self.is_boundary)
+            .field("defer_initial", &self.defer_initial)
             .field("delete_prefix", &self.delete_prefix)
+            .field("bulk_delete", &self.bulk_delete)
             .finish()
     }
 }
@@ -355,7 +361,10 @@ impl<M> Table<M> {
             page_size: None,
             search_ui: None,
             show_skeleton: false,
+            is_boundary: true,
+            defer_initial: false,
             delete_prefix: None,
+            bulk_delete: false,
             _marker: PhantomData,
         }
     }
@@ -420,11 +429,45 @@ impl<M> Table<M> {
         self
     }
 
+    /// Whether this table is a `Boundary` (default `true`).
+    /// When `true`, the rendered grid is wrapped in a `data-boundary` region
+    /// so future `defer`+`boundary` diffing can swap only the grid.
+    /// Use `boundary(false)` to opt-out.
+    pub fn boundary(mut self, enabled: bool) -> Self {
+        self.is_boundary = enabled;
+        self
+    }
+
+    /// Defer the initial load, showing skeleton rows until the data arrives.
+    /// When `true`, the table renders skeleton placeholders on first paint;
+    /// data loads are `#[memoize]`d so streaming can fill them.
+    pub fn defer(mut self, enabled: bool) -> Self {
+        self.defer_initial = enabled;
+        self.show_skeleton = enabled;
+        self
+    }
+
+    /// Whether the table is a `Boundary`.
+    pub fn is_boundary(&self) -> bool {
+        self.is_boundary
+    }
+
+    /// Whether the table defers its initial load.
+    pub fn is_defer(&self) -> bool {
+        self.defer_initial
+    }
+
     /// Enable row-level `Delete` action. When set, each row renders a
     /// `Delete` button that POSTs to `{prefix}/{id}/delete` with
     /// `requires_confirmation` semantics.
     pub fn with_delete(mut self, prefix: String) -> Self {
         self.delete_prefix = Some(prefix);
+        self
+    }
+
+    /// Enable bulk selection with `BulkDelete` action.
+    pub fn with_bulk_delete(mut self, enabled: bool) -> Self {
+        self.bulk_delete = enabled;
         self
     }
 
@@ -557,12 +600,38 @@ impl<M> Table<M> {
         } else {
             None
         };
+        let bulk_bar_view = if self.bulk_delete && self.delete_prefix.is_some() {
+            let bulk_action = format!("{}/bulk-delete", self.delete_prefix.clone().unwrap());
+            view! { cx =>
+                <form
+                    method="post"
+                    action=(bulk_action)
+                    class="flex gap-2 p-3 border-b border-border"
+                >
+                    <input
+                        name="ids"
+                        placeholder="ids comma-separated"
+                        class="w-64 border border-border rounded px-2 py-1 text-sm"
+                    >
+                    <button
+                        class="inline-flex items-center justify-center rounded-md bg-destructive px-4 py-2 text-sm text-destructive-foreground"
+                        type="submit"
+                    >
+                        "Bulk Delete"
+                    </button>
+                </form>
+            }?
+        } else {
+            view! { cx => <span></span> }?
+        };
         let pager = self.render_pager(cx, &state, &path, page).await?;
 
         if self.show_skeleton {
-            return view! {
+            let bulk_clone = bulk_bar_view.clone();
+            let inner = view! {
                 cx =>
                 <div class="rounded-xl border border-border overflow-hidden">
+                    (bulk_clone)
                     table(
                         (head)
                         table_body(
@@ -588,6 +657,11 @@ impl<M> Table<M> {
                         )
                     )
                 </div>
+            }?;
+            return if self.is_boundary {
+                view! { cx => <div data-boundary="table">(inner)</div> }
+            } else {
+                Ok(inner)
             };
         }
 
@@ -595,26 +669,35 @@ impl<M> Table<M> {
             let empty_cell = self
                 .render_empty_cell(cx, &state, &path, delete_prefix.is_some())
                 .await?;
-            return view! {
+            let bulk_clone = bulk_bar_view.clone();
+            let inner = view! {
                 cx =>
                 <div class="rounded-xl border border-border overflow-hidden">
                     if show_search {
                         (search_bar.expect("search bar built when enabled"))
                     }
+                    (bulk_clone)
                     table(
                         (head)
                         (empty_cell)
                     )
                 </div>
+            }?;
+            return if self.is_boundary {
+                view! { cx => <div data-boundary="table">(inner)</div> }
+            } else {
+                Ok(inner)
             };
         }
 
-        view! {
+        let bulk_clone = bulk_bar_view.clone();
+        let inner = view! {
             cx =>
             <div class="rounded-xl border border-border overflow-hidden">
                 if show_search {
                     (search_bar.expect("search bar built when enabled"))
                 }
+                (bulk_clone)
                 table(
                     (head)
                     table_body(
@@ -653,6 +736,11 @@ impl<M> Table<M> {
                     (p)
                 }
             </div>
+        }?;
+        if self.is_boundary {
+            view! { cx => <div data-boundary="table">(inner)</div> }
+        } else {
+            Ok(inner)
         }
     }
 

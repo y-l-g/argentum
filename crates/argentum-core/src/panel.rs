@@ -24,7 +24,9 @@ use topcoat::{
 use crate::db::db;
 use crate::notification::{Notification, set_notification, take_notification};
 use crate::resource::{NavigationItem, Resource, TablePage, TableState};
+use topcoat::context::memoize;
 use topcoat::router::Path;
+use topcoat::runtime::{Event, shard};
 
 /// The admin application.
 ///
@@ -531,7 +533,7 @@ fn resource_list<R: Resource>(cx: &Cx, _body: Body) -> ViewFuture<'_> {
             // Use path as prefix for delete actions.
             path
         };
-        table = table.with_delete(prefix.clone());
+        table = table.with_delete(prefix.clone()).with_bulk_delete(true);
         let mut query = R::query(cx);
         if let Some(term) = &state.search
             && let Some(expr) = table.search_expr(term)
@@ -595,9 +597,21 @@ fn resource_list<R: Resource>(cx: &Cx, _body: Body) -> ViewFuture<'_> {
         let table_view = table.render(cx, &page).await?;
         let title = R::navigation_label();
         view! { cx =>
+            signal q = String::new();
             argentum_ui::page(
-                argentum_ui::page_header(argentum_ui::page_title((title)))
-                argentum_ui::page_content((table_view))
+                argentum_ui::page_header(argentum_ui::page_title((title.clone())))
+                argentum_ui::page_content(
+                    <div class="flex flex-col gap-4">
+                        <input
+                            :value=$(q.get())
+                            @input=$(|e: Event| q.set(e.target.value))
+                            placeholder="Live search..."
+                            class="w-64 border border-border rounded px-2 py-1"
+                        >
+                        table_shard(q: $(q.get()))
+                        (table_view)
+                    </div>
+                )
             )
         }
     })
@@ -654,6 +668,18 @@ fn percent_decode(input: &str) -> String {
     out
 }
 
+#[memoize]
+async fn memoized_dummy(cx: &Cx, q: &str) -> String {
+    let _ = cx;
+    q.to_string()
+}
+
+#[shard]
+async fn table_shard(cx: &Cx, q: String) -> Result {
+    let _ = memoized_dummy(cx, &q).await;
+    view! { cx => <div data-boundary="table"><p>"Shard Table for "(q)</p></div> }
+}
+
 /// Helper: compute list URL from current request path (e.g. /admin/users/create -> /admin/users).
 fn list_url_for_current(cx: &Cx, fallback_slug: &str) -> String {
     let path = topcoat::router::request::uri(cx).path().to_string();
@@ -689,7 +715,8 @@ fn list_url_for_current(cx: &Cx, fallback_slug: &str) -> String {
 }
 
 fn notification_from_query(cx: &Cx) -> Option<Notification> {
-    let query = topcoat::router::request::uri(cx).query()?;
+    let query = topcoat::context::try_request_context::<http::request::Parts>(cx)
+        .and_then(|parts| parts.uri.query().map(|q| q.to_string()))?;
     for pair in query.split('&') {
         let (k, v) = pair.split_once('=')?;
         if k == "notification" {
