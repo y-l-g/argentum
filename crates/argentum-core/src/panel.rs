@@ -472,6 +472,15 @@ fn resource_list<R: Resource>(cx: &Cx, _body: Body) -> ViewFuture<'_> {
         let mut db = db(cx);
         let page = match table.page_size() {
             Some(per_page) => {
+                // Keep a cursor-free copy of the filtered+ordered query for
+                // cursor validation. Toasty's `Page` sets `next_cursor` when
+                // `len == page_size` and `prev_cursor` when `has_previous_page`,
+                // which leaves phantom cursors when the page sits exactly at a
+                // boundary (e.g. a `before` fetch that lands on the first page
+                // returns `len == page_size` so `prev_cursor` is set even though
+                // `before(prev_cursor)` is empty). Validate such cursors with a
+                // cheap `LIMIT 1` probe and hide phantoms.
+                let base_query = query.clone();
                 let mut paginated = toasty::stmt::Paginate::new(query, per_page);
                 if let Some(cursor) = &state.after {
                     paginated = paginated.after(crate::cursor::decode(cursor)?);
@@ -482,7 +491,28 @@ fn resource_list<R: Resource>(cx: &Cx, _body: Body) -> ViewFuture<'_> {
                     .exec(&mut db)
                     .await
                     .map_err(topcoat::Error::from)?;
-                TablePage::from_toasty_page(loaded)?
+                let mut page = TablePage::from_toasty_page(loaded)?;
+                if let Some(cursor) = page.next_cursor.clone() {
+                    let probe = toasty::stmt::Paginate::new(base_query.clone(), 1)
+                        .after(crate::cursor::decode(&cursor)?)
+                        .exec(&mut db)
+                        .await
+                        .map_err(topcoat::Error::from)?;
+                    if probe.items.is_empty() {
+                        page.next_cursor = None;
+                    }
+                }
+                if let Some(cursor) = page.prev_cursor.clone() {
+                    let probe = toasty::stmt::Paginate::new(base_query.clone(), 1)
+                        .before(crate::cursor::decode(&cursor)?)
+                        .exec(&mut db)
+                        .await
+                        .map_err(topcoat::Error::from)?;
+                    if probe.items.is_empty() {
+                        page.prev_cursor = None;
+                    }
+                }
+                page
             }
             None => {
                 let rows: Vec<R::Model> =
