@@ -1,4 +1,4 @@
-// SYNC: topcoat-ui-registry@0.6.2 — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
+// SYNC: topcoat-ui-registry@0.6.2 sha256:2504fa590bcf7d32ca4737c35fe57aee0ff95b3595e502f3eb59ebac2d704175 — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
 use topcoat::{
     Result,
     view::{Attributes, PromotedStr, StaticClass, class, component, view},
@@ -24,7 +24,7 @@ impl SeparatorOrientation {
     /// The rule is a hairline in one direction and stretches along the other,
     /// so it takes its length from the container: a horizontal separator
     /// spans the container's width, a vertical one its height.
-    pub(crate) fn classes(self) -> StaticClass {
+    fn classes(self) -> StaticClass {
         match self {
             Self::Horizontal => class!("h-px w-full"),
             Self::Vertical => class!("h-full w-px"),
@@ -33,7 +33,7 @@ impl SeparatorOrientation {
 
     /// The value of the `aria-orientation` attribute, or `None` for the
     /// horizontal default assistive technology already assumes.
-    pub(crate) fn aria(self) -> Option<PromotedStr> {
+    fn aria(self) -> Option<PromotedStr> {
         match self {
             Self::Horizontal => None,
             Self::Vertical => Some(PromotedStr(&"vertical")),

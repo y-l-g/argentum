@@ -1,4 +1,4 @@
-// SYNC: topcoat-ui-registry@0.6.2 — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
+// SYNC: topcoat-ui-registry@0.6.2 — generated from the registry manifest. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
 pub mod accordion;
 pub mod alert;
 pub mod alert_dialog;

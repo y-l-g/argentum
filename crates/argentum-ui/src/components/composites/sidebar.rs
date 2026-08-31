@@ -2,11 +2,11 @@ use http::header::COOKIE;
 use topcoat::{
     Result,
     context::{Cx, try_request_context},
-    view::{Attributes, StaticClass, View, class, component, view},
+    view::{Attributes, StaticClass, View, attributes, class, component, view},
 };
 
 use crate::components::primitives::button::{ButtonSize, ButtonVariant, button_variants};
-use crate::components::primitives::separator::SeparatorOrientation;
+use crate::components::primitives::separator::{SeparatorOrientation, separator};
 
 // ---------------------------------------------------------------------------
 // Provider & Inset — shadcn parity (ADR-0009)
@@ -286,23 +286,24 @@ pub async fn sidebar_menu_button(
 // Separator & Trigger
 // ---------------------------------------------------------------------------
 
-/// Sidebar separator — wraps `separator` with sidebar semantics.
+/// Sidebar separator — wraps the [`separator`] primitive with sidebar
+/// semantics: a `data-sidebar="separator"` hook and the sidebar's own
+/// hairline styling, forwarded through the primitive so the `<hr>` markup and
+/// orientation handling stay owned by the synced source (ADR-0007).
 #[component]
 pub async fn sidebar_separator(
     #[default] orientation: SeparatorOrientation,
-    #[default] mut attrs: Attributes,
+    #[default] attrs: Attributes,
 ) -> Result {
     view! {
-        <hr
-            data-sidebar="separator"
-            class=(class!(
-                "shrink-0 border-0 bg-border",
-                orientation.classes(),
-                attrs.remove("class"),
-            ))
-            aria-orientation=(orientation.aria())
-            (attrs)
-        >
+        separator(
+            orientation: orientation,
+            attrs: attributes! {
+                data-sidebar="separator"
+                class="shrink-0 border-0 bg-border"
+                (attrs)
+            },
+        )
     }
 }
 
