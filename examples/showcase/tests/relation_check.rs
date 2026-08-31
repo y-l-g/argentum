@@ -212,3 +212,37 @@ async fn posts_edit_hydrates_author() {
         html
     );
 }
+
+#[tokio::test]
+async fn posts_list_shows_comments_count_via_include() {
+    let db = full_db().await;
+    let router = router(db.clone());
+    let resp = router
+        .handle(
+            Request::builder()
+                .uri("/admin/posts")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+    assert!(resp.status().is_success());
+    let body = resp.into_body().collect().await.unwrap().to_bytes();
+    let html = String::from_utf8_lossy(&body);
+    // Table should have Comments header and counts 1 and 0 (one query, no N+1)
+    assert!(
+        html.contains("Comments"),
+        "missing Comments header {}",
+        html
+    );
+    // Hello Toasty has 1 comment, Second Post has 0
+    assert!(
+        html.contains(">1<") || html.contains("1"),
+        "missing comment count 1 {}",
+        html
+    );
+    assert!(
+        html.contains(">0<") || html.contains("0"),
+        "missing comment count 0 {}",
+        html
+    );
+}

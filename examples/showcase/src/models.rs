@@ -33,7 +33,7 @@ pub struct Author {
     pub posts: Deferred<Vec<Post>>,
 }
 
-/// Post with BelongsTo Author (Phase 2 relation via include + computed column).
+/// Post with BelongsTo Author and HasMany Comments (Phase 2 relations via include + computed).
 #[derive(Debug, Clone, toasty::Model)]
 pub struct Post {
     #[key]
@@ -46,6 +46,8 @@ pub struct Post {
     pub author_id: uuid::Uuid,
     #[belongs_to(key = author_id, references = id)]
     pub author: Deferred<Author>,
+    #[has_many]
+    pub comments: Deferred<Vec<Comment>>,
 }
 
 #[derive(Debug, Clone, toasty::Model)]

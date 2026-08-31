@@ -13,7 +13,7 @@ use topcoat::{
     tailwind,
 };
 
-use crate::models::{Author, Post, User};
+use crate::models::{Author, Comment, Post, User};
 
 /// The theme's sans font, pulled from Fontsource and self-hosted as a Topcoat asset.
 const GEIST: Font = fontsource_font!(GEIST, host: Asset);
@@ -441,12 +441,13 @@ impl Resource for PostResource {
     type Model = Post;
 
     fn query(_cx: &Cx) -> toasty::stmt::Query<toasty::stmt::List<Post>> {
-        // Explicit include for author relation (one round-trip, no N+1).
-        // `Post::fields().author()` yields `AuthorFields<Post>` which converts to
-        // `Include<Post, Author>` via `Into`; we convert explicitly to satisfy the
-        // `Into<core::Include>` bound (two-step `Into` is not chained automatically).
-        let inc: toasty::stmt::Include<Post, Author> = Post::fields().author().into();
-        toasty::stmt::Query::<toasty::stmt::List<Post>>::all().include(inc)
+        // Explicit includes for author (BelongsTo) and comments (HasMany) — one round-trip, no N+1.
+        let inc_author: toasty::stmt::Include<Post, Author> = Post::fields().author().into();
+        let inc_comments: toasty::stmt::Include<Post, toasty::stmt::List<Comment>> =
+            Post::fields().comments().into();
+        toasty::stmt::Query::<toasty::stmt::List<Post>>::all()
+            .include(inc_author)
+            .include(inc_comments)
     }
 
     fn can_view_any(_cx: &Cx) -> bool {
@@ -477,6 +478,13 @@ impl Resource for PostResource {
                         "-".to_string()
                     } else {
                         p.author.get().name.clone()
+                    }
+                }),
+                TextColumn::computed("Comments", |p: &Post| {
+                    if p.comments.is_unloaded() {
+                        "0".to_string()
+                    } else {
+                        p.comments.get().len().to_string()
                     }
                 }),
                 TextColumn::computed("Author Email", |p: &Post| {
