@@ -50,6 +50,8 @@ pub struct Post {
     pub status: String,
     pub featured: bool,
     pub created_at: Timestamp,
+    pub image_path: String,
+    pub tags: String,
     #[index]
     pub author_id: uuid::Uuid,
     #[belongs_to(key = author_id, references = id)]
@@ -133,6 +135,8 @@ pub async fn seed_phase2(db: &mut Db) -> toasty::Result<()> {
             status: "published".to_string(),
             featured: true,
             created_at: "2024-01-15T09:30:00Z".parse::<Timestamp>().unwrap(),
+            image_path: "/images/hello.jpg".to_string(),
+            tags: "rust,async".to_string(),
             author_id: ada_author.id,
         })
         .exec(db)
@@ -144,6 +148,8 @@ pub async fn seed_phase2(db: &mut Db) -> toasty::Result<()> {
             status: "draft".to_string(),
             featured: false,
             created_at: "2024-06-01T12:00:00Z".parse::<Timestamp>().unwrap(),
+            image_path: "/images/second.jpg".to_string(),
+            tags: "draft".to_string(),
             author_id: alan_author.id,
         })
         .exec(db)

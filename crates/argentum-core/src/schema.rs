@@ -684,16 +684,242 @@ impl Grid {
     }
 }
 
+/// FileUpload field — stores a String path (Asset URL) with file input handling.
+#[derive(Debug, Clone)]
+pub struct FileUpload {
+    name: String,
+    label: String,
+    required: bool,
+}
+
+impl FileUpload {
+    pub fn for_lens<M>(path: toasty::stmt::Path<M, String>) -> Self
+    where
+        M: toasty::schema::Model,
+    {
+        let (field_name, label_str) = lens_field_name_and_label(path);
+        Self {
+            name: field_name,
+            label: label_str,
+            required: false,
+        }
+    }
+
+    pub fn r#for<M>(path: toasty::stmt::Path<M, String>) -> Self
+    where
+        M: toasty::schema::Model,
+    {
+        Self::for_lens(path)
+    }
+
+    pub fn required(mut self) -> Self {
+        self.required = true;
+        self
+    }
+
+    pub fn label(mut self, l: impl Into<String>) -> Self {
+        self.label = l.into();
+        self
+    }
+
+    pub fn field_name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn validate(&self, value: &str) -> Vec<String> {
+        let v = value.trim();
+        let mut errs = Vec::new();
+        if self.required && v.is_empty() {
+            errs.push(format!("{} is required", self.label));
+        }
+        errs
+    }
+
+    pub(crate) async fn render_with(
+        &self,
+        cx: &Cx,
+        value: Option<&str>,
+        errors: &[String],
+    ) -> Result<View> {
+        let label_text = self.label.clone();
+        let name = self.name.clone();
+        let required = self.required;
+        let has_error = !errors.is_empty();
+        let error_text = errors.first().cloned().unwrap_or_default();
+        let value_owned = value.map(|s| s.to_string());
+        view! {
+            cx =>
+            <div class="grid gap-1.5">
+                ui_label(
+                    attrs: attributes! { for=(name.clone()) },
+                    (label_text.clone())
+                    if required {
+                        <span class="text-destructive" aria-hidden="true">"*"</span>
+                    }
+                )
+                <input
+                    id=(name.clone())
+                    type="file"
+                    name=(name.clone())
+                    value=(value_owned.clone())
+                    required=(required)
+                    aria-required=(required.then_some("true"))
+                    aria-invalid=(if has_error { "true" } else { "false" })
+                    class="flex h-9 w-full rounded-md border border-border bg-background px-3 py-1 text-sm shadow-xs"
+                >
+                <p class="text-sm text-destructive" aria-live="polite">(error_text)</p>
+            </div>
+        }
+    }
+}
+
+/// Repeater — nested Schema repeated as a group (in-memory for v1, no DB array).
+#[derive(Debug)]
+pub struct Repeater {
+    label: String,
+    children: Option<Schema>,
+    required: bool,
+}
+
+impl Repeater {
+    pub fn new(label: impl Into<String>) -> Self {
+        Self {
+            label: label.into(),
+            children: None,
+            required: false,
+        }
+    }
+
+    pub fn schema(mut self, children: impl IntoSchema) -> Self {
+        self.children = Some(children.into_schema());
+        self
+    }
+
+    pub fn required(mut self) -> Self {
+        self.required = true;
+        self
+    }
+
+    pub fn label(&self) -> &str {
+        &self.label
+    }
+
+    pub(crate) async fn render_with(
+        &self,
+        cx: &Cx,
+        values: &HashMap<String, String>,
+        errors: &HashMap<String, Vec<String>>,
+    ) -> Result<View> {
+        let title = self.label.clone();
+        if let Some(schema) = &self.children {
+            let child_view = schema.render_with(cx, values, errors).await?;
+            view! {
+                cx =>
+                <div class="rounded-md border border-border p-4 flex flex-col gap-4">
+                    <h4 class="font-medium text-foreground">(title)</h4>
+                    <div class="grid gap-4">
+                        (child_view)
+                    </div>
+                </div>
+            }
+        } else {
+            view! {
+                cx =>
+                <div class="rounded-md border border-border p-4">
+                    <h4 class="font-medium text-foreground">(title)</h4>
+                </div>
+            }
+        }
+    }
+}
+
+/// Tabs — layout primitive for tabbed content (in-memory for v1, no JS).
+#[derive(Debug)]
+pub struct Tabs {
+    children: Option<Schema>,
+}
+
+impl Tabs {
+    pub fn new() -> Self {
+        Self { children: None }
+    }
+
+    pub fn schema(mut self, children: impl IntoSchema) -> Self {
+        self.children = Some(children.into_schema());
+        self
+    }
+
+    pub(crate) async fn render_with(
+        &self,
+        cx: &Cx,
+        values: &HashMap<String, String>,
+        errors: &HashMap<String, Vec<String>>,
+    ) -> Result<View> {
+        if let Some(schema) = &self.children {
+            let child_view = schema.render_with(cx, values, errors).await?;
+            view! { cx => <div class="flex flex-col gap-4 border border-border rounded-md p-4">(child_view)</div> }
+        } else {
+            view! { cx => <div class="flex flex-col gap-4 border border-border rounded-md p-4"></div> }
+        }
+    }
+}
+
+impl Default for Tabs {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Wizard — step-based layout (in-memory for v1, no JS).
+#[derive(Debug)]
+pub struct Wizard {
+    children: Option<Schema>,
+}
+
+impl Wizard {
+    pub fn new() -> Self {
+        Self { children: None }
+    }
+
+    pub fn schema(mut self, children: impl IntoSchema) -> Self {
+        self.children = Some(children.into_schema());
+        self
+    }
+
+    pub(crate) async fn render_with(
+        &self,
+        cx: &Cx,
+        values: &HashMap<String, String>,
+        errors: &HashMap<String, Vec<String>>,
+    ) -> Result<View> {
+        if let Some(schema) = &self.children {
+            let child_view = schema.render_with(cx, values, errors).await?;
+            view! { cx => <div class="flex flex-col gap-4 border border-border rounded-md p-4">(child_view)</div> }
+        } else {
+            view! { cx => <div class="flex flex-col gap-4 border border-border rounded-md p-4"></div> }
+        }
+    }
+}
+
+impl Default for Wizard {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Node / Schema
 // ---------------------------------------------------------------------------
 
-// Phase 1: single field variant (TextInput). Will generalize to `Field` (enum of all field types).
 #[derive(Debug)]
 enum Node {
     Text(Text),
     TextInput(Box<TextInput>),
     Select(Box<Select>),
+    FileUpload(Box<FileUpload>),
+    Repeater(Box<Repeater>),
+    Tabs(Box<Tabs>),
+    Wizard(Box<Wizard>),
     Section(Box<Section>),
     Group(Box<Group>),
     Grid(Box<Grid>),
@@ -729,6 +955,17 @@ impl Node {
                     .unwrap_or(&[]);
                 Box::pin(f.render_with(cx, val, errs)).await
             }
+            Node::FileUpload(f) => {
+                let val = values.get(&f.field_name().to_string()).map(|s| s.as_str());
+                let errs: &[String] = errors
+                    .get(&f.field_name().to_string())
+                    .map(|v| v.as_slice())
+                    .unwrap_or(&[]);
+                Box::pin(f.render_with(cx, val, errs)).await
+            }
+            Node::Repeater(r) => Box::pin(r.render_with(cx, values, errors)).await,
+            Node::Tabs(t) => Box::pin(t.render_with(cx, values, errors)).await,
+            Node::Wizard(w) => Box::pin(w.render_with(cx, values, errors)).await,
             Node::Section(s) => Box::pin(s.render_with(cx, values, errors)).await,
             Node::Group(g) => Box::pin(g.render_with(cx, values, errors)).await,
             Node::Grid(g) => Box::pin(g.render_with(cx, values, errors)).await,
@@ -764,6 +1001,26 @@ impl From<Grid> for Node {
 impl From<Select> for Node {
     fn from(v: Select) -> Self {
         Node::Select(Box::new(v))
+    }
+}
+impl From<FileUpload> for Node {
+    fn from(v: FileUpload) -> Self {
+        Node::FileUpload(Box::new(v))
+    }
+}
+impl From<Repeater> for Node {
+    fn from(v: Repeater) -> Self {
+        Node::Repeater(Box::new(v))
+    }
+}
+impl From<Tabs> for Node {
+    fn from(v: Tabs) -> Self {
+        Node::Tabs(Box::new(v))
+    }
+}
+impl From<Wizard> for Node {
+    fn from(v: Wizard) -> Self {
+        Node::Wizard(Box::new(v))
     }
 }
 
@@ -835,6 +1092,15 @@ impl Schema {
         map
     }
 
+    /// Build a map of `field_name -> FileUpload` for validation.
+    pub fn file_uploads(&self) -> HashMap<String, FileUpload> {
+        let mut map = HashMap::new();
+        for node in &self.nodes {
+            collect_file_uploads(node, &mut map);
+        }
+        map
+    }
+
     pub fn validate(&self, values: &HashMap<String, String>) -> HashMap<String, Vec<String>> {
         let inputs = self.text_inputs();
         let mut errors: HashMap<String, Vec<String>> = HashMap::new();
@@ -848,6 +1114,13 @@ impl Schema {
         for (name, sel) in self.select_inputs() {
             let val = values.get(&name).map(|s| s.as_str()).unwrap_or("");
             let errs = sel.validate(val);
+            if !errs.is_empty() {
+                errors.insert(name, errs);
+            }
+        }
+        for (name, fu) in self.file_uploads() {
+            let val = values.get(&name).map(|s| s.as_str()).unwrap_or("");
+            let errs = fu.validate(val);
             if !errs.is_empty() {
                 errors.insert(name, errs);
             }
@@ -889,6 +1162,28 @@ fn collect_field_names(node: &Node, out: &mut Vec<String>) {
     match node {
         Node::TextInput(f) => out.push(f.field_name().to_string()),
         Node::Select(f) => out.push(f.field_name().to_string()),
+        Node::FileUpload(f) => out.push(f.field_name().to_string()),
+        Node::Repeater(r) => {
+            if let Some(schema) = &r.children {
+                for n in &schema.nodes {
+                    collect_field_names(n, out);
+                }
+            }
+        }
+        Node::Tabs(t) => {
+            if let Some(schema) = &t.children {
+                for n in &schema.nodes {
+                    collect_field_names(n, out);
+                }
+            }
+        }
+        Node::Wizard(w) => {
+            if let Some(schema) = &w.children {
+                for n in &schema.nodes {
+                    collect_field_names(n, out);
+                }
+            }
+        }
         Node::Section(s) => {
             if let Some(schema) = &s.children {
                 for n in &schema.nodes {
@@ -920,6 +1215,28 @@ fn collect_inputs(node: &Node, map: &mut HashMap<String, TextInput>) {
             map.insert(f.field_name().to_string(), (**f).clone());
         }
         Node::Select(_) => {}
+        Node::FileUpload(_) => {}
+        Node::Repeater(r) => {
+            if let Some(schema) = &r.children {
+                for n in &schema.nodes {
+                    collect_inputs(n, map);
+                }
+            }
+        }
+        Node::Tabs(t) => {
+            if let Some(schema) = &t.children {
+                for n in &schema.nodes {
+                    collect_inputs(n, map);
+                }
+            }
+        }
+        Node::Wizard(w) => {
+            if let Some(schema) = &w.children {
+                for n in &schema.nodes {
+                    collect_inputs(n, map);
+                }
+            }
+        }
         Node::Section(s) => {
             if let Some(schema) = &s.children {
                 for n in &schema.nodes {
@@ -951,6 +1268,28 @@ fn collect_selects(node: &Node, map: &mut HashMap<String, Select>) {
             map.insert(f.field_name().to_string(), (**f).clone());
         }
         Node::TextInput(_) => {}
+        Node::FileUpload(_) => {}
+        Node::Repeater(r) => {
+            if let Some(schema) = &r.children {
+                for n in &schema.nodes {
+                    collect_selects(n, map);
+                }
+            }
+        }
+        Node::Tabs(t) => {
+            if let Some(schema) = &t.children {
+                for n in &schema.nodes {
+                    collect_selects(n, map);
+                }
+            }
+        }
+        Node::Wizard(w) => {
+            if let Some(schema) = &w.children {
+                for n in &schema.nodes {
+                    collect_selects(n, map);
+                }
+            }
+        }
         Node::Section(s) => {
             if let Some(schema) = &s.children {
                 for n in &schema.nodes {
@@ -969,6 +1308,59 @@ fn collect_selects(node: &Node, map: &mut HashMap<String, Select>) {
             if let Some(schema) = &g.children {
                 for n in &schema.nodes {
                     collect_selects(n, map);
+                }
+            }
+        }
+        Node::Text(_) => {}
+    }
+}
+
+fn collect_file_uploads(node: &Node, map: &mut HashMap<String, FileUpload>) {
+    match node {
+        Node::FileUpload(f) => {
+            map.insert(f.field_name().to_string(), (**f).clone());
+        }
+        Node::TextInput(_) => {}
+        Node::Select(_) => {}
+        Node::Repeater(r) => {
+            if let Some(schema) = &r.children {
+                for n in &schema.nodes {
+                    collect_file_uploads(n, map);
+                }
+            }
+        }
+        Node::Tabs(t) => {
+            if let Some(schema) = &t.children {
+                for n in &schema.nodes {
+                    collect_file_uploads(n, map);
+                }
+            }
+        }
+        Node::Wizard(w) => {
+            if let Some(schema) = &w.children {
+                for n in &schema.nodes {
+                    collect_file_uploads(n, map);
+                }
+            }
+        }
+        Node::Section(s) => {
+            if let Some(schema) = &s.children {
+                for n in &schema.nodes {
+                    collect_file_uploads(n, map);
+                }
+            }
+        }
+        Node::Group(g) => {
+            if let Some(schema) = &g.children {
+                for n in &schema.nodes {
+                    collect_file_uploads(n, map);
+                }
+            }
+        }
+        Node::Grid(g) => {
+            if let Some(schema) = &g.children {
+                for n in &schema.nodes {
+                    collect_file_uploads(n, map);
                 }
             }
         }
@@ -1025,6 +1417,34 @@ impl IntoSchema for TextInput {
     }
 }
 impl IntoSchema for Select {
+    fn into_schema(self) -> Schema {
+        Schema {
+            nodes: vec![self.into()],
+        }
+    }
+}
+impl IntoSchema for FileUpload {
+    fn into_schema(self) -> Schema {
+        Schema {
+            nodes: vec![self.into()],
+        }
+    }
+}
+impl IntoSchema for Repeater {
+    fn into_schema(self) -> Schema {
+        Schema {
+            nodes: vec![self.into()],
+        }
+    }
+}
+impl IntoSchema for Tabs {
+    fn into_schema(self) -> Schema {
+        Schema {
+            nodes: vec![self.into()],
+        }
+    }
+}
+impl IntoSchema for Wizard {
     fn into_schema(self) -> Schema {
         Schema {
             nodes: vec![self.into()],

@@ -79,7 +79,9 @@ async fn posts_create_empty_author_shows_required_error() {
                 .uri("/admin/posts/create")
                 .method(Method::POST)
                 .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
-                .body(Body::from("title=Test+Post&author_id="))
+                .body(Body::from(
+                    "title=Test+Post&author_id=&image_path=/tmp/a.jpg&tags=a",
+                ))
                 .unwrap(),
         )
         .await;
@@ -114,7 +116,10 @@ async fn posts_create_invalid_author_shows_invalid_error() {
                 .uri("/admin/posts/create")
                 .method(Method::POST)
                 .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
-                .body(Body::from(format!("title=Test+Post&author_id={}", fake_id)))
+                .body(Body::from(format!(
+                    "title=Test+Post&author_id={}&image_path=/tmp/a.jpg&tags=a",
+                    fake_id
+                )))
                 .unwrap(),
         )
         .await;
@@ -146,7 +151,10 @@ async fn posts_create_valid_redirects_and_creates() {
                 .uri("/admin/posts/create")
                 .method(Method::POST)
                 .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
-                .body(Body::from(format!("title=New+Post&author_id={}", first.id)))
+                .body(Body::from(format!(
+                    "title=New+Post&author_id={}&image_path=/tmp/new.jpg&tags=new",
+                    first.id
+                )))
                 .unwrap(),
         )
         .await;
@@ -182,7 +190,10 @@ async fn posts_edit_hydrates_author() {
                 .uri("/admin/posts/create")
                 .method(Method::POST)
                 .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
-                .body(Body::from(format!("title=EditMe&author_id={}", first.id)))
+                .body(Body::from(format!(
+                    "title=EditMe&author_id={}&image_path=/tmp/edit.jpg&tags=edit",
+                    first.id
+                )))
                 .unwrap(),
         )
         .await;

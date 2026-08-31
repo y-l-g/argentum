@@ -31,5 +31,8 @@ pub use resource::{
     Column, DateFilter, Filter, IntoFilters, NavigationItem, Pages, Resource, RowKey, SelectFilter,
     Sort, Table, TablePage, TableState, TernaryFilter, TextColumn,
 };
-pub use schema::{FieldLens, Grid, Group, IntoSchema, Schema, Section, Select, Text, TextInput};
+pub use schema::{
+    FieldLens, FileUpload, Grid, Group, IntoSchema, Repeater, Schema, Section, Select, Tabs, Text,
+    TextInput, Wizard,
+};
 pub use tenancy::{Tenant, tenant_id};

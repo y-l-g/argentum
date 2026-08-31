@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use argentum_core::{
-    DateFilter, NavigationItem, Panel, Resource, Schema, Select, SelectFilter, Table,
-    TernaryFilter, TextColumn, TextInput, tenant_id,
+    DateFilter, FileUpload, Grid, NavigationItem, Panel, Repeater, Resource, Schema, Section,
+    Select, SelectFilter, Table, TernaryFilter, TextColumn, TextInput, tenant_id,
 };
 use toasty::Db;
 use topcoat::{
@@ -531,11 +531,23 @@ impl Resource for PostResource {
 
     fn form(_cx: &Cx) -> Schema {
         Schema::new((
-            TextInput::r#for(Post::fields().title()).required(),
-            Select::r#for(Post::fields().author_id())
-                .relationship::<AuthorResource>(AuthorResource::query, |a: &Author| a.name.clone())
-                .required()
-                .label("Author"),
+            Section::new("Post Details").schema((
+                TextInput::r#for(Post::fields().title()).required(),
+                Select::r#for(Post::fields().author_id())
+                    .relationship::<AuthorResource>(AuthorResource::query, |a: &Author| {
+                        a.name.clone()
+                    })
+                    .required()
+                    .label("Author"),
+            )),
+            Grid::new(2).schema((
+                FileUpload::r#for(Post::fields().image_path()).required(),
+                Repeater::new("Tags").schema(
+                    TextInput::r#for(Post::fields().tags())
+                        .required()
+                        .label("Tag"),
+                ),
+            )),
         ))
     }
 
@@ -543,6 +555,8 @@ impl Resource for PostResource {
         let mut m = HashMap::new();
         m.insert("title".to_string(), record.title.clone());
         m.insert("author_id".to_string(), record.author_id.to_string());
+        m.insert("image_path".to_string(), record.image_path.clone());
+        m.insert("tags".to_string(), record.tags.clone());
         m
     }
 
@@ -584,6 +598,18 @@ impl Resource for PostResource {
                     "author not found",
                 )));
             }
+            let image_path = values
+                .get("image_path")
+                .cloned()
+                .unwrap_or_default()
+                .trim()
+                .to_string();
+            let tags = values
+                .get("tags")
+                .cloned()
+                .unwrap_or_default()
+                .trim()
+                .to_string();
             let tid = tenant_id(&cx).unwrap_or(uuid::Uuid::nil());
             toasty::create!(Post {
                 tenant_id: tid,
@@ -592,6 +618,8 @@ impl Resource for PostResource {
                 status: "draft".to_string(),
                 featured: false,
                 created_at: jiff::Timestamp::now(),
+                image_path: image_path,
+                tags: tags,
                 author_id: author_id,
             })
             .exec(&mut db)
@@ -637,9 +665,23 @@ impl Resource for PostResource {
             let author_id = author_id_str.parse::<uuid::Uuid>().map_err(|e| {
                 topcoat::Error::from(std::io::Error::other(format!("invalid author_id: {e}")))
             })?;
+            let image_path = values
+                .get("image_path")
+                .cloned()
+                .unwrap_or_default()
+                .trim()
+                .to_string();
+            let tags = values
+                .get("tags")
+                .cloned()
+                .unwrap_or_default()
+                .trim()
+                .to_string();
             toasty::update!(rec {
                 title: title,
-                author_id: author_id
+                author_id: author_id,
+                image_path: image_path,
+                tags: tags
             })
             .exec(&mut db)
             .await
