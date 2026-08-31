@@ -156,6 +156,20 @@ trait Model {
 
 ---
 
+## Phase 2 — FileUpload / Repeater / Tenancy / Relations — no new upstream gap
+
+**Where:** `crates/argentum-core/src/schema.rs` (`FileUpload`, `Repeater`), `crates/argentum-core/src/tenancy.rs` (`Tenant`, `tenant_id`), `examples/showcase/src/app.rs` (`PostResource::query` `include(author)` + `include(comments)` + `TextColumn::computed` / `Select::relationship`).
+
+**Today (accurate as of 2026-08-31):** Phase 2 ships without new upstream APIs. `FileUpload` stores a `String` path (`image_path`) and `Repeater` is a nested `Schema` (`tags`) — both are local form state, no Toasty asset/file handling needed. Tenancy is `Cx::with(Tenant(id))` + `tenant_id(cx)` reading `request_context::<Tenant>` → `Parts.extensions::<Tenant>` → `x-tenant-id` header (for `Router::handle` tests), and `Resource::query(cx)` filters `tenant_id().eq(tid)` — no Tower layer. Relations are `Deferred<Author>` + `include(Post::fields().author())` (one round-trip, `NestedMerge`, no N+1) + `TextColumn::computed` and `Select::for(...).relationship(AuthorResource::query, |a| a.name.clone())` reusing `Resource::query` so tenancy is preserved (ADR-0011). The `author include` gap is **retired**: it was never an upstream gap, just the use of existing `include` + `computed`/`relationship` on the `Resource::query` seam. `Table::group_by` + `to_csv` are in-memory (`BTreeMap` count) and CSV is via `GET /admin/{slug}/export` (`text/csv` + `Content-Disposition`), not requiring `GROUP BY` SQL or `Sse` streaming.
+
+**Why not fragile:** no `toasty_core` import beyond the two `schema.rs` bridge helpers already documented above; no new Topcoat API.
+
+**Clean upstream API:** none needed. If Toasty exposes `GROUP BY`/`SUM` or file-asset handling, `Table::group_by` and `FileUpload` can delegate without changing `Resource`s; until then the in-memory shims stay.
+
+**Argentum plan:** keep as-is; do not add entries for `FileUpload`/`Repeater`/`Tenant`/`author include`. If a future phase needs SQL `GROUP BY` or binary file handling, document the new gap then.
+
+---
+
 ## How to retire entries
 
 1. Add the upstream API (or feature-flag it).
@@ -163,4 +177,4 @@ trait Model {
 3. Update the bridge helpers to delegate to the new public API, keep signature.
 4. Delete the entry here and reference the Toasty/Topcoat PR that closed it.
 
-Last updated: 2026-08-30 (instance→field-value extraction gap documented with the typed Table projection, GH #10). 2026-08-29: memoize error conversion + missing unique-violation predicate documented; showcase stringification corrected. 2026-08-28: Tailwind `@source` moved to ADR-0006 (internal), policy added: use internals freely and document missing public APIs here.
+Last updated: 2026-08-31 (Phase 2: FileUpload/Repeater/Tenancy/Relations need no upstream gap, author include gap retired; grouping/export are in-memory shims). 2026-08-30 (instance→field-value extraction gap documented with the typed Table projection, GH #10). 2026-08-29: memoize error conversion + missing unique-violation predicate documented; showcase stringification corrected. 2026-08-28: Tailwind `@source` moved to ADR-0006 (internal), policy added: use internals freely and document missing public APIs here.

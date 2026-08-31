@@ -2,7 +2,7 @@
 
 > **Filament for Rust** — a server-rendered admin toolkit on **Topcoat** (UI / reactivity) and **Toasty** (ORM).
 
-Status: **Phase 1 shipped** — three crates exist (`argentum-core`, `argentum-macros`, `argentum-ui`) plus a showcase example. Shipped: the typed-lens vertical slice (ADR-0005), declarative `Panel` resource routes and navigation (ADR-0008), a real list view — search toolbar, sort links, cursor pagination, honest empty states (ADR-0009 shell) — the `db(cx)`/`#[memoize]` glue, and **single-resource CRUD** (spec #57, tickets #58–#62): `Table` as `Boundary` with `#[memoize]` dedup, `Schema` hydrates/dehydrates `Create`/`Update` via typed lenses + inline validation, `Action` via `#[procedure]` in transaction re-fetching via `Resource::query` and checking `Policy` (default-deny), `Notification` in `Shell` `Boundary` surviving `Table` swaps, showcase at `/admin/users` (create/edit/delete/bulk-delete, all policy-checked). Remaining design targets (Page, Theme/Token, Filter UI, Relations) tracked in GH issue #38. The sections below mix shipped design with the original spec; where they disagree, the **code and `docs/adr/` win**.
+Status: **Phase 2 shipped** — three crates exist (`argentum-core`, `argentum-macros`, `argentum-ui`) plus a showcase example. Shipped: the typed-lens vertical slice (ADR-0005), declarative `Panel` resource routes and navigation (ADR-0008), a real list view — search toolbar, sort links, cursor pagination, honest empty states (ADR-0009 shell) — the `db(cx)`/`#[memoize]` glue, **single-resource CRUD** (spec #57, tickets #58–#62): `Table` as `Boundary` with `#[memoize]` dedup, `Schema` hydrates/dehydrates `Create`/`Update` via typed lenses + inline validation, `Action` via `#[procedure]` in transaction re-fetching via `Resource::query` and checking `Policy` (default-deny), `Notification` in `Shell` `Boundary` surviving `Table` swaps, showcase at `/admin/users` (create/edit/delete/bulk-delete, all policy-checked), and **Phase 2 — Relations & polish** (spec #63, tickets #64–#71, ADR-0011): `Post` with `BelongsTo author` (`TextColumn::computed("Author", |p| p.author.get()…) after `include(author)` + `Select::for(author_id).relationship(AuthorResource::query, |a| a.name.clone())`), `HasMany comments` via `include`, `FileUpload`/`Repeater` + `Section`/`Grid`, `SelectFilter`/`TernaryFilter`/`DateFilter` via `FilterBuilder` + `TableState ?filters=`, in-memory `group_by` + `count` summarizer + `to_csv()`, CSV export via `GET /admin/{slug}/export` (`text/csv` + `Content-Disposition`), tenancy `cx.with(Tenant)` + `tenant_id(cx)` (`x-tenant-id` header / `Cx` extensions) + per-tenant `Policy`, `Panel::brand(Brand{name,logo})` + `Panel::dark_mode(bool)` in `Shell`, and `benchmarks/` Phase-2 budget (50 rows, 2 includes, `<40ms p50`). Remaining `Page`/`Theme`/`ChartWidget`/`via` gaps tracked in GH issue #38. The sections below mix shipped design with the original spec; where they disagree, the **code and `docs/adr/` win**.
 
 ---
 
@@ -346,11 +346,14 @@ Each phase is shippable and benchable (`benchmarks/` vs `axum-maud`/`leptos`). N
 - Model: `User(id, name, email, role, active, created_at)` with `#[index]` on searchable columns.
 - Exit: `cargo run` at `/admin/users` with search/sort/paginate/create/edit/delete/bulk-delete, all policy-checked, no N+1 on list, `key: &row.id` on every `for` row. Showcase proves it end-to-end (see `examples/showcase/tests/{admin,create_check,edit_check,delete_check,bulk_check}.rs`).
 
-### Phase 2 — Relations & polish
+### Phase 2 — Relations & polish — **shipped via spec #63, tickets #64–#71 (ADR-0011)**
 
-- Relations: `HasMany`/`BelongsTo` via `include` in tables and `Select` lookups in forms. No `via` (SQL-only) in tables for v1.
-- More fields/filters (`FileUpload`, `Repeater`, `SelectFilter`/`TernaryFilter`/`DateFilter`), grouping/summarizers (in-memory for v1), export (CSV via `Sse` / download route).
-- Tenancy (`cx.with(Tenant)`) + per-tenant `canViewAny`.
+- `Resource::query` stays the single tenancy seam: `PostResource::query` + `include(author)` + `include(comments)` (one round-trip, `NestedMerge`, no N+1), `TextColumn::computed` for `author.name`/`author.email`/`comments` count, `Select::for(author_id).relationship(AuthorResource::query, |a| a.name.clone())` with `required`/`exists` inline validation (tickets #64, #66).
+- More fields/filters: `FileUpload` (`image_path`) + `Repeater` (`tags`) in `Section`/`Grid` with validation (ticket #68), `SelectFilter`/`TernaryFilter`/`DateFilter` via `FilterBuilder` (`Expr::and_all`) + `TableState` `?filters=` for loader and render (ticket #67), in-memory `group_by(|p| p.status.clone())` + `count` summarizer + `Table::to_csv()` (RFC4180, `text/csv` + `attachment; filename="posts.csv"`) via `GET /admin/{slug}/export` reusing `Resource::query` + filters/sort (ticket #71 via `Panel` + `Table::group_by`).
+- Tenancy `cx.with(Tenant(id))` + `tenant_id(cx)` (`x-tenant-id` header / `Parts.extensions`) + `Resource::query` `filter(tenant_id().eq(...))` + per-tenant `Policy::canViewAny` (403) / `canView` (404 via query) (ticket #69).
+- `Panel::brand(Brand { name, logo })` + `Panel::dark_mode(bool)` declarative seam (`Shell` header, `theme.js` toggle via `cookie`/`localStorage`, `--sidebar-*` tokens per ADR-0009) (ticket #65).
+- `benchmarks/` Phase-2 harness: `cargo run --manifest-path benchmarks/argentum/Cargo.toml -- --bench` (50 rows, 2 includes, `#[memoize]` timing, `<40ms p50`) + `./benchmarks/scripts/bench.sh` oha matrix and `verify_parity.sh` (ticket #70).
+- No `via` many-to-many in tables for v1 (SQL-only, join-model query when DynamoDB needed); showcase at `/admin/posts` and `/admin/authors` proves the vertical slice end-to-end.
 
 ### Phase 3 — Streaming & next runtime
 
@@ -364,11 +367,11 @@ Each phase is shippable and benchable (`benchmarks/` vs `axum-maud`/`leptos`). N
 
 ---
 
-## 12. Minimal example (shipped CRUD slice)
+## 12. Minimal example (Phase 2 — Relations & polish)
 
 The declarative Panel path is the shipped API. The complete runnable version,
-including the Tailwind build contract, typed lenses, and full CRUD, lives in
-`examples/showcase/src/app.rs`:
+including the Tailwind build contract, typed lenses, full CRUD, and Phase-2
+relations, lives in `examples/showcase/src/app.rs`:
 
 ```rust
 #[layout("/admin")]
@@ -381,17 +384,58 @@ fn router(db: toasty::Db) -> topcoat::router::Router {
         .app_context(db)
         .assets(AssetBundle::load().expect("generated assets"))
         .shell_assets(tailwind::stylesheet!(), GEIST)
+        .brand(Brand::new("Acme").logo("/logo.svg"))
+        .dark_mode(true)
         .resource::<UserResource>()
+        .resource::<AuthorResource>()
+        .resource::<PostResource>() // Post with author + comments, filters, group_by, export
         .build()
 }
 
+impl Resource for PostResource {
+    type Model = Post;
+    fn query(cx: &Cx) -> toasty::stmt::Query<toasty::stmt::List<Post>> {
+        let mut q = toasty::stmt::Query::<toasty::stmt::List<Post>>::all();
+        if let Some(tid) = tenant_id(cx) { q = q.filter(Post::fields().tenant_id().eq(tid)); }
+        q.include(Post::fields().author().into())
+         .include(Post::fields().comments().into()) // one round-trip, no N+1
+    }
+    fn table(cx: &Cx) -> Table<Post> {
+        Table::r#for(cx)
+            .id(|p: &Post| p.id.to_string())
+            .columns((
+                TextColumn::r#for(Post::fields().title(), |p: &Post| p.title.clone()).searchable().sortable(),
+                TextColumn::computed("Author", |p: &Post| p.author.get().map(|a| a.name.clone()).unwrap_or_default()),
+                TextColumn::computed("Comments", |p: &Post| p.comments.get().len().to_string()),
+            ))
+            .filters((
+                SelectFilter::r#for(Post::fields().status(), vec!["draft".into(), "published".into()]),
+                TernaryFilter::r#for(Post::fields().featured()),
+                DateFilter::r#for(Post::fields().created_at()),
+            ))
+            .group_by(|p: &Post| p.status.clone())
+            .paginate(2)
+    }
+    fn form(cx: &Cx) -> Schema {
+        Schema::new((
+            Section::new("Post Details").schema((
+                TextInput::r#for(Post::fields().title()).required(),
+                Select::r#for(Post::fields().author_id())
+                    .relationship::<AuthorResource>(AuthorResource::query, |a: &Author| a.name.clone())
+                    .required()
+                    .label("Author"),
+            )),
+            Grid::new(2).schema((
+                FileUpload::r#for(Post::fields().image_path()).required(),
+                Repeater::new("Tags").schema(TextInput::r#for(Post::fields().tags()).required().label("Tag")),
+            )),
+        ))
+    }
+}
+
+// UserResource still shows the Phase-1 CRUD slice:
 impl Resource for UserResource {
     type Model = User;
-    fn can_view_any(_cx: &Cx) -> bool { true }
-    fn can_create(_cx: &Cx) -> bool { true }
-    fn can_update(_cx: &Cx, _: &User) -> bool { true }
-    fn can_delete(_cx: &Cx, _: &User) -> bool { true }
-
     fn table(cx: &Cx) -> Table<User> {
         Table::r#for(cx)
             .id(|user: &User| user.id.to_string())
@@ -399,9 +443,8 @@ impl Resource for UserResource {
                 TextColumn::r#for(User::fields().name(), |u: &User| u.name.clone()).searchable().sortable(),
                 TextColumn::r#for(User::fields().email(), |u: &User| u.email.clone()).searchable(),
             ))
-            .paginate(2) // cursor pagination with PK tie-breaker, Boundary by default
+            .paginate(2)
     }
-
     fn form(_cx: &Cx) -> Schema {
         Schema::new((
             TextInput::r#for(User::fields().name()).required(),
