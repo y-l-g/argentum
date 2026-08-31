@@ -1129,6 +1129,7 @@ fn resource_bulk_delete<R: Resource>(cx: &Cx, body: Body) -> ViewFuture<'_> {
 }
 
 /// CSV export — reuses `Resource::query` + `Table` filters/sort, streams `text/csv`.
+#[allow(dead_code)]
 fn resource_export<R: Resource>(cx: &Cx, _body: Body) -> ViewFuture<'_> {
     Box::pin(async move {
         if !R::can_view_any(cx) {
@@ -1159,6 +1160,7 @@ fn resource_export<R: Resource>(cx: &Cx, _body: Body) -> ViewFuture<'_> {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 struct CsvResponse {
     csv: String,
     filename: String,
