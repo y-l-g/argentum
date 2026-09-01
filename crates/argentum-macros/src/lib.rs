@@ -99,20 +99,33 @@ pub fn resource(input: TokenStream) -> TokenStream {
 
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
+    // Resolve the path to `argentum-core` in the consumer crate. `proc-macro-crate`
+    // handles `package = "argentum-core"` renames and `as alias` (GH #52).
+    let krate = {
+        let found = proc_macro_crate::crate_name("argentum-core")
+            .expect("argentum-core is present in Cargo.toml");
+        let name = match found {
+            proc_macro_crate::FoundCrate::Itself => "argentum_core".to_string(),
+            proc_macro_crate::FoundCrate::Name(n) => n,
+        };
+        let ident = syn::Ident::new(&name.replace('-', "_"), proc_macro2::Span::call_site());
+        quote! { ::#ident }
+    };
+
     let expanded = match &args.query {
         Some(path) => quote! {
-            impl #impl_generics ::argentum_core::Resource for #ident #ty_generics #where_clause {
+            impl #impl_generics #krate::Resource for #ident #ty_generics #where_clause {
                 type Model = #model_ty;
-                fn query(cx: &::argentum_core::__macro::Cx)
-                    -> ::argentum_core::__macro::stmt::Query<
-                        ::argentum_core::__macro::stmt::List<Self::Model>>
+                fn query(cx: &#krate::__macro::Cx)
+                    -> #krate::__macro::stmt::Query<
+                        #krate::__macro::stmt::List<Self::Model>>
                 {
                     #path(cx)
                 }
             }
         },
         None => quote! {
-            impl #impl_generics ::argentum_core::Resource for #ident #ty_generics #where_clause {
+            impl #impl_generics #krate::Resource for #ident #ty_generics #where_clause {
                 type Model = #model_ty;
             }
         },
