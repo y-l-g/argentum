@@ -192,9 +192,16 @@ impl TextInput {
         let value_owned = value.map(|s| s.to_string());
         // Beautiful rendering via argentum-ui `label` + `input` with Token classes,
         // proper for/id linking, required star, type branching, and reserved error slot.
+        // `ac-field` / `ac-field--error` / `ac-error` are kept for spec compat (GH #12)
+        // alongside the Tailwind `grid gap-1.5` + `text-destructive` styling.
+        let field_class = if has_error {
+            "ac-field ac-field--error grid gap-1.5"
+        } else {
+            "ac-field grid gap-1.5"
+        };
         view! {
             cx =>
-            <div class="grid gap-1.5">
+            <div class=(field_class)>
                 ui_label(
                     attrs: attributes! { for=(name.clone()) },
                     (label_text.clone())
@@ -214,7 +221,7 @@ impl TextInput {
                         aria-invalid=(if has_error { "true" } else { "false" })
                     }
                 )
-                <p class="text-sm text-destructive" aria-live="polite">(error_text)</p>
+                <p class="ac-error text-sm text-destructive" aria-live="polite">(error_text)</p>
             </div>
         }
     }
@@ -426,9 +433,14 @@ impl Select {
             option_views
                 .push(view! { cx => <option value=(val_c) selected=(selected)>(lab_c)</option> }?);
         }
+        let field_class = if has_error {
+            "ac-field ac-field--error grid gap-1.5"
+        } else {
+            "ac-field grid gap-1.5"
+        };
         view! {
             cx =>
-            <div class="grid gap-1.5">
+            <div class=(field_class)>
                 argentum_ui::label(
                     attrs: attributes! { for=(name.clone()) },
                     (label_text.clone())
@@ -448,7 +460,7 @@ impl Select {
                         (opt)
                     }
                 </select>
-                <p class="text-sm text-destructive" aria-live="polite">(error_text)</p>
+                <p class="ac-error text-sm text-destructive" aria-live="polite">(error_text)</p>
             </div>
         }
     }
@@ -836,7 +848,7 @@ impl FileUpload {
     pub(crate) async fn render_with(
         &self,
         cx: &Cx,
-        value: Option<&str>,
+        _value: Option<&str>,
         errors: &[String],
     ) -> Result<View> {
         let label_text = self.label.clone();
@@ -844,10 +856,14 @@ impl FileUpload {
         let required = self.required;
         let has_error = !errors.is_empty();
         let error_text = errors.first().cloned().unwrap_or_default();
-        let value_owned = value.map(|s| s.to_string());
+        let field_class = if has_error {
+            "ac-field ac-field--error grid gap-1.5"
+        } else {
+            "ac-field grid gap-1.5"
+        };
         view! {
             cx =>
-            <div class="grid gap-1.5">
+            <div class=(field_class)>
                 ui_label(
                     attrs: attributes! { for=(name.clone()) },
                     (label_text.clone())
@@ -859,13 +875,12 @@ impl FileUpload {
                     id=(name.clone())
                     type="file"
                     name=(name.clone())
-                    value=(value_owned.clone())
                     required=(required)
                     aria-required=(required.then_some("true"))
                     aria-invalid=(if has_error { "true" } else { "false" })
                     class="flex h-9 w-full rounded-md border border-border bg-background px-3 py-1 text-sm shadow-xs"
                 >
-                <p class="text-sm text-destructive" aria-live="polite">(error_text)</p>
+                <p class="ac-error text-sm text-destructive" aria-live="polite">(error_text)</p>
             </div>
         }
     }
