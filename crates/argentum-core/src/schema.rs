@@ -1211,7 +1211,73 @@ impl Schema {
                 errors.insert(name, errs);
             }
         }
+        // Repeater `required` was stored but never validated (GH #75).
+        self.validate_repeaters(values, &mut errors);
         errors
+    }
+
+    fn validate_repeaters(
+        &self,
+        values: &HashMap<String, String>,
+        errors: &mut HashMap<String, Vec<String>>,
+    ) {
+        fn walk(nodes: &[Node], values: &HashMap<String, String>, errors: &mut HashMap<String, Vec<String>>) {
+            for node in nodes {
+                match node {
+                    Node::Repeater(r) => {
+                        if r.required {
+                            let inner_names = r
+                                .children
+                                .as_ref()
+                                .map(|s| s.field_names())
+                                .unwrap_or_default();
+                            let all_empty = if inner_names.is_empty() {
+                                true
+                            } else {
+                                inner_names.iter().all(|n| {
+                                    values.get(n).map(|v| v.trim().is_empty()).unwrap_or(true)
+                                })
+                            };
+                            if all_empty {
+                                errors.entry(r.label.clone()).or_insert_with(|| {
+                                    vec![format!("{} is required", r.label)]
+                                });
+                            }
+                        }
+                        if let Some(child) = &r.children {
+                            walk(&child.nodes, values, errors);
+                        }
+                    }
+                    Node::Section(s) => {
+                        if let Some(child) = &s.children {
+                            walk(&child.nodes, values, errors);
+                        }
+                    }
+                    Node::Group(g) => {
+                        if let Some(child) = &g.children {
+                            walk(&child.nodes, values, errors);
+                        }
+                    }
+                    Node::Grid(g) => {
+                        if let Some(child) = &g.children {
+                            walk(&child.nodes, values, errors);
+                        }
+                    }
+                    Node::Tabs(t) => {
+                        if let Some(child) = &t.children {
+                            walk(&child.nodes, values, errors);
+                        }
+                    }
+                    Node::Wizard(w) => {
+                        if let Some(child) = &w.children {
+                            walk(&child.nodes, values, errors);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        walk(&self.nodes, values, errors);
     }
 
     /// Async validation for Select relationship existence (tenancy-aware).

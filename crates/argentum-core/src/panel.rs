@@ -647,25 +647,33 @@ fn resource_list<R: Resource>(cx: &Cx, _body: Body) -> ViewFuture<'_> {
                     .await
                     .map_err(topcoat::Error::from)?;
                 let mut page = TablePage::from_toasty_page(loaded)?;
-                if let Some(cursor) = page.next_cursor.clone() {
-                    let probe = toasty::stmt::Paginate::new(base_query.clone(), 1)
-                        .after(crate::cursor::decode(&cursor)?)
-                        .exec(&mut db)
-                        .await
-                        .map_err(topcoat::Error::from)?;
-                    if probe.items.is_empty() {
-                        page.next_cursor = None;
+                // Only probe for phantom cursors when the page is full
+                // (`len == per_page`); a short page cannot have a next page
+                // and probing would be a wasted round-trip (GH #75).
+                if page.rows.len() == per_page {
+                    if let Some(cursor) = page.next_cursor.clone() {
+                        let probe = toasty::stmt::Paginate::new(base_query.clone(), 1)
+                            .after(crate::cursor::decode(&cursor)?)
+                            .exec(&mut db)
+                            .await
+                            .map_err(topcoat::Error::from)?;
+                        if probe.items.is_empty() {
+                            page.next_cursor = None;
+                        }
                     }
-                }
-                if let Some(cursor) = page.prev_cursor.clone() {
-                    let probe = toasty::stmt::Paginate::new(base_query.clone(), 1)
-                        .before(crate::cursor::decode(&cursor)?)
-                        .exec(&mut db)
-                        .await
-                        .map_err(topcoat::Error::from)?;
-                    if probe.items.is_empty() {
-                        page.prev_cursor = None;
+                    if let Some(cursor) = page.prev_cursor.clone() {
+                        let probe = toasty::stmt::Paginate::new(base_query.clone(), 1)
+                            .before(crate::cursor::decode(&cursor)?)
+                            .exec(&mut db)
+                            .await
+                            .map_err(topcoat::Error::from)?;
+                        if probe.items.is_empty() {
+                            page.prev_cursor = None;
+                        }
                     }
+                } else {
+                    // Short page → no next, keep prev as-is (has_previous already correct).
+                    page.next_cursor = None;
                 }
                 page
             }
@@ -764,6 +772,13 @@ async fn table_shard(cx: &Cx, q: String) -> Result {
 /// Helper: compute list URL from current request path (e.g. /admin/users/create -> /admin/users).
 fn list_url_for_current(cx: &Cx, fallback_slug: &str) -> String {
     let path = topcoat::router::request::uri(cx).path().to_string();
+    // Derive prefix from the current path so `Panel::new("backoffice")`
+    // doesn't hard-code `/admin` on fallback (GH #75).
+    let prefix = path
+        .split('/')
+        .nth(1)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("admin");
     if path.ends_with("/create") {
         path.trim_end_matches("/create").to_string()
     } else if path.ends_with("/edit") {
@@ -776,7 +791,7 @@ fn list_url_for_current(cx: &Cx, fallback_slug: &str) -> String {
             let out = segs.join("/");
             if out.is_empty() { "/".to_string() } else { out }
         } else {
-            format!("/admin/{}", fallback_slug)
+            format!("/{}/{}", prefix, fallback_slug)
         }
     } else if path.contains("/delete") || path.contains("/bulk-delete") {
         let mut segs: Vec<&str> = path.split('/').collect();
@@ -790,8 +805,8 @@ fn list_url_for_current(cx: &Cx, fallback_slug: &str) -> String {
         let out = segs.join("/");
         if out.is_empty() { "/".to_string() } else { out }
     } else {
-        // Default to /admin/{slug}
-        format!("/admin/{}", fallback_slug)
+        // Default to /{prefix}/{slug}
+        format!("/{}/{}", prefix, fallback_slug)
     }
 }
 

@@ -983,7 +983,78 @@ impl<M> Table<M> {
         };
         let pager = self.render_pager(cx, &state, &path, page).await?;
 
+        if self.show_skeleton {
+            let bulk_clone = bulk_bar_view.clone();
+            let inner = view! {
+                cx =>
+                <div class="rounded-xl border border-border overflow-hidden">
+                    (bulk_clone)
+                    table(
+                        (head)
+                        table_body(
+                            for i in 0..3 {
+                                table_row(
+                                    key: i,
+                                    for _ in &self.columns {
+                                        table_cell(
+                                            <div
+                                                class="animate-pulse rounded-md bg-foreground/10 h-4 w-full"
+                                            ></div>
+                                        )
+                                    }
+                                    if delete_prefix.is_some() {
+                                        table_cell(
+                                            <div
+                                                class="animate-pulse rounded-md bg-foreground/10 h-4 w-12"
+                                            ></div>
+                                        )
+                                    }
+                                )
+                            }
+                        )
+                    )
+                </div>
+            }?;
+            return if self.is_boundary {
+                view! { cx => <div data-boundary="table">(inner)</div> }
+            } else {
+                Ok(inner)
+            };
+        }
+
+        if page.rows.is_empty() {
+            let empty_cell = self
+                .render_empty_cell(cx, &state, &path, delete_prefix.is_some())
+                .await?;
+            let bulk_clone = bulk_bar_view.clone();
+            let search_clone = search_bar.clone();
+            let filter_clone = filter_bar.clone();
+            let inner = view! {
+                cx =>
+                <div class="rounded-xl border border-border overflow-hidden">
+                    if show_search {
+                        (search_clone.expect("search bar built when enabled"))
+                    }
+                    if show_filters {
+                        (filter_clone.expect("filter bar built when enabled"))
+                    }
+                    (bulk_clone)
+                    table(
+                        (head)
+                        (empty_cell)
+                    )
+                </div>
+            }?;
+            return if self.is_boundary {
+                view! { cx => <div data-boundary="table">(inner)</div> }
+            } else {
+                Ok(inner)
+            };
+        }
+
         // Grouping (in-memory, count summarizer) — when `?group_by=` is present and table has a group key.
+        // Rendered after skeleton/empty so defer shows skeleton and empty shows
+        // the honest empty state even when `?group_by=` is set (GH #75).
         if let (Some(group_fn), Some(_)) = (&self.group_by, &state.group_by) {
             use std::collections::BTreeMap;
             let mut groups: BTreeMap<String, usize> = BTreeMap::new();
@@ -1059,75 +1130,6 @@ impl<M> Table<M> {
             }
         }
 
-        if self.show_skeleton {
-            let bulk_clone = bulk_bar_view.clone();
-            let inner = view! {
-                cx =>
-                <div class="rounded-xl border border-border overflow-hidden">
-                    (bulk_clone)
-                    table(
-                        (head)
-                        table_body(
-                            for i in 0..3 {
-                                table_row(
-                                    key: i,
-                                    for _ in &self.columns {
-                                        table_cell(
-                                            <div
-                                                class="animate-pulse rounded-md bg-foreground/10 h-4 w-full"
-                                            ></div>
-                                        )
-                                    }
-                                    if delete_prefix.is_some() {
-                                        table_cell(
-                                            <div
-                                                class="animate-pulse rounded-md bg-foreground/10 h-4 w-12"
-                                            ></div>
-                                        )
-                                    }
-                                )
-                            }
-                        )
-                    )
-                </div>
-            }?;
-            return if self.is_boundary {
-                view! { cx => <div data-boundary="table">(inner)</div> }
-            } else {
-                Ok(inner)
-            };
-        }
-
-        if page.rows.is_empty() {
-            let empty_cell = self
-                .render_empty_cell(cx, &state, &path, delete_prefix.is_some())
-                .await?;
-            let bulk_clone = bulk_bar_view.clone();
-            let search_clone = search_bar.clone();
-            let filter_clone = filter_bar.clone();
-            let inner = view! {
-                cx =>
-                <div class="rounded-xl border border-border overflow-hidden">
-                    if show_search {
-                        (search_clone.expect("search bar built when enabled"))
-                    }
-                    if show_filters {
-                        (filter_clone.expect("filter bar built when enabled"))
-                    }
-                    (bulk_clone)
-                    table(
-                        (head)
-                        (empty_cell)
-                    )
-                </div>
-            }?;
-            return if self.is_boundary {
-                view! { cx => <div data-boundary="table">(inner)</div> }
-            } else {
-                Ok(inner)
-            };
-        }
-
         let bulk_clone = bulk_bar_view.clone();
         let search_clone = search_bar.clone();
         let filter_clone = filter_bar.clone();
@@ -1192,21 +1194,26 @@ impl<M> Table<M> {
     where
         M: toasty::schema::Model,
     {
+        fn escape_csv(s: &str) -> String {
+            if s.contains(',') || s.contains('"') || s.contains('\n') || s.contains('\r') {
+                format!("\"{}\"", s.replace('"', "\"\""))
+            } else {
+                s.to_string()
+            }
+        }
         let mut out = String::new();
-        let headers: Vec<String> = self.columns.iter().map(|c| c.label().to_string()).collect();
+        let headers: Vec<String> = self
+            .columns
+            .iter()
+            .map(|c| escape_csv(c.label()))
+            .collect();
         out.push_str(&headers.join(","));
         out.push('\n');
         for row in &page.rows {
             let cells: Vec<String> = self
                 .columns
                 .iter()
-                .map(|c| {
-                    let mut cell = c.render_cell(row);
-                    if cell.contains(',') || cell.contains('"') || cell.contains('\n') {
-                        cell = format!("\"{}\"", cell.replace('"', "\"\""));
-                    }
-                    cell
-                })
+                .map(|c| escape_csv(&c.render_cell(row)))
                 .collect();
             out.push_str(&cells.join(","));
             out.push('\n');
