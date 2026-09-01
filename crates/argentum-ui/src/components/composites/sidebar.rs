@@ -368,6 +368,12 @@ pub async fn sidebar_trigger(#[default] mut attrs: Attributes) -> Result {
 /// handler as `sidebar_trigger` (see `assets/sidebar.js`).
 #[component]
 pub async fn sidebar_rail(#[default] mut attrs: Attributes) -> Result {
+    // Mirrors shadcn `SidebarRail` (`sidebar.tsx:282`): a `w-4 -translate-x-1/2`
+    // hit-area with a centered `after:w-[2px]` hairline that only appears on
+    // `hover:after:bg-sidebar-border`. Positioned outside the sidebar
+    // (`group-data-[side=left]:-right-4` / `right`) with resize cursors.
+    // Hidden on mobile (`hidden sm:flex`). The `group-data-[collapsible=offcanvas]`
+    // rules keep it attached when the sidebar is offcanvas.
     view! {
         <button
             data-sidebar="rail"
@@ -375,8 +381,12 @@ pub async fn sidebar_rail(#[default] mut attrs: Attributes) -> Result {
             tabindex="-1"
             title="Toggle sidebar"
             class=(class!(
-                "absolute inset-y-0 right-0 z-20 hidden w-4 -translate-x-1/2 transition-all ease-linear after:absolute after:inset-y-0 after:left-1/2 after:w-[2px] hover:after:bg-sidebar-border group-data-[side=right]:right-0 group-data-[side=right]:left-auto sm:flex",
-                "group-data-[collapsible=offcanvas]:translate-x-0 group-data-[collapsible=offcanvas]:after:left-full",
+                "absolute inset-y-0 z-20 hidden w-4 -translate-x-1/2 transition-all ease-linear after:absolute after:inset-y-0 after:left-1/2 after:w-[2px] hover:after:bg-sidebar-border sm:flex",
+                "in-data-[side=left]:cursor-w-resize in-data-[side=right]:cursor-e-resize",
+                "[[data-side=left][data-state=collapsed]_&]:cursor-e-resize [[data-side=right][data-state=collapsed]_&]:cursor-w-resize",
+                "group-data-[collapsible=offcanvas]:translate-x-0 group-data-[collapsible=offcanvas]:after:left-full hover:group-data-[collapsible=offcanvas]:bg-sidebar",
+                "[[data-side=left][data-collapsible=offcanvas]_&]:-right-2",
+                "[[data-side=right][data-collapsible=offcanvas]_&]:-left-2",
                 attrs.remove("class"),
             ))
             (attrs)

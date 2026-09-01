@@ -403,7 +403,7 @@ impl Panel {
         use argentum_ui::{
             SheetSide, sheet, sheet_content, sidebar, sidebar_content, sidebar_footer,
             sidebar_header, sidebar_inset, sidebar_menu_button, sidebar_menu_item,
-            sidebar_provider, sidebar_rail, sidebar_trigger,
+            sidebar_provider, sidebar_trigger,
         };
 
         let outer_class = extra_class.clone().unwrap_or_default();
@@ -467,6 +467,13 @@ impl Panel {
             sidebar_provider(
                 attrs: attributes! { class=(outer_class) },
                 // Sidebar — fixed inset-y-0 h-svh w-(--sidebar-width), hidden on mobile
+                // `sidebar_rail` is intentionally not rendered here: the footer
+                // `sidebar_trigger` (small ghost icon) is the explicit toggle.
+                // The rail is an edge hit-area (`w-4` with `hover:after:bg-sidebar-border`)
+                // per shadcn `sidebar.tsx:282` — it looks like a big vertical line
+                // on hover and is confusing as a primary toggle. Keep the
+                // component available (`argentum_ui::sidebar_rail`) for opt-in
+                // `variant=inset`/`floating` layouts, but don't render it by default.
                 sidebar(
                     sidebar_header((sidebar_brand))
                     sidebar_content((desktop_navigation))
@@ -476,7 +483,6 @@ impl Panel {
                             (sidebar_theme_toggle)
                         </div>
                     )
-                    sidebar_rail()
                 )
                 // Mobile Sheet drawer — hidden on lg, w-(--sidebar-width-mobile) when open
                 sheet(
