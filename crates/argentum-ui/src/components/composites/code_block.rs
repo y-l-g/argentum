@@ -87,8 +87,7 @@ pub async fn code_block(
     };
     // Deduplicated copy button — shared between highlighted + plain branches.
     // `data-copy-button` is handled by `assets/code_block.js` (clipboard write).
-    let copy_button_class =
-        "absolute right-2 top-2 rounded-md border border-border bg-background px-2 py-1 text-xs text-muted-foreground hover:bg-foreground/5";
+    let copy_button_class = "absolute right-2 top-2 rounded-md border border-border bg-background px-2 py-1 text-xs text-muted-foreground hover:bg-foreground/5";
     if let Some((light, dark)) = themes {
         // `Unescaped` is the sanctioned path for trusted pre-rendered markup
         // (syntect span HTML) — an owned `String`, no leak per render.
@@ -173,7 +172,10 @@ mod tests {
             .unwrap()
             .render(&cx);
         // custom class should be merged onto pres
-        assert!(html.contains("my-class"), "missing custom class in highlighted {html}");
+        assert!(
+            html.contains("my-class"),
+            "missing custom class in highlighted {html}"
+        );
         // id/data-* should survive via outer div
         assert!(
             html.contains("my-id") && html.contains("data-x"),
@@ -188,7 +190,10 @@ mod tests {
         let html = view! { cx_ref => code_block(lang: "text", code: "hello", attrs: attributes!{ id="plain-id" class="plain-class" }) }
             .unwrap()
             .render(&cx);
-        assert!(html.contains("plain-class"), "missing class in plain {html}");
+        assert!(
+            html.contains("plain-class"),
+            "missing class in plain {html}"
+        );
         assert!(html.contains("plain-id"), "missing id in plain {html}");
     }
 }

@@ -503,11 +503,13 @@ where
     M: toasty::schema::Model,
 {
     let core_path: toasty_core::stmt::Path = path.into();
-    let idx = core_path.projection.as_slice().first().copied().unwrap_or(usize::MAX);
-    M::schema()
-        .fields()
-        .get(idx)
-        .is_some_and(|f| f.nullable)
+    let idx = core_path
+        .projection
+        .as_slice()
+        .first()
+        .copied()
+        .unwrap_or(usize::MAX);
+    M::schema().fields().get(idx).is_some_and(|f| f.nullable)
 }
 
 /// Returns whether the field behind a lens has a unique constraint (PK or `#[unique]`/`#[index(unique)]`, GH #11).
@@ -516,7 +518,12 @@ where
     M: toasty::schema::Model,
 {
     let core_path: toasty_core::stmt::Path = path.into();
-    let idx = core_path.projection.as_slice().first().copied().unwrap_or(usize::MAX);
+    let idx = core_path
+        .projection
+        .as_slice()
+        .first()
+        .copied()
+        .unwrap_or(usize::MAX);
     let model = M::schema();
     let field = match model.fields().get(idx) {
         Some(f) => f,
@@ -559,7 +566,12 @@ where
                 .expect("field must have storage name")
                 .to_string()
         })
-        .unwrap_or_else(|| panic!("field index {idx} out of bounds for {}", std::any::type_name::<M>()))
+        .unwrap_or_else(|| {
+            panic!(
+                "field index {idx} out of bounds for {}",
+                std::any::type_name::<M>()
+            )
+        })
 }
 
 pub(crate) fn capitalize(s: &str) -> String {
@@ -1221,7 +1233,11 @@ impl Schema {
         values: &HashMap<String, String>,
         errors: &mut HashMap<String, Vec<String>>,
     ) {
-        fn walk(nodes: &[Node], values: &HashMap<String, String>, errors: &mut HashMap<String, Vec<String>>) {
+        fn walk(
+            nodes: &[Node],
+            values: &HashMap<String, String>,
+            errors: &mut HashMap<String, Vec<String>>,
+        ) {
             for node in nodes {
                 match node {
                     Node::Repeater(r) => {
@@ -1239,9 +1255,9 @@ impl Schema {
                                 })
                             };
                             if all_empty {
-                                errors.entry(r.label.clone()).or_insert_with(|| {
-                                    vec![format!("{} is required", r.label)]
-                                });
+                                errors
+                                    .entry(r.label.clone())
+                                    .or_insert_with(|| vec![format!("{} is required", r.label)]);
                             }
                         }
                         if let Some(child) = &r.children {

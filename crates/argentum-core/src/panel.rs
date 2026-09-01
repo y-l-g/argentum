@@ -1196,8 +1196,6 @@ fn resource_export<R: Resource>(cx: &Cx, _body: Body) -> RouteFuture<'_> {
     })
 }
 
-
-
 /// The panel root: a temporary redirect to the first declared resource's
 /// list, so the mount point is never a dead URL (until Dashboards exist,
 /// GH #38). Filament registers a Dashboard page here.

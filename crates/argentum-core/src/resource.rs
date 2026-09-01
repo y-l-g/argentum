@@ -1202,11 +1202,7 @@ impl<M> Table<M> {
             }
         }
         let mut out = String::new();
-        let headers: Vec<String> = self
-            .columns
-            .iter()
-            .map(|c| escape_csv(c.label()))
-            .collect();
+        let headers: Vec<String> = self.columns.iter().map(|c| escape_csv(c.label())).collect();
         out.push_str(&headers.join(","));
         out.push('\n');
         for row in &page.rows {
