@@ -1164,7 +1164,7 @@ impl Schema {
     }
 
     /// Render the schema to a `View` (no DB access).
-    pub async fn render(&self, cx: &Cx) -> Result<impl View> {
+    pub async fn render<'a>(&self, cx: &'a Cx) -> Result<BoxView<'a>> {
         self.render_with(cx, &HashMap::new(), &HashMap::new()).await
     }
 

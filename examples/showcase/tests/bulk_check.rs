@@ -9,6 +9,7 @@ use showcase::{
 };
 use toasty::Db;
 use topcoat::router::Body;
+use topcoat::view::ViewExt;
 
 async fn seeded_db() -> Db {
     let mut db = Db::builder()
@@ -253,7 +254,7 @@ async fn table_boundary_and_memoize() {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use topcoat::context::{Cx, CxTestBuilder, memoize};
 
-    #[derive(Debug, toasty::Model)]
+    #[derive(Debug, Clone, toasty::Model)]
     struct DummyUser {
         #[key]
         #[auto]
@@ -289,13 +290,27 @@ async fn table_boundary_and_memoize() {
     assert!(table3.is_defer(), "defer(true) should enable");
     // Render with boundary should contain data-boundary
     let page = argentum_core::TablePage::<DummyUser>::from(vec![]);
-    let html = table.render(&cx, &page).await.unwrap().render(&cx);
+    let html = table
+        .render(&cx, page.clone())
+        .await
+        .unwrap()
+        .single()
+        .await
+        .unwrap()
+        .render(&cx);
     assert!(
         html.contains("data-boundary=\"table\""),
         "boundary should be in HTML, got {}",
         html
     );
-    let html2 = table2.render(&cx, &page).await.unwrap().render(&cx);
+    let html2 = table2
+        .render(&cx, page)
+        .await
+        .unwrap()
+        .single()
+        .await
+        .unwrap()
+        .render(&cx);
     assert!(
         !html2.contains("data-boundary=\"table\""),
         "boundary false should not be in HTML"
