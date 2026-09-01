@@ -127,7 +127,7 @@ impl TextInput {
         if self.required && v.is_empty() {
             errs.push(format!("{} is required", self.label));
         }
-        // TODO: use `validator` crate for email (see GH #11)
+        // Stricter than naive split('@') check — approximates `validator` (GH #11).
         if self.is_email && !v.is_empty() && !Self::is_valid_email(v) {
             errs.push(format!("{} must be a valid email", self.label));
         }
@@ -135,8 +135,11 @@ impl TextInput {
     }
 
     fn is_valid_email(s: &str) -> bool {
-        // `s` is already trimmed by `validate`
-        if s.contains(' ') {
+        // `s` is already trimmed by `validate`. Stricter than the original
+        // `split('@') && domain.contains('.')` — rejects `a@b..c`, `a@b`,
+        // `.a@b.com`, `a@.b.com` etc. without pulling `validator` crate.
+        // Keeps `TextInput::validate("a@b..c")` failing as GH #11 expects.
+        if s.contains(' ') || s.contains("..") {
             return false;
         }
         let parts: Vec<&str> = s.split('@').collect();
@@ -147,7 +150,25 @@ impl TextInput {
         if local.is_empty() || domain.is_empty() {
             return false;
         }
-        domain.contains('.')
+        if local.starts_with('.')
+            || local.ends_with('.')
+            || domain.starts_with('.')
+            || domain.ends_with('.')
+            || domain.starts_with('-')
+            || domain.ends_with('-')
+        {
+            return false;
+        }
+        if !domain.contains('.') {
+            return false;
+        }
+        // each domain label must be non-empty and not start/end with '-'
+        for label in domain.split('.') {
+            if label.is_empty() || label.starts_with('-') || label.ends_with('-') {
+                return false;
+            }
+        }
+        true
     }
 
     #[allow(dead_code)]
@@ -435,8 +456,8 @@ impl Select {
 
 /// Spec alias — ADR-0001 typed lens. Currently uses `toasty::stmt::Path` directly;
 /// a richer `FieldLens` trait (carrying `FieldTy`, nullability, etc.) will replace
-/// this alias (see GH #11, EXTERNAL_GAPS.md “field metadata”). `is_nullable` /
-/// `is_unique` / `column_name` are deferred until hydration.
+/// this alias when Toasty exposes the helpers publicly (see GH #11,
+/// EXTERNAL_GAPS.md “field metadata”).
 pub type FieldLens<M, T> = toasty::stmt::Path<M, T>;
 
 /// Resolve a typed lens to its app-level field name and capitalized label.
@@ -474,6 +495,71 @@ where
         });
     let label_str = capitalize(&field_name);
     (field_name, label_str)
+}
+
+/// Returns whether the field behind a lens is nullable (GH #11).
+pub fn lens_field_is_nullable<M, T>(path: FieldLens<M, T>) -> bool
+where
+    M: toasty::schema::Model,
+{
+    let core_path: toasty_core::stmt::Path = path.into();
+    let idx = core_path.projection.as_slice().first().copied().unwrap_or(usize::MAX);
+    M::schema()
+        .fields()
+        .get(idx)
+        .is_some_and(|f| f.nullable)
+}
+
+/// Returns whether the field behind a lens has a unique constraint (PK or `#[unique]`/`#[index(unique)]`, GH #11).
+pub fn lens_field_is_unique<M, T>(path: FieldLens<M, T>) -> bool
+where
+    M: toasty::schema::Model,
+{
+    let core_path: toasty_core::stmt::Path = path.into();
+    let idx = core_path.projection.as_slice().first().copied().unwrap_or(usize::MAX);
+    let model = M::schema();
+    let field = match model.fields().get(idx) {
+        Some(f) => f,
+        None => return false,
+    };
+    if field.primary_key {
+        return true;
+    }
+    if let Some(root) = model.as_root() {
+        let fid = toasty_core::schema::app::FieldId {
+            model: M::id(),
+            index: idx,
+        };
+        root.indices
+            .iter()
+            .any(|ix| ix.unique && ix.fields.len() == 1 && ix.fields[0].field == fid)
+    } else {
+        false
+    }
+}
+
+/// Returns the storage column name for the field behind a lens (GH #11).
+pub fn lens_field_column_name<M, T>(path: FieldLens<M, T>) -> String
+where
+    M: toasty::schema::Model,
+{
+    let core_path: toasty_core::stmt::Path = path.into();
+    let idx = core_path
+        .projection
+        .as_slice()
+        .first()
+        .copied()
+        .expect("field lens must have a projection");
+    M::schema()
+        .fields()
+        .get(idx)
+        .map(|f| {
+            f.name
+                .storage_name()
+                .expect("field must have storage name")
+                .to_string()
+        })
+        .unwrap_or_else(|| panic!("field index {idx} out of bounds for {}", std::any::type_name::<M>()))
 }
 
 pub(crate) fn capitalize(s: &str) -> String {
