@@ -7,6 +7,7 @@
 use std::collections::HashMap;
 
 use toasty::Db;
+use topcoat::view::internal::ThenView;
 use topcoat::{
     Result,
     asset::{Asset, AssetConfig, RouterBuilderAssetExt},
@@ -14,11 +15,11 @@ use topcoat::{
     cookie::RouterBuilderCookieExt,
     font::Font,
     router::{
-        Body, PageFn, RouteFn, RouteFuture, Router, RouterBuilderDiscoverExt, ViewFuture,
+        Body, PageFn, RouteFn, RouteFuture, Router, RouterBuilderDiscoverExt, Slot,
         error::{forbidden, redirect},
         request::{Bytes, FromRequest},
     },
-    view::{View, attributes, view},
+    view::{BoxView, Child, View, ViewExt, attributes, view},
 };
 
 use crate::db::db;
@@ -291,11 +292,13 @@ impl Panel {
         // (GH #38), the prefix serves a redirect to the first resource's
         // list so the mount point is never a dead URL.
         if let Some(target) = root_target {
-            builder = builder.app_context(RootRedirect(target)).page(PageFn::new(
-                http::Method::GET,
-                route_path(&prefix),
-                panel_root_redirect,
-            ));
+            builder = builder
+                .app_context(RootRedirect(target))
+                .route(RouteFn::new(
+                    http::Method::GET,
+                    route_path(&prefix),
+                    panel_root_redirect,
+                ));
         }
         builder.build()
     }
@@ -315,10 +318,10 @@ impl Panel {
         self.nav_item::<R>()
     }
 
-    async fn theme_toggle(cx: &Cx) -> Result<View> {
+    async fn theme_toggle(cx: &Cx) -> Result<BoxView<'_>> {
         use argentum_ui::{ButtonSize, ButtonVariant, button};
 
-        view! {
+        Ok(view! {
             cx =>
             button(
                 variant: ButtonVariant::Ghost,
@@ -327,9 +330,10 @@ impl Panel {
                 <span aria-hidden="true">"◐"</span>
             )
         }
+        .boxed())
     }
 
-    async fn render_brand(cx: &Cx) -> Result<View> {
+    async fn render_brand(cx: &Cx) -> Result<BoxView<'_>> {
         use topcoat::context::try_app_context;
         let (name, logo) = if let Some(brand) = try_app_context::<Brand>(cx) {
             (brand.name.clone(), brand.logo.clone())
@@ -338,37 +342,57 @@ impl Panel {
         };
         if let Some(logo_url) = logo {
             let alt = name.clone();
-            view! {
+            Ok(view! {
                 cx =>
                 <div class="flex items-center gap-2 font-semibold text-foreground">
                     <img src=(logo_url) alt=(alt) class="h-6 w-6 rounded">
                     (name)
                 </div>
             }
+            .boxed())
         } else {
-            view! {
+            Ok(view! {
                 cx =>
                 <div class="flex items-center gap-2 font-semibold text-foreground">
                     (name)
                 </div>
             }
+            .boxed())
         }
     }
 
-    async fn sidebar_navigation(cx: &Cx, menu_items: Vec<View>) -> Result<View> {
+    async fn sidebar_navigation<'a>(
+        cx: &'a Cx,
+        nav_items: &[NavigationItem],
+        current_path: &str,
+    ) -> Result<BoxView<'a>> {
         use argentum_ui::{
             sidebar_group, sidebar_group_content, sidebar_group_label, sidebar_menu,
-            sidebar_separator,
+            sidebar_menu_button, sidebar_menu_item, sidebar_separator,
         };
+        let nav_items = nav_items.to_vec();
+        let current_path = current_path.to_string();
 
-        view! {
+        Ok(view! {
             cx =>
             sidebar_group(
                 sidebar_group_label("Navigation")
                 sidebar_group_content(
                     sidebar_menu(
-                        for item in menu_items {
-                            (item)
+                        for item in &nav_items {
+                            // Prefer typed Href when available, else fallback to path string.
+                            let is_active = if item.href_check.is_some() {
+                                item.is_current(cx)
+                            } else {
+                                item.is_current_path(&current_path)
+                            };
+                            sidebar_menu_item(
+                                sidebar_menu_button(
+                                    is_active: is_active,
+                                    attrs: attributes! { href=(item.url.clone()) },
+                                    (item.label.clone())
+                                )
+                            )
                         }
                     )
                 )
@@ -383,6 +407,7 @@ impl Panel {
                 )
             )
         }
+        .boxed())
     }
 
     /// Render the Filament-grade Shell that frames every admin page.
@@ -393,62 +418,33 @@ impl Panel {
     /// Includes dark-mode toggle (Ghost button, persists via cookie/session) and
     /// notification stack (fixed top-right). Additive `class` is allowed on the
     /// outer container only (narrow seam).
-    pub async fn render_shell(
-        cx: &Cx,
-        nav_items: Vec<NavigationItem>,
+    pub async fn render_shell<'a>(
+        cx: &'a Cx,
+        nav_items: &[NavigationItem],
         current_path: &str,
-        slot: View,
+        slot: Child<'a>,
         extra_class: Option<String>,
-    ) -> Result<View> {
+    ) -> Result<BoxView<'a>> {
         use argentum_ui::{
             SheetSide, sheet, sheet_content, sidebar, sidebar_content, sidebar_footer,
-            sidebar_header, sidebar_inset, sidebar_menu_button, sidebar_menu_item,
-            sidebar_provider, sidebar_trigger,
+            sidebar_header, sidebar_inset, sidebar_provider, sidebar_trigger,
         };
 
         let outer_class = extra_class.clone().unwrap_or_default();
         let header_title = topcoat::context::try_app_context::<Brand>(cx)
             .map(|b| b.name.clone())
             .unwrap_or_else(|| "Admin".to_string());
-        // Build menu items with active detection — delegates to
-        // `NavigationItem::is_current_path` (slash-boundary, exact for
-        // "/admin") which mirrors `Href::is_current` for string urls;
-        // typed `from_href` items delegate to `Href::is_current` via
-        // `is_current(cx)` (handles query/encoding). See ADR-0008 / T28.3.
-        let mut menu_items: Vec<View> = Vec::new();
-        for item in &nav_items {
-            // Prefer typed Href when available, else fallback to path string.
-            let is_active = if item.href_check.is_some() {
-                item.is_current(cx)
-            } else {
-                item.is_current_path(current_path)
-            };
-            let label = item.label.clone();
-            let url = item.url.clone();
-            let btn = view! {
-                cx =>
-                sidebar_menu_item(
-                    sidebar_menu_button(
-                        is_active: is_active,
-                        attrs: attributes! { href=(url.clone()) },
-                        (label.clone())
-                    )
-                )
-            }?;
-            menu_items.push(btn);
-        }
-
         // Build both containers from the same navigation helper. The mobile
         // sheet intentionally has its own rendered View, but not its own nav
         // tree to maintain.
-        let desktop_navigation = Self::sidebar_navigation(cx, menu_items.clone()).await?;
-        let mobile_navigation = Self::sidebar_navigation(cx, menu_items).await?;
+        let desktop_navigation = Self::sidebar_navigation(cx, nav_items, current_path).await?;
+        let mobile_navigation = Self::sidebar_navigation(cx, nav_items, current_path).await?;
         let sidebar_brand = Self::render_brand(cx).await?;
         let mobile_brand = Self::render_brand(cx).await?;
         let sidebar_theme_toggle = Self::theme_toggle(cx).await?;
         let mobile_theme_toggle = Self::theme_toggle(cx).await?;
         let header_theme_toggle = Self::theme_toggle(cx).await?;
-        let notification_view = if let Some(notification) =
+        let notification_view: BoxView<'_> = if let Some(notification) =
             take_notification(cx).or_else(|| notification_from_query(cx))
         {
             let title = notification.title.clone();
@@ -457,12 +453,13 @@ impl Panel {
                 <div class="rounded-xl border border-border bg-background shadow-sm p-4">
                     <p class="text-sm font-medium text-foreground">(title)</p>
                 </div>
-            }?
+            }
+            .boxed()
         } else {
-            view! { cx => <span></span> }?
+            view! { cx => <span></span> }.boxed()
         };
 
-        view! {
+        Ok(view! {
             cx =>
             sidebar_provider(
                 attrs: attributes! { class=(outer_class) },
@@ -534,16 +531,19 @@ impl Panel {
             )
             // Scripts are owned by the document (layout_shell).
         }
+        .boxed())
     }
 
-    /// Convenience wrapper for `#[layout]` handlers: takes `slot: Result` and
-    /// renders the complete HTML document around the shell.
+    /// Convenience wrapper for `#[layout]` handlers: takes the layout's
+    /// `slot: Slot<'_>` and renders the complete HTML document around the
+    /// shell.
     ///
     /// The stylesheet and font are supplied to the Panel builder with
     /// [`Self::shell_assets`]. A Panel without those values remains renderable
     /// for tests and custom document owners, but does not pretend that a CSS
-    /// bundle exists. Errors from the page slot are returned unchanged.
-    pub async fn layout_shell(cx: &Cx, slot: Result) -> Result {
+    /// bundle exists. Errors from the page slot propagate unchanged when the
+    /// document view is resolved.
+    pub async fn layout_shell<'a>(cx: &'a Cx, slot: Slot<'a>) -> Result<impl View + 'a> {
         use topcoat::context::try_app_context;
         use topcoat::router::request::uri;
         let current = uri(cx).path().to_string();
@@ -557,9 +557,8 @@ impl Panel {
                     href_check: None,
                 }]
             });
-        let inner = slot?;
-        let shell = Self::render_shell(cx, nav_items, &current, inner, None).await?;
-        let head = match try_app_context::<ShellAssets>(cx).copied() {
+        let shell = Self::render_shell(cx, &nav_items, &current, slot, None).await?;
+        let head: BoxView<'_> = match try_app_context::<ShellAssets>(cx).copied() {
             Some(ShellAssets { stylesheet, font }) => view! {
                 cx =>
                 topcoat::dev::script()
@@ -571,19 +570,21 @@ impl Panel {
                 <script src=(argentum_ui::THEME_JS)></script>
                 <script src=(argentum_ui::DIALOG_JS)></script>
                 <script src=(argentum_ui::CODE_BLOCK_JS)></script>
-            }?,
+            }
+            .boxed(),
             None => view! {
                 cx =>
                 topcoat::dev::script()
                 argentum_ui::theme_init_script()
-            }?,
+            }
+            .boxed(),
         };
         let brand_title = try_app_context::<Brand>(cx)
             .map(|b| b.name.clone())
             .unwrap_or_else(|| "Admin".to_string());
         let html_class =
             try_app_context::<DarkMode>(cx).and_then(|dm| if dm.0 { Some("dark") } else { None });
-        view! {
+        Ok(view! {
             cx =>
             <!DOCTYPE html>
             <html class=(html_class)>
@@ -593,7 +594,7 @@ impl Panel {
                 </head>
                 <body>(shell)</body>
             </html>
-        }
+        })
     }
 }
 
@@ -614,8 +615,8 @@ fn route_path(path: &str) -> topcoat::router::PathBuf {
 ///
 /// (No `#[memoize]` yet: one load per request. It earns its keep once Table
 /// renders behind Boundaries — the reactivity slice of GH #13.)
-fn resource_list<R: Resource>(cx: &Cx, _body: Body) -> ViewFuture<'_> {
-    Box::pin(async move {
+fn resource_list<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
+    Box::pin(ThenView::new(async move {
         if !R::can_view_any(cx) {
             return Err(forbidden().into());
         }
@@ -703,9 +704,9 @@ fn resource_list<R: Resource>(cx: &Cx, _body: Body) -> ViewFuture<'_> {
                 rows.into()
             }
         };
-        let table_view = table.render(cx, &page).await?;
+        let table_view = table.render(cx, page).await?;
         let title = R::navigation_label();
-        view! { cx =>
+        Ok(view! { cx =>
             signal q = String::new();
             argentum_ui::page(
                 argentum_ui::page_header(argentum_ui::page_title((title.clone())))
@@ -722,8 +723,8 @@ fn resource_list<R: Resource>(cx: &Cx, _body: Body) -> ViewFuture<'_> {
                     </div>
                 )
             )
-        }
-    })
+        })
+    }))
 }
 
 /// Helper: parse `application/x-www-form-urlencoded` body into a map.
@@ -784,9 +785,9 @@ async fn memoized_dummy(cx: &Cx, q: &str) -> String {
 }
 
 #[shard]
-async fn table_shard(cx: &Cx, q: String) -> Result {
+async fn table_shard(cx: &Cx, q: String) -> Result<impl View> {
     let _ = memoized_dummy(cx, &q).await;
-    view! { cx => <div data-boundary="table"><p>"Shard Table for "(q)</p></div> }
+    Ok(view! { cx => <div data-boundary="table"><p>"Shard Table for "(q)</p></div> })
 }
 
 /// Helper: compute list URL from current request path (e.g. /admin/users/create -> /admin/users).
@@ -844,16 +845,16 @@ fn notification_from_query(cx: &Cx) -> Option<Notification> {
     None
 }
 
-async fn render_create_page<R: Resource>(
-    cx: &Cx,
+async fn render_create_page<'a, R: Resource>(
+    cx: &'a Cx,
     values: &HashMap<String, String>,
     errors: &HashMap<String, Vec<String>>,
-) -> Result<View> {
+) -> Result<BoxView<'a>> {
     let schema = R::form(cx);
     let form_html = schema.render_with(cx, values, errors).await?;
     let action = topcoat::router::request::uri(cx).path().to_string();
     let title = format!("Create {}", R::navigation_label());
-    view! { cx =>
+    Ok(view! { cx =>
         argentum_ui::page(
             argentum_ui::page_header(argentum_ui::page_title((title.clone())))
             argentum_ui::page_content(
@@ -876,19 +877,20 @@ async fn render_create_page<R: Resource>(
             )
         )
     }
+    .boxed())
 }
 
-async fn render_edit_page<R: Resource>(
-    cx: &Cx,
+async fn render_edit_page<'a, R: Resource>(
+    cx: &'a Cx,
     _id: &str,
     values: &HashMap<String, String>,
     errors: &HashMap<String, Vec<String>>,
-) -> Result<View> {
+) -> Result<BoxView<'a>> {
     let schema = R::form(cx);
     let form_html = schema.render_with(cx, values, errors).await?;
     let action = topcoat::router::request::uri(cx).path().to_string();
     let title = format!("Edit {}", R::navigation_label());
-    view! { cx =>
+    Ok(view! { cx =>
         argentum_ui::page(
             argentum_ui::page_header(argentum_ui::page_title((title.clone())))
             argentum_ui::page_content(
@@ -911,22 +913,23 @@ async fn render_edit_page<R: Resource>(
             )
         )
     }
+    .boxed())
 }
 
 /// Create page GET.
-fn resource_create<R: Resource>(cx: &Cx, _body: Body) -> ViewFuture<'_> {
-    Box::pin(async move {
+fn resource_create<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
+    Box::pin(ThenView::new(async move {
         if !R::can_create(cx) {
             return Err(forbidden().into());
         }
         let html = render_create_page::<R>(cx, &HashMap::new(), &HashMap::new()).await?;
         Ok(html)
-    })
+    }))
 }
 
 /// Create page POST.
-fn resource_create_post<R: Resource>(cx: &Cx, body: Body) -> ViewFuture<'_> {
-    Box::pin(async move {
+fn resource_create_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
+    Box::pin(ThenView::new(async move {
         if !R::can_create(cx) {
             return Err(forbidden().into());
         }
@@ -989,12 +992,12 @@ fn resource_create_post<R: Resource>(cx: &Cx, body: Body) -> ViewFuture<'_> {
                 }
             }
         }
-    })
+    }))
 }
 
 /// Edit page GET — hydrates form from model via Resource::query seam.
-fn resource_edit<R: Resource>(cx: &Cx, _body: Body) -> ViewFuture<'_> {
-    Box::pin(async move {
+fn resource_edit<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
+    Box::pin(ThenView::new(async move {
         let id = topcoat::router::path_param_segment(cx, "id").to_string();
         // Load via query seam and find by id string via Table row key.
         let mut db = db(cx);
@@ -1016,12 +1019,12 @@ fn resource_edit<R: Resource>(cx: &Cx, _body: Body) -> ViewFuture<'_> {
         let values = R::hydrate_form_values(&record);
         let html = render_edit_page::<R>(cx, &id, &values, &HashMap::new()).await?;
         Ok(html)
-    })
+    }))
 }
 
 /// Edit page POST — validates, checks Policy::update, mutates via Update projection.
-fn resource_edit_post<R: Resource>(cx: &Cx, body: Body) -> ViewFuture<'_> {
-    Box::pin(async move {
+fn resource_edit_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
+    Box::pin(ThenView::new(async move {
         let id = topcoat::router::path_param_segment(cx, "id").to_string();
         let mut db = db(cx);
         let candidates = R::query(cx)
@@ -1065,12 +1068,12 @@ fn resource_edit_post<R: Resource>(cx: &Cx, body: Body) -> ViewFuture<'_> {
                 }
             }
         }
-    })
+    }))
 }
 
 /// Delete action POST — requires confirmation, runs in transaction, re-checks Policy.
-fn resource_delete<R: Resource>(cx: &Cx, body: Body) -> ViewFuture<'_> {
-    Box::pin(async move {
+fn resource_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
+    Box::pin(ThenView::new(async move {
         let id = topcoat::router::path_param_segment(cx, "id").to_string();
         let mut db = db(cx);
         let candidates = R::query(cx)
@@ -1114,7 +1117,7 @@ fn resource_delete<R: Resource>(cx: &Cx, body: Body) -> ViewFuture<'_> {
                         </div>
                     )
                 )
-            }?;
+            };
             return Ok(html);
         }
         // Perform delete via Resource hook (transaction inside).
@@ -1123,12 +1126,12 @@ fn resource_delete<R: Resource>(cx: &Cx, body: Body) -> ViewFuture<'_> {
         let list_url = format!("{base}?notification=Deleted");
         set_notification(cx, Notification::success("Deleted"));
         Err(redirect(list_url).into())
-    })
+    }))
 }
 
 /// Bulk delete POST — ids via `ids` form field (comma-separated).
-fn resource_bulk_delete<R: Resource>(cx: &Cx, body: Body) -> ViewFuture<'_> {
-    Box::pin(async move {
+fn resource_bulk_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
+    Box::pin(ThenView::<_, BoxView<'_>>::new(async move {
         let values = parse_form_values(cx, body).await;
         let ids_raw = values.get("ids").cloned().unwrap_or_default();
         let ids: Vec<String> = ids_raw
@@ -1161,7 +1164,7 @@ fn resource_bulk_delete<R: Resource>(cx: &Cx, body: Body) -> ViewFuture<'_> {
         let list_url = format!("{base}?notification=Bulk+deleted");
         set_notification(cx, Notification::success("Bulk deleted"));
         Err(redirect(list_url).into())
-    })
+    }))
 }
 
 /// CSV export — reuses `Resource::query` + `Table` filters/sort, streams `text/csv`.
@@ -1206,7 +1209,7 @@ fn resource_export<R: Resource>(cx: &Cx, _body: Body) -> RouteFuture<'_> {
 /// The panel root: a temporary redirect to the first declared resource's
 /// list, so the mount point is never a dead URL (until Dashboards exist,
 /// GH #38). Filament registers a Dashboard page here.
-fn panel_root_redirect(cx: &Cx, _body: Body) -> ViewFuture<'_> {
+fn panel_root_redirect(cx: &Cx, _body: Body) -> RouteFuture<'_> {
     Box::pin(async move {
         let RootRedirect(target) = app_context::<RootRedirect>(cx);
         Err(redirect(target.clone()).into())
@@ -1330,8 +1333,11 @@ mod tests {
             }])
             .build();
         let cx_ref = &cx;
-        let slot = view! { cx_ref => "hello" }.unwrap();
-        let html = Panel::layout_shell(&cx, Ok(slot))
+        let slot = view! { cx_ref => "hello" }.boxed().into();
+        let html = Panel::layout_shell(&cx, slot)
+            .await
+            .unwrap()
+            .single()
             .await
             .unwrap()
             .render(&cx);
@@ -1371,8 +1377,11 @@ mod tests {
                 href_check: None,
             },
         ];
-        let slot = view! { cx_ref => "hello" }.unwrap();
-        let html = Panel::render_shell(&cx, nav_items, "/admin/users", slot, None)
+        let slot = view! { cx_ref => "hello" }.boxed().into();
+        let html = Panel::render_shell(&cx, &nav_items, "/admin/users", slot, None)
+            .await
+            .unwrap()
+            .single()
             .await
             .unwrap()
             .render(&cx);

@@ -7,13 +7,14 @@ use topcoat::{Result, view::*};
 /// A minimal heading component. Exercises Topcoat's component + view pipeline
 /// from the core crate so the workspace proves a green vertical slice.
 #[component]
-pub async fn heading(title: &str) -> Result {
-    view! { <h1 class="text-2xl font-bold tracking-tight text-foreground">(title)</h1> }
+pub async fn heading(title: &str) -> Result<impl View> {
+    Ok(view! { <h1 class="text-2xl font-bold tracking-tight text-foreground">(title)</h1> })
 }
 
 #[cfg(test)]
 mod tests {
     use topcoat::context::CxTestBuilder;
+    use topcoat::view::ViewExt;
 
     use super::*;
 
@@ -22,9 +23,11 @@ mod tests {
         let built = CxTestBuilder::new().build();
         let cx = &built;
 
-        let view = view! { cx => heading(title: "Users") }.unwrap();
-
-        let html = view.render(cx);
+        let html = view! { cx => heading(title: "Users") }
+            .single()
+            .await
+            .unwrap()
+            .render(cx);
 
         assert!(
             html.contains("text-foreground") && html.contains("Users"),

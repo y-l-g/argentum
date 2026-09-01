@@ -55,6 +55,20 @@ Suggestion: one sentence in `page.rs`'s `Slot` docs and in the layout section of
 
 ---
 
+### FB-07 — Raw `PageFn` handlers have no public way to express a fallible async page
+
+`PageRenderFn` is now `for<'a> fn(&'a Cx, Body) -> BoxView<'a>` — **synchronous**, returning a lazy view. The `#[page]` macro adapts async handlers by wrapping them in `topcoat_view::internal::ThenView` (a future-of-a-view becomes a view, and the future's `Err` becomes the view's error). Consumers that build pages *by hand* — registries mapping many handlers through one generic function, exactly the pattern the old `fn(cx, body) -> ViewFuture<'_>` supported — have no sanctioned way to do the same: `ThenView` lives in `internal`, and nothing else public converts a fallible future into a view.
+
+The porting consumer ended up importing `topcoat::view::internal::ThenView` — an internal module — for every hand-registered page, plus `Box::pin(..)` at each site (the pre-PR `Box::pin` dance survived unchanged, just with a different return type).
+
+Suggestion (any one of):
+
+1. A public constructor, e.g. `topcoat::router::page_from_fn(methods, path, |cx, body| async { ... Result<impl View> })` or `ViewExt`-adjacent `fallible(fut)`.
+2. Document the `#[page]`-macro-wraps-component trick as the only sanctioned path and delete raw `PageFn` from the public API — the current state is a public constructor whose signature cannot be satisfied with public types alone.
+3. At minimum, `pub use` `ThenView` outside `internal` with docs, since the macro itself points consumers at it.
+
+---
+
 ## Diagnostics
 
 ### FB-04 — E0782 on `child: View` params offers no path to the correct fix
@@ -89,6 +103,13 @@ The PR prose is excellent, but once merged it lives in a commit message. Nothing
 - raw handlers returning `ViewFuture<'_>` → `AsyncIntoResponse` (see FB-06)
 
 Suggestion: a "Migrating from the eager view layer" section in `crates/topcoat/docs/view.md` with exactly this table, and a line in each removed item's former doc location pointing at its replacement (`suspense` docs saying "replaces the `defer`/`boundary` pattern" etc.). The new `examples/live`, `examples/suspense`, `examples/error` are great — they are how the reviewer learned the new signatures — but examples teach the target state, not the path.
+### FB-08 — Interpolation only works for five hard-coded view types; opaque `impl View` fails with a confusing error
+
+`(expr)` in a `view!` body classifies the expression through `NodeClassify`, which is implemented for exactly: `Child<'a>`, `BoxView<'a>`, `LiveView`, `MoveView`, `ScopeView` — plus the `NodeViewParts` primitives (text, numbers, `String`, `Option<T>`, `Vec<T>`, tuples). There is **no blanket impl for `T: View`**.
+
+Consequence: a helper returning `Result<impl View>` produces an *opaque* value that implements `View` but **not** `NodeClassify`, so interpolating it fails with `the trait NodeViewParts is not implemented for impl View` — an error that names the wrong trait and suggests nothing. The only workarounds are `.boxed()` (ViewExt) at the call site or returning `BoxView` from the helper. In a codebase of realistic size this means *every* intermediate render helper — even single-tail ones with no branching — must box its return value just to remain interpolable, which contradicts the `ViewExt::boxed` docs' framing of boxing as a fix for "multiple `return` sites".
+
+Suggestion: `impl<T: View> NodeClassify for T` (a blanket over `View`), so any view value interpolates and `impl View` helpers compose like the docs imply. If a blanket impl is deliberately avoided (orphan/overlap reasons?), the diagnostic for a non-`NodeClassify` opaque should say "views interpolate only when their concrete type is known — box it with `.boxed()` or change the return type to `BoxView<'_>`".
 
 ---
 
@@ -101,6 +122,13 @@ Suggestion: a "Migrating from the eager view layer" section in `crates/topcoat/d
 Concretely: a consumer with `fn handler(cx: &Cx, body: Body) -> ViewFuture<'_>` gets a bare "cannot find type ViewFuture" and no hint. The `AsyncIntoResponse` trait docs are good ("every `IntoResponse` type implements it") but never say "this replaces the old `ViewFuture`-returning handler style; resolve your view with `.first()`".
 
 Suggestion: cover raw/low-level handlers in one place — either a short section in the router docs ("low-level handlers: return `impl AsyncIntoResponse`, resolve views with `ViewExt::first`/`single`") or a doc-alias on `AsyncIntoResponse` for `ViewFuture`.
+### FB-09 — No documented rule for what a view may borrow: handler-locals are silently unusable
+
+Views borrow the `Cx` they were built against (that is why `PageRenderFn` returns `BoxView<'a>` keyed to the `&Cx`). A corollary the docs never state: a view **cannot borrow anything owned by the code that returns it**. In practice this bites constantly: interpolating a sub-view built from a `&local` (a `TablePage`, a `Vec<NavigationItem>`, a `HashMap` of form values) makes the parent view's type carry that borrow, and the handler fails with `cannot return value referencing local variable` — the fix being to clone the data into the template body, precompute derived values before the template, or tie lifetimes to `cx` only.
+
+This is discoverable only by fighting E0515s. One paragraph in `view.md` — "a view's lifetime is the request's; templates may borrow `cx` freely, but anything a template captures must either be owned by the template or borrowed from `cx`" — plus a worked example (build data → await → move owned values into `view!`) would save every consumer the same archaeology.
+
+---
 
 ---
 

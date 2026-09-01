@@ -920,7 +920,7 @@ impl<M> Table<M> {
     ///
     /// Errors when the table has no row key ([`Self::id`]) or no columns —
     /// row identity is not optional, and neither is something to show.
-    pub async fn render(&self, cx: &Cx, page: &TablePage<M>) -> Result<View>
+    pub async fn render<'a>(&self, cx: &'a Cx, page: TablePage<M>) -> Result<BoxView<'a>>
     where
         M: toasty::schema::Model + Send + Sync + 'static,
     {
@@ -937,6 +937,8 @@ impl<M> Table<M> {
             .into());
         };
         let row_key = row_key.clone();
+        let show_skeleton = self.show_skeleton;
+        let is_boundary = self.is_boundary;
         let state = TableState::from_cx(cx);
         let path = topcoat::context::try_request_context::<http::request::Parts>(cx)
             .map(|parts| parts.uri.path().to_string())
@@ -957,7 +959,7 @@ impl<M> Table<M> {
         } else {
             None
         };
-        let bulk_bar_view = if self.bulk_delete && self.delete_prefix.is_some() {
+        let bulk_bar_view: BoxView<'_> = if self.bulk_delete && self.delete_prefix.is_some() {
             let bulk_action = format!("{}/bulk-delete", self.delete_prefix.clone().unwrap());
             view! { cx =>
                 <form
@@ -977,25 +979,42 @@ impl<M> Table<M> {
                         "Bulk Delete"
                     </button>
                 </form>
-            }?
+            }
+            .boxed()
         } else {
-            view! { cx => <span></span> }?
+            view! { cx => <span></span> }.boxed()
         };
-        let pager = self.render_pager(cx, &state, &path, page).await?;
+        let pager = self.render_pager(cx, &state, &path, &page).await?;
+        let column_count = self.columns.len();
+        // Precompute the row presentation so template bodies capture only
+        // owned data — the lazy view outlives this call, so it must never
+        // borrow `self` or `page`.
+        let row_data: Vec<(String, Vec<String>)> = page
+            .rows
+            .iter()
+            .map(|row| {
+                let key = row_key(row);
+                let cells: Vec<String> = self
+                    .columns
+                    .iter()
+                    .map(|col| col.render_cell(row))
+                    .collect();
+                (key, cells)
+            })
+            .collect();
 
-        if self.show_skeleton {
-            let bulk_clone = bulk_bar_view.clone();
+        if show_skeleton {
             let inner = view! {
                 cx =>
                 <div class="rounded-xl border border-border overflow-hidden">
-                    (bulk_clone)
+                    (bulk_bar_view)
                     table(
                         (head)
                         table_body(
                             for i in 0..3 {
                                 table_row(
                                     key: i,
-                                    for _ in &self.columns {
+                                    for _ in 0..column_count {
                                         table_cell(
                                             <div
                                                 class="animate-pulse rounded-md bg-foreground/10 h-4 w-full"
@@ -1014,42 +1033,39 @@ impl<M> Table<M> {
                         )
                     )
                 </div>
-            }?;
-            return if self.is_boundary {
-                view! { cx => <div data-boundary="table">(inner)</div> }
-            } else {
-                Ok(inner)
             };
+            return Ok(if is_boundary {
+                view! { cx => <div data-boundary="table">(inner)</div> }.boxed()
+            } else {
+                inner.boxed()
+            });
         }
 
         if page.rows.is_empty() {
             let empty_cell = self
                 .render_empty_cell(cx, &state, &path, delete_prefix.is_some())
                 .await?;
-            let bulk_clone = bulk_bar_view.clone();
-            let search_clone = search_bar.clone();
-            let filter_clone = filter_bar.clone();
             let inner = view! {
                 cx =>
                 <div class="rounded-xl border border-border overflow-hidden">
                     if show_search {
-                        (search_clone.expect("search bar built when enabled"))
+                        (search_bar.expect("search bar built when enabled"))
                     }
                     if show_filters {
-                        (filter_clone.expect("filter bar built when enabled"))
+                        (filter_bar.expect("filter bar built when enabled"))
                     }
-                    (bulk_clone)
+                    (bulk_bar_view)
                     table(
                         (head)
                         (empty_cell)
                     )
                 </div>
-            }?;
-            return if self.is_boundary {
-                view! { cx => <div data-boundary="table">(inner)</div> }
-            } else {
-                Ok(inner)
             };
+            return Ok(if is_boundary {
+                view! { cx => <div data-boundary="table">(inner)</div> }.boxed()
+            } else {
+                inner.boxed()
+            });
         }
 
         // Grouping (in-memory, count summarizer) — when `?group_by=` is present and table has a group key.
@@ -1061,45 +1077,39 @@ impl<M> Table<M> {
             for row in &page.rows {
                 *groups.entry(group_fn(row)).or_insert(0) += 1;
             }
-            let mut group_views: Vec<View> = Vec::new();
+            let mut group_views: Vec<BoxView<'_>> = Vec::new();
             for (key, count) in groups {
                 let text = format!("{} ({})", key, count);
                 group_views.push(
-                    view! { cx => <div class="px-4 py-2 bg-muted text-sm font-medium">(text)</div> }?,
+                    view! { cx => <div class="px-4 py-2 bg-muted text-sm font-medium">(text)</div> }
+                        .boxed(),
                 );
             }
-            let bulk_clone = bulk_bar_view.clone();
-            let search_clone = search_bar.clone();
-            let filter_clone = filter_bar.clone();
             let inner = view! {
                 cx =>
                 <div class="rounded-xl border border-border overflow-hidden">
                     if show_search {
-                        (search_clone.expect("search bar built when enabled"))
+                        (search_bar.expect("search bar built when enabled"))
                     }
                     if show_filters {
-                        (filter_clone.expect("filter bar built when enabled"))
+                        (filter_bar.expect("filter bar built when enabled"))
                     }
-                    (bulk_clone)
+                    (bulk_bar_view)
                     for gv in group_views {
                         (gv)
                     }
                     table(
                         (head)
                         table_body(
-                            for row in &page.rows {
-                                let key = row_key(row);
+                            for (key, cells) in &row_data {
                                 let key_for_row = key.clone();
                                 let key_for_action = key.clone();
-                                let cells: Vec<String> =
-                                    self.columns.iter().map(|col| col.render_cell(row)).collect();
-                                let delete_prefix_clone = delete_prefix.clone();
                                 table_row(
                                     key: key_for_row,
                                     for cell in cells {
-                                        table_cell((cell))
+                                        table_cell((cell.clone()))
                                     }
-                                    if let Some(prefix) = delete_prefix_clone {
+                                    if let Some(prefix) = &delete_prefix {
                                         table_cell(
                                             <form
                                                 method="post"
@@ -1122,43 +1132,36 @@ impl<M> Table<M> {
                         (p)
                     }
                 </div>
-            }?;
-            if self.is_boundary {
-                return view! { cx => <div data-boundary="table">(inner)</div> };
+            };
+            if is_boundary {
+                return Ok(view! { cx => <div data-boundary="table">(inner)</div> }.boxed());
             } else {
-                return Ok(inner);
+                return Ok(inner.boxed());
             }
         }
 
-        let bulk_clone = bulk_bar_view.clone();
-        let search_clone = search_bar.clone();
-        let filter_clone = filter_bar.clone();
         let inner = view! {
             cx =>
             <div class="rounded-xl border border-border overflow-hidden">
                 if show_search {
-                    (search_clone.expect("search bar built when enabled"))
+                    (search_bar.expect("search bar built when enabled"))
                 }
                 if show_filters {
-                    (filter_clone.expect("filter bar built when enabled"))
+                    (filter_bar.expect("filter bar built when enabled"))
                 }
-                (bulk_clone)
+                (bulk_bar_view)
                 table(
                     (head)
                     table_body(
-                        for row in &page.rows {
-                            let key = row_key(row);
+                        for (key, cells) in &row_data {
                             let key_for_row = key.clone();
                             let key_for_action = key.clone();
-                            let cells: Vec<String> =
-                                self.columns.iter().map(|col| col.render_cell(row)).collect();
-                            let delete_prefix_clone = delete_prefix.clone();
                             table_row(
                                 key: key_for_row,
                                 for cell in cells {
-                                    table_cell((cell))
+                                    table_cell((cell.clone()))
                                 }
-                                if let Some(prefix) = delete_prefix_clone {
+                                if let Some(prefix) = &delete_prefix {
                                     table_cell(
                                         <form
                                             method="post"
@@ -1181,12 +1184,12 @@ impl<M> Table<M> {
                     (p)
                 }
             </div>
-        }?;
-        if self.is_boundary {
-            view! { cx => <div data-boundary="table">(inner)</div> }
+        };
+        Ok(if is_boundary {
+            view! { cx => <div data-boundary="table">(inner)</div> }.boxed()
         } else {
-            Ok(inner)
-        }
+            inner.boxed()
+        })
     }
 
     /// Generate CSV for the given page (header + rows, RFC4180 escaped).
@@ -1230,7 +1233,12 @@ impl<M> Table<M> {
     /// The GET search toolbar: submits `?q=` back to the current path,
     /// preserving the active sort and resetting pagination (a new search is a
     /// new result set). Renders a Clear link while a search is active.
-    async fn render_search_bar(&self, cx: &Cx, state: &TableState, path: &str) -> Result<View> {
+    async fn render_search_bar<'a>(
+        &self,
+        cx: &'a Cx,
+        state: &TableState,
+        path: &str,
+    ) -> Result<BoxView<'a>> {
         let action = path.to_string();
         let q_display = state.search.clone().unwrap_or_default();
         let sort_hidden = state.sort.as_ref().map(|s| s.column.clone());
@@ -1257,7 +1265,7 @@ impl<M> Table<M> {
                     .as_ref()
                     .map(|f| build_url(path, &[("filters", Some(f.as_str()))]))
             });
-        view! {
+        Ok(view! {
             cx =>
             <form
                 method="get"
@@ -1299,14 +1307,20 @@ impl<M> Table<M> {
                 }
             </form>
         }
+        .boxed())
     }
 
-    async fn render_filter_bar(&self, cx: &Cx, state: &TableState, path: &str) -> Result<View>
+    async fn render_filter_bar<'a>(
+        &self,
+        cx: &'a Cx,
+        state: &TableState,
+        path: &str,
+    ) -> Result<BoxView<'a>>
     where
         M: toasty::schema::Model,
     {
         if self.filters.is_empty() {
-            return view! { cx => <span></span> };
+            return Ok(view! { cx => <span></span> }.boxed());
         }
         let action = path.to_string();
         let filters_display = state.filters_param().unwrap_or_default();
@@ -1328,7 +1342,7 @@ impl<M> Table<M> {
         } else {
             None
         };
-        view! {
+        Ok(view! {
             cx =>
             <form
                 method="get"
@@ -1370,6 +1384,7 @@ impl<M> Table<M> {
                 }
             </form>
         }
+        .boxed())
     }
 
     /// The zero-rows cell — one honest message, not two: "no records yet"
@@ -1377,13 +1392,13 @@ impl<M> Table<M> {
     /// active. The dead Create button is gone (create pages are not wired
     /// yet). Wrapped in a single cell spanning the table so it sits inside
     /// the grid.
-    async fn render_empty_cell(
+    async fn render_empty_cell<'a>(
         &self,
-        cx: &Cx,
+        cx: &'a Cx,
         state: &TableState,
         path: &str,
         with_delete: bool,
-    ) -> Result<View>
+    ) -> Result<BoxView<'a>>
     where
         M: toasty::schema::Model,
     {
@@ -1434,20 +1449,21 @@ impl<M> Table<M> {
                     )
                 )
             )
-        }?)
+        }
+        .boxed())
     }
 
     /// Previous/Next pagination links from the executed page's real cursors.
     /// Empty when the table is not paginated or the page has no neighbors —
     /// no invented page numbers. Links preserve the search and sort state;
     /// cursors travel via `?after=`/`?before=`.
-    async fn render_pager(
+    async fn render_pager<'a>(
         &self,
-        cx: &Cx,
+        cx: &'a Cx,
         state: &TableState,
         path: &str,
         page: &TablePage<M>,
-    ) -> Result<Vec<View>> {
+    ) -> Result<Vec<BoxView<'a>>> {
         if self.page_size.is_none() {
             return Ok(Vec::new());
         }
@@ -1503,8 +1519,8 @@ impl<M> Table<M> {
                     )
                 )
             </div>
-        }?;
-        Ok(vec![pager])
+        };
+        Ok(vec![pager.boxed()])
     }
 
     /// The shared column-header row — the single source of the `<thead>`
@@ -1512,13 +1528,13 @@ impl<M> Table<M> {
     /// columns that toggle `?sort=`/`?dir=` (↑/↓ with `aria-sort` when active,
     /// ↕ when inactive). Every render branch (skeleton / empty / rows)
     /// composes it, so an a11y or styling change happens once.
-    async fn render_thead(
+    async fn render_thead<'a>(
         &self,
-        cx: &Cx,
+        cx: &'a Cx,
         state: &TableState,
         path: &str,
         with_delete: bool,
-    ) -> Result<View>
+    ) -> Result<BoxView<'a>>
     where
         M: toasty::schema::Model,
     {
@@ -1528,7 +1544,7 @@ impl<M> Table<M> {
                 .iter()
                 .any(|c| c.is_sortable() && c.name() == s.column)
         });
-        let mut heads = Vec::with_capacity(self.columns.len());
+        let mut heads: Vec<BoxView<'_>> = Vec::with_capacity(self.columns.len());
         for col in &self.columns {
             let label = col.label().to_string();
             let searchable = col.is_searchable();
@@ -1578,10 +1594,11 @@ impl<M> Table<M> {
                                 (glyph)
                             </span>
                         </a>
-                    }?,
+                    }
+                    .boxed(),
                 )
             } else {
-                ("", None, view! { cx => (label.clone()) }?)
+                ("", None, view! { cx => (label.clone()) }.boxed())
             };
             heads.push(view! { cx =>
                 table_head(
@@ -1600,12 +1617,13 @@ impl<M> Table<M> {
                         </span>
                     }
                 )
-            }?);
+            }
+            .boxed());
         }
         if with_delete {
-            heads.push(view! { cx => table_head("Actions") }?);
+            heads.push(view! { cx => table_head("Actions") }.boxed());
         }
-        view! { cx =>
+        Ok(view! { cx =>
             table_header(
                 table_row(
                     for h in heads {
@@ -1614,6 +1632,7 @@ impl<M> Table<M> {
                 )
             )
         }
+        .boxed())
     }
 }
 
@@ -2492,14 +2511,14 @@ mod tests {
         let no_columns = Table::<User>::r#for(&cx).id(|u| u.id.to_string());
         let page: TablePage<User> = rows.clone().into();
         assert!(
-            no_columns.render(&cx, &page).await.is_err(),
+            no_columns.render(&cx, page.clone()).await.is_err(),
             "render without columns must error"
         );
         // Columns but no row key → error (replaces the old panic-on-unknown dispatch)
         let no_key = Table::<User>::r#for(&cx)
             .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()));
         assert!(
-            no_key.render(&cx, &page).await.is_err(),
+            no_key.render(&cx, page.clone()).await.is_err(),
             "render without row key must error"
         );
     }
@@ -2523,7 +2542,14 @@ mod tests {
             },
         ];
         let page: TablePage<User> = rows.clone().into();
-        let html = users_table.render(&cx, &page).await.unwrap().render(&cx);
+        let html = users_table
+            .render(&cx, page)
+            .await
+            .unwrap()
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
         // Beautiful chrome: rounded-xl border border-border, table primitives, Token classes
         assert!(
             html.contains("rounded-xl") && html.contains("border-border"),
