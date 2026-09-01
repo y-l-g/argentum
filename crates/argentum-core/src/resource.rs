@@ -937,8 +937,12 @@ impl<M> Table<M> {
             .into());
         };
         let row_key = row_key.clone();
-        let show_skeleton = self.show_skeleton;
         let is_boundary = self.is_boundary;
+        // Eager skeleton demo path (Table::defer(true)): same markup the
+        // streamed path uses as its suspense fallback.
+        if self.show_skeleton {
+            return self.render_skeleton(cx).await;
+        }
         let state = TableState::from_cx(cx);
         let path = topcoat::context::try_request_context::<http::request::Parts>(cx)
             .map(|parts| parts.uri.path().to_string())
@@ -985,7 +989,6 @@ impl<M> Table<M> {
             view! { cx => <span></span> }.boxed()
         };
         let pager = self.render_pager(cx, &state, &path, &page).await?;
-        let column_count = self.columns.len();
         // Precompute the row presentation so template bodies capture only
         // owned data — the lazy view outlives this call, so it must never
         // borrow `self` or `page`.
@@ -1002,44 +1005,6 @@ impl<M> Table<M> {
                 (key, cells)
             })
             .collect();
-
-        if show_skeleton {
-            let inner = view! {
-                cx =>
-                <div class="rounded-xl border border-border overflow-hidden">
-                    (bulk_bar_view)
-                    table(
-                        (head)
-                        table_body(
-                            for i in 0..3 {
-                                table_row(
-                                    key: i,
-                                    for _ in 0..column_count {
-                                        table_cell(
-                                            <div
-                                                class="animate-pulse rounded-md bg-foreground/10 h-4 w-full"
-                                            ></div>
-                                        )
-                                    }
-                                    if delete_prefix.is_some() {
-                                        table_cell(
-                                            <div
-                                                class="animate-pulse rounded-md bg-foreground/10 h-4 w-12"
-                                            ></div>
-                                        )
-                                    }
-                                )
-                            }
-                        )
-                    )
-                </div>
-            };
-            return Ok(if is_boundary {
-                view! { cx => <div data-boundary="table">(inner)</div> }.boxed()
-            } else {
-                inner.boxed()
-            });
-        }
 
         if page.rows.is_empty() {
             let empty_cell = self
@@ -1186,6 +1151,60 @@ impl<M> Table<M> {
             </div>
         };
         Ok(if is_boundary {
+            view! { cx => <div data-boundary="table">(inner)</div> }.boxed()
+        } else {
+            inner.boxed()
+        })
+    }
+
+    /// The skeleton placeholder grid — three pulsing rows under the real
+    /// column header. This is the [`suspense`] fallback for tables whose rows
+    /// stream in ([`Table::render`] also uses it for the eager
+    /// `defer(true)` demo path). Wrapped in the same `data-boundary` region
+    /// as the real grid so the markup shape matches when the swap arrives.
+    pub async fn render_skeleton<'a>(&self, cx: &'a Cx) -> Result<BoxView<'a>>
+    where
+        M: toasty::schema::Model,
+    {
+        let state = TableState::from_cx(cx);
+        let path = topcoat::context::try_request_context::<http::request::Parts>(cx)
+            .map(|parts| parts.uri.path().to_string())
+            .unwrap_or_default();
+        let head = self
+            .render_thead(cx, &state, &path, self.delete_prefix.is_some())
+            .await?;
+        let column_count = self.columns.len();
+        let with_delete = self.delete_prefix.is_some();
+        let inner = view! {
+            cx =>
+            <div class="rounded-xl border border-border overflow-hidden">
+                table(
+                    (head)
+                    table_body(
+                        for i in 0..3 {
+                            table_row(
+                                key: i,
+                                for _ in 0..column_count {
+                                    table_cell(
+                                        <div
+                                            class="animate-pulse rounded-md bg-foreground/10 h-4 w-full"
+                                        ></div>
+                                    )
+                                }
+                                if with_delete {
+                                    table_cell(
+                                        <div
+                                            class="animate-pulse rounded-md bg-foreground/10 h-4 w-12"
+                                        ></div>
+                                    )
+                                }
+                            )
+                        }
+                    )
+                )
+            </div>
+        };
+        Ok(if self.is_boundary {
             view! { cx => <div data-boundary="table">(inner)</div> }.boxed()
         } else {
             inner.boxed()

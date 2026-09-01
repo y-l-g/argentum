@@ -19,12 +19,12 @@ use topcoat::{
         error::{forbidden, redirect},
         request::{Bytes, FromRequest},
     },
-    view::{BoxView, Child, View, ViewExt, attributes, view},
+    view::{BoxView, Child, View, ViewExt, attributes, suspense, view},
 };
 
 use crate::db::db;
 use crate::notification::{Notification, set_notification, take_notification};
-use crate::resource::{NavigationItem, Resource, TablePage, TableState};
+use crate::resource::{NavigationItem, Resource, Table, TablePage, TableState};
 use topcoat::context::memoize;
 use topcoat::router::Path;
 use topcoat::runtime::{Event, shard};
@@ -613,8 +613,9 @@ fn route_path(path: &str) -> topcoat::router::PathBuf {
 /// apply the table's search/sort/pagination declarations, render through
 /// `Resource::table`. The page title is the resource's navigation label.
 ///
-/// (No `#[memoize]` yet: one load per request. It earns its keep once Table
-/// renders behind Boundaries — the reactivity slice of GH #13.)
+/// The page streams: shell, header and the search toolbar go out with the
+/// first content, while the row grid loads inside a `suspense` region that
+/// swaps in the skeleton → table without any client-side fetching.
 fn resource_list<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
     Box::pin(ThenView::new(async move {
         if !R::can_view_any(cx) {
@@ -633,79 +634,16 @@ fn resource_list<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
             path
         };
         table = table.with_delete(prefix.clone()).with_bulk_delete(true);
-        let mut query = R::query(cx);
-        if let Some(term) = &state.search
-            && let Some(expr) = table.search_expr(term)
-        {
-            query = query.filter(expr);
-        }
-        if let Some(expr) = table.filter_expr(&state) {
-            query = query.filter(expr);
-        }
-        for ord in table.order_bys_for_state(&state) {
-            query = query.order_by(ord);
-        }
-        let mut db = db(cx);
-        let page = match table.page_size() {
-            Some(per_page) => {
-                // Keep a cursor-free copy of the filtered+ordered query for
-                // cursor validation. Toasty's `Page` sets `next_cursor` when
-                // `len == page_size` and `prev_cursor` when `has_previous_page`,
-                // which leaves phantom cursors when the page sits exactly at a
-                // boundary (e.g. a `before` fetch that lands on the first page
-                // returns `len == page_size` so `prev_cursor` is set even though
-                // `before(prev_cursor)` is empty). Validate such cursors with a
-                // cheap `LIMIT 1` probe and hide phantoms.
-                let base_query = query.clone();
-                let mut paginated = toasty::stmt::Paginate::new(query, per_page);
-                if let Some(cursor) = &state.after {
-                    paginated = paginated.after(crate::cursor::decode(cursor)?);
-                } else if let Some(cursor) = &state.before {
-                    paginated = paginated.before(crate::cursor::decode(cursor)?);
-                }
-                let loaded = paginated
-                    .exec(&mut db)
-                    .await
-                    .map_err(topcoat::Error::from)?;
-                let mut page = TablePage::from_toasty_page(loaded)?;
-                // Only probe for phantom cursors when the page is full
-                // (`len == per_page`); a short page cannot have a next page
-                // and probing would be a wasted round-trip (GH #75).
-                if page.rows.len() == per_page {
-                    if let Some(cursor) = page.next_cursor.clone() {
-                        let probe = toasty::stmt::Paginate::new(base_query.clone(), 1)
-                            .after(crate::cursor::decode(&cursor)?)
-                            .exec(&mut db)
-                            .await
-                            .map_err(topcoat::Error::from)?;
-                        if probe.items.is_empty() {
-                            page.next_cursor = None;
-                        }
-                    }
-                    if let Some(cursor) = page.prev_cursor.clone() {
-                        let probe = toasty::stmt::Paginate::new(base_query.clone(), 1)
-                            .before(crate::cursor::decode(&cursor)?)
-                            .exec(&mut db)
-                            .await
-                            .map_err(topcoat::Error::from)?;
-                        if probe.items.is_empty() {
-                            page.prev_cursor = None;
-                        }
-                    }
-                } else {
-                    // Short page → no next, keep prev as-is (has_previous already correct).
-                    page.next_cursor = None;
-                }
-                page
-            }
-            None => {
-                let rows: Vec<R::Model> =
-                    query.exec(&mut db).await.map_err(topcoat::Error::from)?;
-                rows.into()
-            }
-        };
-        let table_view = table.render(cx, page).await?;
         let title = R::navigation_label();
+
+        // First content: the skeleton grid (same markup the eager
+        // `defer(true)` path renders), while the rows load below.
+        let skeleton = table.render_skeleton(cx).await?;
+        let lazy_rows = ThenView::new(async move {
+            let page = load_table_page::<R>(cx, &table, &state).await?;
+            table.render(cx, page).await
+        });
+
         Ok(view! { cx =>
             signal q = String::new();
             argentum_ui::page(
@@ -719,12 +657,92 @@ fn resource_list<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
                             class="w-64 border border-border rounded px-2 py-1"
                         >
                         table_shard(q: $(q.get()))
-                        (table_view)
+                        suspense(fallback: skeleton, (lazy_rows.boxed()))
                     </div>
                 )
             )
         })
     }))
+}
+
+/// Resolve the declared table (search / filters / sort / pagination) against
+/// `Resource::query` and execute it — the data-loading half of
+/// [`resource_list`], kept separate so the page shell can stream before it.
+async fn load_table_page<R: Resource>(
+    cx: &Cx,
+    table: &Table<R::Model>,
+    state: &TableState,
+) -> Result<TablePage<R::Model>> {
+    let mut query = R::query(cx);
+    if let Some(term) = &state.search
+        && let Some(expr) = table.search_expr(term)
+    {
+        query = query.filter(expr);
+    }
+    if let Some(expr) = table.filter_expr(state) {
+        query = query.filter(expr);
+    }
+    for ord in table.order_bys_for_state(state) {
+        query = query.order_by(ord);
+    }
+    let mut db = db(cx);
+    match table.page_size() {
+        Some(per_page) => {
+            // Keep a cursor-free copy of the filtered+ordered query for
+            // cursor validation. Toasty's `Page` sets `next_cursor` when
+            // `len == page_size` and `prev_cursor` when `has_previous_page`,
+            // which leaves phantom cursors when the page sits exactly at a
+            // boundary (e.g. a `before` fetch that lands on the first page
+            // returns `len == page_size` so `prev_cursor` is set even though
+            // `before(prev_cursor)` is empty). Validate such cursors with a
+            // cheap `LIMIT 1` probe and hide phantoms.
+            let base_query = query.clone();
+            let mut paginated = toasty::stmt::Paginate::new(query, per_page);
+            if let Some(cursor) = &state.after {
+                paginated = paginated.after(crate::cursor::decode(cursor)?);
+            } else if let Some(cursor) = &state.before {
+                paginated = paginated.before(crate::cursor::decode(cursor)?);
+            }
+            let loaded = paginated
+                .exec(&mut db)
+                .await
+                .map_err(topcoat::Error::from)?;
+            let mut page = TablePage::from_toasty_page(loaded)?;
+            // Only probe for phantom cursors when the page is full
+            // (`len == per_page`); a short page cannot have a next page
+            // and probing would be a wasted round-trip (GH #75).
+            if page.rows.len() == per_page {
+                if let Some(cursor) = page.next_cursor.clone() {
+                    let probe = toasty::stmt::Paginate::new(base_query.clone(), 1)
+                        .after(crate::cursor::decode(&cursor)?)
+                        .exec(&mut db)
+                        .await
+                        .map_err(topcoat::Error::from)?;
+                    if probe.items.is_empty() {
+                        page.next_cursor = None;
+                    }
+                }
+                if let Some(cursor) = page.prev_cursor.clone() {
+                    let probe = toasty::stmt::Paginate::new(base_query.clone(), 1)
+                        .before(crate::cursor::decode(&cursor)?)
+                        .exec(&mut db)
+                        .await
+                        .map_err(topcoat::Error::from)?;
+                    if probe.items.is_empty() {
+                        page.prev_cursor = None;
+                    }
+                }
+            } else {
+                // Short page → no next, keep prev as-is (has_previous already correct).
+                page.next_cursor = None;
+            }
+            Ok(page)
+        }
+        None => {
+            let rows: Vec<R::Model> = query.exec(&mut db).await.map_err(topcoat::Error::from)?;
+            Ok(rows.into())
+        }
+    }
 }
 
 /// Helper: parse `application/x-www-form-urlencoded` body into a map.
