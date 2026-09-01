@@ -388,7 +388,7 @@ impl Panel {
     /// Render the Filament-grade Shell that frames every admin page.
     ///
     /// Composes `argentum-ui` `sidebar` + main `max-w-7xl p-6` area with
-    /// grouped NavigationItems, active highlight (`bg-foreground/5` + `aria-current="page"`),
+    /// grouped NavigationItems, active highlight (`bg-sidebar-accent` + `aria-current="page"`),
     /// `separator`, and `sidebar_trigger` for responsive `sheet` drawer.
     /// Includes dark-mode toggle (Ghost button, persists via cookie/session) and
     /// notification stack (fixed top-right). Additive `class` is allowed on the
@@ -403,7 +403,7 @@ impl Panel {
         use argentum_ui::{
             SheetSide, sheet, sheet_content, sidebar, sidebar_content, sidebar_footer,
             sidebar_header, sidebar_inset, sidebar_menu_button, sidebar_menu_item,
-            sidebar_provider, sidebar_trigger,
+            sidebar_provider, sidebar_rail, sidebar_trigger,
         };
 
         let outer_class = extra_class.clone().unwrap_or_default();
@@ -476,6 +476,7 @@ impl Panel {
                             (sidebar_theme_toggle)
                         </div>
                     )
+                    sidebar_rail()
                 )
                 // Mobile Sheet drawer — hidden on lg, w-(--sidebar-width-mobile) when open
                 sheet(

@@ -66,9 +66,13 @@ pub async fn sidebar_provider(
     }
 }
 
-const INSET: StaticClass = class!("flex flex-1 flex-col min-w-0");
+const INSET: StaticClass = class!(
+    "flex flex-1 flex-col min-w-0 bg-background peer-data-[variant=inset]:min-h-[calc(100svh-theme(spacing.4))] peer-data-[variant=inset]:m-2 peer-data-[variant=inset]:ml-0 peer-data-[variant=inset]:rounded-xl peer-data-[variant=inset]:shadow-sm"
+);
 
 /// Inset for the main content beside the fixed sidebar (shadcn `SidebarInset`).
+/// Peer-selector contract: when `Sidebar` has `variant=inset` it renders `peer`,
+/// and this inset uses `peer-data-[variant=inset]:...` (shadcn `sidebar.tsx:307-319`).
 #[component]
 pub async fn sidebar_inset(#[default] mut attrs: Attributes, #[default] child: View) -> Result {
     view! {
@@ -90,19 +94,47 @@ const SIDEBAR: StaticClass = class!(
 ///
 /// On small viewports it is hidden (`hidden lg:flex`); the mobile drawer is
 /// a `sheet` opened via [`sidebar_trigger`]. `fixed inset-y-0 h-svh w-(--sidebar-width)`
-/// with `data-state` + `data-collapsible` derived from the `sidebar_state`
-/// cookie — the same state [`sidebar_provider`] ships, so SSR markup is
-/// consistent across the shell.
+/// with `data-state` + `data-collapsible` + `data-variant`/`data-side` derived
+/// from the `sidebar_state` cookie and props — the same state
+/// [`sidebar_provider`] ships, so SSR markup is consistent across the shell.
+/// `variant` mirrors shadcn `variant=floating|inset` (data-variant styling
+/// + `peer` for `SidebarInset` contract at `sidebar.tsx:307-319`).
 #[component]
-pub async fn sidebar(cx: &Cx, #[default] mut attrs: Attributes, #[default] child: View) -> Result {
+pub async fn sidebar(
+    cx: &Cx,
+    #[default] variant: SidebarVariant,
+    #[default] side: SidebarSide,
+    #[default] mut attrs: Attributes,
+    #[default] child: View,
+) -> Result {
     let (state, collapsible) = sidebar_state(cx);
+    let variant_str = match variant {
+        SidebarVariant::Sidebar => "sidebar",
+        SidebarVariant::Floating => "floating",
+        SidebarVariant::Inset => "inset",
+    };
+    let side_str = match side {
+        SidebarSide::Left => "left",
+        SidebarSide::Right => "right",
+    };
+    let is_inset = variant == SidebarVariant::Inset;
+    let is_floating = variant == SidebarVariant::Floating;
     view! {
         <div
             data-sidebar="sidebar"
             data-state=(state)
             data-collapsible=(collapsible)
-            data-variant="sidebar"
-            class=(class!(SIDEBAR, attrs.remove("class")))
+            data-variant=(variant_str)
+            data-side=(side_str)
+            class=(class!(
+                SIDEBAR,
+                is_inset.then_some("peer"),
+                is_floating.then_some("m-2 rounded-lg border shadow-sm"),
+                is_inset.then_some("m-2 rounded-lg border bg-background shadow-sm"),
+                (side == SidebarSide::Right)
+                    .then_some("right-0 left-auto group-data-[collapsible=offcanvas]:right-[calc(var(--sidebar-width)*-1)] group-data-[collapsible=offcanvas]:left-auto"),
+                attrs.remove("class"),
+            ))
             (attrs)
         >
             (child)
@@ -251,7 +283,7 @@ const MENU_BUTTON_BASE: StaticClass = class!(
      group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-2"
 );
 
-const MENU_BUTTON_ACTIVE: StaticClass = class!("bg-foreground/5 text-foreground");
+const MENU_BUTTON_ACTIVE: StaticClass = class!("bg-sidebar-accent text-sidebar-accent-foreground");
 const MENU_BUTTON_INACTIVE: StaticClass = class!("text-muted-foreground");
 
 /// A single navigation button inside the sidebar.
@@ -307,11 +339,11 @@ pub async fn sidebar_separator(
     }
 }
 
-/// Trigger that toggles the sidebar on mobile (opens `sheet` drawer) or
-/// collapses the desktop rail. Renders a Ghost icon button with
-/// `data-collapsed` hook and `lg:hidden` / `hidden lg:flex` responsive
-/// classes as appropriate. Persistence via cookie/session is handled by the
-/// consumer; this component only renders the hook.
+/// Trigger that toggles the sidebar — always visible. Below `lg` it opens the
+/// mobile `Sheet` drawer, on `lg` it collapses the desktop rail to icon
+/// width (via `group-data-[collapsible=icon]`). Renders a Ghost icon button
+/// with `data-sidebar="trigger"` hook. Persistence via cookie is handled by
+/// `assets/sidebar.js`; this component only renders the hook.
 #[component]
 pub async fn sidebar_trigger(#[default] mut attrs: Attributes) -> Result {
     view! {
@@ -326,6 +358,144 @@ pub async fn sidebar_trigger(#[default] mut attrs: Attributes) -> Result {
         >
             <span aria-hidden="true">"☰"</span>
         </button>
+    }
+}
+
+/// Rail for edge-click toggle — mirrors `SidebarRail` in shadcn
+/// `sidebar.tsx`. Rendered inside `sidebar` as `<Sidebar><SidebarRail /></Sidebar>`.
+/// Absolutely positioned at the sidebar edge, hidden on mobile, `sm:flex` on
+/// desktop. Clicking it toggles via the same `[data-sidebar="trigger"]`
+/// handler as `sidebar_trigger` (see `assets/sidebar.js`).
+#[component]
+pub async fn sidebar_rail(#[default] mut attrs: Attributes) -> Result {
+    view! {
+        <button
+            data-sidebar="rail"
+            aria-label="Toggle sidebar"
+            tabindex="-1"
+            title="Toggle sidebar"
+            class=(class!(
+                "absolute inset-y-0 right-0 z-20 hidden w-4 -translate-x-1/2 transition-all ease-linear after:absolute after:inset-y-0 after:left-1/2 after:w-[2px] hover:after:bg-sidebar-border group-data-[side=right]:right-0 group-data-[side=right]:left-auto sm:flex",
+                "group-data-[collapsible=offcanvas]:translate-x-0 group-data-[collapsible=offcanvas]:after:left-full",
+                attrs.remove("class"),
+            ))
+            (attrs)
+        ></button>
+    }
+}
+
+/// Variant for the sidebar container — shadcn parity (`variant=floating|inset`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SidebarVariant {
+    #[default]
+    Sidebar,
+    Floating,
+    Inset,
+}
+
+/// Side for the sidebar — `left` (default) or `right`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SidebarSide {
+    #[default]
+    Left,
+    Right,
+}
+
+/// Menu action — button inside a `sidebar_menu_item` independent of the main
+/// button (e.g. “Add” or a dropdown trigger). Mirrors `SidebarMenuAction`.
+#[component]
+pub async fn sidebar_menu_action(
+    #[default] mut attrs: Attributes,
+    #[default] child: View,
+) -> Result {
+    view! {
+        <button
+            data-sidebar="menu-action"
+            class=(class!(
+                "absolute right-1 top-1.5 flex aspect-square w-5 items-center justify-center rounded-md p-0 text-sidebar-foreground outline-none ring-sidebar-ring transition-transform hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 peer-hover/menu-button:text-sidebar-accent-foreground [&>svg]:size-4",
+                attrs.remove("class"),
+            ))
+            (attrs)
+        >
+            (child)
+        </button>
+    }
+}
+
+/// Menu badge — counter or status inside a `sidebar_menu_item`.
+#[component]
+pub async fn sidebar_menu_badge(
+    #[default] mut attrs: Attributes,
+    #[default] child: View,
+) -> Result {
+    view! {
+        <div
+            data-sidebar="menu-badge"
+            class=(class!(
+                "ml-auto flex h-5 min-w-5 select-none items-center justify-center rounded-md px-1 text-xs font-medium tabular-nums text-sidebar-foreground pointer-events-none",
+                attrs.remove("class"),
+            ))
+            (attrs)
+        >
+            (child)
+        </div>
+    }
+}
+
+/// Sub-menu container — `ul` inside a `sidebar_menu_item`.
+#[component]
+pub async fn sidebar_menu_sub(#[default] mut attrs: Attributes, #[default] child: View) -> Result {
+    view! {
+        <ul
+            data-sidebar="menu-sub"
+            class=(class!(
+                "mx-3.5 flex min-w-0 translate-x-px flex-col gap-1 border-l border-sidebar-border px-2.5 py-0.5 group-data-[collapsible=icon]:hidden",
+                attrs.remove("class"),
+            ))
+            (attrs)
+        >
+            (child)
+        </ul>
+    }
+}
+
+/// Sub-menu item — `li` inside `sidebar_menu_sub`.
+#[component]
+pub async fn sidebar_menu_sub_item(
+    #[default] mut attrs: Attributes,
+    #[default] child: View,
+) -> Result {
+    view! {
+        <li
+            data-sidebar="menu-sub-item"
+            class=(class!("list-none group/menu-sub-item", attrs.remove("class")))
+            (attrs)
+        >
+            (child)
+        </li>
+    }
+}
+
+/// Sub-menu button — link/button inside `sidebar_menu_sub_item`.
+#[component]
+pub async fn sidebar_menu_sub_button(
+    #[default] is_active: bool,
+    #[default] mut attrs: Attributes,
+    #[default] child: View,
+) -> Result {
+    view! {
+        <a
+            data-sidebar="menu-sub-button"
+            data-active=(is_active.then_some("true"))
+            aria-current=(is_active.then_some("page"))
+            class=(class!(
+                "flex h-7 min-w-0 -translate-x-px items-center gap-2 overflow-hidden rounded-md px-2 text-sidebar-foreground outline-none ring-sidebar-ring hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:text-sidebar-accent-foreground data-[active=true]:bg-sidebar-accent data-[active=true]:text-sidebar-accent-foreground",
+                attrs.remove("class"),
+            ))
+            (attrs)
+        >
+            (child)
+        </a>
     }
 }
 

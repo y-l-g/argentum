@@ -38,9 +38,11 @@ pub use components::composites::page::{
     page, page_content, page_description, page_header, page_title,
 };
 pub use components::composites::sidebar::{
-    sidebar, sidebar_content, sidebar_footer, sidebar_group, sidebar_group_content,
-    sidebar_group_label, sidebar_header, sidebar_inset, sidebar_menu, sidebar_menu_button,
-    sidebar_menu_item, sidebar_provider, sidebar_separator, sidebar_trigger,
+    SidebarSide, SidebarVariant, sidebar, sidebar_content, sidebar_footer, sidebar_group,
+    sidebar_group_content, sidebar_group_label, sidebar_header, sidebar_inset, sidebar_menu,
+    sidebar_menu_action, sidebar_menu_badge, sidebar_menu_button, sidebar_menu_item,
+    sidebar_menu_sub, sidebar_menu_sub_button, sidebar_menu_sub_item, sidebar_provider,
+    sidebar_rail, sidebar_separator, sidebar_trigger,
 };
 pub use components::composites::theme::theme_init_script;
 

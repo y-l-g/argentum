@@ -12,7 +12,7 @@ document.addEventListener('DOMContentLoaded', () => {
       document.cookie = `sidebar_state=${state};path=/;max-age=604800`;
     };
     document.addEventListener('click', e => {
-      if (e.target.closest('[data-sidebar="trigger"]')) {
+      if (e.target.closest('[data-sidebar="trigger"], [data-sidebar="rail"]')) {
         if (window.innerWidth < 1024 && sheet) {
           // showModal() sets `open` itself; setting the attribute first makes
           // a follow-up showModal() throw InvalidStateError and leaves the
