@@ -1,7 +1,7 @@
-// SYNC: topcoat-ui-registry@0.6.2 sha256:d061afc50d0478803a95ba9b0c44816735fae7aeb6047d7272f69d7cd4b60e43 — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
+// SYNC: topcoat-ui-registry@0.6.2 sha256:fa90092907c3ce9b21d9af0d828bbe1e6d544b648f9949b7667e11d74a62ee7b — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
 use topcoat::{
     Result,
-    view::{Attributes, PromotedStr, StaticClass, View, class, component, view},
+    view::{Attributes, Child, PromotedStr, StaticClass, View, class, component, view},
 };
 
 /// How a [`toggle`] relates to the others sharing its `name`.
@@ -89,7 +89,7 @@ const BASE: StaticClass = class!(
 /// view! {
 ///     toggle(
 ///         attrs: attributes! { name="bold" checked="" },
-///         icon(data: iconify_icon!("feather:bold"), label: "Bold")
+///         icon(data: iconify_icon!("lucide:bold"), label: "Bold")
 ///     )
 /// }
 /// ```
@@ -106,18 +106,18 @@ pub async fn toggle(
     mut attrs: Attributes,
     /// The toggle's content.
     #[default]
-    child: View,
-) -> Result {
+    child: Child<'_>,
+) -> Result<impl View> {
     // The input is taken out of the layout rather than hidden outright: a
     // `display: none` control is neither focusable nor announced, while an
     // `sr-only` one still takes keyboard focus and reads as the checkbox or
     // radio button it is, named by the label around it.
-    view! {
+    Ok(view! {
         <label class=(class!(BASE, size.classes(), attrs.remove("class")))>
             <input type=(kind.input_type()) class="sr-only" (attrs)>
             (child)
         </label>
-    }
+    })
 }
 
 /// A row of [`toggle`]s that belong together.
@@ -141,8 +141,11 @@ pub async fn toggle(
 /// }
 /// ```
 #[component]
-pub async fn toggle_group(#[default] mut attrs: Attributes, #[default] child: View) -> Result {
-    view! {
+pub async fn toggle_group(
+    #[default] mut attrs: Attributes,
+    #[default] child: Child<'_>,
+) -> Result<impl View> {
+    Ok(view! {
         <div
             class=(class!(
                 "inline-flex w-fit items-center gap-1 rounded-lg border border-border p-1 \
@@ -153,5 +156,5 @@ pub async fn toggle_group(#[default] mut attrs: Attributes, #[default] child: Vi
         >
             (child)
         </div>
-    }
+    })
 }

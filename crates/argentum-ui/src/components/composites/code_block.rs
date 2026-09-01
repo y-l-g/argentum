@@ -7,7 +7,7 @@ use syntect::parsing::SyntaxSet;
 use syntect::util::LinesWithEndings;
 use topcoat::{
     Result,
-    view::{Attributes, StaticClass, Unescaped, class, component, view},
+    view::{Attributes, StaticClass, Unescaped, View, ViewExt, class, component, view},
 };
 
 const PRE: StaticClass =
@@ -75,7 +75,7 @@ pub async fn code_block(
     #[default]
     code: String,
     #[default] mut attrs: Attributes,
-) -> Result {
+) -> Result<impl View> {
     // Server-side highlighting via syntect: when lang is rust we emit spans
     // with inline `style="color:..."` for each color scheme (light first,
     // `dark:` second), falling back to plain mono when highlighting fails or
@@ -96,7 +96,7 @@ pub async fn code_block(
         // spread onto the outer container so they survive in both branches,
         // fixing the dropped-attrs bug when highlighting succeeds.
         let extra_class = attrs.remove("class");
-        view! {
+        Ok(view! {
             <div class="relative" (attrs)>
                 <pre
                     class=(class!(PRE, "shiki dark:hidden", extra_class.clone()))
@@ -119,8 +119,9 @@ pub async fn code_block(
                 </button>
             </div>
         }
+        .boxed())
     } else {
-        view! {
+        Ok(view! {
             <div class="relative">
                 <pre
                     class=(class!(PRE, "shiki", attrs.remove("class")))
@@ -138,13 +139,14 @@ pub async fn code_block(
                 </button>
             </div>
         }
+        .boxed())
     }
 }
 
 #[cfg(test)]
 mod tests {
     use topcoat::context::CxTestBuilder;
-    use topcoat::view::attributes;
+    use topcoat::view::{ViewExt, attributes};
 
     use super::*;
 
@@ -153,6 +155,8 @@ mod tests {
         let cx = CxTestBuilder::new().build();
         let cx_ref = &cx;
         let html = view! { cx_ref => code_block(lang: "rust", code: "fn main() {}") }
+            .single()
+            .await
             .unwrap()
             .render(&cx);
         // syntect span markup must pass through raw, not escaped
@@ -169,6 +173,8 @@ mod tests {
         let cx = CxTestBuilder::new().build();
         let cx_ref = &cx;
         let html = view! { cx_ref => code_block(lang: "rust", code: "fn main() {}", attrs: attributes!{ id="my-id" class="my-class" data-x="1" }) }
+            .single()
+            .await
             .unwrap()
             .render(&cx);
         // custom class should be merged onto pres
@@ -188,6 +194,8 @@ mod tests {
         let cx = CxTestBuilder::new().build();
         let cx_ref = &cx;
         let html = view! { cx_ref => code_block(lang: "text", code: "hello", attrs: attributes!{ id="plain-id" class="plain-class" }) }
+            .single()
+            .await
             .unwrap()
             .render(&cx);
         assert!(

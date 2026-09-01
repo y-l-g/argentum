@@ -1,9 +1,9 @@
-// SYNC: topcoat-ui-registry@0.6.2 sha256:18249cc6f7265325d8dcd4378fe3d27230c272678bb4bd04eb36b5ea1f73332a — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
+// SYNC: topcoat-ui-registry@0.6.2 sha256:eb0ed5c328954fa26759d66cddce6abe329ff5bece8b72cd41372892a1c7b576 — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
 use topcoat::{
     Result,
     context::Cx,
     icon::{IconData, icon, iconify::iconify_icon},
-    view::{Attributes, StaticClass, View, attributes, class, component, view},
+    view::{Attributes, Child, StaticClass, View, attributes, class, component, view},
 };
 
 /// The classes for the native `<select>` inside the [`select`] component.
@@ -49,7 +49,7 @@ const PICKER: StaticClass = class!(
 );
 
 /// The icon marking the picker's checked option.
-const CHECKMARK: IconData = iconify_icon!("feather:check");
+const CHECKMARK: IconData = iconify_icon!("lucide:check");
 
 /// The inline style for the [`select`] wrapper, carrying [`CHECKMARK`] as a
 /// data URI in the `--select-checkmark` custom property. The indirection
@@ -100,13 +100,17 @@ fn checkmark_style(cx: &Cx) -> String {
 /// }
 /// ```
 #[component]
-pub async fn select(cx: &Cx, #[default] mut attrs: Attributes, #[default] child: View) -> Result {
+pub async fn select(
+    cx: &Cx,
+    #[default] mut attrs: Attributes,
+    #[default] child: Child<'_>,
+) -> Result<impl View> {
     // `appearance: base-select` opts into the customizable picker. It is set
     // from the wrapper because the descendant selector outranks the
     // `appearance-none` fallback in specificity, making the outcome
     // independent of stylesheet order; browsers without support drop the
     // invalid declaration and keep the fallback.
-    view! {
+    Ok(view! {
         <span
             class=(class!(
                 "relative block has-[:disabled]:opacity-50 \
@@ -118,12 +122,12 @@ pub async fn select(cx: &Cx, #[default] mut attrs: Attributes, #[default] child:
         >
             <select class=(class!(SELECT, PICKER)) (attrs)>(child)</select>
             icon(
-                data: iconify_icon!("feather:chevron-down"),
+                data: iconify_icon!("lucide:chevron-down"),
                 attrs: attributes! {
                     class="pointer-events-none absolute top-1/2 right-3 size-4 \
                         -translate-y-1/2 text-muted-foreground transition-transform"
                 }
             )
         </span>
-    }
+    })
 }

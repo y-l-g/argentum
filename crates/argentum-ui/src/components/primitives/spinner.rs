@@ -1,8 +1,8 @@
-// SYNC: topcoat-ui-registry@0.6.2 sha256:f34fa1b6689a0636cbb43f6b5e7f7fe7fa606bccb5c2941216de0a8ce78e0ea2 — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
+// SYNC: topcoat-ui-registry@0.6.2 sha256:124c08867ae6ca52a8be3205eb1dbcf2a807dd1c6cab7dc2a47d043a34e44cce — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
 use topcoat::{
     Result,
     icon::{icon, iconify::iconify_icon},
-    view::{Attributes, Length, attributes, class, component, view},
+    view::{Attributes, Length, View, attributes, class, component, view},
 };
 
 /// A spinner component: a spinning loader icon for pending states.
@@ -34,10 +34,10 @@ pub async fn spinner(
     /// Extra attributes for the `<svg>` element.
     #[default]
     mut attrs: Attributes,
-) -> Result {
-    view! {
+) -> Result<impl View> {
+    Ok(view! {
         icon(
-            data: iconify_icon!("feather:loader"),
+            data: iconify_icon!("lucide:loader-circle"),
             size: size,
             label: label,
             attrs: attributes! {
@@ -45,5 +45,5 @@ pub async fn spinner(
                 (attrs)
             }
         )
-    }
+    })
 }

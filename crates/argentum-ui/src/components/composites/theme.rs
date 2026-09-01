@@ -1,6 +1,6 @@
 use topcoat::{
     Result,
-    view::{StaticStr, Unescaped, component, view},
+    view::{StaticStr, Unescaped, View, component, view},
 };
 
 /// Pre-paint theme application — the blocking head script that kills the
@@ -25,13 +25,14 @@ if(t==='dark')document.documentElement.classList.add('dark')})();";
 /// </head>
 /// ```
 #[component]
-pub async fn theme_init_script() -> Result {
-    view! { <script>(Unescaped::new_unchecked(StaticStr(THEME_INIT)))</script> }
+pub async fn theme_init_script() -> Result<impl View> {
+    Ok(view! { <script>(Unescaped::new_unchecked(StaticStr(THEME_INIT)))</script> })
 }
 
 #[cfg(test)]
 mod tests {
     use topcoat::context::CxTestBuilder;
+    use topcoat::view::ViewExt;
 
     use super::*;
 
@@ -39,7 +40,11 @@ mod tests {
     async fn renders_blocking_head_script() {
         let cx = CxTestBuilder::new().build();
         let cx_ref = &cx;
-        let html = view! { cx_ref => theme_init_script() }.unwrap().render(&cx);
+        let html = view! { cx_ref => theme_init_script() }
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
         assert!(
             html.starts_with("<script>") && html.contains("classList.add('dark')"),
             "expected raw inline script, got {html}"

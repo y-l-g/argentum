@@ -1,7 +1,7 @@
-// SYNC: topcoat-ui-registry@0.6.2 sha256:b43fd188519fd83a1161ac995422244d95169ed870c9677974ffd53f84c79b77 — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
+// SYNC: topcoat-ui-registry@0.6.2 sha256:f6faa9563198a85864ac4571cac986f46add9d62ef2d6b215dc019b53fb5390c — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
 use topcoat::{
     Result,
-    view::{Attributes, StaticClass, class, component, view},
+    view::{Attributes, StaticClass, View, class, component, view},
 };
 
 /// The classes for the [`skeleton`] placeholder.
@@ -29,6 +29,6 @@ const SKELETON: StaticClass = class!("animate-pulse rounded-md bg-foreground/10"
 /// }
 /// ```
 #[component]
-pub async fn skeleton(#[default] mut attrs: Attributes) -> Result {
-    view! { <div class=(class!(SKELETON, attrs.remove("class"))) (attrs)></div> }
+pub async fn skeleton(#[default] mut attrs: Attributes) -> Result<impl View> {
+    Ok(view! { <div class=(class!(SKELETON, attrs.remove("class"))) (attrs)></div> })
 }

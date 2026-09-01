@@ -1,6 +1,6 @@
 use topcoat::{
     Result,
-    view::{Attributes, StaticClass, View, class, component, view},
+    view::{Attributes, Child, StaticClass, View, class, component, view},
 };
 
 // ---------------------------------------------------------------------------
@@ -26,32 +26,47 @@ const PAGE_CONTENT: StaticClass = class!("flex flex-col gap-6");
 /// )
 /// ```
 #[component]
-pub async fn page(#[default] mut attrs: Attributes, #[default] child: View) -> Result {
-    view! { <div class=(class!(PAGE, attrs.remove("class"))) (attrs)>(child)</div> }
+pub async fn page(
+    #[default] mut attrs: Attributes,
+    #[default] child: Child<'_>,
+) -> Result<impl View> {
+    Ok(view! { <div class=(class!(PAGE, attrs.remove("class"))) (attrs)>(child)</div> })
 }
 
 #[component]
-pub async fn page_header(#[default] mut attrs: Attributes, #[default] child: View) -> Result {
-    view! {
-        <div class=(class!(PAGE_HEADER, attrs.remove("class"))) (attrs)>(child)</div>
-    }
+pub async fn page_header(
+    #[default] mut attrs: Attributes,
+    #[default] child: Child<'_>,
+) -> Result<impl View> {
+    Ok(view! {
+            <div class=(class!(PAGE_HEADER, attrs.remove("class"))) (attrs)>(child)</div>
+    })
 }
 
 #[component]
-pub async fn page_title(#[default] mut attrs: Attributes, #[default] child: View) -> Result {
-    view! { <h1 class=(class!(PAGE_TITLE, attrs.remove("class"))) (attrs)>(child)</h1> }
+pub async fn page_title(
+    #[default] mut attrs: Attributes,
+    #[default] child: Child<'_>,
+) -> Result<impl View> {
+    Ok(view! { <h1 class=(class!(PAGE_TITLE, attrs.remove("class"))) (attrs)>(child)</h1> })
 }
 
 #[component]
-pub async fn page_description(#[default] mut attrs: Attributes, #[default] child: View) -> Result {
-    view! {
-        <p class=(class!(PAGE_DESCRIPTION, attrs.remove("class"))) (attrs)>(child)</p>
-    }
+pub async fn page_description(
+    #[default] mut attrs: Attributes,
+    #[default] child: Child<'_>,
+) -> Result<impl View> {
+    Ok(view! {
+            <p class=(class!(PAGE_DESCRIPTION, attrs.remove("class"))) (attrs)>(child)</p>
+    })
 }
 
 #[component]
-pub async fn page_content(#[default] mut attrs: Attributes, #[default] child: View) -> Result {
-    view! {
-        <div class=(class!(PAGE_CONTENT, attrs.remove("class"))) (attrs)>(child)</div>
-    }
+pub async fn page_content(
+    #[default] mut attrs: Attributes,
+    #[default] child: Child<'_>,
+) -> Result<impl View> {
+    Ok(view! {
+            <div class=(class!(PAGE_CONTENT, attrs.remove("class"))) (attrs)>(child)</div>
+    })
 }

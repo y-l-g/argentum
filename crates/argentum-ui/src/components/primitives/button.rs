@@ -1,7 +1,7 @@
-// SYNC: topcoat-ui-registry@0.6.2 sha256:ba4ab32d87e4c9a982faf657258edd8cf2a0da904ece5976e70185eeb5808f57 — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
+// SYNC: topcoat-ui-registry@0.6.2 sha256:a95d77120917a44d88170a31abca5bae9e493dcc2c041b9b6443bfa2f15ebc06 — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
 use topcoat::{
     Result,
-    view::{Attributes, Class, StaticClass, View, class, component, view},
+    view::{Attributes, Child, Class, StaticClass, View, class, component, view},
 };
 
 /// The visual style of a [`button`].
@@ -149,9 +149,9 @@ pub async fn button(
     #[default] variant: ButtonVariant,
     #[default] size: ButtonSize,
     #[default] mut attrs: Attributes,
-    #[default] child: View,
-) -> Result {
-    view! {
+    #[default] child: Child<'_>,
+) -> Result<impl View> {
+    Ok(view! {
         <button
             class=(class!(
                 BASE,
@@ -163,5 +163,5 @@ pub async fn button(
         >
             (child)
         </button>
-    }
+    })
 }

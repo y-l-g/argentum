@@ -1,7 +1,7 @@
-// SYNC: topcoat-ui-registry@0.6.2 sha256:d5a456ff626a3a454b3241306bac9f5a20ba21c23cf1c4f3a730d8128e078dc7 — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
+// SYNC: topcoat-ui-registry@0.6.2 sha256:9d081f6368b26ab9b244a0cbd5c2a920b749354be77338889f58b0951f269a64 — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
 use topcoat::{
     Result,
-    view::{Attributes, View, class, component, view},
+    view::{Attributes, Child, View, class, component, view},
 };
 
 /// A table component: rows and columns of related data.
@@ -32,8 +32,11 @@ use topcoat::{
 /// }
 /// ```
 #[component]
-pub async fn table(#[default] mut attrs: Attributes, #[default] child: View) -> Result {
-    view! {
+pub async fn table(
+    #[default] mut attrs: Attributes,
+    #[default] child: Child<'_>,
+) -> Result<impl View> {
+    Ok(view! {
         <div class="w-full overflow-x-auto">
             <table
                 class=(class!(
@@ -45,17 +48,20 @@ pub async fn table(#[default] mut attrs: Attributes, #[default] child: View) -> 
                 (child)
             </table>
         </div>
-    }
+    })
 }
 
 /// The heading section of a [`table`], holding the row of column headers.
 #[component]
-pub async fn table_header(#[default] mut attrs: Attributes, #[default] child: View) -> Result {
-    view! {
+pub async fn table_header(
+    #[default] mut attrs: Attributes,
+    #[default] child: Child<'_>,
+) -> Result<impl View> {
+    Ok(view! {
         <thead class=(class!("[&_tr]:border-b", attrs.remove("class"))) (attrs)>
             (child)
         </thead>
-    }
+    })
 }
 
 /// The main section of a [`table`], holding its rows of data.
@@ -63,21 +69,27 @@ pub async fn table_header(#[default] mut attrs: Attributes, #[default] child: Vi
 /// The last row's rule is dropped, so the table ends on its own edge rather
 /// than on a line.
 #[component]
-pub async fn table_body(#[default] mut attrs: Attributes, #[default] child: View) -> Result {
-    view! {
+pub async fn table_body(
+    #[default] mut attrs: Attributes,
+    #[default] child: Child<'_>,
+) -> Result<impl View> {
+    Ok(view! {
         <tbody
             class=(class!("[&_tr:last-child]:border-0", attrs.remove("class")))
             (attrs)
         >
             (child)
         </tbody>
-    }
+    })
 }
 
 /// The closing section of a [`table`], for totals and other summaries.
 #[component]
-pub async fn table_footer(#[default] mut attrs: Attributes, #[default] child: View) -> Result {
-    view! {
+pub async fn table_footer(
+    #[default] mut attrs: Attributes,
+    #[default] child: Child<'_>,
+) -> Result<impl View> {
+    Ok(view! {
         <tfoot
             class=(class!(
                 "border-t border-border bg-foreground/5 font-medium [&>tr]:last:border-b-0",
@@ -87,7 +99,7 @@ pub async fn table_footer(#[default] mut attrs: Attributes, #[default] child: Vi
         >
             (child)
         </tfoot>
-    }
+    })
 }
 
 /// One row of a [`table`], in any of its sections.
@@ -95,8 +107,11 @@ pub async fn table_footer(#[default] mut attrs: Attributes, #[default] child: Vi
 /// The row is ruled off from the next one and tints on hover, so the eye can
 /// follow it across wide tables.
 #[component]
-pub async fn table_row(#[default] mut attrs: Attributes, #[default] child: View) -> Result {
-    view! {
+pub async fn table_row(
+    #[default] mut attrs: Attributes,
+    #[default] child: Child<'_>,
+) -> Result<impl View> {
+    Ok(view! {
         <tr
             class=(class!(
                 "border-b border-border transition-colors hover:bg-foreground/5",
@@ -106,13 +121,16 @@ pub async fn table_row(#[default] mut attrs: Attributes, #[default] child: View)
         >
             (child)
         </tr>
-    }
+    })
 }
 
 /// A column header in a [`table_header`]'s row.
 #[component]
-pub async fn table_head(#[default] mut attrs: Attributes, #[default] child: View) -> Result {
-    view! {
+pub async fn table_head(
+    #[default] mut attrs: Attributes,
+    #[default] child: Child<'_>,
+) -> Result<impl View> {
+    Ok(view! {
         <th
             class=(class!(
                 "h-10 px-3 text-left align-middle font-medium whitespace-nowrap \
@@ -123,31 +141,37 @@ pub async fn table_head(#[default] mut attrs: Attributes, #[default] child: View
         >
             (child)
         </th>
-    }
+    })
 }
 
 /// One cell of a [`table_row`].
 #[component]
-pub async fn table_cell(#[default] mut attrs: Attributes, #[default] child: View) -> Result {
-    view! {
+pub async fn table_cell(
+    #[default] mut attrs: Attributes,
+    #[default] child: Child<'_>,
+) -> Result<impl View> {
+    Ok(view! {
         <td
             class=(class!("p-3 align-middle whitespace-nowrap", attrs.remove("class")))
             (attrs)
         >
             (child)
         </td>
-    }
+    })
 }
 
 /// A line under a [`table`] saying what it holds.
 #[component]
-pub async fn table_caption(#[default] mut attrs: Attributes, #[default] child: View) -> Result {
-    view! {
+pub async fn table_caption(
+    #[default] mut attrs: Attributes,
+    #[default] child: Child<'_>,
+) -> Result<impl View> {
+    Ok(view! {
         <caption
             class=(class!("mt-4 text-sm text-muted-foreground", attrs.remove("class")))
             (attrs)
         >
             (child)
         </caption>
-    }
+    })
 }

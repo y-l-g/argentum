@@ -1,7 +1,7 @@
-// SYNC: topcoat-ui-registry@0.6.2 sha256:a73ea7d169ad0c92c38b4363ea063880db6b4d0bd665e3cbc01f982043ed79d2 — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
+// SYNC: topcoat-ui-registry@0.6.2 sha256:c3bceae840e0be75a9201544d65f9578e41cd9e61bcb9e236b2e9a6c78d739ac — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
 use topcoat::{
     Result,
-    view::{Attributes, StaticClass, View, class, component, view},
+    view::{Attributes, Child, StaticClass, View, class, component, view},
 };
 
 /// A hover card component: a card of detail about its trigger, shown while
@@ -29,15 +29,18 @@ use topcoat::{
 /// }
 /// ```
 #[component]
-pub async fn hover_card(#[default] mut attrs: Attributes, #[default] child: View) -> Result {
-    view! {
+pub async fn hover_card(
+    #[default] mut attrs: Attributes,
+    #[default] child: Child<'_>,
+) -> Result<impl View> {
+    Ok(view! {
         <span
             class=(class!("group relative inline-flex", attrs.remove("class")))
             (attrs)
         >
             (child)
         </span>
-    }
+    })
 }
 
 /// The classes for the [`hover_card_content`] panel.
@@ -64,14 +67,14 @@ const PANEL: StaticClass = class!(
 #[component]
 pub async fn hover_card_content(
     #[default] mut attrs: Attributes,
-    #[default] child: View,
-) -> Result {
-    view! {
+    #[default] child: Child<'_>,
+) -> Result<impl View> {
+    Ok(view! {
         <span
             class=(class!("flex flex-col gap-2", PANEL, attrs.remove("class")))
             (attrs)
         >
             (child)
         </span>
-    }
+    })
 }

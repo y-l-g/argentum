@@ -1,8 +1,8 @@
-// SYNC: topcoat-ui-registry@0.6.2 sha256:602299bc16055e1c2c12c8e0c443803967b8c29c28352d62390de3f40718fc36 — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
+// SYNC: topcoat-ui-registry@0.6.2 sha256:a59bae3aa096245f63f78c467ff12108316814bc724691751d5edcdddf40721b — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
 use topcoat::{
     Result,
     icon::{icon, iconify::iconify_icon},
-    view::{Attributes, StaticClass, View, attributes, class, component, view},
+    view::{Attributes, Child, StaticClass, View, attributes, class, component, view},
 };
 
 /// An accordion component: sections that fold away until they are asked for.
@@ -31,8 +31,13 @@ use topcoat::{
 /// }
 /// ```
 #[component]
-pub async fn accordion(#[default] mut attrs: Attributes, #[default] child: View) -> Result {
-    view! { <div class=(class!("w-full", attrs.remove("class"))) (attrs)>(child)</div> }
+pub async fn accordion(
+    #[default] mut attrs: Attributes,
+    #[default] child: Child<'_>,
+) -> Result<impl View> {
+    Ok(view! {
+        <div class=(class!("w-full", attrs.remove("class"))) (attrs)>(child)</div>
+    })
 }
 
 /// The classes sliding an [`accordion_item`] open and shut.
@@ -67,8 +72,11 @@ const ANIMATION: StaticClass = class!(
 /// animated, and while the section is open the `group-open:` variant applies
 /// within it, which is what turns the trigger's chevron.
 #[component]
-pub async fn accordion_item(#[default] mut attrs: Attributes, #[default] child: View) -> Result {
-    view! {
+pub async fn accordion_item(
+    #[default] mut attrs: Attributes,
+    #[default] child: Child<'_>,
+) -> Result<impl View> {
+    Ok(view! {
         <details
             class=(class!(
                 "group border-b border-border last:border-b-0",
@@ -79,7 +87,7 @@ pub async fn accordion_item(#[default] mut attrs: Attributes, #[default] child: 
         >
             (child)
         </details>
-    }
+    })
 }
 
 /// The row that opens and closes an [`accordion_item`].
@@ -88,8 +96,11 @@ pub async fn accordion_item(#[default] mut attrs: Attributes, #[default] child: 
 /// opens is appended automatically, and the browser's own disclosure marker
 /// is taken away in its favor.
 #[component]
-pub async fn accordion_trigger(#[default] mut attrs: Attributes, #[default] child: View) -> Result {
-    view! {
+pub async fn accordion_trigger(
+    #[default] mut attrs: Attributes,
+    #[default] child: Child<'_>,
+) -> Result<impl View> {
+    Ok(view! {
         <summary
             class=(class!(
                 "flex w-full cursor-pointer list-none items-center justify-between gap-4 py-4 \
@@ -103,25 +114,28 @@ pub async fn accordion_trigger(#[default] mut attrs: Attributes, #[default] chil
         >
             (child)
             icon(
-                data: iconify_icon!("feather:chevron-down"),
+                data: iconify_icon!("lucide:chevron-down"),
                 attrs: attributes! {
                     class="size-4 shrink-0 text-muted-foreground transition-transform \
                         duration-200 ease-out group-open:rotate-180"
                 }
             )
         </summary>
-    }
+    })
 }
 
 /// What an [`accordion_item`] folds away, shown while it is open.
 #[component]
-pub async fn accordion_content(#[default] mut attrs: Attributes, #[default] child: View) -> Result {
-    view! {
+pub async fn accordion_content(
+    #[default] mut attrs: Attributes,
+    #[default] child: Child<'_>,
+) -> Result<impl View> {
+    Ok(view! {
         <div
             class=(class!("pb-4 text-sm text-muted-foreground", attrs.remove("class")))
             (attrs)
         >
             (child)
         </div>
-    }
+    })
 }

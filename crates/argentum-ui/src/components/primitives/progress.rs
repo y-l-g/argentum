@@ -1,7 +1,7 @@
-// SYNC: topcoat-ui-registry@0.6.2 sha256:d1a061b49e95a87b561c39993afe6b023b1ab77805406e16578dea619783793d — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
+// SYNC: topcoat-ui-registry@0.6.2 sha256:2349f524496bd7d4b037dbc5d1a2696ec8402db00fdfcc147a041ca2ce3be490 — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
 use topcoat::{
     Result,
-    view::{Attributes, StaticClass, class, component, view},
+    view::{Attributes, StaticClass, View, class, component, view},
 };
 
 /// The classes for the [`progress`] bar.
@@ -48,13 +48,13 @@ pub async fn progress(
     /// Extra attributes for the `<progress>` element.
     #[default]
     mut attrs: Attributes,
-) -> Result {
-    view! {
+) -> Result<impl View> {
+    Ok(view! {
         <progress
             class=(class!(PROGRESS, attrs.remove("class")))
             value=(value)
             max=(max)
             (attrs)
         ></progress>
-    }
+    })
 }

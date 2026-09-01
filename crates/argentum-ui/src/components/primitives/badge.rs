@@ -1,7 +1,7 @@
-// SYNC: topcoat-ui-registry@0.6.2 sha256:237e2d1d23687302808316618a4de08cbf0cf5ffbadb49117d00df86a9166b0f — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
+// SYNC: topcoat-ui-registry@0.6.2 sha256:eb35eb1037db10cfb4f1e0be1cb9f903570648d7c037a0af7a007a93b4aef91e — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
 use topcoat::{
     Result,
-    view::{Attributes, Class, StaticClass, View, class, component, view},
+    view::{Attributes, Child, Class, StaticClass, View, class, component, view},
 };
 
 /// The visual style of a [`badge`].
@@ -81,11 +81,11 @@ pub fn badge_variants(variant: BadgeVariant) -> Class<(StaticClass, StaticClass)
 pub async fn badge(
     #[default] variant: BadgeVariant,
     #[default] mut attrs: Attributes,
-    #[default] child: View,
-) -> Result {
-    view! {
+    #[default] child: Child<'_>,
+) -> Result<impl View> {
+    Ok(view! {
         <span class=(class!(BASE, variant.classes(), attrs.remove("class"))) (attrs)>
             (child)
         </span>
-    }
+    })
 }
