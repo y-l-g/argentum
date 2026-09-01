@@ -14,7 +14,7 @@ use topcoat::{
     cookie::RouterBuilderCookieExt,
     font::Font,
     router::{
-        Body, PageFn, Router, RouterBuilderDiscoverExt, ViewFuture,
+        Body, PageFn, RouteFn, RouteFuture, Router, RouterBuilderDiscoverExt, ViewFuture,
         error::{forbidden, redirect},
         request::{Bytes, FromRequest},
     },
@@ -74,6 +74,7 @@ pub struct Panel {
     dark_mode: Option<bool>,
     nav_items: Vec<NavigationItem>,
     pages: Vec<PageFn>,
+    routes: Vec<RouteFn>,
     root_target: Option<String>,
 }
 
@@ -114,6 +115,7 @@ impl Panel {
             dark_mode: None,
             nav_items: Vec::new(),
             pages: Vec::new(),
+            routes: Vec::new(),
             root_target: None,
         }
     }
@@ -201,6 +203,13 @@ impl Panel {
             route_path(&bulk_delete_url),
             resource_bulk_delete::<R>,
         ));
+        // CSV export — GET reusing Resource::query + Table filters/sort (ADR-0012).
+        let export_url = format!("{}/export", url);
+        self.routes.push(RouteFn::new(
+            http::Method::GET,
+            route_path(&export_url),
+            resource_export::<R>,
+        ));
         if self.root_target.is_none() {
             self.root_target = Some(url);
         }
@@ -252,6 +261,7 @@ impl Panel {
             dark_mode,
             nav_items,
             pages,
+            routes,
             root_target,
         } = self;
         let db = db.expect("Panel::build requires a Db via app_context");
@@ -273,6 +283,9 @@ impl Panel {
         }
         for page in pages {
             builder = builder.page(page);
+        }
+        for route in routes {
+            builder = builder.route(route);
         }
         // Filament's panel root is a Dashboard; until dashboards exist
         // (GH #38), the prefix serves a redirect to the first resource's
@@ -1145,8 +1158,7 @@ fn resource_bulk_delete<R: Resource>(cx: &Cx, body: Body) -> ViewFuture<'_> {
 }
 
 /// CSV export — reuses `Resource::query` + `Table` filters/sort, streams `text/csv`.
-#[allow(dead_code)]
-fn resource_export<R: Resource>(cx: &Cx, _body: Body) -> ViewFuture<'_> {
+fn resource_export<R: Resource>(cx: &Cx, _body: Body) -> RouteFuture<'_> {
     Box::pin(async move {
         if !R::can_view_any(cx) {
             return Err(forbidden().into());
@@ -1171,40 +1183,20 @@ fn resource_export<R: Resource>(cx: &Cx, _body: Body) -> ViewFuture<'_> {
         let page: TablePage<R::Model> = rows.into();
         let csv = table.to_csv(&page);
         let filename = format!("{}.csv", R::slug());
-        Err(CsvResponse { csv, filename }.into())
-    })
-}
-
-#[derive(Debug)]
-#[allow(dead_code)]
-struct CsvResponse {
-    csv: String,
-    filename: String,
-}
-
-impl std::fmt::Display for CsvResponse {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "csv export {}", self.filename)
-    }
-}
-
-impl std::error::Error for CsvResponse {}
-
-impl topcoat::router::response::IntoResponse for CsvResponse {
-    fn into_response(self, _cx: &Cx) -> topcoat::Result<http::Response<Body>> {
-        let body = Body::from(self.csv);
         let res = http::Response::builder()
             .status(200)
             .header(http::header::CONTENT_TYPE, "text/csv")
             .header(
                 http::header::CONTENT_DISPOSITION,
-                format!("attachment; filename=\"{}\"", self.filename),
+                format!("attachment; filename=\"{}\"", filename),
             )
-            .body(body)
+            .body(Body::from(csv))
             .map_err(|e| std::io::Error::other(e.to_string()))?;
         Ok(res)
-    }
+    })
 }
+
+
 
 /// The panel root: a temporary redirect to the first declared resource's
 /// list, so the mount point is never a dead URL (until Dashboards exist,

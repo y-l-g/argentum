@@ -759,44 +759,6 @@ impl Resource for PostResource {
     }
 }
 
-#[topcoat::router::route(GET "/admin/posts/export")]
-async fn posts_export(cx: &Cx) -> topcoat::Result<impl topcoat::router::response::IntoResponse> {
-    use http::header::{CONTENT_DISPOSITION, CONTENT_TYPE};
-    if !PostResource::can_view_any(cx) {
-        return Err(topcoat::router::error::forbidden().into());
-    }
-    let state = argentum_core::TableState::from_cx(cx);
-    let table = PostResource::table(cx);
-    let mut query = PostResource::query(cx);
-    if let Some(term) = &state.search
-        && let Some(expr) = table.search_expr(term)
-    {
-        query = query.filter(expr);
-    }
-    if let Some(expr) = table.filter_expr(&state) {
-        query = query.filter(expr);
-    }
-    for ord in table.order_bys_for_state(&state) {
-        query = query.order_by(ord);
-    }
-    let mut db = argentum_core::db::db(cx);
-    let rows: Vec<Post> = query
-        .exec(&mut db)
-        .await
-        .map_err(|e| -> topcoat::Error { e.into() })?;
-    let page: argentum_core::TablePage<Post> = rows.into();
-    let csv = table.to_csv(&page);
-    let mut headers = http::HeaderMap::new();
-    headers.insert(CONTENT_TYPE, "text/csv".parse().unwrap());
-    headers.insert(
-        CONTENT_DISPOSITION,
-        format!("attachment; filename=\"{}.csv\"", PostResource::slug())
-            .parse()
-            .unwrap(),
-    );
-    Ok((headers, csv))
-}
-
 // ---------------------------------------------------------------------------
 // Layout — Panel shell at /admin, wraps every /admin/* page
 // ---------------------------------------------------------------------------
