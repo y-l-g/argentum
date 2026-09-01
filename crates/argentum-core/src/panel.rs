@@ -550,6 +550,7 @@ impl Panel {
                 <script src=(argentum_ui::SIDEBAR_JS)></script>
                 <script src=(argentum_ui::THEME_JS)></script>
                 <script src=(argentum_ui::DIALOG_JS)></script>
+                <script src=(argentum_ui::CODE_BLOCK_JS)></script>
             }?,
             None => view! {
                 cx =>

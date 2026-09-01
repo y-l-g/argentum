@@ -48,6 +48,7 @@ pub use components::composites::theme::theme_init_script;
 pub const SIDEBAR_JS: topcoat::asset::Asset = topcoat::asset::asset!("../assets/sidebar.js");
 pub const THEME_JS: topcoat::asset::Asset = topcoat::asset::asset!("../assets/theme.js");
 pub const DIALOG_JS: topcoat::asset::Asset = topcoat::asset::asset!("../assets/dialog.js");
+pub const CODE_BLOCK_JS: topcoat::asset::Asset = topcoat::asset::asset!("../assets/code_block.js");
 
 /// Tailwind build helper for the per-app contract.
 ///
