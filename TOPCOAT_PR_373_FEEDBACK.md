@@ -148,6 +148,7 @@ Worth saying explicitly, because it shapes how the complaints above should be we
 - **`#[component(boxed)]` → `ViewExt::boxed()`** moves the type-cycle hack from macro magic into visible, grep-able code.
 - The rustdoc on the new pieces (`View`, `Child`, `ViewExt::first/single`, `suspense`, `error_boundary`, `live!`/`emit!`) is unusually good — the two-phase `poll_first`/`poll_swap` contract is explained clearly enough to reason about performance without reading the runtime.
 - The migrated `topcoat-ui-registry` is internally consistent — a consumer syncing registry sources verbatim gets a working component library on the new API with zero manual patching.
+- **Streaming in practice, not just in prose:** the reviewer's list page now returns its shell and search toolbar as first content while the row grid loads inside `suspense(fallback, child)` — with the child being nothing fancier than a boxed future-of-a-view (`ThenView`-shaped). The swap envelope (`<template data-topcoat-swap="{region}">` + one `topcoat.swap(n)` script line) is simple enough to reason about from `content/view.rs` alone, and the whole mechanism needs no client build step. This is the rare streaming design where the "no JS framework" promise actually holds.
 
 ---
 
