@@ -24,16 +24,16 @@ What still genuinely requires `toasty_core`:
 ```rust
 // ideal — makes both bridge helpers deletable
 impl<M: Model> Path<M, T> {
-    pub fn field_name(&self) -> &str;           // app-level name
-    pub fn storage_column_name(&self) -> &str;  // db column name
-    pub fn label(&self) -> String;              // capitalize(field_name)
+    pub fn field_name(&self) -> String;         // app-level name — shipped in PR #1207 (draft)
+    pub fn storage_name(&self) -> String;       // #[column] override ⊕ app name — shipped in PR #1207 (draft)
+    pub fn label(&self) -> String;              // capitalize(field_name) — stays in argentum
 }
 trait Model {
-    fn primary_key_order_bys() -> Vec<OrderByExpr>; // or Vec<Path<Self, _>>
+    fn primary_key_order_bys() -> Vec<OrderByExpr>; // shipped in PR #1208 (draft)
 }
 ```
 
-**Argentum debt:** keep both helpers as the single `toasty_core` import sites. Follow-up #11 enriches `FieldLens` with `is_nullable`/`is_unique`/`column_name` — implement those from the **public** `toasty::schema::app` metadata, not via `toasty_core`. When upstream lands the two APIs above, replace the helpers and delete this entry.
+**Argentum debt:** keep both helpers as the single `toasty_core` import sites. Follow-up #11 enriches `FieldLens` with `is_nullable`/`is_unique`/`storage_name` — implement those from the **public** `toasty::schema::app` metadata, not via `toasty_core`. When upstream lands the two APIs above, replace the helpers and delete this entry.
 
 ---
 
@@ -62,11 +62,13 @@ trait Model {
 
 **Where:** `TextInput::validate` / future `Create`/`Update` hydration (`crates/argentum-core/src/schema.rs:TextInput`).
 
-**Today:** `FieldLens` is just `Path<M,T>`; `TextInput` knows `required`/`is_email` but not `is_nullable`/`is_unique`/`column_name`. Validation manually checks `required` and hand-rolled `is_valid_email`. Follow-up #11 notes the gap.
+**Today:** `FieldLens` is just `Path<M,T>`; `TextInput` knows `required`/`is_email` but not `is_nullable`/`is_unique`/`storage_name`. Validation manually checks `required` and hand-rolled `is_valid_email`. Follow-up #11 notes the gap.
 
-**Clean upstream API:** Same as lens gap — `Path::is_nullable()`, `Path::is_unique()`, `Path::column_name()`, plus `FieldTy` so `TextInput::for(...).required()` can default from `field.nullable == false`.
+**Clean upstream API:** Same as lens gap — `Path::is_nullable()`, `Path::is_unique()`, `Path::storage_name()`, plus `FieldTy` so `TextInput::for(...).required()` can default from `field.nullable == false`.
 
 **Argentum plan:** Keep `FieldLens = Path<M,T>` alias for now; don't add trait until Toasty exposes it. When it does, `FieldLens` becomes a trait `Lens<M,T>` with those accessors and `TextInput` derives defaults.
+
+**Upstream note (PR #1207):** the metadata accessors rebuild the schema set per call (`T::register`) — fine at form-setup frequency; call once at `for_lens` and store the result, never per-row. A per-type cache would be a separate upstream PR (global-registry design question).
 
 ---
 
