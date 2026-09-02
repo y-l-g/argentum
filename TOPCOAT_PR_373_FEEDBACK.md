@@ -1,155 +1,76 @@
 # Review feedback — tokio-rs/topcoat PR #373
 
-**PR:** [`feat!: streaming SSR and live! + emit! regions`](https://github.com/tokio-rs/topcoat/pull/373) (`view-stream`, reviewed at head `30d92c99`, 2026-09-01)
+**PR:** [`feat!: streaming SSR and live! + emit! regions`](https://github.com/tokio-rs/topcoat/pull/373) (`view-stream`, head `30d92c99`).
+Found while porting a real consumer (admin framework on `view` + `router` + `ui-registry`). Every entry was hit in practice. Ordered by value.
 
-Each entry below is a self-contained review comment: it should make sense on its own, pasted into the PR, without knowledge of the reviewer's project. Entries are numbered and added as they surface while porting a real consumer (a lazy-`View`-era admin framework on `topcoat` + `topcoat-ui-registry` + `topcoat-router`) to the branch; the entry list grows until the port compiles and passes its test suite. Nothing here is hypothetical — every entry was hit in practice.
+| # | Type | Summary |
+|---|------|---------|
+| 1 | API | Restore `Result`'s `T = View` default |
+| 2 | API | Blanket `NodeClassify for T: View` — opaque `impl View` can't interpolate |
+| 3 | API | Raw `PageFn` needs `internal::ThenView` for fallible pages |
+| 4 | DX | E0782 on `child: View` never suggests `Child<'_>` |
+| 5 | API | No idiomatic list-of-views |
+| 6 | Docs | Publish an old→new migration table |
+| 7 | Docs | State the borrowing rule: views may borrow `cx` only |
 
-Sections: [API design](#api-design) · [Diagnostics](#diagnostics) · [Docs](#docs) · [Bugs / behavior](#bugs--behavior) · [Praise](#praise)
-
----
-
-## API design
-
-### FB-01 — `Result` lost its default type parameter; every bare `-> Result` breaks with E0107
-
-`main` declares the facade alias with a default:
-
-```rust
-pub type Result<T = view::View, E = topcoat_core::error::Error> = ...;
-```
-
-The branch drops the default:
-
-```rust
-pub type Result<T, E = topcoat_core::error::Error> = ...;
-```
-
-Consequence for any downstream code base of realistic size: every component and handler that returned bare `Result` (previously meaning `Result<View>`) now fails with `E0107: missing generics for type alias topcoat::Result`. In the consumer ported for this review that was **109 of the first 198 compile errors** — the single largest migration cost of the PR, and it is purely mechanical: none of those sites cares what the success type is, they just bubble views upward.
-
-If the intent is "handlers should now return `Result<impl View>`", the default still has a role: `Result<View>` remains the natural return type for components whose success type is not worth naming (dynamic composition, trait-object-style returns, code not yet moved to `impl View`). Keeping `T = View` — or at minimum providing a named alias for it — would let this breaking PR land for consumers as two independent migrations (lazy `View`, then optional re-typing to `impl View`) instead of forcing both at once.
-
-Suggestion: restore `pub type Result<T = View, E = ...>` (the `View` trait is nameable again now that it exists as a trait; a boxed-erased concrete alias is also fine), or add e.g. `pub type ViewResult = Result<Box<dyn View>>` and mention it in the migration notes.
-
-### FB-02 — There is no idiomatic "list of views" anymore
-
-On `main`, `Vec<View>` was a natural accumulator: collect rendered fragments in a loop, then interpolate them. With `View` a trait, the only stock types are:
-
-- `BoxView<'a>` (`Pin<Box<dyn View>>`) — public in the crate root, but not documented as the way to hold "some views";
-- `Child<'a>` — a single child, `Default` to empty, `From<View>`; there is no `FromIterator`, no concatenation, no way to interpolate a collection of children.
-
-So `let mut items: Vec<View>` becomes either `Vec<BoxView>` (and then… how is that interpolated? — there is no documented `(items)` behavior for `Vec<BoxView>`) or a restructure of the whole component into a single `view!` with a `for` loop inside. The restructure is often the better code, but the PR leaves no breadcrumb that this is the intended shape, and `BoxView`/`ViewExt::boxed` docs describe boxing purely as a fix for "multiple `return` sites", not as the list accumulator.
-
-Suggestion (any one of):
-
-1. Document the intended pattern for "render a dynamic list" in `view.md` (a `for` loop inside a single `view!`, `key:`-ed), with an explicit note that `Vec<View>` accumulators from the eager era should be restructured.
-2. Add `impl FromIterator<BoxView<'a>> for Child<'a>` (or a `fragment!` / `Child::list(...)` helper) so mechanically-ported code has a correct target.
-3. If `Vec<BoxView>` interpolation already works in `view!`, document it — reviewers had to read the macro source to find out it does not (or does?).
-
-### FB-03 — `Slot<'_>` is just an alias; the docs teach it as a separate concept
-
-`topcoat-router` declares `pub type Slot<'a> = Child<'a>` (crates/topcoat-router/src/page.rs:135). Layout docs, error docs and the PR description all present `slot: Slot<'_>` as a new third kind of thing next to props and children, with its own interpolation rules. It is the same type as child content: same interpolation, same laziness, same `Default`.
-
-This is a minor point — the alias is good for readability — but the docs never say "a `Slot` **is** child content; everything documented about `Child` applies", so a consumer who reads the component docs then the layout docs meets two vocabularies for one mechanism and assumes different semantics (e.g. whether a layout may forward its slot into a nested component — which works, precisely because they are the same type).
-
-Suggestion: one sentence in `page.rs`'s `Slot` docs and in the layout section of the router docs: "`Slot` is `Child` under another name; see the child-content section of the `view!` guide."
+**Bugs found: 0.** Streaming, `suspense`, `live!`/`emit!`, error→status mapping and mid-stream redirects all behaved as documented.
 
 ---
 
-### FB-07 — Raw `PageFn` handlers have no public way to express a fallible async page
+### 1 · API — Restore `Result`'s default type parameter
 
-`PageRenderFn` is now `for<'a> fn(&'a Cx, Body) -> BoxView<'a>` — **synchronous**, returning a lazy view. The `#[page]` macro adapts async handlers by wrapping them in `topcoat_view::internal::ThenView` (a future-of-a-view becomes a view, and the future's `Err` becomes the view's error). Consumers that build pages *by hand* — registries mapping many handlers through one generic function, exactly the pattern the old `fn(cx, body) -> ViewFuture<'_>` supported — have no sanctioned way to do the same: `ThenView` lives in `internal`, and nothing else public converts a fallible future into a view.
+`main`: `pub type Result<T = view::View, E>`. Branch drops the default → every bare `-> Result` fails with E0107. One consumer port: **109 of the first 198 errors**, all mechanical.
 
-The porting consumer ended up importing `topcoat::view::internal::ThenView` — an internal module — for every hand-registered page, plus `Box::pin(..)` at each site (the pre-PR `Box::pin` dance survived unchanged, just with a different return type).
+**Fix:** restore `T = View`, or add `pub type ViewResult = Result<View>`. Lets consumers adopt lazy views and `impl View` re-typing as two separate migrations.
 
-Suggestion (any one of):
+### 2 · API — Blanket `NodeClassify for T: View`
 
-1. A public constructor, e.g. `topcoat::router::page_from_fn(methods, path, |cx, body| async { ... Result<impl View> })` or `ViewExt`-adjacent `fallible(fut)`.
-2. Document the `#[page]`-macro-wraps-component trick as the only sanctioned path and delete raw `PageFn` from the public API — the current state is a public constructor whose signature cannot be satisfied with public types alone.
-3. At minimum, `pub use` `ThenView` outside `internal` with docs, since the macro itself points consumers at it.
+`(expr)` interpolation only works for 5 hard-coded types (`Child`, `BoxView`, `ScopeView`, `MoveView`, `LiveView`). A helper returning `Result<impl View>` produces an opaque that implements `View` but not `NodeClassify` → every intermediate helper must `.boxed()` just to stay interpolable, and the error names the wrong trait (`NodeViewParts not implemented for impl View`).
 
----
+**Fix:** `impl<T: View> NodeClassify for T`, or at least a diagnostic that says "box it with `.boxed()`".
 
-## Diagnostics
+### 3 · API — Raw `PageFn` can't express a fallible async page with public types
 
-### FB-04 — E0782 on `child: View` params offers no path to the correct fix
+`PageRenderFn` is now sync: `fn(&Cx, Body) -> BoxView<'a>`. `#[page]` adapts async handlers via `topcoat_view::internal::ThenView` — consumers hand-registering pages (generic registries) must import an `internal` module and `Box::pin` by hand.
 
-Pre-PR components declared child content as a plain parameter:
+**Fix:** public constructor (`page_from_fn(.., |cx, body| async { Result<impl View> })`) or `pub use ThenView`.
 
-```rust
-#[component]
-async fn card(#[default] child: View) -> Result { ... }
-```
+### 4 · DX — E0782 on `child: View` offers no path to the fix
 
-Post-PR this is `E0782: expected a type, found a trait`, and rustc's structured suggestions are all wrong for a component parameter:
+Pre-PR `#[default] child: View` was the standard child-content signature. Post-PR it's E0782 whose suggestions (`impl View`, generics, `&dyn View`) are all wrong; the right fix (`#[default] child: Child<'_>`) appears nowhere in the output. Largest non-mechanical error class of the migration (89 sites).
 
-- `use a new generic type parameter, constrained by View` → `child<T: View>: T` (not valid at a component call site, and not how children work),
-- `impl View` → changes the signature to one the `#[component]` macro does not collect children into,
-- `&dyn View` → also not the mechanism.
+**Fix:** `#[component]` should intercept a `child`-named parameter typed as the `View` trait and emit "declare `child: Child<'_>` (usually with `#[default]`)".
 
-The actual fix is `#[default] child: Child<'_>`, which is documented in the `#[component]` docs and examples but **never appears in the diagnostic**. In the consumer port, this was 89 sites; the fix was discoverable only from the PR description and the migrated registry sources.
+### 5 · API — No idiomatic list-of-views
 
-Since `#[component]` rewrites the function anyway, the macro is well placed to intercept this exact pattern (a parameter named `child` whose type is the trait `View`) and emit a targeted error: "`child: View` is pre-lazy-View syntax; declare `child: Child<'_>` (usually with `#[default]`)". That single diagnostic would collapse the largest non-mechanical error class of this migration.
+`Vec<View>` is gone. `BoxView` is the only escape hatch and is documented only as a fix for multiple `return` sites; `Child` has no `FromIterator`; nothing documents the intended pattern.
 
-### FB-05 — Migration is discoverable only from the PR description
+**Fix (any one):** `impl FromIterator<BoxView<'a>> for Child<'a>`, a `fragment!` helper, or a `view.md` note that eager-era accumulators should become `for` loops in one `view!`.
 
-The PR prose is excellent, but once merged it lives in a commit message. Nothing in the repo teaches the old→new mappings a consumer needs:
+### 6 · Docs — Publish an old→new migration table
 
-- `child: View` → `#[default] child: Child<'_>`
-- `slot: Result` (layout) → `slot: Slot<'_>` + `(slot)` interpolation
-- matching on `slot: Result` in a layout to set status codes → `error_boundary` fallback
-- `#[component(boxed)]` → `ViewExt::boxed()`
-- `boundary`/`defer` skeleton regions → `suspense` / `live!` + `emit!`
-- bare `-> Result` → `-> Result<impl View>` / `-> Result<View>` (see FB-01)
-- raw handlers returning `ViewFuture<'_>` → `AsyncIntoResponse` (see FB-06)
+The mappings live only in the PR prose (lost after merge). Paste-ready:
 
-Suggestion: a "Migrating from the eager view layer" section in `crates/topcoat/docs/view.md` with exactly this table, and a line in each removed item's former doc location pointing at its replacement (`suspense` docs saying "replaces the `defer`/`boundary` pattern" etc.). The new `examples/live`, `examples/suspense`, `examples/error` are great — they are how the reviewer learned the new signatures — but examples teach the target state, not the path.
-### FB-08 — Interpolation only works for five hard-coded view types; opaque `impl View` fails with a confusing error
+| Before | After |
+|---|---|
+| `child: View` | `#[default] child: Child<'_>` |
+| layout `slot: Result` | `slot: Slot<'_>`, interpolate `(slot)` |
+| match `slot: Result` for status codes | `error_boundary` fallback |
+| `#[component(boxed)]` | `ViewExt::boxed()` |
+| `boundary`/`defer` skeletons | `suspense` / `live!` + `emit!` |
+| bare `-> Result` | `-> Result<impl View>` / `Result<View>` |
+| raw handler `-> ViewFuture<'_>` | sync `-> BoxView<'_>` via `ThenView` / `AsyncIntoResponse` |
 
-`(expr)` in a `view!` body classifies the expression through `NodeClassify`, which is implemented for exactly: `Child<'a>`, `BoxView<'a>`, `LiveView`, `MoveView`, `ScopeView` — plus the `NodeViewParts` primitives (text, numbers, `String`, `Option<T>`, `Vec<T>`, tuples). There is **no blanket impl for `T: View`**.
+### 7 · Docs — State the borrowing rule for views
 
-Consequence: a helper returning `Result<impl View>` produces an *opaque* value that implements `View` but **not** `NodeClassify`, so interpolating it fails with `the trait NodeViewParts is not implemented for impl View` — an error that names the wrong trait and suggests nothing. The only workarounds are `.boxed()` (ViewExt) at the call site or returning `BoxView` from the helper. In a codebase of realistic size this means *every* intermediate render helper — even single-tail ones with no branching — must box its return value just to remain interpolable, which contradicts the `ViewExt::boxed` docs' framing of boxing as a fix for "multiple `return` sites".
+Views borrow the `Cx` they were built against; therefore a view can never borrow anything owned by the code that returns it. Interpolating a sub-view built from a handler local (`TablePage`, `Vec<NavigationItem>`, form maps) fails with `cannot return value referencing local variable` — every consumer rediscovers this via E0515.
 
-Suggestion: `impl<T: View> NodeClassify for T` (a blanket over `View`), so any view value interpolates and `impl View` helpers compose like the docs imply. If a blanket impl is deliberately avoided (orphan/overlap reasons?), the diagnostic for a non-`NodeClassify` opaque should say "views interpolate only when their concrete type is known — box it with `.boxed()` or change the return type to `BoxView<'_>`".
-
----
-
-## Docs
-
-### FB-06 — `ViewFuture` is gone with no pointer to its replacement
-
-`main` exports a `ViewFuture<'_>` (a boxed future yielding `View`), which was the documented return type for raw route handlers that resolve a view by hand. On the branch the type no longer exists. The replacement mechanism — handlers return any `AsyncIntoResponse`, and `ViewExt::first()`/`single()` resolve a view's content to something `IntoResponse` — is only inferable from `response.rs` source and the PR prose.
-
-Concretely: a consumer with `fn handler(cx: &Cx, body: Body) -> ViewFuture<'_>` gets a bare "cannot find type ViewFuture" and no hint. The `AsyncIntoResponse` trait docs are good ("every `IntoResponse` type implements it") but never say "this replaces the old `ViewFuture`-returning handler style; resolve your view with `.first()`".
-
-Suggestion: cover raw/low-level handlers in one place — either a short section in the router docs ("low-level handlers: return `impl AsyncIntoResponse`, resolve views with `ViewExt::first`/`single`") or a doc-alias on `AsyncIntoResponse` for `ViewFuture`.
-### FB-09 — No documented rule for what a view may borrow: handler-locals are silently unusable
-
-Views borrow the `Cx` they were built against (that is why `PageRenderFn` returns `BoxView<'a>` keyed to the `&Cx`). A corollary the docs never state: a view **cannot borrow anything owned by the code that returns it**. In practice this bites constantly: interpolating a sub-view built from a `&local` (a `TablePage`, a `Vec<NavigationItem>`, a `HashMap` of form values) makes the parent view's type carry that borrow, and the handler fails with `cannot return value referencing local variable` — the fix being to clone the data into the template body, precompute derived values before the template, or tie lifetimes to `cx` only.
-
-This is discoverable only by fighting E0515s. One paragraph in `view.md` — "a view's lifetime is the request's; templates may borrow `cx` freely, but anything a template captures must either be owned by the template or borrowed from `cx`" — plus a worked example (build data → await → move owned values into `view!`) would save every consumer the same archaeology.
-
----
-
----
-
-## Bugs / behavior
-
-*(none yet — entries added as found during the port)*
+**Fix:** one paragraph in `view.md` — "templates may borrow `cx` freely; anything else they capture must be owned or borrowed from `cx`" — plus a worked example.
 
 ---
 
 ## Praise
 
-Worth saying explicitly, because it shapes how the complaints above should be weighed:
-
-- **The lazy-`View` + streaming model is the right call.** "Ship the shell, stream the slow part" is exactly the shape consumer UIs keep hand-rolling; building it into the response layer (no client library, marker comments + template splices) is the correct place for it.
-- **`emit!` returning `Result<EmitToken>`** — making "a live region must emit at least once" a type-level constraint, and letting the body retry/fallback instead of killing the stream, is a genuinely elegant design.
-- **`error_boundary` with rethrowable fallbacks** cleanly replaces the old match-on-`slot: Result` status-code dance and composes up the tree.
-- **`#[component(boxed)]` → `ViewExt::boxed()`** moves the type-cycle hack from macro magic into visible, grep-able code.
-- The rustdoc on the new pieces (`View`, `Child`, `ViewExt::first/single`, `suspense`, `error_boundary`, `live!`/`emit!`) is unusually good — the two-phase `poll_first`/`poll_swap` contract is explained clearly enough to reason about performance without reading the runtime.
-- The migrated `topcoat-ui-registry` is internally consistent — a consumer syncing registry sources verbatim gets a working component library on the new API with zero manual patching.
-- **Streaming in practice, not just in prose:** the reviewer's list page now returns its shell and search toolbar as first content while the row grid loads inside `suspense(fallback, child)` — with the child being nothing fancier than a boxed future-of-a-view (`ThenView`-shaped). The swap envelope (`<template data-topcoat-swap="{region}">` + one `topcoat.swap(n)` script line) is simple enough to reason about from `content/view.rs` alone, and the whole mechanism needs no client build step. This is the rare streaming design where the "no JS framework" promise actually holds.
-
----
-
-*Entries FB-01…FB-06 were known before the port began (compile-error triage); later entries are appended in discovery order.*
+- Lazy `View` + streaming is the right call, and the "no client library" promise holds: a list page shipped shell + skeleton as first content and swapped in loaded rows via `suspense` with a plain boxed future as child.
+- `emit!` returning `Result<EmitToken>` (at-least-once emission enforced by types) and rethrowable `error_boundary` fallbacks are elegant.
+- The migrated `topcoat-ui-registry` synced into a consumer verbatim and compiled untouched.
