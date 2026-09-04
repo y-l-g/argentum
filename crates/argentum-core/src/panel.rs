@@ -1002,21 +1002,36 @@ fn resource_create_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
     }))
 }
 
+/// Fetch one record by its URL `id` through the tenancy-scoped query seam.
+///
+/// The string id is parsed against the model's primary-key type and the PK
+/// filter is ANDed onto [`Resource::query`](crate::resource::Resource::query)
+/// (ADR-0002), so tenancy/soft-delete scoping holds. Replaces the #75 item-1
+/// pattern of fetching every row and matching `Table::key_for` in memory —
+/// O(N) rows per edit/delete, leaking the whole table before the policy
+/// check.
+///
+/// A malformed or unknown id maps to 404, not a query error.
+async fn find_by_key<R: Resource>(cx: &Cx, id: &str) -> Result<R::Model> {
+    let Some(expr) = crate::schema::pk_eq_expr::<R::Model>(id) else {
+        return Err(topcoat::router::error::not_found().into());
+    };
+    let mut db = db(cx);
+    R::query(cx)
+        .filter(expr)
+        .first()
+        .exec(&mut db)
+        .await
+        .map_err(topcoat::Error::from)?
+        .ok_or_else(topcoat::router::error::not_found)
+        .map_err(Into::into)
+}
+
 /// Edit page GET — hydrates form from model via Resource::query seam.
 fn resource_edit<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
     Box::pin(ThenView::new(async move {
         let id = topcoat::router::path_param_segment(cx, "id").to_string();
-        // Load via query seam and find by id string via Table row key.
-        let mut db = db(cx);
-        let candidates = R::query(cx)
-            .exec(&mut db)
-            .await
-            .map_err(topcoat::Error::from)?;
-        let table = R::table(cx);
-        let record = candidates
-            .into_iter()
-            .find(|m| table.key_for(m).as_deref() == Some(id.as_str()))
-            .ok_or_else(topcoat::router::error::not_found)?;
+        let record = find_by_key::<R>(cx, &id).await?;
         if !R::can_view(cx, &record) {
             return Err(forbidden().into());
         }
@@ -1033,16 +1048,7 @@ fn resource_edit<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
 fn resource_edit_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
     Box::pin(ThenView::new(async move {
         let id = topcoat::router::path_param_segment(cx, "id").to_string();
-        let mut db = db(cx);
-        let candidates = R::query(cx)
-            .exec(&mut db)
-            .await
-            .map_err(topcoat::Error::from)?;
-        let table = R::table(cx);
-        let record = candidates
-            .into_iter()
-            .find(|m| table.key_for(m).as_deref() == Some(id.as_str()))
-            .ok_or_else(topcoat::router::error::not_found)?;
+        let record = find_by_key::<R>(cx, &id).await?;
         if !R::can_update(cx, &record) {
             return Err(forbidden().into());
         }
@@ -1077,16 +1083,7 @@ fn resource_edit_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
 fn resource_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
     Box::pin(ThenView::new(async move {
         let id = topcoat::router::path_param_segment(cx, "id").to_string();
-        let mut db = db(cx);
-        let candidates = R::query(cx)
-            .exec(&mut db)
-            .await
-            .map_err(topcoat::Error::from)?;
-        let table = R::table(cx);
-        let record = candidates
-            .into_iter()
-            .find(|m| table.key_for(m).as_deref() == Some(id.as_str()))
-            .ok_or_else(topcoat::router::error::not_found)?;
+        let record = find_by_key::<R>(cx, &id).await?;
         if !R::can_delete(cx, &record) {
             return Err(forbidden().into());
         }
@@ -1147,23 +1144,38 @@ fn resource_bulk_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
     Box::pin(ThenView::<_, BoxView<'_>>::new(async move {
         let values = parse_form_values(cx, body).await;
         let ids_raw = values.get("ids").cloned().unwrap_or_default();
-        let ids: Vec<String> = ids_raw
-            .split(',')
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .collect();
+        // Dedupe while preserving order so a repeated id can't make the
+        // fetched-rows count check below misfire.
+        let mut ids: Vec<String> = Vec::new();
+        for s in ids_raw.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+            if !ids.iter().any(|existing| existing == s) {
+                ids.push(s.to_string());
+            }
+        }
         if ids.is_empty() {
             return Err(topcoat::router::error::bad_request("no ids provided").into());
         }
-        // Load candidates via query and check each id exists and passes policy.
+        // Fetch only the requested rows through the tenancy-scoped seam:
+        // one `pk == a OR pk == b …` query replaces the #75 item-1
+        // fetch-everything-then-match loop. A malformed id cannot exist and
+        // maps to 404; a missing/wrong-tenant id makes the fetch come back
+        // short and 404s as well.
+        let keys: Vec<&str> = ids.iter().map(String::as_str).collect();
+        let Some(pk_filter) = crate::schema::pk_in_expr::<R::Model>(&keys) else {
+            return Err(topcoat::router::error::not_found().into());
+        };
         let mut db = db(cx);
-        let candidates = R::query(cx)
+        let rows = R::query(cx)
+            .filter(pk_filter)
             .exec(&mut db)
             .await
             .map_err(topcoat::Error::from)?;
+        if rows.len() != ids.len() {
+            return Err(topcoat::router::error::not_found().into());
+        }
         let table = R::table(cx);
         for id in &ids {
-            let rec = candidates
+            let rec = rows
                 .iter()
                 .find(|m| table.key_for(m).as_deref() == Some(id.as_str()))
                 .ok_or_else(topcoat::router::error::not_found)?;
@@ -1607,5 +1619,62 @@ mod tests {
 
         // Empty / blank input → empty map.
         assert!(form_values_from_bytes(b"").is_empty());
+    }
+
+    #[tokio::test]
+    async fn find_by_key_loads_one_row_scoped_and_404s_malformed() {
+        use topcoat::context::CxTestBuilder;
+
+        #[derive(Debug, toasty::Model)]
+        struct Subscriber {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            #[unique]
+            email: String,
+        }
+        struct SubscriberResource;
+        impl Resource for SubscriberResource {
+            type Model = Subscriber;
+        }
+
+        let mut db = Db::builder()
+            .models(toasty::models!(Subscriber))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        let a = toasty::create!(Subscriber { email: "a@b.c" })
+            .exec(&mut db)
+            .await
+            .unwrap();
+        toasty::create!(Subscriber { email: "z@b.c" })
+            .exec(&mut db)
+            .await
+            .unwrap();
+        let cx = CxTestBuilder::new().app_context(db).build();
+
+        // Existing id → exactly that row (typed PK filter, not a full scan).
+        let got = find_by_key::<SubscriberResource>(&cx, &a.id.to_string())
+            .await
+            .unwrap();
+        assert_eq!(got.id, a.id);
+
+        // Well-formed but unknown id → 404.
+        let missing = uuid::Uuid::new_v4().to_string();
+        assert!(
+            find_by_key::<SubscriberResource>(&cx, &missing)
+                .await
+                .is_err(),
+            "unknown id must not resolve"
+        );
+
+        // Malformed id (not a Uuid) → 404, not a query error.
+        assert!(
+            find_by_key::<SubscriberResource>(&cx, "not-a-uuid")
+                .await
+                .is_err(),
+            "malformed id must not resolve"
+        );
     }
 }

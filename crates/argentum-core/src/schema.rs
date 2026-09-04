@@ -620,6 +620,85 @@ where
         })
 }
 
+/// Parse a URL path segment into `M`'s primary-key value.
+///
+/// The PK's application type decides the [`stmt::Value`] variant (`Uuid` PK
+/// → `Value::Uuid`, `i64` PK → `Value::I64`, …). Returns `None` when `id`
+/// does not parse (an unparseable id cannot exist — callers render
+/// not-found) or the PK is not a single primitive field (composite keys
+/// have no URL representation in Argentum; row keys are plain `String`s).
+///
+/// Bridge helper — reaches into `toasty_core` for the schema walk and the
+/// untyped equality construction (see EXTERNAL_GAPS.md): the facade's
+/// `find_by_primary_key` takes a typed `Expr<M::PrimaryKey>`, which generic
+/// code cannot build from a `String` without a dynamic-value bridge.
+fn pk_field_value<M>(
+    id: &str,
+) -> Option<(toasty_core::schema::app::FieldId, toasty_core::stmt::Value)>
+where
+    M: toasty::schema::Model,
+{
+    let app_model = M::schema();
+    let root = app_model.as_root()?;
+    if root.primary_key.fields.len() != 1 {
+        return None;
+    }
+    let fid = root.primary_key.fields.first().copied()?;
+    let field = app_model.fields().get(fid.index)?;
+    let toasty_core::schema::app::FieldTy::Primitive(prim) = &field.ty else {
+        return None;
+    };
+    let value = match prim.ty {
+        toasty_core::stmt::Type::Uuid => toasty_core::stmt::Value::Uuid(id.parse().ok()?),
+        toasty_core::stmt::Type::String => toasty_core::stmt::Value::String(id.to_string()),
+        toasty_core::stmt::Type::I8 => toasty_core::stmt::Value::I8(id.parse().ok()?),
+        toasty_core::stmt::Type::I16 => toasty_core::stmt::Value::I16(id.parse().ok()?),
+        toasty_core::stmt::Type::I32 => toasty_core::stmt::Value::I32(id.parse().ok()?),
+        toasty_core::stmt::Type::I64 => toasty_core::stmt::Value::I64(id.parse().ok()?),
+        toasty_core::stmt::Type::U8 => toasty_core::stmt::Value::U8(id.parse().ok()?),
+        toasty_core::stmt::Type::U16 => toasty_core::stmt::Value::U16(id.parse().ok()?),
+        toasty_core::stmt::Type::U32 => toasty_core::stmt::Value::U32(id.parse().ok()?),
+        toasty_core::stmt::Type::U64 => toasty_core::stmt::Value::U64(id.parse().ok()?),
+        _ => return None,
+    };
+    Some((fid, value))
+}
+
+/// Equality predicate on `M`'s primary key for a URL path-segment `id` —
+/// `pk == value`. `None` when the id does not parse as the PK's type or the
+/// PK is not a single primitive field.
+///
+/// Consumers: the panel's edit/delete loaders, which filter the
+/// tenancy-scoped [`crate::resource::Resource::query`] instead of fetching
+/// every row and matching row keys in memory (GH #75 item 1).
+pub(crate) fn pk_eq_expr<M>(id: &str) -> Option<toasty::stmt::Expr<bool>>
+where
+    M: toasty::schema::Model,
+{
+    let (fid, value) = pk_field_value::<M>(id)?;
+    let cond = toasty_core::stmt::Expr::eq(
+        toasty_core::stmt::Expr::ref_self_field(fid),
+        toasty_core::stmt::Expr::from(value),
+    );
+    Some(toasty::stmt::Expr::from_untyped(cond))
+}
+
+/// OR of primary-key equality predicates for a bulk id list — `pk == a OR
+/// pk == b OR …`. `None` when any id fails to parse as the PK's type (an
+/// unparseable id cannot exist) or the PK is not a single primitive field.
+pub(crate) fn pk_in_expr<M>(ids: &[&str]) -> Option<toasty::stmt::Expr<bool>>
+where
+    M: toasty::schema::Model,
+{
+    let mut exprs = ids
+        .iter()
+        .map(|id| pk_eq_expr::<M>(id))
+        .collect::<Option<Vec<_>>>()?
+        .into_iter();
+    let first = exprs.next()?;
+    Some(exprs.fold(first, |acc, e| acc.or(e)))
+}
+
 pub(crate) fn capitalize(s: &str) -> String {
     let mut c = s.chars();
     match c.next() {

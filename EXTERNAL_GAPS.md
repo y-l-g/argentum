@@ -10,25 +10,28 @@ This file tracks **missing or unstable APIs in upstream crates** (Toasty, Topcoa
 
 ## Toasty — building `OrderByExpr` / naming core `stmt::Path` for a field lens
 
-**Where:** `crates/argentum-core/src/schema.rs` `lens_field_name_and_label` (the last `toasty_core` import site in the crate); consumers: `TextInput` (`schema.rs`), `TextColumn` / `Table::order_bys` (`resource.rs`).
+**Where:** `crates/argentum-core/src/schema.rs` — the bridge helpers `lens_field_name_and_label` (field names/labels) and `pk_field_value`/`pk_eq_expr`/`pk_in_expr` (typed primary-key predicates from URL string ids, consumed by the panel's edit/delete/bulk-delete loaders); the crate's only `toasty_core` import sites.
 
-**Today (accurate as of 2026-09-04):** Most of what this entry used to claim is **public already**: `toasty::schema` re-exports the whole app-schema surface (`crates/toasty/src/schema.rs:49` → `toasty_core::schema::{app, db, diff, mapping}`), so `M::schema()`, `Model::fields()`, `Field.name` (`FieldName::app_unwrap()`), `Field.primary_key`, and `ModelRoot::primary_key_fields()` are all reachable via the `toasty` facade without depending on `toasty-core`. PK order-bys no longer need `toasty_core` either: `Model::path_field::<Value>(index)` + `Path::asc()/desc()` build `OrderByExpr` through the facade (`Table::pk_order_bys`, `resource.rs`). Field-name resolution (`lens_field_name_and_label`) walks `core_path.projection.as_slice()[0]` → `M::schema().fields()[idx].name` — the `Projection` type is even re-exported as `toasty::stmt::Projection`.
+**Today (accurate as of 2026-09-04):** Most of what this entry used to claim is **public already**: `toasty::schema` re-exports the whole app-schema surface (`crates/toasty/src/schema.rs:49` → `toasty_core::schema::{app, db, diff, mapping}`), so `M::schema()`, `Model::fields()`, `Field.name` (`FieldName::app_unwrap()`), `Field.primary_key`, and `ModelRoot::primary_key_fields()` are all reachable via the `toasty` facade without depending on `toasty-core`. PK *order-bys* no longer need `toasty_core` either: `Model::path_field::<Value>(index)` + `Path::asc()/desc()` build `OrderByExpr` through the facade (`Table::pk_order_bys`, `resource.rs`). Field-name resolution (`lens_field_name_and_label`) walks `core_path.projection.as_slice()[0]` → `M::schema().fields()[idx].name` — the `Projection` type is even re-exported as `toasty::stmt::Projection`.
 
-What still genuinely requires `toasty_core`: **naming the conversion target.** `From<toasty::stmt::Path<M, T>> for toasty_core::stmt::Path` is public (`crates/toasty/src/stmt/path.rs`), but the core `stmt::Path` type itself is not re-exported through the facade, so holding the converted value needs the `toasty_core` path.
+What still genuinely requires `toasty_core`:
+1. **Naming the conversion target.** `From<toasty::stmt::Path<M, T>> for toasty_core::stmt::Path` is public (`crates/toasty/src/stmt/path.rs`), but the core `stmt::Path` type itself is not re-exported through the facade, so holding the converted value needs the `toasty_core` path.
+2. **Dynamic-value predicates.** The facade's `find_by_primary_key(Expr<M::PrimaryKey>)` is typed — generic code holding a parsed `stmt::Value` cannot build `pk == value` through it (`IntoExpr<Value>` is not implemented; `Path::eq` requires the concrete Rust type). The `pk_*` bridge helpers construct `stmt::Expr::eq(Expr::ref_self_field(fid), value)` in core and wrap via the public `Expr::from_untyped`.
 
-**Why fragile:** that one spot. A toasty refactor of `Path`/`Projection` breaks it at compile time; the rest survives.
+**Why fragile:** those spots only. A toasty refactor of `Path`/`Projection`/`Expr` breaks them at compile time; the rest survives.
 
 **Clean upstream API:**
 ```rust
-// ideal — makes the bridge helper deletable
+// ideal — makes the bridge helpers deletable
 impl<M: Model> Path<M, T> {
     pub fn field_name(&self) -> String;         // app-level name — shipped in PR #1207 (draft)
     pub fn storage_name(&self) -> String;       // #[column] override ⊕ app name — shipped in PR #1207 (draft)
     pub fn label(&self) -> String;              // capitalize(field_name) — stays in argentum
 }
+impl IntoExpr<T> for stmt::Value { … }          // or: trait Model { fn parse_key(s: &str) -> Option<Self::PrimaryKey>; }
 ```
 
-**Argentum debt:** keep the helper as the last `toasty_core` import site. Follow-up #11 enriches `FieldLens` with `is_nullable`/`is_unique`/`storage_name` — implement those from the **public** `toasty::schema::app` metadata, not via `toasty_core`. When upstream lands the APIs above, replace the helper and delete this entry.
+**Argentum debt:** keep the helpers as the only `toasty_core` import sites. Follow-up #11 enriches `FieldLens` with `is_nullable`/`is_unique`/`storage_name` — implement those from the **public** `toasty::schema::app` metadata, not via `toasty_core`. When upstream lands the APIs above, replace the helpers and delete this entry.
 
 ---
 
