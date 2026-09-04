@@ -134,6 +134,62 @@ trait Model {
 
 ---
 
+## Topcoat — interpolating an opaque `impl View` (`NodeClassify` blanket impl)
+
+**Where:** every Argentum helper boundary — the page handlers in `crates/argentum-core/src/panel.rs` (`resource_list` etc., all return `BoxView<'_>`) and interpolation sites like `suspense(fallback: skeleton, (lazy_rows.boxed()))` (`panel.rs:662`); same shape in `argentum-ui` composites.
+
+**Today (accurate as of 2026-09-04):** `(expr)` interpolation requires `NodeClassify`, implemented only for five hard-coded types (`Child`, `BoxView`, `ScopeView`, `MoveView`, `LiveView`) via `impl<T: NodeViewParts> NodeClassify for T` (`topcoat-view/src/internal/node_classify.rs:24`, a `pub mod internal` file). A helper returning `Result<impl View>` yields an opaque that implements `View` but not `NodeClassify`, so it cannot be interpolated — every helper must return `BoxView` or be boxed at the call site. The error names the wrong trait (`NodeViewParts not implemented for impl View`) and suggests nothing.
+
+**Why fragile:** `internal` has no stability guarantee, and classification sits on Argentum's hottest path (every helper boundary). An upstream rename of `NodeClassify`/`NodeViewParts` breaks all of it at once.
+
+**Clean upstream API:** `impl<T: View> NodeClassify for T` (or classification without a trait), or failing that a diagnostic saying "box it with `.boxed()`".
+
+**Argentum plan:** keep `BoxView` returns and `.boxed()` at interpolation sites — they are cheap anyway. Drop the boxes and this entry when the blanket impl lands. Found as the first consumer of tokio-rs/topcoat#373.
+
+---
+
+## Topcoat — hand-registered fallible async pages (`ThenView` is internal)
+
+**Where:** the single `use topcoat::view::internal::ThenView;` in `crates/argentum-core/src/panel.rs:10`; `Box::pin(ThenView::new(async move { .. }))` in `resource_list`/`resource_create`/`resource_create_post`/`resource_edit`/`resource_edit_post`/`resource_delete`/`resource_bulk_delete` (`panel.rs:620-1180`) and the nested `lazy_rows` suspense child (`panel.rs:643`).
+
+**Today:** `Panel` hand-registers pages through the public registry seam — `pages: Vec<PageFn>` built with `PageFn::new(method, path, handler)` (`panel.rs:164+`). `PageRenderFn` is sync (`fn(&Cx, Body) -> BoxView`), so a fallible async page body (auth check → `Err(forbidden().into())`, awaits, `Ok(view! { .. })`) can only be expressed by adapting the future with the internal `ThenView` and boxing — the same adaptation `#[page]` performs internally.
+
+**Why fragile:** `topcoat::view::internal` is explicitly unstable; a refactor there moves Argentum's central page adapter. There is no public alternative: nothing else converts a fallible future-of-a-view into a view.
+
+**Clean upstream API:** a public constructor on the page side — e.g. `page_from_fn(.., |cx, body| async { Result<impl View> })` — or `pub use ThenView` (a future-of-a-view becomes a view; its `Err` becomes the view's error).
+
+**Argentum plan:** keep the one internal import and the `ThenView`-boxed shape (it also powers the streamed `lazy_rows`); swap to the public constructor and delete this entry when it lands.
+
+---
+
+## Topcoat — no idiomatic list-of-views
+
+**Where:** row rendering in `crates/argentum-core/src/resource.rs:1073-1080` (`for (key, cells) in &row_data { table_row(key: key_for_row, for cell in cells { table_cell((cell.clone())) }) }`), the skeleton loop `resource.rs:1190` (`key: i`), the empty state `resource.rs:1454` (`key: "empty"`).
+
+**Today:** dynamic lists render as `for` loops inside one `view!`/component call, with `key:` on every component call. `BoxView` is the only container and is documented only as the fix for multiple `return` sites; `Child` has no `FromIterator`; nothing documents whether `Vec<BoxView>` can be interpolated.
+
+**Why fragile:** the loop pattern works and nothing breaks — but the rule is discoverable only by trial, and a future refactor toward pre-built view lists (`Vec<BoxView>`) has no documented support either way.
+
+**Clean upstream API (any one):** `impl FromIterator<BoxView<'a>> for Child<'a>`, a `fragment!` helper, or a `view.md` note stating the intended pattern is a `for` loop inside one `view!` with `key:` on component calls.
+
+**Argentum plan:** keep loop + `key:`; adopt whichever upstream shape lands and delete this entry.
+
+---
+
+## Topcoat — views may borrow only `cx` (undocumented borrow rule)
+
+**Where:** every view-building site; representatives: `crates/argentum-core/src/panel.rs:637,652` (`prefix.clone()`, `title.clone()` captured into the async page body) and `crates/argentum-core/src/resource.rs:1079` (`(cell.clone())` per cell).
+
+**Today:** views borrow the `Cx` they were built against, therefore a view can never borrow anything owned by the code that returns it. Capturing a handler local (`TablePage`, `Vec<NavigationItem>`, form maps) fails with E0515 `cannot return value referencing local variable`; Argentum clones at capture sites. The rule is permanent (it follows from the lazy model) but documented nowhere — each new page rediscovers it by fighting E0515.
+
+**Why fragile:** a docs gap, not an API one — nothing breaks, but every page pays a defensive clone. The upstream fix is a paragraph, not code.
+
+**Clean upstream API:** one paragraph in `view.md` — "templates may borrow `cx` freely; anything else they capture must be owned or borrowed from `cx`" — plus a worked example.
+
+**Argentum plan:** keep the clones (cheap: `String`s and small vecs); delete this entry when the paragraph lands.
+
+---
+
 ## Toasty — instance → field-value extraction (row keys, cells)
 
 **Where:** `crates/argentum-core/src/resource.rs` — `Table::id` row-key closure and `TextColumn`'s projection closure.
@@ -179,4 +235,4 @@ trait Model {
 3. Update the bridge helpers to delegate to the new public API, keep signature.
 4. Delete the entry here and reference the Toasty/Topcoat PR that closed it.
 
-Last updated: 2026-08-31 (Phase 2: FileUpload/Repeater/Tenancy/Relations need no upstream gap, author include gap retired; grouping/export are in-memory shims). 2026-08-30 (instance→field-value extraction gap documented with the typed Table projection, GH #10). 2026-08-29: memoize error conversion + missing unique-violation predicate documented; showcase stringification corrected. 2026-08-28: Tailwind `@source` moved to ADR-0006 (internal), policy added: use internals freely and document missing public APIs here.
+Last updated: 2026-09-04 (four topcoat view-layer gaps documented from the tokio-rs/topcoat#373 consumer review — interpolation of opaque `impl View`, internal `ThenView` for hand-registered fallible async pages, list-of-views shape, undocumented `cx`-only borrow rule; `TOPCOAT_PR_373_FEEDBACK.md` retired into this file). 2026-08-31 (Phase 2: FileUpload/Repeater/Tenancy/Relations need no upstream gap, author include gap retired; grouping/export are in-memory shims). 2026-08-30 (instance→field-value extraction gap documented with the typed Table projection, GH #10). 2026-08-29: memoize error conversion + missing unique-violation predicate documented; showcase stringification corrected. 2026-08-28: Tailwind `@source` moved to ADR-0006 (internal), policy added: use internals freely and document missing public APIs here.
