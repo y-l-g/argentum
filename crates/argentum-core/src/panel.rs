@@ -97,6 +97,14 @@ struct ShellAssets {
 #[derive(Debug, Clone)]
 struct RootRedirect(String);
 
+/// The mount prefix of the [`Panel`] that built this Router (e.g. `/admin`).
+/// Installed by [`Panel::build`] so generic handlers can derive every
+/// resource URL as `{prefix}/{slug}` — correct by construction even when a
+/// table renders away from its own list route — instead of sniffing the
+/// request path (GH #75 item 6).
+#[derive(Debug, Clone)]
+struct PanelPrefix(String);
+
 impl Panel {
     /// Create a `Panel` mounted at `prefix` (e.g. `"admin"` → `"/admin"`).
     pub fn new(prefix: impl Into<String>) -> Self {
@@ -267,6 +275,10 @@ impl Panel {
         } = self;
         let db = db.expect("Panel::build requires a Db via app_context");
         let mut builder = Router::builder().discover().cookies().app_context(db);
+        // The mount prefix travels with the Router so generic handlers derive
+        // resource URLs from the declaration instead of sniffing the request
+        // path (GH #75 item 6 / B4).
+        builder = builder.app_context(PanelPrefix(prefix.clone()));
         if !nav_items.is_empty() {
             builder = builder.app_context(nav_items);
         }
@@ -624,17 +636,14 @@ fn resource_list<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
         }
         let state = TableState::from_cx(cx);
         let mut table = R::table(cx);
-        // Wire delete prefix so Table rows show Delete buttons.
-        let prefix = {
-            let path = topcoat::context::try_request_context::<http::request::Parts>(cx)
-                .map(|parts| parts.uri.path().to_string())
-                .unwrap_or_default();
-            // Derive base prefix: current path is list path like /admin/users
-            // For create/edit/delete we need base like /admin/users
-            // Use path as prefix for delete actions.
-            path
-        };
-        table = table.with_delete(prefix.clone()).with_bulk_delete(true);
+        // Wire delete/bulk-delete action base from the Panel prefix — the
+        // delete form posts to `{list url}/{id}/delete` and the bulk bar to
+        // `{list url}/bulk-delete`, both derived from the panel declaration
+        // (not the request path) so the URLs are right wherever the table
+        // renders.
+        table = table
+            .with_delete(list_url(cx, &R::slug()))
+            .with_bulk_delete(true);
         let title = R::navigation_label();
 
         // First content: the skeleton grid (same markup the eager
@@ -789,45 +798,28 @@ async fn table_shard(cx: &Cx, q: String) -> Result<impl View> {
     })
 }
 
-/// Helper: compute list URL from current request path (e.g. /admin/users/create -> /admin/users).
-fn list_url_for_current(cx: &Cx, fallback_slug: &str) -> String {
-    let path = topcoat::router::request::uri(cx).path().to_string();
-    // Derive prefix from the current path so `Panel::new("backoffice")`
-    // doesn't hard-code `/admin` on fallback (GH #75).
-    let prefix = path
-        .split('/')
-        .nth(1)
-        .filter(|s| !s.is_empty())
-        .unwrap_or("admin");
-    if path.ends_with("/create") {
-        path.trim_end_matches("/create").to_string()
-    } else if path.ends_with("/edit") {
-        // /admin/users/{id}/edit -> /admin/users
-        // Remove last two segments: /{id}/edit
-        let mut segs: Vec<&str> = path.split('/').collect();
-        // segs like ["", "admin", "users", "id", "edit"]
-        if segs.len() >= 4 {
-            segs.truncate(segs.len() - 2);
-            let out = segs.join("/");
-            if out.is_empty() { "/".to_string() } else { out }
-        } else {
-            format!("/{}/{}", prefix, fallback_slug)
-        }
-    } else if path.contains("/delete") || path.contains("/bulk-delete") {
-        let mut segs: Vec<&str> = path.split('/').collect();
-        // Remove last segment(s) to get back to list
-        if segs.last() == Some(&"delete") {
-            segs.pop();
-            segs.pop(); // id
-        } else if segs.last() == Some(&"bulk-delete") {
-            segs.pop();
-        }
-        let out = segs.join("/");
-        if out.is_empty() { "/".to_string() } else { out }
-    } else {
-        // Default to /{prefix}/{slug}
-        format!("/{}/{}", prefix, fallback_slug)
-    }
+/// The list URL for a resource: `{panel prefix}/{slug}`.
+///
+/// The prefix comes from the [`PanelPrefix`] app context installed by
+/// [`Panel::build`] — the panel's own declaration, not the request path. The
+/// old `list_url_for_current` sniffed the current path (stripping
+/// `/create`, `/{id}/edit`, `/{id}/delete`, … suffixes), which only worked
+/// because every handler happened to sit under the list route and hardcoded
+/// `/admin` as its fallback (GH #75 item 6). When no prefix is installed
+/// (bare `CxTestBuilder` tests), fall back to the request path's first
+/// segment, then `/admin`.
+fn list_url(cx: &Cx, slug: &str) -> String {
+    let prefix = topcoat::context::try_app_context::<PanelPrefix>(cx)
+        .map(|p| p.0.clone())
+        .unwrap_or_else(|| {
+            let path = topcoat::router::request::uri(cx).path().to_string();
+            path.split('/')
+                .nth(1)
+                .filter(|s| !s.is_empty())
+                .map(|s| format!("/{s}"))
+                .unwrap_or_else(|| "/admin".to_string())
+        });
+    format!("{prefix}/{slug}")
 }
 
 fn notification_from_query(cx: &Cx) -> Option<Notification> {
@@ -866,7 +858,7 @@ async fn render_create_page<'a, R: Resource>(
                             "Create"
                         )
                         <a
-                            href=(list_url_for_current(cx, &R::slug()))
+                            href=(list_url(cx, &R::slug()))
                             class="inline-flex items-center justify-center rounded-md border border-border bg-background px-4 py-2 text-sm"
                         >
                             "Cancel"
@@ -903,7 +895,7 @@ async fn render_edit_page<'a, R: Resource>(
                             "Save"
                         )
                         <a
-                            href=(list_url_for_current(cx, &R::slug()))
+                            href=(list_url(cx, &R::slug()))
                             class="inline-flex items-center justify-center rounded-md border border-border bg-background px-4 py-2 text-sm"
                         >
                             "Cancel"
@@ -996,7 +988,7 @@ fn resource_create_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
         // Attempt creation via Resource hook (transaction inside).
         match R::create_record(cx, values.clone()).await {
             Ok(()) => {
-                let base = list_url_for_current(cx, &R::slug());
+                let base = list_url(cx, &R::slug());
                 let list_url = format!("{base}?notification=Created");
                 // Also set cookie for Boundary survival (if layer present)
                 set_notification(cx, Notification::success("Created"));
@@ -1068,7 +1060,7 @@ fn resource_edit_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
         }
         match R::update_record(cx, id.clone(), values.clone()).await {
             Ok(()) => {
-                let base = list_url_for_current(cx, &R::slug());
+                let base = list_url(cx, &R::slug());
                 let list_url = format!("{base}?notification=Updated");
                 set_notification(cx, Notification::success("Updated"));
                 Err(redirect(list_url).into())
@@ -1129,7 +1121,7 @@ fn resource_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
                                     "Confirm"
                                 )
                                 <a
-                                    href=(list_url_for_current(cx, &R::slug()))
+                                    href=(list_url(cx, &R::slug()))
                                     class="inline-flex items-center justify-center rounded-md border border-border bg-background px-4 py-2 text-sm"
                                 >
                                     "Cancel"
@@ -1143,7 +1135,7 @@ fn resource_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
         }
         // Perform delete via Resource hook (transaction inside).
         R::delete_record(cx, id).await?;
-        let base = list_url_for_current(cx, &R::slug());
+        let base = list_url(cx, &R::slug());
         let list_url = format!("{base}?notification=Deleted");
         set_notification(cx, Notification::success("Deleted"));
         Err(redirect(list_url).into())
@@ -1181,7 +1173,7 @@ fn resource_bulk_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
         }
         // All checks passed — perform bulk delete.
         R::bulk_delete_records(cx, ids).await?;
-        let base = list_url_for_current(cx, &R::slug());
+        let base = list_url(cx, &R::slug());
         let list_url = format!("{base}?notification=Bulk+deleted");
         set_notification(cx, Notification::success("Bulk deleted"));
         Err(redirect(list_url).into())
@@ -1249,6 +1241,45 @@ mod tests {
         assert_eq!(Panel::new("admin/").prefix(), "/admin");
         assert_eq!(Panel::new("/admin/").prefix(), "/admin");
         assert_eq!(Panel::new("").prefix(), "/admin");
+    }
+
+    #[test]
+    fn list_url_prefers_panel_prefix_over_request_path() {
+        use topcoat::context::CxTestBuilder;
+
+        // With the panel prefix installed, the resource URL is derived from
+        // the declaration — even on a path that is not the list route.
+        let (parts, ()) = http::Request::builder()
+            .uri("/admin/users/42/edit")
+            .body(())
+            .unwrap()
+            .into_parts();
+        let cx = CxTestBuilder::new()
+            .request_context(parts)
+            .app_context(PanelPrefix("/admin".to_string()))
+            .build();
+        assert_eq!(list_url(&cx, "users"), "/admin/users");
+
+        let (parts, ()) = http::Request::builder()
+            .uri("/backoffice/users")
+            .body(())
+            .unwrap()
+            .into_parts();
+        let cx = CxTestBuilder::new()
+            .request_context(parts)
+            .app_context(PanelPrefix("/backoffice".to_string()))
+            .build();
+        assert_eq!(list_url(&cx, "users"), "/backoffice/users");
+
+        // Without a panel prefix (bare test builder), fall back to the
+        // request path's first segment.
+        let (parts, ()) = http::Request::builder()
+            .uri("/admin/users/42/edit")
+            .body(())
+            .unwrap()
+            .into_parts();
+        let cx = CxTestBuilder::new().request_context(parts).build();
+        assert_eq!(list_url(&cx, "users"), "/admin/users");
     }
 
     #[tokio::test]
