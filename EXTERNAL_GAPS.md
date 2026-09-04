@@ -10,51 +10,25 @@ This file tracks **missing or unstable APIs in upstream crates** (Toasty, Topcoa
 
 ## Toasty — building `OrderByExpr` / naming core `stmt::Path` for a field lens
 
-**Where:** `crates/argentum-core/src/schema.rs` `lens_field_name_and_label` and `pk_tie_breakers` (the two `toasty_core` import sites); consumers: `TextInput` (`schema.rs`), `TextColumn` / `Table::order_bys` (`resource.rs`).
+**Where:** `crates/argentum-core/src/schema.rs` `lens_field_name_and_label` (the last `toasty_core` import site in the crate); consumers: `TextInput` (`schema.rs`), `TextColumn` / `Table::order_bys` (`resource.rs`).
 
-**Today (accurate as of 2026-08-29):** Most of what this entry used to claim is **public already**: `toasty::schema` re-exports the whole app-schema surface (`crates/toasty/src/schema.rs:49` → `toasty_core::schema::{app, db, diff, mapping}`), so `M::schema()`, `Model::fields()`, `Field.name` (`FieldName::app_unwrap()`), `Field.primary_key`, and `ModelRoot::primary_key_fields()` are all reachable via the `toasty` facade without depending on `toasty-core`. Field-name resolution (`lens_field_name_and_label`) walks `core_path.projection.as_slice()[0]` → `M::schema().fields()[idx].name` — the `Projection` type is even re-exported as `toasty::stmt::Projection`.
+**Today (accurate as of 2026-09-04):** Most of what this entry used to claim is **public already**: `toasty::schema` re-exports the whole app-schema surface (`crates/toasty/src/schema.rs:49` → `toasty_core::schema::{app, db, diff, mapping}`), so `M::schema()`, `Model::fields()`, `Field.name` (`FieldName::app_unwrap()`), `Field.primary_key`, and `ModelRoot::primary_key_fields()` are all reachable via the `toasty` facade without depending on `toasty-core`. PK order-bys no longer need `toasty_core` either: `Model::path_field::<Value>(index)` + `Path::asc()/desc()` build `OrderByExpr` through the facade (`Table::pk_order_bys`, `resource.rs`). Field-name resolution (`lens_field_name_and_label`) walks `core_path.projection.as_slice()[0]` → `M::schema().fields()[idx].name` — the `Projection` type is even re-exported as `toasty::stmt::Projection`.
 
-What still genuinely requires `toasty_core`:
-1. **Naming the conversion target.** `From<toasty::stmt::Path<M, T>> for toasty_core::stmt::Path` is public (`crates/toasty/src/stmt/path.rs`), but the core `stmt::Path` type itself is not re-exported through the facade, so holding the converted value needs the `toasty_core` path.
-2. **Building PK order-bys.** There is no typed wrapper for `Expr::ref_self_field(field_id)` / `Direction::Asc`, so `pk_tie_breakers` must construct `toasty::stmt::OrderByExpr` from core `stmt` pieces.
+What still genuinely requires `toasty_core`: **naming the conversion target.** `From<toasty::stmt::Path<M, T>> for toasty_core::stmt::Path` is public (`crates/toasty/src/stmt/path.rs`), but the core `stmt::Path` type itself is not re-exported through the facade, so holding the converted value needs the `toasty_core` path.
 
-**Why fragile:** only those two spots. A toasty refactor of `Path`/`Projection` breaks them at compile time; the rest survives.
+**Why fragile:** that one spot. A toasty refactor of `Path`/`Projection` breaks it at compile time; the rest survives.
 
 **Clean upstream API:**
 ```rust
-// ideal — makes both bridge helpers deletable
+// ideal — makes the bridge helper deletable
 impl<M: Model> Path<M, T> {
     pub fn field_name(&self) -> String;         // app-level name — shipped in PR #1207 (draft)
     pub fn storage_name(&self) -> String;       // #[column] override ⊕ app name — shipped in PR #1207 (draft)
     pub fn label(&self) -> String;              // capitalize(field_name) — stays in argentum
 }
-trait Model {
-    fn primary_key_order_bys() -> Vec<OrderByExpr>; // shipped in PR #1208 (draft)
-}
 ```
 
-**Argentum debt:** keep both helpers as the single `toasty_core` import sites. Follow-up #11 enriches `FieldLens` with `is_nullable`/`is_unique`/`storage_name` — implement those from the **public** `toasty::schema::app` metadata, not via `toasty_core`. When upstream lands the two APIs above, replace the helpers and delete this entry.
-
----
-
-## Toasty — primary-key tie-breaker for deterministic pagination
-
-**Where:** `crates/argentum-core/src/schema.rs:pk_tie_breakers` and `crates/argentum-core/src/resource.rs:Table::order_bys`.
-
-**Today:** `M::schema().as_root().primary_key.fields` (public via `toasty::schema::app`, see the entry above) → `toasty_core::stmt::Expr::ref_self_field(field_id)` → `OrderByExpr { asc }`. Appends PK asc to the user-chosen `order_by` for stable cursor pagination (spec US10).
-
-**Why fragile:** only `Expr::ref_self_field` (and naming the core `stmt` types it returns) is unreachable from the `toasty` facade; the schema walk itself is public. See "Toasty — building OrderByExpr / naming core stmt::Path" for the full picture.
-
-**Clean upstream API:**
-```rust
-trait Model {
-    fn primary_key_paths() -> Vec<OrderByExpr>; // or Vec<Path<Self, _>>
-    fn pk_order_bys() -> Vec<OrderByExpr> { Self::primary_key_paths().into_iter().map(|p| p.asc()).collect() }
-}
- // or Table::order_bys delegates to Model::pk_asc()
-```
-
-**Argentum debt:** Centralised in `pk_tie_breakers` so only one file imports `toasty_core`. Follow-up #10/#13 will consume it when Toasty exposes PK paths; then `Table::order_bys` becomes `vec![first].extend(M::pk_order_bys())` with no `toasty_core`.
+**Argentum debt:** keep the helper as the last `toasty_core` import site. Follow-up #11 enriches `FieldLens` with `is_nullable`/`is_unique`/`storage_name` — implement those from the **public** `toasty::schema::app` metadata, not via `toasty_core`. When upstream lands the APIs above, replace the helper and delete this entry.
 
 ---
 
@@ -235,4 +209,4 @@ trait Model {
 3. Update the bridge helpers to delegate to the new public API, keep signature.
 4. Delete the entry here and reference the Toasty/Topcoat PR that closed it.
 
-Last updated: 2026-09-04 (four topcoat view-layer gaps documented from the tokio-rs/topcoat#373 consumer review — interpolation of opaque `impl View`, internal `ThenView` for hand-registered fallible async pages, list-of-views shape, undocumented `cx`-only borrow rule; `TOPCOAT_PR_373_FEEDBACK.md` retired into this file). 2026-08-31 (Phase 2: FileUpload/Repeater/Tenancy/Relations need no upstream gap, author include gap retired; grouping/export are in-memory shims). 2026-08-30 (instance→field-value extraction gap documented with the typed Table projection, GH #10). 2026-08-29: memoize error conversion + missing unique-violation predicate documented; showcase stringification corrected. 2026-08-28: Tailwind `@source` moved to ADR-0006 (internal), policy added: use internals freely and document missing public APIs here.
+Last updated: 2026-09-04 (PK tie-breaker gap retired, GH #76: toasty's `normalize_cursor_order` appends the physical PK columns to ambiguous cursor orderings internally since tokio-rs/toasty#1142, so the app-level suffix in `Table::order_bys`/`order_bys_for_state` was dropped; the no-sortable paginated fallback builds PK order via the public `Model::path_field` + `Path::asc` facade — no `toasty_core` remaining in `resource.rs`). 2026-09-04 (four topcoat view-layer gaps documented from the tokio-rs/topcoat#373 consumer review — interpolation of opaque `impl View`, internal `ThenView` for hand-registered fallible async pages, list-of-views shape, undocumented `cx`-only borrow rule; `TOPCOAT_PR_373_FEEDBACK.md` retired into this file). 2026-08-31 (Phase 2: FileUpload/Repeater/Tenancy/Relations need no upstream gap, author include gap retired; grouping/export are in-memory shims). 2026-08-30 (instance→field-value extraction gap documented with the typed Table projection, GH #10). 2026-08-29: memoize error conversion + missing unique-violation predicate documented; showcase stringification corrected. 2026-08-28: Tailwind `@source` moved to ADR-0006 (internal), policy added: use internals freely and document missing public APIs here.

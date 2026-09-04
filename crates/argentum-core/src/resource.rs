@@ -20,7 +20,7 @@ use topcoat::context::Cx;
 use topcoat::router::{Href, HrefParams, HrefQueries, HrefTarget};
 use topcoat::{Result, view::*};
 
-use crate::schema::{FieldLens, Schema, capitalize, lens_field_name_and_label, pk_tie_breakers};
+use crate::schema::{FieldLens, Schema, capitalize, lens_field_name_and_label};
 
 /// Select filter — exact match on a `String` field (e.g. `status = "published"`).
 pub struct SelectFilter<M> {
@@ -446,7 +446,9 @@ where
 
     pub fn to_order_by(&self, descending: bool) -> Option<OrderByExpr> {
         if self.sortable {
-            // PK tie-breaker lives in Table::order_bys() (deterministic pagination).
+            // Cursor determinism is the engine's job: toasty's
+            // `normalize_cursor_order` appends the physical PK columns to
+            // ambiguous cursor orderings internally (GH #76).
             let path = self.path.clone()?;
             Some(if descending { path.desc() } else { path.asc() })
         } else {
@@ -836,8 +838,8 @@ impl<M> Table<M> {
         Some(exprs.fold(first, |acc, e| acc.or(e)))
     }
 
-    /// First sortable column's order_by. Deterministic pagination requires
-    /// a PK tie-breaker — use [`Self::order_bys`] for the full ordering.
+    /// First sortable column's order_by. Cursor determinism needs no
+    /// app-level tie-breaker (see [`Self::order_bys`]).
     pub fn order_by(&self, descending: bool) -> Option<OrderByExpr>
     where
         M: toasty::schema::Model,
@@ -845,37 +847,62 @@ impl<M> Table<M> {
         self.columns.iter().find_map(|c| c.to_order_by(descending))
     }
 
-    /// Ordered list for the query: first sortable column asc + PK tie-breaker(s)
-    /// for deterministic pagination (spec US10). Returns empty if no sortable
-    /// column is declared; otherwise the PK field(s) are appended via
-    /// `crate::schema::pk_tie_breakers` so every `M: Model` is stable
-    /// regardless of whether the sortable column is unique.
+    /// Ordered list for the query: the first sortable column's order.
+    /// Returns empty if no sortable column is declared.
     ///
-    /// The tie-breaker is appended even if the sortable column is the PK
-    /// itself — duplicate `order_by` on the same column is harmless and keeps
-    /// the method branch-free.
+    /// No app-level PK tie-breaker is appended: toasty's engine appends the
+    /// physical PK columns to ambiguous cursor orderings internally
+    /// (`normalize_cursor_order`, tokio-rs/toasty#1142), so page contents are
+    /// deterministic on SQL backends without Argentum's help (GH #76).
     pub fn order_bys(&self) -> Vec<OrderByExpr>
     where
         M: toasty::schema::Model,
     {
-        let Some(first) = self.order_by(false) else {
-            return Vec::new();
-        };
-        let mut out = vec![first];
-        out.extend(pk_tie_breakers::<M>());
-        out
+        self.order_by(false).into_iter().collect()
+    }
+
+    /// Order-bys over the model's primary key (asc, in declared order) —
+    /// built through the public facade (`Model::path_field` + `Path::asc`),
+    /// no `toasty_core` needed.
+    ///
+    /// Used only when a paginated table declares no sortable column at all:
+    /// toasty's planner requires an `ORDER BY` for cursor pagination and its
+    /// normalization only extends a non-empty ordering, so the PK order must
+    /// be declared app-side in that one case.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `M` is not a root model: without a primary key there is no
+    /// deterministic order, and silent omission would surface as a toasty
+    /// "requires an ORDER BY" error under cursor pagination.
+    fn pk_order_bys() -> Vec<OrderByExpr>
+    where
+        M: toasty::schema::Model,
+    {
+        let app_model = M::schema();
+        let root = app_model.as_root().unwrap_or_else(|| {
+            panic!(
+                "pk_order_bys: {} is not a root model; deterministic pagination needs its primary key",
+                std::any::type_name::<M>()
+            )
+        });
+        root.primary_key
+            .fields
+            .iter()
+            .map(|fid| M::path_field::<toasty::stmt::Value>(fid.index).asc())
+            .collect()
     }
 
     /// Resolve the full query ordering for a request.
     ///
     /// Single source of truth for loaders and render:
     /// 1. `?sort=<column>&dir=asc|desc` when `<column>` names a declared
-    ///    sortable column — that column's direction plus PK tie-breaker(s);
-    /// 2. otherwise the declared default (first sortable column asc plus PK
-    ///    tie-breaker(s), see [`Self::order_bys`]);
+    ///    sortable column — that column's direction (toasty appends the PK
+    ///    tie-breakers internally, see [`Self::order_bys`]);
+    /// 2. otherwise the declared default (first sortable column asc);
     /// 3. otherwise, when the table is paginated, the PK alone — cursor
     ///    pagination requires a deterministic order even with no sortable
-    ///    column.
+    ///    column, and toasty only *extends* an existing non-empty ordering.
     ///
     /// Loaders that also need the search term parse the state once with
     /// [`TableState::from_cx`] and pass it here (see
@@ -891,13 +918,11 @@ impl<M> Table<M> {
                 .find(|c| c.is_sortable() && c.name() == sort.column)
             && let Some(ord) = col.to_order_by(sort.descending)
         {
-            let mut out = vec![ord];
-            out.extend(pk_tie_breakers::<M>());
-            return out;
+            return vec![ord];
         }
-        let mut out = self.order_bys();
+        let out = self.order_bys();
         if out.is_empty() && self.page_size.is_some() {
-            out.extend(pk_tie_breakers::<M>());
+            return Self::pk_order_bys();
         }
         out
     }
@@ -2651,17 +2676,15 @@ mod tests {
     }
 
     #[test]
-    fn table_order_bys_includes_pk_tie_breaker() {
+    fn table_order_bys_single_sort_column() {
         let cx = CxTestBuilder::new().build();
         let users_table = Table::<User>::r#for(&cx)
             .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()).sortable());
         let orders = users_table.order_bys();
-        // first is sortable, second is PK asc for deterministic pagination
-        assert_eq!(
-            orders.len(),
-            2,
-            "sortable + PK tie-breaker expected, got {orders:?}"
-        );
+        // Single sortable column, no app-level PK suffix — toasty's engine
+        // appends the physical PK columns to ambiguous cursor orderings
+        // internally (GH #76).
+        assert_eq!(orders.len(), 1, "sortable column only, got {orders:?}");
         // No sortable → empty
         let table_none = Table::<User>::r#for(&cx)
             .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()));
@@ -2669,44 +2692,6 @@ mod tests {
             table_none.order_bys().is_empty(),
             "non-sortable should have no order_bys"
         );
-    }
-
-    #[tokio::test]
-    async fn table_order_bys_is_deterministic_for_pagination() {
-        // Two rows with same name, different ids — order_bys with PK tie-breaker must be stable
-        let mut db = Db::builder()
-            .models(toasty::models!(User))
-            .connect("sqlite::memory:")
-            .await
-            .unwrap();
-        db.push_schema().await.unwrap();
-        let a = toasty::create!(User { name: "Same" })
-            .exec(&mut db)
-            .await
-            .unwrap();
-        let b = toasty::create!(User { name: "Same" })
-            .exec(&mut db)
-            .await
-            .unwrap();
-        assert_ne!(a.id, b.id);
-        let cx = CxTestBuilder::new().app_context(db).build();
-        let users_table = Table::<User>::r#for(&cx)
-            .id(|u| u.id.to_string())
-            .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()).sortable());
-        let mut db = crate::db::db(&cx);
-        let mut query = User::all();
-        for ord in users_table.order_bys() {
-            query = query.order_by(ord);
-        }
-        let rows = query.exec(&mut db).await.unwrap();
-        assert_eq!(rows.len(), 2);
-        // Ensure stable ordering is by PK asc (lowest id first)
-        let expected_first = if a.id.to_string() < b.id.to_string() {
-            a.id
-        } else {
-            b.id
-        };
-        assert_eq!(rows[0].id, expected_first);
     }
 
     fn cx_with_query(query: &str) -> Cx {
@@ -2758,7 +2743,7 @@ mod tests {
             .paginate(25)
             .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()).sortable());
 
-        // ?sort=name&dir=desc → name desc + PK tie-breaker
+        // ?sort=name&dir=desc → name desc (toasty appends PK internally)
         let state = TableState {
             sort: Some(Sort {
                 column: "name".to_string(),
@@ -2767,9 +2752,9 @@ mod tests {
             ..TableState::default()
         };
         let orders = sorted.order_bys_for_state(&state);
-        assert_eq!(orders.len(), 2, "sort + PK tie-breaker, got {orders:?}");
+        assert_eq!(orders.len(), 1, "sort column only, got {orders:?}");
 
-        // Unknown sort column → declared default (name asc + PK)
+        // Unknown sort column → declared default (name asc)
         let state = TableState {
             sort: Some(Sort {
                 column: "nope".to_string(),
@@ -2777,10 +2762,10 @@ mod tests {
             }),
             ..TableState::default()
         };
-        assert_eq!(sorted.order_bys_for_state(&state).len(), 2);
+        assert_eq!(sorted.order_bys_for_state(&state).len(), 1);
 
         // No sort at all → declared default
-        assert_eq!(sorted.order_bys_for_state(&TableState::default()).len(), 2);
+        assert_eq!(sorted.order_bys_for_state(&TableState::default()).len(), 1);
 
         // Paginated table with no sortable column → PK-only deterministic order
         let unsorted = Table::<User>::r#for(&cx)

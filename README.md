@@ -147,7 +147,7 @@ Table::r#for(cx)
     .paginate(2)                           // real cursor pagination (?after=/?before=)
 ```
 
-Columns/filters declare **how to query**, not just how to render: `searchable()` marks a column for portable `starts_with` search, `sortable()` requires an `order_by` mapping (PK tie-breaker appended for deterministic cursors), and the URL is the one truth — `?q=`, `?sort=`, `?dir=`, `?after=`, `?before=` parsed once into `TableState`. Filters (`SelectFilter`/`TernaryFilter`), `BadgeColumn`, bulk actions and `.copyable()` remain spec-level (GH #13/#38).
+Columns/filters declare **how to query**, not just how to render: `searchable()` marks a column for portable `starts_with` search, `sortable()` requires an `order_by` mapping (toasty appends PK tie-breakers internally for deterministic cursors), and the URL is the one truth — `?q=`, `?sort=`, `?dir=`, `?after=`, `?before=` parsed once into `TableState`.
 
 UI chrome: `Table` renders into `argentum-ui` (synced `topcoat-ui-registry`) `table` + `pagination` + `skeleton` primitives; the skeleton doubles as the `suspense` fallback while rows stream in (§7).
 
@@ -306,7 +306,7 @@ Not “one shard per view.” Fast is:
 - **Preloading** — `include` over N+1 per-row `exec`. A list with 50 rows and 2 relations is 3 operations, not 101.
 - **Boundaries** — ship only the table grid when search changes, not the sidebar + layout + headers (`DESIGN.md` hashing rule: child boundaries replaced by identity before parent hash).
 - **Debounce + defer filters** — Filament's `searchDebounce(500ms)` / `deferFilters(true)` / `CanDeferLoading` placeholder apply. Argentum: `search.debounce_ms(300)` (client coalesce already + in-flight abort; add debounce for page refetch path) and `filters.defer(true)` (apply on button).
-- **Pagination** — cursor, not offset, with PK tie-breaker. Extreme links off.
+- **Pagination** — cursor, not offset; determinism is toasty's (`normalize_cursor_order` appends the PK internally). Extreme links off.
 
 Budget v1: list render (25 rows, 2 includes, 1 count) < 40ms p50 on SQLite/Postgres local, TTFB dominated by the skeleton (first content), not the query — the rows arrive as a streaming swap.
 
@@ -341,7 +341,7 @@ Each phase is shippable and benchable (`benchmarks/` vs `axum-maud`/`leptos`). N
 
 ### Phase 1 — Single-resource CRUD (exit: usable admin) — **shipped via spec #57, tickets #58–#62**
 
-- `Table` is a `Boundary` by default (`Table::boundary`/`defer`, skeleton while deferred) with `#[memoize]` dedup; columns `searchable`/`sortable`, cursor pagination with PK tie-breaker, `FilterBuilder`, live search via owned `#[shard]` + `boundary` skeleton; `Schema` hydrates/dehydrates `Create`/`Update` via typed lenses + inline validation (`required`/`email`/`unique` app-side, `TextInput` `for`/`id`/`required` star/error slot).
+- `Table` is a `Boundary` by default (`Table::boundary`/`defer`, skeleton while deferred) with `#[memoize]` dedup; columns `searchable`/`sortable`, cursor pagination (deterministic via toasty's normalized cursor order), filters (`SelectFilter`/`TernaryFilter`/`DateFilter` composed with `Expr::and_all`), search via the `?q=` toolbar and the streamed `suspense` grid; `Schema` hydrates/dehydrates `Create`/`Update` via typed lenses + inline validation (`required`/`email`/`unique` app-side, `TextInput` `for`/`id`/`required` star/error slot).
 - `Create`/`Edit` pages (procedure-backed `Create`/`Update` projections, inline errors, `Resource::query` tenancy seam, `?notification`/`Set-Cookie` flash) + `Action` (`Delete` `requires_confirmation` + `BulkDelete` per-row `Policy::delete` via `Resource::query`, all-or-nothing) + `Notification` (`fixed top-4 right-4`, `border-border bg-background shadow-sm`, `Shell` `Boundary` surviving `Table` swaps) + `Policy` (`viewAny`/`view`/`create`/`update`/`delete`, default-deny, page+procedure) + auth shell + sidebar + empty/error states.
 - Model: `User(id, name, email, role, active, created_at)` with `#[index]` on searchable columns.
 - Exit: `cargo run` at `/admin/users` with search/sort/paginate/create/edit/delete/bulk-delete, all policy-checked, no N+1 on list, `key: &row.id` on every `for` row. Showcase proves it end-to-end (see `examples/showcase/tests/{admin,create_check,edit_check,delete_check,bulk_check}.rs`).

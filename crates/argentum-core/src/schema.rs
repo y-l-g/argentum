@@ -5,10 +5,9 @@
 //! combines them. The API mirrors Filament's `Schema::new(( ... ))` tuple
 //! form via the `IntoSchema` trait.
 //!
-//! Bridge note: `lens_field_name_and_label` and `pk_tie_breakers` reach into
-//! `toasty_core` (see `EXTERNAL_GAPS.md` at repo root). They are the single
-//! `toasty_core` import sites; migrate to public `Path::field_name()` /
-//! `Model::primary_key_paths()` when Toasty exposes them.
+//! Bridge note: `lens_field_name_and_label` reaches into `toasty_core` (see
+//! `EXTERNAL_GAPS.md` at repo root). It is the single `toasty_core` import
+//! site; migrate to public `Path::field_name()` when Toasty exposes it.
 
 use std::collections::HashMap;
 
@@ -607,40 +606,6 @@ pub(crate) fn capitalize(s: &str) -> String {
         None => String::new(),
         Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
     }
-}
-
-/// PK tie-breaker(s) for deterministic pagination.
-///
-/// Centralizes the `toasty_core::stmt` walk (`M::schema().as_root().primary_key`)
-/// so `resource.rs` does not directly depend on core internals (see
-/// EXTERNAL_GAPS.md “primary-key tie-breaker”). Returns one `asc`
-/// `OrderByExpr` per PK field, in declared order.
-///
-/// # Panics
-///
-/// Panics if `M` is not a root model: without a primary key there is no
-/// tie-breaker, and silent omission here would surface only as flaky row
-/// order under cursor pagination.
-pub(crate) fn pk_tie_breakers<M>() -> Vec<toasty::stmt::OrderByExpr>
-where
-    M: toasty::schema::Model,
-{
-    let app_model = M::schema();
-    let root = app_model.as_root().unwrap_or_else(|| {
-        panic!(
-            "pk_tie_breakers: {} is not a root model; deterministic pagination needs its primary key",
-            std::any::type_name::<M>()
-        )
-    });
-    let mut out = Vec::new();
-    for pk_field in &root.primary_key.fields {
-        let expr = toasty_core::stmt::Expr::ref_self_field(*pk_field);
-        out.push(toasty::stmt::OrderByExpr {
-            expr,
-            order: Some(toasty_core::stmt::Direction::Asc),
-        });
-    }
-    out
 }
 
 /// Section — titled container with an optional child `Schema`.
