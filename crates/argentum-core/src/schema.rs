@@ -119,6 +119,26 @@ impl TextInput {
         &self.name
     }
 
+    /// The human label (e.g. `"Email"`) — for inline error messages.
+    pub fn label_str(&self) -> &str {
+        &self.label
+    }
+
+    /// Typed equality filter against the field this input is bound to.
+    ///
+    /// Inputs only bind `String` lenses (enforced at `for_lens`), so the
+    /// comparison is a string equality on that field's path. `M` must be the
+    /// model the lens came from. Built through the public facade
+    /// (`Model::field_name_to_id` + `Model::path_field` + `Path::eq`) — the
+    /// crate's generic handlers use it for the app-side unique check.
+    pub(crate) fn eq_filter<M>(&self, value: String) -> toasty::stmt::Expr<bool>
+    where
+        M: toasty::schema::Model,
+    {
+        let fid = M::field_name_to_id(&self.name);
+        M::path_field::<String>(fid.index).eq(value)
+    }
+
     /// Validate a raw string value against the configured rules.
     pub fn validate(&self, value: &str) -> Vec<String> {
         let v = value.trim();

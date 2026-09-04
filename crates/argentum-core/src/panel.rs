@@ -958,6 +958,53 @@ fn resource_create<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
 }
 
 /// Create page POST.
+/// App-side uniqueness check over the form's `unique()`-marked text inputs.
+///
+/// Generic over every marked field — the previous version was hard-coded to
+/// `email` with a dead full-table query behind it (GH #75 residue). Queries
+/// through `Resource::query` (the tenancy seam, ADR-0002) and returns
+/// `field_name → ["<Label> has already been taken"]` per duplicated value.
+///
+/// `current` holds the record's own hydrated values on edit: a field whose
+/// submitted value is unchanged belongs to this record and is skipped.
+async fn check_unique<R: Resource>(
+    cx: &Cx,
+    schema: &crate::schema::Schema,
+    values: &HashMap<String, String>,
+    current: &HashMap<String, String>,
+) -> HashMap<String, Vec<String>> {
+    let mut errors: HashMap<String, Vec<String>> = HashMap::new();
+    for (name, input) in schema.text_inputs() {
+        if !input.is_unique() {
+            continue;
+        }
+        let Some(submitted) = values
+            .get(&name)
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+        else {
+            continue;
+        };
+        // Unchanged on edit → this record's own value, not a duplicate.
+        if current.get(&name).map(|s| s.trim().to_string()) == Some(submitted.clone()) {
+            continue;
+        }
+        let mut db = db(cx);
+        let rows = R::query(cx)
+            .filter(input.eq_filter::<R::Model>(submitted))
+            .limit(1)
+            .exec(&mut db)
+            .await;
+        if matches!(rows, Ok(rows) if !rows.is_empty()) {
+            errors.insert(
+                name,
+                vec![format!("{} has already been taken", input.label_str())],
+            );
+        }
+    }
+    errors
+}
+
 fn resource_create_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
     Box::pin(ThenView::new(async move {
         if !R::can_create(cx) {
@@ -965,32 +1012,12 @@ fn resource_create_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
         }
         let values = parse_form_values(cx, body).await;
         let schema = R::form(cx);
-        let errors = schema.validate_async(cx, &values).await;
-        // Unique check: delegate to resource's create_record? For now check via
-        // direct query for email uniqueness if field is marked unique and value present.
-        // This is app-side check until Toasty exposes is_unique_violation.
-        if errors.is_empty()
-            && let Some(email) = values.get("email").map(|s| s.trim().to_string())
-            && !email.is_empty()
-            && schema
-                .text_inputs()
-                .get("email")
-                .is_some_and(|inp| inp.is_unique())
-        {
-            // Use Resource::query to see if any record already has this email.
-            // For generic, we try to find via query + in-memory filter.
-            // For User, this will be done via R::create_record's own check or here.
-            // Do a lightweight check via try to create and catch duplicate?
-            // Instead, attempt to query via R::query and filter in memory.
-            // This requires loading all candidates.
-            let mut db = db(cx);
-            if let Ok(candidates) = R::query(cx).exec(&mut db).await {
-                // Need to check if any candidate has same email.
-                // We don't have generic way to read email from model.
-                // For now, rely on R::create_record to handle unique via DB error
-                // and we will map error to field error below.
-                let _ = candidates;
-            }
+        let mut errors = schema.validate_async(cx, &values).await;
+        // App-side unique check over every `unique()`-marked input — the only
+        // error layer until toasty exposes a unique-violation predicate
+        // (EXTERNAL_GAPS.md; never string-match driver error messages).
+        for (name, errs) in check_unique::<R>(cx, &schema, &values, &HashMap::new()).await {
+            errors.entry(name).or_default().extend(errs);
         }
         if !errors.is_empty() {
             let html = render_create_page::<R>(cx, &values, &errors).await?;
@@ -1005,22 +1032,10 @@ fn resource_create_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
                 set_notification(cx, Notification::success("Created"));
                 Err(redirect(list_url).into())
             }
-            Err(e) => {
-                // Map unique violation or other errors to inline errors if possible.
-                // For now, if error string contains "UNIQUE" or "unique", map to email.
-                let msg = e.to_string().to_lowercase();
-                if msg.contains("unique") || msg.contains("duplicate") {
-                    let mut errs = HashMap::new();
-                    errs.insert(
-                        "email".to_string(),
-                        vec!["Email has already been taken".to_string()],
-                    );
-                    let html = render_create_page::<R>(cx, &values, &errs).await?;
-                    Ok(html)
-                } else {
-                    Err(e)
-                }
-            }
+            // A unique violation that slipped past the app-side check (a
+            // concurrent insert) surfaces as an error, not a string-matched
+            // inline message (EXTERNAL_GAPS.md unique-violation entry).
+            Err(e) => Err(e),
         }
     }))
 }
@@ -1071,7 +1086,12 @@ fn resource_edit_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
         }
         let values = parse_form_values(cx, body).await;
         let schema = R::form(cx);
-        let errors = schema.validate_async(cx, &values).await;
+        let mut errors = schema.validate_async(cx, &values).await;
+        // Unique check excludes this record's own unchanged values.
+        let current = R::hydrate_form_values(&record);
+        for (name, errs) in check_unique::<R>(cx, &schema, &values, &current).await {
+            errors.entry(name).or_default().extend(errs);
+        }
         if !errors.is_empty() {
             let html = render_edit_page::<R>(cx, &id, &values, &errors).await?;
             return Ok(html);
@@ -1083,20 +1103,10 @@ fn resource_edit_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
                 set_notification(cx, Notification::success("Updated"));
                 Err(redirect(list_url).into())
             }
-            Err(e) => {
-                let msg = e.to_string().to_lowercase();
-                if msg.contains("unique") || msg.contains("duplicate") {
-                    let mut errs = HashMap::new();
-                    errs.insert(
-                        "email".to_string(),
-                        vec!["Email has already been taken".to_string()],
-                    );
-                    let html = render_edit_page::<R>(cx, &id, &values, &errs).await?;
-                    Ok(html)
-                } else {
-                    Err(e)
-                }
-            }
+            // A unique violation that slipped past the app-side check (a
+            // concurrent update) surfaces as an error, not a string-matched
+            // inline message (EXTERNAL_GAPS.md unique-violation entry).
+            Err(e) => Err(e),
         }
     }))
 }
@@ -1503,6 +1513,77 @@ mod tests {
                 && !html.contains("ac-main")
                 && !html.contains("ac-nav-item"),
             "ac-* should not remain in shell, got {html}"
+        );
+    }
+
+    #[tokio::test]
+    async fn unique_check_flags_duplicates_for_marked_fields() {
+        use crate::schema::{Schema, TextInput};
+        use topcoat::context::CxTestBuilder;
+
+        #[derive(Debug, toasty::Model)]
+        struct Subscriber {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            #[unique]
+            email: String,
+        }
+        struct SubscriberResource;
+        impl Resource for SubscriberResource {
+            type Model = Subscriber;
+        }
+
+        let mut db = Db::builder()
+            .models(toasty::models!(Subscriber))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        toasty::create!(Subscriber { email: "a@b.c" })
+            .exec(&mut db)
+            .await
+            .unwrap();
+        let cx = CxTestBuilder::new().app_context(db).build();
+
+        let schema = Schema::new(TextInput::r#for(Subscriber::fields().email()).unique());
+        let mut values = HashMap::new();
+        values.insert("email".to_string(), "a@b.c".to_string());
+
+        // Create: duplicate → inline error on the field, label-derived.
+        let errors =
+            check_unique::<SubscriberResource>(&cx, &schema, &values, &HashMap::new()).await;
+        assert_eq!(
+            errors.get("email"),
+            Some(&vec!["Email has already been taken".to_string()]),
+            "duplicate must be flagged, got {errors:?}"
+        );
+
+        // Fresh value → no error.
+        let mut fresh = HashMap::new();
+        fresh.insert("email".to_string(), "other@b.c".to_string());
+        let errors =
+            check_unique::<SubscriberResource>(&cx, &schema, &fresh, &HashMap::new()).await;
+        assert!(errors.is_empty(), "fresh value must pass, got {errors:?}");
+
+        // Edit: the record's own unchanged value is not a duplicate.
+        let mut current = HashMap::new();
+        current.insert("email".to_string(), "a@b.c".to_string());
+        let errors = check_unique::<SubscriberResource>(&cx, &schema, &values, &current).await;
+        assert!(
+            errors.is_empty(),
+            "own unchanged value must be skipped, got {errors:?}"
+        );
+
+        // Edit: changed to someone else's value → flagged again.
+        let mut changed_current = HashMap::new();
+        changed_current.insert("email".to_string(), "old@b.c".to_string());
+        let errors =
+            check_unique::<SubscriberResource>(&cx, &schema, &values, &changed_current).await;
+        assert_eq!(
+            errors.get("email"),
+            Some(&vec!["Email has already been taken".to_string()]),
+            "changed-to-duplicate must be flagged, got {errors:?}"
         );
     }
 }

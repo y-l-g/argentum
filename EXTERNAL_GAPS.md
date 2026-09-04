@@ -82,15 +82,15 @@ impl<M: Model> Path<M, T> {
 
 ## Toasty — unique-violation error predicate
 
-**Where:** `README.md` §4.3/§9 (unique → inline field-error mapping); future Create/Update hydration (#11, #12). No runtime call site today — the mapping is aspirational.
+**Where:** `crates/argentum-core/src/panel.rs` `check_unique` — the app-side unique check over every `unique()`-marked `TextInput`, run by `resource_create_post`/`resource_edit_post` (was previously hard-coded to `email` with a dead query behind it, GH #75 residue; generalized 2026-09-04).
 
-**Today:** toasty exposes no unique-violation error kind. `toasty-core/src/error/` has `is_record_not_found`, `is_condition_failed`, … but no `is_unique_violation`; `#[unique]` only creates the DB index and duplicates surface as an unclassified driver error (the toasty quickstart example only asserts `dup.is_err()`).
+**Today:** toasty exposes no unique-violation error kind. `toasty-core/src/error/` has `is_record_not_found`, `is_condition_failed`, … but no `is_unique_violation`; `#[unique]` only creates the DB index and duplicates surface as an unclassified driver error. The app layer is therefore the only duplicate guard: `check_unique` queries the field path via `TextInput::eq_filter` (public facade) and maps a hit to `"<Label> has already been taken"`. Driver-level violations that slip past the check (concurrent writes) propagate as errors — string-matching `"unique"`/`"duplicate"` was removed per this entry's rule.
 
-**Why fragile:** any code or doc claiming to map `UniqueViolation` to a field error cannot be implemented without driver-specific string matching.
+**Why fragile:** the app-side check races with concurrent inserts (TOCTOU); only a driver-level predicate closes it.
 
 **Clean upstream API:** `Error::is_unique_violation()` (or `ErrorKind::UniqueViolation { constraint }`) surfaced by the SQL drivers.
 
-**Argentum plan:** keep app-level validation the only error layer until the predicate lands; then map it to the constrained field's inline error and delete this entry. Never string-match driver error messages.
+**Argentum plan:** keep `check_unique` as the UX layer; when the predicate lands, map it to the constrained field's inline error and delete this entry. Never string-match driver error messages.
 
 ---
 
