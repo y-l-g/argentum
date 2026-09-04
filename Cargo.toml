@@ -32,14 +32,11 @@ too_many_lines = "allow"
 # live-editing against a local checkout, add an uncommitted `[patch]`
 # section redirecting to `../topcoat` / `../toasty` (see ADR-0003).
 [workspace.dependencies]
-# TEMPORARY (feedback/topcoat-pr-373): pinned to PR tokio-rs/topcoat#373
-# (`view-stream`, head 30d92c99) to trial streaming SSR + `live!`/`emit!`.
-# Revert to `branch = "main"` once the PR lands or feedback is filed.
-topcoat = { git = "https://github.com/tokio-rs/topcoat", branch = "view-stream", default-features = false, features = ["view", "router", "discover"] }
+topcoat = { git = "https://github.com/tokio-rs/topcoat", branch = "main", default-features = false, features = ["view", "router", "discover"] }
 toasty = { git = "https://github.com/tokio-rs/toasty", branch = "main", default-features = false, features = ["sqlite", "jiff"] }
 toasty-core = { git = "https://github.com/tokio-rs/toasty", branch = "main" }
-topcoat-ui = { git = "https://github.com/tokio-rs/topcoat", branch = "view-stream" }
-topcoat-ui-registry = { git = "https://github.com/tokio-rs/topcoat", branch = "view-stream" }
+topcoat-ui = { git = "https://github.com/tokio-rs/topcoat", branch = "main" }
+topcoat-ui-registry = { git = "https://github.com/tokio-rs/topcoat", branch = "main" }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 uuid = "1.23"
 jiff = "0.2"
