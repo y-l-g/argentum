@@ -39,31 +39,31 @@ async fn ui_showcase(cx: &Cx) -> Result<impl View> {
         )
     };
     Ok(view! {
-            cx =>
-            argentum_ui::page(
-                argentum_ui::page_header(
-                    argentum_ui::page_title("UI — argentum-ui seam")
-                    argentum_ui::page_description(
-                        "Per-app contract: styles.css (@import tailwindcss + Tokens + @source for app and argentum-ui) + build.rs (argentum_ui::tailwind_build) + tailwind::stylesheet!() and Geist font in layout. This page proves it with a card, button, and badge — all Token-only, no raw colors."
-                    )
+        cx =>
+        argentum_ui::page(
+            argentum_ui::page_header(
+                argentum_ui::page_title("UI — argentum-ui seam")
+                argentum_ui::page_description(
+                    "Per-app contract: styles.css (@import tailwindcss + Tokens + @source for app and argentum-ui) + build.rs (argentum_ui::tailwind_build) + tailwind::stylesheet!() and Geist font in layout. This page proves it with a card, button, and badge — all Token-only, no raw colors."
                 )
-                <section
-                    class="flex flex-col gap-4 rounded-xl border border-border bg-background p-6 shadow-sm"
-                >
-                    <h2 class="text-lg font-semibold tracking-tight text-foreground">
-                        "Card + Button + Badge"
-                    </h2>
-                    argentum_ui::code_block(
-                        lang: "rust",
-                        code: "argentum_ui::card(\n    card_header(card_title(\"Beautiful card\"))\n    card_content(button(variant: Primary, \"Primary\"))\n)"
-                    )
-                    (card_view)
-                </section>
-                <p>
-                    <a href="/admin/showcase" class="text-sm text-primary hover:underline">
-                        "← back to showcase"
-                    </a>
-                </p>
             )
+            <section
+                class="flex flex-col gap-4 rounded-xl border border-border bg-background p-6 shadow-sm"
+            >
+                <h2 class="text-lg font-semibold tracking-tight text-foreground">
+                    "Card + Button + Badge"
+                </h2>
+                argentum_ui::code_block(
+                    lang: "rust",
+                    code: "argentum_ui::card(\n    card_header(card_title(\"Beautiful card\"))\n    card_content(button(variant: Primary, \"Primary\"))\n)"
+                )
+                (card_view)
+            </section>
+            <p>
+                <a href="/admin/showcase" class="text-sm text-primary hover:underline">
+                    "← back to showcase"
+                </a>
+            </p>
+        )
     })
 }

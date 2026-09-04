@@ -450,7 +450,9 @@ impl Panel {
             let title = notification.title.clone();
             view! {
                 cx =>
-                <div class="rounded-xl border border-border bg-background shadow-sm p-4">
+                <div
+                    class="rounded-xl border border-border bg-background shadow-sm p-4"
+                >
                     <p class="text-sm font-medium text-foreground">(title)</p>
                 </div>
             }
@@ -528,8 +530,7 @@ impl Panel {
                 <div class="fixed top-4 right-4 z-50 flex flex-col gap-2">
                     (notification_view)
                 </div>
-            )
-            // Scripts are owned by the document (layout_shell).
+            ) // Scripts are owned by the document (layout_shell).
         }
         .boxed())
     }
@@ -644,7 +645,8 @@ fn resource_list<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
             table.render(cx, page).await
         });
 
-        Ok(view! { cx =>
+        Ok(view! {
+            cx =>
             signal q = String::new();
             argentum_ui::page(
                 argentum_ui::page_header(argentum_ui::page_title((title.clone())))
@@ -805,7 +807,15 @@ async fn memoized_dummy(cx: &Cx, q: &str) -> String {
 #[shard]
 async fn table_shard(cx: &Cx, q: String) -> Result<impl View> {
     let _ = memoized_dummy(cx, &q).await;
-    Ok(view! { cx => <div data-boundary="table"><p>"Shard Table for "(q)</p></div> })
+    Ok(view! {
+        cx =>
+        <div data-boundary="table">
+            <p>
+                "Shard Table for "
+                (q)
+            </p>
+        </div>
+    })
 }
 
 /// Helper: compute list URL from current request path (e.g. /admin/users/create -> /admin/users).
@@ -872,7 +882,8 @@ async fn render_create_page<'a, R: Resource>(
     let form_html = schema.render_with(cx, values, errors).await?;
     let action = topcoat::router::request::uri(cx).path().to_string();
     let title = format!("Create {}", R::navigation_label());
-    Ok(view! { cx =>
+    Ok(view! {
+        cx =>
         argentum_ui::page(
             argentum_ui::page_header(argentum_ui::page_title((title.clone())))
             argentum_ui::page_content(
@@ -908,7 +919,8 @@ async fn render_edit_page<'a, R: Resource>(
     let form_html = schema.render_with(cx, values, errors).await?;
     let action = topcoat::router::request::uri(cx).path().to_string();
     let title = format!("Edit {}", R::navigation_label());
-    Ok(view! { cx =>
+    Ok(view! {
+        cx =>
         argentum_ui::page(
             argentum_ui::page_header(argentum_ui::page_title((title.clone())))
             argentum_ui::page_content(
@@ -1112,13 +1124,24 @@ fn resource_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
             .is_some_and(|v| v == "1" || v == "true" || v == "yes");
         if !confirmed {
             // Render confirmation page.
-            let html = view! { cx =>
+            let html = view! {
+                cx =>
                 argentum_ui::page(
                     argentum_ui::page_header(argentum_ui::page_title("Confirm delete"))
                     argentum_ui::page_content(
-                        <div class="rounded-xl border border-border bg-background p-6 shadow-sm flex flex-col gap-4">
-                            <p class="text-sm text-foreground">"Are you sure you want to delete this record? This action cannot be undone."</p>
-                            <form method="post" action=(topcoat::router::request::uri(cx).path().to_string()) class="flex gap-2">
+                        <div
+                            class="rounded-xl border border-border bg-background p-6 shadow-sm flex flex-col gap-4"
+                        >
+                            <p class="text-sm text-foreground">
+                                "Are you sure you want to delete this record? This action cannot be undone."
+                            </p>
+                            <form
+                                method="post"
+                                action=(topcoat::router::request::uri(cx)
+                                    .path()
+                                    .to_string())
+                                class="flex gap-2"
+                            >
                                 <input type="hidden" name="confirm" value="1">
                                 argentum_ui::button(
                                     variant: argentum_ui::ButtonVariant::Primary,

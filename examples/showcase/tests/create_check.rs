@@ -212,18 +212,15 @@ async fn create_policy_deny() {
         fn form(_cx: &topcoat::context::Cx) -> Schema {
             Schema::new(TextInput::r#for(DummyUser::fields().name()).required())
         }
-        fn create_record(
+        async fn create_record(
             _cx: &topcoat::context::Cx,
             _values: std::collections::HashMap<String, String>,
-        ) -> impl std::future::Future<Output = topcoat::Result<()>> + Send
-        where
-            Self: Sized,
-        {
-            async { Ok(()) }
+        ) -> topcoat::Result<()> {
+            Ok(())
         }
     }
 
-    let mut db = Db::builder()
+    let db = Db::builder()
         .models(toasty::models!(DummyUser))
         .connect("sqlite::memory:")
         .await

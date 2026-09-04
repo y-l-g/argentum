@@ -122,7 +122,7 @@ async fn bulk_delete_partial_deny_aborts() {
         fn can_view_any(_cx: &topcoat::context::Cx) -> bool {
             true
         }
-        fn can_delete(cx: &topcoat::context::Cx, rec: &DummyUser) -> bool {
+        fn can_delete(_cx: &topcoat::context::Cx, rec: &DummyUser) -> bool {
             // Deny second record (name == "b")
             rec.name != "b"
         }
@@ -221,7 +221,7 @@ async fn view_any_deny_blocks_list() {
         }
     }
 
-    let mut db = Db::builder()
+    let db = Db::builder()
         .models(toasty::models!(DummyUser))
         .connect("sqlite::memory:")
         .await
@@ -252,7 +252,7 @@ async fn view_any_deny_blocks_list() {
 async fn table_boundary_and_memoize() {
     use argentum_core::{Table, TextColumn};
     use std::sync::atomic::{AtomicUsize, Ordering};
-    use topcoat::context::{Cx, CxTestBuilder, memoize};
+    use topcoat::context::{CxTestBuilder, memoize};
 
     #[derive(Debug, Clone, toasty::Model)]
     struct DummyUser {

@@ -965,7 +965,8 @@ impl<M> Table<M> {
         };
         let bulk_bar_view: BoxView<'_> = if self.bulk_delete && self.delete_prefix.is_some() {
             let bulk_action = format!("{}/bulk-delete", self.delete_prefix.clone().unwrap());
-            view! { cx =>
+            view! {
+                cx =>
                 <form
                     method="post"
                     action=(bulk_action)
@@ -1046,8 +1047,11 @@ impl<M> Table<M> {
             for (key, count) in groups {
                 let text = format!("{} ({})", key, count);
                 group_views.push(
-                    view! { cx => <div class="px-4 py-2 bg-muted text-sm font-medium">(text)</div> }
-                        .boxed(),
+                    view! {
+                        cx =>
+                        <div class="px-4 py-2 bg-muted text-sm font-medium">(text)</div>
+                    }
+                    .boxed(),
                 );
             }
             let inner = view! {
@@ -1308,7 +1312,7 @@ impl<M> Table<M> {
                         placeholder="Search…"
                         aria-label="Search table"
                         class="w-64"
-                    },
+                    }
                 )
                 button(
                     variant: ButtonVariant::Secondary,
@@ -1385,7 +1389,7 @@ impl<M> Table<M> {
                         placeholder="filters e.g. status:published"
                         aria-label="Filter table"
                         class="w-64"
-                    },
+                    }
                 )
                 button(
                     variant: ButtonVariant::Secondary,
@@ -1443,24 +1447,17 @@ impl<M> Table<M> {
             Some(term) => format!("No results for \u{201c}{term}\u{201d}"),
             None => "No records yet".to_string(),
         };
-        Ok(view! { cx =>
+        Ok(view! {
+            cx =>
             table_body(
                 table_row(
                     key: "empty",
                     table_cell(
-                        attrs: attributes! {
-                            colspan=(colspan)
-                            class="px-6 py-16 text-center"
-                        },
+                        attrs: attributes! { colspan=(colspan) class="px-6 py-16 text-center" },
                         <div class="flex flex-col items-center gap-4">
-                            <p class="text-sm text-muted-foreground">
-                                (message)
-                            </p>
+                            <p class="text-sm text-muted-foreground">(message)</p>
                             if let Some(url) = clear_url {
-                                <a
-                                    href=(url)
-                                    class="text-sm text-primary hover:underline"
-                                >
+                                <a href=(url) class="text-sm text-primary hover:underline">
                                     "Clear search"
                                 </a>
                             }
@@ -1523,16 +1520,12 @@ impl<M> Table<M> {
                     pagination_content(
                         if let Some(href) = prev_href {
                             pagination_item(
-                                pagination_previous(
-                                    attrs: attributes! { href=(href) },
-                                )
+                                pagination_previous(attrs: attributes! { href=(href) })
                             )
                         }
                         if let Some(href) = next_href {
                             pagination_item(
-                                pagination_next(
-                                    attrs: attributes! { href=(href) },
-                                )
+                                pagination_next(attrs: attributes! { href=(href) })
                             )
                         }
                     )
@@ -1598,7 +1591,8 @@ impl<M> Table<M> {
                 (
                     "cursor-pointer hover:bg-foreground/5",
                     Some(aria),
-                    view! { cx =>
+                    view! {
+                        cx =>
                         <a
                             href=(href)
                             aria-label=(aria_label)
@@ -1619,12 +1613,10 @@ impl<M> Table<M> {
             } else {
                 ("", None, view! { cx => (label.clone()) }.boxed())
             };
-            heads.push(view! { cx =>
+            heads.push(view! {
+                cx =>
                 table_head(
-                    attrs: attributes! {
-                        class=(head_class)
-                        aria-sort=(aria_sort)
-                    },
+                    attrs: attributes! { class=(head_class) aria-sort=(aria_sort) },
                     (header)
                     if searchable {
                         <span
@@ -1642,7 +1634,8 @@ impl<M> Table<M> {
         if with_delete {
             heads.push(view! { cx => table_head("Actions") }.boxed());
         }
-        Ok(view! { cx =>
+        Ok(view! {
+            cx =>
             table_header(
                 table_row(
                     for h in heads {

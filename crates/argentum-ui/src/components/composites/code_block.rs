@@ -172,11 +172,18 @@ mod tests {
     async fn caller_attrs_survive_highlighted_branch() {
         let cx = CxTestBuilder::new().build();
         let cx_ref = &cx;
-        let html = view! { cx_ref => code_block(lang: "rust", code: "fn main() {}", attrs: attributes!{ id="my-id" class="my-class" data-x="1" }) }
-            .single()
-            .await
-            .unwrap()
-            .render(&cx);
+        let html = view! {
+            cx_ref =>
+            code_block(
+                lang: "rust",
+                code: "fn main() {}",
+                attrs: attributes! { id="my-id" class="my-class" data-x="1" }
+            )
+        }
+        .single()
+        .await
+        .unwrap()
+        .render(&cx);
         // custom class should be merged onto pres
         assert!(
             html.contains("my-class"),
@@ -193,11 +200,18 @@ mod tests {
     async fn caller_attrs_survive_plain_branch() {
         let cx = CxTestBuilder::new().build();
         let cx_ref = &cx;
-        let html = view! { cx_ref => code_block(lang: "text", code: "hello", attrs: attributes!{ id="plain-id" class="plain-class" }) }
-            .single()
-            .await
-            .unwrap()
-            .render(&cx);
+        let html = view! {
+            cx_ref =>
+            code_block(
+                lang: "text",
+                code: "hello",
+                attrs: attributes! { id="plain-id" class="plain-class" }
+            )
+        }
+        .single()
+        .await
+        .unwrap()
+        .render(&cx);
         assert!(
             html.contains("plain-class"),
             "missing class in plain {html}"

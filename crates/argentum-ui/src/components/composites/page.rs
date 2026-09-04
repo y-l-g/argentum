@@ -39,7 +39,7 @@ pub async fn page_header(
     #[default] child: Child<'_>,
 ) -> Result<impl View> {
     Ok(view! {
-            <div class=(class!(PAGE_HEADER, attrs.remove("class"))) (attrs)>(child)</div>
+        <div class=(class!(PAGE_HEADER, attrs.remove("class"))) (attrs)>(child)</div>
     })
 }
 
@@ -48,7 +48,9 @@ pub async fn page_title(
     #[default] mut attrs: Attributes,
     #[default] child: Child<'_>,
 ) -> Result<impl View> {
-    Ok(view! { <h1 class=(class!(PAGE_TITLE, attrs.remove("class"))) (attrs)>(child)</h1> })
+    Ok(view! {
+        <h1 class=(class!(PAGE_TITLE, attrs.remove("class"))) (attrs)>(child)</h1>
+    })
 }
 
 #[component]
@@ -57,7 +59,7 @@ pub async fn page_description(
     #[default] child: Child<'_>,
 ) -> Result<impl View> {
     Ok(view! {
-            <p class=(class!(PAGE_DESCRIPTION, attrs.remove("class"))) (attrs)>(child)</p>
+        <p class=(class!(PAGE_DESCRIPTION, attrs.remove("class"))) (attrs)>(child)</p>
     })
 }
 
@@ -67,6 +69,6 @@ pub async fn page_content(
     #[default] child: Child<'_>,
 ) -> Result<impl View> {
     Ok(view! {
-            <div class=(class!(PAGE_CONTENT, attrs.remove("class"))) (attrs)>(child)</div>
+        <div class=(class!(PAGE_CONTENT, attrs.remove("class"))) (attrs)>(child)</div>
     })
 }

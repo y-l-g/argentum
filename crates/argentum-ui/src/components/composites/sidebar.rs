@@ -53,16 +53,16 @@ pub async fn sidebar_provider(
 ) -> Result<impl View> {
     let (state, collapsible) = sidebar_state(cx);
     Ok(view! {
-            <div
-                data-sidebar="provider"
-                data-state=(state)
-                data-collapsible=(collapsible)
-                style="--sidebar-width:16rem;--sidebar-width-icon:3rem;--sidebar-width-mobile:18rem"
-                class=(class!(PROVIDER, attrs.remove("class")))
-                (attrs)
-            >
-                (child)
-            </div>
+        <div
+            data-sidebar="provider"
+            data-state=(state)
+            data-collapsible=(collapsible)
+            style="--sidebar-width:16rem;--sidebar-width-icon:3rem;--sidebar-width-mobile:18rem"
+            class=(class!(PROVIDER, attrs.remove("class")))
+            (attrs)
+        >
+            (child)
+        </div>
     })
 }
 
@@ -79,9 +79,9 @@ pub async fn sidebar_inset(
     #[default] child: Child<'_>,
 ) -> Result<impl View> {
     Ok(view! {
-            <div data-sidebar="inset" class=(class!(INSET, attrs.remove("class"))) (attrs)>
-                (child)
-            </div>
+        <div data-sidebar="inset" class=(class!(INSET, attrs.remove("class"))) (attrs)>
+            (child)
+        </div>
     })
 }
 
@@ -123,25 +123,26 @@ pub async fn sidebar(
     let is_inset = variant == SidebarVariant::Inset;
     let is_floating = variant == SidebarVariant::Floating;
     Ok(view! {
-            <div
-                data-sidebar="sidebar"
-                data-state=(state)
-                data-collapsible=(collapsible)
-                data-variant=(variant_str)
-                data-side=(side_str)
-                class=(class!(
-                    SIDEBAR,
-                    is_inset.then_some("peer"),
-                    is_floating.then_some("m-2 rounded-lg border shadow-sm"),
-                    is_inset.then_some("m-2 rounded-lg border bg-background shadow-sm"),
-                    (side == SidebarSide::Right)
-                        .then_some("right-0 left-auto group-data-[collapsible=offcanvas]:right-[calc(var(--sidebar-width)*-1)] group-data-[collapsible=offcanvas]:left-auto"),
-                    attrs.remove("class"),
-                ))
-                (attrs)
-            >
-                (child)
-            </div>
+        <div
+            data-sidebar="sidebar"
+            data-state=(state)
+            data-collapsible=(collapsible)
+            data-variant=(variant_str)
+            data-side=(side_str)
+            class=(class!(
+                SIDEBAR,
+                is_inset.then_some("peer"),
+                is_floating.then_some("m-2 rounded-lg border shadow-sm"),
+                is_inset.then_some("m-2 rounded-lg border bg-background shadow-sm"),
+                (side == SidebarSide::Right).then_some(
+                    "right-0 left-auto group-data-[collapsible=offcanvas]:right-[calc(var(--sidebar-width)*-1)] group-data-[collapsible=offcanvas]:left-auto",
+                ),
+                attrs.remove("class"),
+            ))
+            (attrs)
+        >
+            (child)
+        </div>
     })
 }
 
@@ -152,16 +153,16 @@ pub async fn sidebar_header(
     #[default] child: Child<'_>,
 ) -> Result<impl View> {
     Ok(view! {
-            <div
-                data-sidebar="header"
-                class=(class!(
-                    "sticky top-0 z-10 flex h-16 shrink-0 items-center gap-2 border-b border-border bg-background px-4",
-                    attrs.remove("class"),
-                ))
-                (attrs)
-            >
-                (child)
-            </div>
+        <div
+            data-sidebar="header"
+            class=(class!(
+                "sticky top-0 z-10 flex h-16 shrink-0 items-center gap-2 border-b border-border bg-background px-4",
+                attrs.remove("class"),
+            ))
+            (attrs)
+        >
+            (child)
+        </div>
     })
 }
 
@@ -172,16 +173,16 @@ pub async fn sidebar_content(
     #[default] child: Child<'_>,
 ) -> Result<impl View> {
     Ok(view! {
-            <div
-                data-sidebar="content"
-                class=(class!(
-                    "flex flex-1 flex-col gap-2 overflow-y-auto p-2",
-                    attrs.remove("class"),
-                ))
-                (attrs)
-            >
-                (child)
-            </div>
+        <div
+            data-sidebar="content"
+            class=(class!(
+                "flex flex-1 flex-col gap-2 overflow-y-auto p-2",
+                attrs.remove("class"),
+            ))
+            (attrs)
+        >
+            (child)
+        </div>
     })
 }
 
@@ -192,16 +193,16 @@ pub async fn sidebar_footer(
     #[default] child: Child<'_>,
 ) -> Result<impl View> {
     Ok(view! {
-            <div
-                data-sidebar="footer"
-                class=(class!(
-                    "flex shrink-0 flex-col gap-2 border-t border-border p-2",
-                    attrs.remove("class"),
-                ))
-                (attrs)
-            >
-                (child)
-            </div>
+        <div
+            data-sidebar="footer"
+            class=(class!(
+                "flex shrink-0 flex-col gap-2 border-t border-border p-2",
+                attrs.remove("class"),
+            ))
+            (attrs)
+        >
+            (child)
+        </div>
     })
 }
 
@@ -215,13 +216,13 @@ pub async fn sidebar_group(
     #[default] child: Child<'_>,
 ) -> Result<impl View> {
     Ok(view! {
-            <div
-                data-sidebar="group"
-                class=(class!("flex flex-col gap-2", attrs.remove("class")))
-                (attrs)
-            >
-                (child)
-            </div>
+        <div
+            data-sidebar="group"
+            class=(class!("flex flex-col gap-2", attrs.remove("class")))
+            (attrs)
+        >
+            (child)
+        </div>
     })
 }
 
@@ -231,16 +232,16 @@ pub async fn sidebar_group_label(
     #[default] child: Child<'_>,
 ) -> Result<impl View> {
     Ok(view! {
-            <div
-                data-sidebar="group-label"
-                class=(class!(
-                    "px-2 py-1 text-xs font-medium text-muted-foreground group-data-[collapsible=icon]:hidden",
-                    attrs.remove("class"),
-                ))
-                (attrs)
-            >
-                (child)
-            </div>
+        <div
+            data-sidebar="group-label"
+            class=(class!(
+                "px-2 py-1 text-xs font-medium text-muted-foreground group-data-[collapsible=icon]:hidden",
+                attrs.remove("class"),
+            ))
+            (attrs)
+        >
+            (child)
+        </div>
     })
 }
 
@@ -250,13 +251,13 @@ pub async fn sidebar_group_content(
     #[default] child: Child<'_>,
 ) -> Result<impl View> {
     Ok(view! {
-            <div
-                data-sidebar="group-content"
-                class=(class!("flex flex-col gap-1", attrs.remove("class")))
-                (attrs)
-            >
-                (child)
-            </div>
+        <div
+            data-sidebar="group-content"
+            class=(class!("flex flex-col gap-1", attrs.remove("class")))
+            (attrs)
+        >
+            (child)
+        </div>
     })
 }
 
@@ -270,13 +271,13 @@ pub async fn sidebar_menu(
     #[default] child: Child<'_>,
 ) -> Result<impl View> {
     Ok(view! {
-            <ul
-                data-sidebar="menu"
-                class=(class!("flex flex-col gap-1", attrs.remove("class")))
-                (attrs)
-            >
-                (child)
-            </ul>
+        <ul
+            data-sidebar="menu"
+            class=(class!("flex flex-col gap-1", attrs.remove("class")))
+            (attrs)
+        >
+            (child)
+        </ul>
     })
 }
 
@@ -286,13 +287,13 @@ pub async fn sidebar_menu_item(
     #[default] child: Child<'_>,
 ) -> Result<impl View> {
     Ok(view! {
-            <li
-                data-sidebar="menu-item"
-                class=(class!("list-none", attrs.remove("class")))
-                (attrs)
-            >
-                (child)
-            </li>
+        <li
+            data-sidebar="menu-item"
+            class=(class!("list-none", attrs.remove("class")))
+            (attrs)
+        >
+            (child)
+        </li>
     })
 }
 
@@ -323,15 +324,15 @@ pub async fn sidebar_menu_button(
         MENU_BUTTON_INACTIVE
     };
     Ok(view! {
-            <a
-                data-sidebar="menu-button"
-                data-active=(is_active.then_some("true"))
-                aria-current=(is_active.then_some("page"))
-                class=(class!(MENU_BUTTON_BASE, active_class, attrs.remove("class")))
-                (attrs)
-            >
-                (child)
-            </a>
+        <a
+            data-sidebar="menu-button"
+            data-active=(is_active.then_some("true"))
+            aria-current=(is_active.then_some("page"))
+            class=(class!(MENU_BUTTON_BASE, active_class, attrs.remove("class")))
+            (attrs)
+        >
+            (child)
+        </a>
     })
 }
 
@@ -349,14 +350,14 @@ pub async fn sidebar_separator(
     #[default] attrs: Attributes,
 ) -> Result<impl View> {
     Ok(view! {
-            separator(
-                orientation: orientation,
-                attrs: attributes! {
-                    data-sidebar="separator"
-                    class="shrink-0 border-0 bg-border"
-                    (attrs)
-                },
-            )
+        separator(
+            orientation: orientation,
+            attrs: attributes! {
+                data-sidebar="separator"
+                class="shrink-0 border-0 bg-border"
+                (attrs)
+            }
+        )
     })
 }
 
@@ -368,17 +369,17 @@ pub async fn sidebar_separator(
 #[component]
 pub async fn sidebar_trigger(#[default] mut attrs: Attributes) -> Result<impl View> {
     Ok(view! {
-            <button
-                data-sidebar="trigger"
-                aria-label="Toggle sidebar"
-                class=(class!(
-                    button_variants(ButtonVariant::Ghost, ButtonSize::Icon),
-                    attrs.remove("class"),
-                ))
-                (attrs)
-            >
-                <span aria-hidden="true">"☰"</span>
-            </button>
+        <button
+            data-sidebar="trigger"
+            aria-label="Toggle sidebar"
+            class=(class!(
+                button_variants(ButtonVariant::Ghost, ButtonSize::Icon),
+                attrs.remove("class"),
+            ))
+            (attrs)
+        >
+            <span aria-hidden="true">"☰"</span>
+        </button>
     })
 }
 
@@ -396,22 +397,22 @@ pub async fn sidebar_rail(#[default] mut attrs: Attributes) -> Result<impl View>
     // Hidden on mobile (`hidden sm:flex`). The `group-data-[collapsible=offcanvas]`
     // rules keep it attached when the sidebar is offcanvas.
     Ok(view! {
-            <button
-                data-sidebar="rail"
-                aria-label="Toggle sidebar"
-                tabindex="-1"
-                title="Toggle sidebar"
-                class=(class!(
-                    "absolute inset-y-0 z-20 hidden w-4 -translate-x-1/2 transition-all ease-linear after:absolute after:inset-y-0 after:left-1/2 after:w-[2px] hover:after:bg-sidebar-border sm:flex",
-                    "in-data-[side=left]:cursor-w-resize in-data-[side=right]:cursor-e-resize",
-                    "[[data-side=left][data-state=collapsed]_&]:cursor-e-resize [[data-side=right][data-state=collapsed]_&]:cursor-w-resize",
-                    "group-data-[collapsible=offcanvas]:translate-x-0 group-data-[collapsible=offcanvas]:after:left-full hover:group-data-[collapsible=offcanvas]:bg-sidebar",
-                    "[[data-side=left][data-collapsible=offcanvas]_&]:-right-2",
-                    "[[data-side=right][data-collapsible=offcanvas]_&]:-left-2",
-                    attrs.remove("class"),
-                ))
-                (attrs)
-            ></button>
+        <button
+            data-sidebar="rail"
+            aria-label="Toggle sidebar"
+            tabindex="-1"
+            title="Toggle sidebar"
+            class=(class!(
+                "absolute inset-y-0 z-20 hidden w-4 -translate-x-1/2 transition-all ease-linear after:absolute after:inset-y-0 after:left-1/2 after:w-[2px] hover:after:bg-sidebar-border sm:flex",
+                "in-data-[side=left]:cursor-w-resize in-data-[side=right]:cursor-e-resize",
+                "[[data-side=left][data-state=collapsed]_&]:cursor-e-resize [[data-side=right][data-state=collapsed]_&]:cursor-w-resize",
+                "group-data-[collapsible=offcanvas]:translate-x-0 group-data-[collapsible=offcanvas]:after:left-full hover:group-data-[collapsible=offcanvas]:bg-sidebar",
+                "[[data-side=left][data-collapsible=offcanvas]_&]:-right-2",
+                "[[data-side=right][data-collapsible=offcanvas]_&]:-left-2",
+                attrs.remove("class"),
+            ))
+            (attrs)
+        ></button>
     })
 }
 
@@ -440,16 +441,16 @@ pub async fn sidebar_menu_action(
     #[default] child: Child<'_>,
 ) -> Result<impl View> {
     Ok(view! {
-            <button
-                data-sidebar="menu-action"
-                class=(class!(
-                    "absolute right-1 top-1.5 flex aspect-square w-5 items-center justify-center rounded-md p-0 text-sidebar-foreground outline-none ring-sidebar-ring transition-transform hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 peer-hover/menu-button:text-sidebar-accent-foreground [&>svg]:size-4",
-                    attrs.remove("class"),
-                ))
-                (attrs)
-            >
-                (child)
-            </button>
+        <button
+            data-sidebar="menu-action"
+            class=(class!(
+                "absolute right-1 top-1.5 flex aspect-square w-5 items-center justify-center rounded-md p-0 text-sidebar-foreground outline-none ring-sidebar-ring transition-transform hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 peer-hover/menu-button:text-sidebar-accent-foreground [&>svg]:size-4",
+                attrs.remove("class"),
+            ))
+            (attrs)
+        >
+            (child)
+        </button>
     })
 }
 
@@ -460,16 +461,16 @@ pub async fn sidebar_menu_badge(
     #[default] child: Child<'_>,
 ) -> Result<impl View> {
     Ok(view! {
-            <div
-                data-sidebar="menu-badge"
-                class=(class!(
-                    "ml-auto flex h-5 min-w-5 select-none items-center justify-center rounded-md px-1 text-xs font-medium tabular-nums text-sidebar-foreground pointer-events-none",
-                    attrs.remove("class"),
-                ))
-                (attrs)
-            >
-                (child)
-            </div>
+        <div
+            data-sidebar="menu-badge"
+            class=(class!(
+                "ml-auto flex h-5 min-w-5 select-none items-center justify-center rounded-md px-1 text-xs font-medium tabular-nums text-sidebar-foreground pointer-events-none",
+                attrs.remove("class"),
+            ))
+            (attrs)
+        >
+            (child)
+        </div>
     })
 }
 
@@ -480,16 +481,16 @@ pub async fn sidebar_menu_sub(
     #[default] child: Child<'_>,
 ) -> Result<impl View> {
     Ok(view! {
-            <ul
-                data-sidebar="menu-sub"
-                class=(class!(
-                    "mx-3.5 flex min-w-0 translate-x-px flex-col gap-1 border-l border-sidebar-border px-2.5 py-0.5 group-data-[collapsible=icon]:hidden",
-                    attrs.remove("class"),
-                ))
-                (attrs)
-            >
-                (child)
-            </ul>
+        <ul
+            data-sidebar="menu-sub"
+            class=(class!(
+                "mx-3.5 flex min-w-0 translate-x-px flex-col gap-1 border-l border-sidebar-border px-2.5 py-0.5 group-data-[collapsible=icon]:hidden",
+                attrs.remove("class"),
+            ))
+            (attrs)
+        >
+            (child)
+        </ul>
     })
 }
 
@@ -500,13 +501,13 @@ pub async fn sidebar_menu_sub_item(
     #[default] child: Child<'_>,
 ) -> Result<impl View> {
     Ok(view! {
-            <li
-                data-sidebar="menu-sub-item"
-                class=(class!("list-none group/menu-sub-item", attrs.remove("class")))
-                (attrs)
-            >
-                (child)
-            </li>
+        <li
+            data-sidebar="menu-sub-item"
+            class=(class!("list-none group/menu-sub-item", attrs.remove("class")))
+            (attrs)
+        >
+            (child)
+        </li>
     })
 }
 
@@ -518,18 +519,18 @@ pub async fn sidebar_menu_sub_button(
     #[default] child: Child<'_>,
 ) -> Result<impl View> {
     Ok(view! {
-            <a
-                data-sidebar="menu-sub-button"
-                data-active=(is_active.then_some("true"))
-                aria-current=(is_active.then_some("page"))
-                class=(class!(
-                    "flex h-7 min-w-0 -translate-x-px items-center gap-2 overflow-hidden rounded-md px-2 text-sidebar-foreground outline-none ring-sidebar-ring hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:text-sidebar-accent-foreground data-[active=true]:bg-sidebar-accent data-[active=true]:text-sidebar-accent-foreground",
-                    attrs.remove("class"),
-                ))
-                (attrs)
-            >
-                (child)
-            </a>
+        <a
+            data-sidebar="menu-sub-button"
+            data-active=(is_active.then_some("true"))
+            aria-current=(is_active.then_some("page"))
+            class=(class!(
+                "flex h-7 min-w-0 -translate-x-px items-center gap-2 overflow-hidden rounded-md px-2 text-sidebar-foreground outline-none ring-sidebar-ring hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:text-sidebar-accent-foreground data-[active=true]:bg-sidebar-accent data-[active=true]:text-sidebar-accent-foreground",
+                attrs.remove("class"),
+            ))
+            (attrs)
+        >
+            (child)
+        </a>
     })
 }
 

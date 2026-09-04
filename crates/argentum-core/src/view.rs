@@ -8,7 +8,9 @@ use topcoat::{Result, view::*};
 /// from the core crate so the workspace proves a green vertical slice.
 #[component]
 pub async fn heading(title: &str) -> Result<impl View> {
-    Ok(view! { <h1 class="text-2xl font-bold tracking-tight text-foreground">(title)</h1> })
+    Ok(view! {
+        <h1 class="text-2xl font-bold tracking-tight text-foreground">(title)</h1>
+    })
 }
 
 #[cfg(test)]

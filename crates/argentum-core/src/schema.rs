@@ -221,7 +221,9 @@ impl TextInput {
                         aria-invalid=(if has_error { "true" } else { "false" })
                     }
                 )
-                <p class="ac-error text-sm text-destructive" aria-live="polite">(error_text)</p>
+                <p class="ac-error text-sm text-destructive" aria-live="polite">
+                    (error_text)
+                </p>
             </div>
         }
         .boxed())
@@ -425,15 +427,22 @@ impl Select {
         // Placeholder empty option
         let empty_selected = current.is_empty();
         option_views.push(
-            view! { cx => <option value="" selected=(empty_selected)>"-- Select --"</option> }
-                .boxed(),
+            view! {
+                cx =>
+                <option value="" selected=(empty_selected)>"-- Select --"</option>
+            }
+            .boxed(),
         );
         for (val, lab) in &options {
             let selected = current == *val;
             let val_c = val.clone();
             let lab_c = lab.clone();
             option_views.push(
-                view! { cx => <option value=(val_c) selected=(selected)>(lab_c)</option> }.boxed(),
+                view! {
+                    cx =>
+                    <option value=(val_c) selected=(selected)>(lab_c)</option>
+                }
+                .boxed(),
             );
         }
         let field_class = if has_error {
@@ -463,7 +472,9 @@ impl Select {
                         (opt)
                     }
                 </select>
-                <p class="ac-error text-sm text-destructive" aria-live="polite">(error_text)</p>
+                <p class="ac-error text-sm text-destructive" aria-live="polite">
+                    (error_text)
+                </p>
             </div>
         }
         .boxed())
@@ -886,7 +897,9 @@ impl FileUpload {
                     aria-invalid=(if has_error { "true" } else { "false" })
                     class="flex h-9 w-full rounded-md border border-border bg-background px-3 py-1 text-sm shadow-xs"
                 >
-                <p class="ac-error text-sm text-destructive" aria-live="polite">(error_text)</p>
+                <p class="ac-error text-sm text-destructive" aria-live="polite">
+                    (error_text)
+                </p>
             </div>
         }
         .boxed())
@@ -937,9 +950,7 @@ impl Repeater {
                 cx =>
                 <div class="rounded-md border border-border p-4 flex flex-col gap-4">
                     <h4 class="font-medium text-foreground">(title)</h4>
-                    <div class="grid gap-4">
-                        (child_view)
-                    </div>
+                    <div class="grid gap-4">(child_view)</div>
                 </div>
             }
             .boxed())
@@ -979,9 +990,19 @@ impl Tabs {
     ) -> Result<BoxView<'a>> {
         if let Some(schema) = &self.children {
             let child_view = schema.render_with(cx, values, errors).await?;
-            Ok(view! { cx => <div class="flex flex-col gap-4 border border-border rounded-md p-4">(child_view)</div> }.boxed())
+            Ok(view! {
+                cx =>
+                <div class="flex flex-col gap-4 border border-border rounded-md p-4">
+                    (child_view)
+                </div>
+            }
+            .boxed())
         } else {
-            Ok(view! { cx => <div class="flex flex-col gap-4 border border-border rounded-md p-4"></div> }.boxed())
+            Ok(view! {
+                cx =>
+                <div class="flex flex-col gap-4 border border-border rounded-md p-4"></div>
+            }
+            .boxed())
         }
     }
 }
@@ -1016,9 +1037,19 @@ impl Wizard {
     ) -> Result<BoxView<'a>> {
         if let Some(schema) = &self.children {
             let child_view = schema.render_with(cx, values, errors).await?;
-            Ok(view! { cx => <div class="flex flex-col gap-4 border border-border rounded-md p-4">(child_view)</div> }.boxed())
+            Ok(view! {
+                cx =>
+                <div class="flex flex-col gap-4 border border-border rounded-md p-4">
+                    (child_view)
+                </div>
+            }
+            .boxed())
         } else {
-            Ok(view! { cx => <div class="flex flex-col gap-4 border border-border rounded-md p-4"></div> }.boxed())
+            Ok(view! {
+                cx =>
+                <div class="flex flex-col gap-4 border border-border rounded-md p-4"></div>
+            }
+            .boxed())
         }
     }
 }
