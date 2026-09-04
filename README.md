@@ -46,7 +46,7 @@ argentum/
 
 Only `argentum-core` + `argentum-macros` are hard dependencies. UI chrome lives in **`argentum-ui`** (ADR-0006/0007): its *primitives* are a verbatim mirror of `topcoat-ui-registry`, synced by `cargo xtask sync-topcoat-ui` and never hand-edited; its *composites* (Sidebar, Page, CodeBlock) are owned Argentum components. Apps depend on the crate — they do not run `topcoat ui add`.
 
-Topcoat stack assumptions (tracking `topcoat@main`): `view!` / `#[component]` (concurrent), `#[page]` / `#[layout]` / `module_router!` + `href!`/`rewrite`/`sitemaps`, `Cx` with `cx.with(...)` + `#[memoize]` (128-bit, no `Clone`/`Eq`), `cookie`/`session`, `asset!`, `tailwind`. Runtime (`signal`/`$(...)`/`#[shard]`/`#[procedure]`) is used as documented in `topcoat/docs/runtime.md` and `topcoat-runtime/macro/docs/shard.md`. Streaming `defer`+`boundary` and Signals v2 are **designs** (`SIGNALS.md`, `DESIGN.md`/`DESIGN-2.md`) — Argentum must work on today's `#[shard]` and migrate without rewriting every resource (see §7).
+Topcoat stack assumptions (tracking `topcoat@main`): `view!` / `#[component]` (concurrent), `#[page]` / `#[layout]` / `module_router!` + `href!`/`rewrite`/`sitemaps`, `Cx` with `cx.with(...)` + `#[memoize]` (128-bit, no `Clone`/`Eq`), `cookie`/`session`, `asset!`, `tailwind`. Runtime (`signal`/`$(...)`/`#[shard]`/`#[procedure]`) is used as documented in `topcoat/docs/runtime.md` and `topcoat-runtime/macro/docs/shard.md`. Streaming SSR (`suspense` / `live!` + `emit!`, topcoat PR #373) is **adopted** — the resource list streams its rows behind a skeleton — while page-refetch/boundary-diff reactivity and Signals v2 remain **designs** (`SIGNALS.md`, `DESIGN.md`/`DESIGN-2.md`); Argentum must keep working on today's `#[shard]` and migrate without rewriting every resource (see §7).
 
 ---
 
@@ -149,7 +149,7 @@ Table::r#for(cx)
 
 Columns/filters declare **how to query**, not just how to render: `searchable()` marks a column for portable `starts_with` search, `sortable()` requires an `order_by` mapping (PK tie-breaker appended for deterministic cursors), and the URL is the one truth — `?q=`, `?sort=`, `?dir=`, `?after=`, `?before=` parsed once into `TableState`. Filters (`SelectFilter`/`TernaryFilter`), `BadgeColumn`, bulk actions and `.copyable()` remain spec-level (GH #13/#38).
 
-UI chrome: `Table` renders into `argentum-ui` (synced `topcoat-ui-registry`) `table` + `pagination` + `skeleton` primitives (skeleton shown via `defer`/`boundary` while loading — §7).
+UI chrome: `Table` renders into `argentum-ui` (synced `topcoat-ui-registry`) `table` + `pagination` + `skeleton` primitives; the skeleton doubles as the `suspense` fallback while rows stream in (§7).
 
 ### 4.5 `Action`
 
@@ -176,7 +176,7 @@ Action::make("delete")
 - **Routes:** `Panel::resource::<UserResource>()` registers `GET /admin/users` and `Panel` redirects `GET /admin` to the first declared resource. Additional `#[page]` handlers are discovered normally. CRUD routes remain a target.
 - **Layouts:** An app's `#[layout("/admin")]` handler delegates to `Panel::layout_shell(cx, slot)`. The shell owns the complete document, sidebar, runtime scripts, and links to the app-provided `tailwind::stylesheet!()` and `fontsource_font!(.., host: Asset)` handles.
 - **Navigation:** `Panel::resource` derives one item per resource from its slug; `Panel::navigation(NavigationItem::from_href(..))` adds typed links for custom pages. Resource items use exact paths plus slash-boundary subpages for active state.
-- **Errors & redirects:** `Panel::layout_shell` currently propagates `slot` errors unchanged. Tables propagate `?`; branded empty states are rendered by `Table`, while a dedicated `ErrorState` for load failures is deferred (see `CONTEXT.md`).
+- **Errors & redirects:** layouts receive the page as `slot: Slot<'_>` (a lazy `Child`); an error raised by the page propagates through the slot when the document resolves, and the router maps it onto its HTTP response (`error_boundary` around the slot can replace this with a branded error page). Tables propagate `?`; branded empty states are rendered by `Table`, while a dedicated `ErrorState` for load failures is deferred (see `CONTEXT.md`). Note: once the first content streamed, the status line is fixed — an error in a streamed region truncates the body (redirects degrade to `window.location.replace`), so streamed regions should own their failure rendering.
 
 ---
 
@@ -270,11 +270,11 @@ Design direction (`SIGNALS.md` #335, `DESIGN.md`/`DESIGN-2.md` #332, `DESIGN_DEL
 
 - `let q = signal(|| String::new())` — function, stable identity via `#[track_caller]` + component stack (no positional comment, no hook ordering). `q.get()` in plain Rust registers as a server dependency.
 - When that dependency changes, the client refetches the page (or shard subset) with `X-Topcoat-State` + `X-Topcoat-Boundaries`; server re-renders; `boundary` diff (`<!--topcoat-boundary id-->`) ships only changed regions.
-- `defer(cx)` / `defer(cx, future)` + `boundary` for streaming skeletons: first pass ships shell, later passes swap real content, all via `#[memoize]`.
+- **Adopted (topcoat PR #373):** `suspense(fallback, child)` / `live!` + `emit!` for streaming skeletons: first content ships the shell + skeleton, the loaded content swaps in via `<template data-topcoat-swap>` markers — no client library. `resource_list` streams rows this way; `Table::render_skeleton` is the shared fallback.
 
 **Argentum's contract (works on `main`, migrates without rewriting resources):**
 
-- Tables and slow cards are **`boundary()` regions**. Argentum exposes `Table::boundary(true)` (default) and `Card::defer(true)`.
+- Tables and slow cards are **streamed regions**. `resource_list` wraps the row grid in `suspense` (fallback: `Table::render_skeleton`); `Table::boundary(true)`/`defer(true)` remain as the eager-render demo hooks.
 - Filter/search/sort/page state are **signals owned by the page**. *How* they trigger a server render (today: `#[shard]`, tomorrow: page refetch + boundary diff) is an **internal detail** of `ArgentumTable`. Resources never hand-roll `#[shard]`.
 - All data loads that may be deferred are **`#[memoize]`d** (`topcoat-core/macro/docs/memoize.md`): `#[memoize(as_ref)] async fn load_rows(cx:&Cx, q:String, sort:Sort) -> Vec<Row>`. This makes streaming, concurrent rendering, and fan-out dedup free (`try_join!` of sibling components shares one future).
 
@@ -292,7 +292,7 @@ async fn users_page(cx: &Cx) -> Result {
 }
 // Future — same call site, no hand-rolled shard (ArgentumTable hides the change):
 // let q = signal(|| String::new());
-// view! { <input :value=$(q.get()) @input=$(|e| q.set(e.target.value))> boundary(user_table(cx, &q.get()).await?) }
+// view! { <input :value=$(q.get()) @input=$(|e| q.set(e.target.value))> suspense(fallback: skeleton, user_table(cx, &q.get())) }
 ```
 
 ---
@@ -308,14 +308,14 @@ Not “one shard per view.” Fast is:
 - **Debounce + defer filters** — Filament's `searchDebounce(500ms)` / `deferFilters(true)` / `CanDeferLoading` placeholder apply. Argentum: `search.debounce_ms(300)` (client coalesce already + in-flight abort; add debounce for page refetch path) and `filters.defer(true)` (apply on button).
 - **Pagination** — cursor, not offset, with PK tie-breaker. Extreme links off.
 
-Budget v1: list render (25 rows, 2 includes, 1 count) < 40ms p50 on SQLite/Postgres local, TTFB dominated by the slowest `defer` region's skeleton, not the query.
+Budget v1: list render (25 rows, 2 includes, 1 count) < 40ms p50 on SQLite/Postgres local, TTFB dominated by the skeleton (first content), not the query — the rows arrive as a streaming swap.
 
 ---
 
 ## 9. Validation, errors & testing
 
 - Validate in `Schema` (field rules), then in `Procedure`/`Shard` handler, then DB constraints. Return inline field errors (not toast-only). DB `#[unique]` violations cannot map to inline errors yet — toasty exposes no unique-violation predicate (see `EXTERNAL_GAPS.md`); pre-check uniqueness app-side until it lands.
-- Router errors bubble via `Result` + `?` into layouts (`topcoat-router/docs/error.md`): `slot: Result` match on `NotFoundError` → `(StatusCode::NOT_FOUND) view!{...}`; otherwise `slot?`. Redirects via `Err(redirect("/..."))` — mid-stream redirects become swap instructions under streaming.
+- Router errors bubble via `Result` + `?` through lazy views into the router's error→status mapping (`topcoat-router/docs/error.md`); a layout can wrap its `Slot<'_>` in `error_boundary` to downcast and brand them. Redirects via `Err(redirect("/..."))` — before the first content they are `Location` responses; mid-stream they degrade to a `window.location.replace` script.
 - Forms: `Action` handlers are `#[procedure]`-backed; errors render in modal's `Schema` without losing signal state.
 - Testing: `CxTestBuilder` (`topcoat-core/src/context.rs`) for unit renders, `Page` golden tests, per-resource policy tests (`assert_can_list` / `assert_cannot_delete`). Bench via `benchmarks/` against `axum-maud`/`leptos`.
 
@@ -357,7 +357,7 @@ Each phase is shippable and benchable (`benchmarks/` vs `axum-maud`/`leptos`). N
 
 ### Phase 3 — Streaming & next runtime
 
-- Adopt `defer`+`boundary` when landed (behind feature flag today; track `DESIGN_DELTA.md`: `ViewHandle<'_>` for named view args, blocking fallback outside `#[component]`/`#[page]`/`#[layout]`). Migrate `ArgentumTable` from single shard to page-level signal + boundary diff; keep `#[shard]` as opt-in for isolated heavy widgets. Add dev lint for unmemoized deferred loads.
+- **Streaming adopted** on topcoat PR #373 (`suspense`/`live!`+`emit!`): the resource list ships its shell + skeleton first and swaps the loaded grid in. Remaining: adopt `error_boundary`-rendered `ErrorState` for streamed loads (GH #75 follow-up), migrate `ArgentumTable` from single shard to page-level signal + region diff; keep `#[shard]` as opt-in for isolated heavy widgets. Add dev lint for unmemoized deferred loads.
 
 ### Phase 4 — Widgets & ecosystem
 

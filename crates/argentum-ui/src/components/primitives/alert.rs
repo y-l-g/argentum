@@ -1,7 +1,7 @@
-// SYNC: topcoat-ui-registry@0.6.2 sha256:bb732eac12e2cfb8444dc4154f72fb4e5d25e4023d665b575d70cedea6ae5211 — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
+// SYNC: topcoat-ui-registry@0.6.2 sha256:36a91e927a3f4a93c6ab895eaa249c1692bfc8118b1f34823a3f3db3e2b178aa — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
 use topcoat::{
     Result,
-    view::{Attributes, StaticClass, View, class, component, view},
+    view::{Attributes, Child, StaticClass, View, class, component, view},
 };
 
 /// The visual style of an [`alert`].
@@ -56,7 +56,7 @@ const BASE: StaticClass = class!(
 /// view! {
 ///     alert(
 ///         variant: AlertVariant::Destructive,
-///         icon(data: iconify_icon!("feather:alert-triangle"))
+///         icon(data: iconify_icon!("lucide:triangle-alert"))
 ///         alert_title("Build failed")
 ///         alert_description("The last deploy did not finish.")
 ///     )
@@ -72,23 +72,26 @@ pub async fn alert(
     mut attrs: Attributes,
     /// The alert's icon, title, and description.
     #[default]
-    child: View,
-) -> Result {
+    child: Child<'_>,
+) -> Result<impl View> {
     // `role="alert"` is deliberately absent: it interrupts a screen reader
     // the moment the element appears, which suits a message arriving during
     // the visit, not one rendered with the page. Pass it among the `attrs`
     // where that is what you want.
-    view! {
+    Ok(view! {
         <div class=(class!(BASE, variant.classes(), attrs.remove("class"))) (attrs)>
             (child)
         </div>
-    }
+    })
 }
 
 /// The heading of an [`alert`], one line saying what happened.
 #[component]
-pub async fn alert_title(#[default] mut attrs: Attributes, #[default] child: View) -> Result {
-    view! {
+pub async fn alert_title(
+    #[default] mut attrs: Attributes,
+    #[default] child: Child<'_>,
+) -> Result<impl View> {
+    Ok(view! {
         <p
             class=(class!(
                 "col-start-2 font-medium tracking-tight",
@@ -98,14 +101,17 @@ pub async fn alert_title(#[default] mut attrs: Attributes, #[default] child: Vie
         >
             (child)
         </p>
-    }
+    })
 }
 
 /// The supporting text under an [`alert_title`], with the detail and what to
 /// do about it.
 #[component]
-pub async fn alert_description(#[default] mut attrs: Attributes, #[default] child: View) -> Result {
-    view! {
+pub async fn alert_description(
+    #[default] mut attrs: Attributes,
+    #[default] child: Child<'_>,
+) -> Result<impl View> {
+    Ok(view! {
         <div
             class=(class!(
                 "col-start-2 text-sm text-muted-foreground",
@@ -115,5 +121,5 @@ pub async fn alert_description(#[default] mut attrs: Attributes, #[default] chil
         >
             (child)
         </div>
-    }
+    })
 }

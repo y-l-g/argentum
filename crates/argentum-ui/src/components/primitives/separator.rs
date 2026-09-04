@@ -1,7 +1,7 @@
-// SYNC: topcoat-ui-registry@0.6.2 sha256:2504fa590bcf7d32ca4737c35fe57aee0ff95b3595e502f3eb59ebac2d704175 — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
+// SYNC: topcoat-ui-registry@0.6.2 sha256:cc8c4299f99e923e3cec90f95616f40db01dce42c22fbf8902e4b0896c2aae1c — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
 use topcoat::{
     Result,
-    view::{Attributes, PromotedStr, StaticClass, class, component, view},
+    view::{Attributes, PromotedStr, StaticClass, View, class, component, view},
 };
 
 /// The direction a [`separator`] runs in.
@@ -80,12 +80,12 @@ pub async fn separator(
     /// Extra attributes for the `<hr>` element.
     #[default]
     mut attrs: Attributes,
-) -> Result {
-    view! {
+) -> Result<impl View> {
+    Ok(view! {
         <hr
             class=(class!(SEPARATOR, orientation.classes(), attrs.remove("class")))
             aria-orientation=(orientation.aria())
             (attrs)
         >
-    }
+    })
 }

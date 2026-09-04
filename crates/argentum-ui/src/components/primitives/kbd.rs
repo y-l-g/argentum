@@ -1,7 +1,7 @@
-// SYNC: topcoat-ui-registry@0.6.2 sha256:2ed9a4c2f825cc9a156f7de0194ad12bb0358d1589c029172516a89a73781a8c — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
+// SYNC: topcoat-ui-registry@0.6.2 sha256:223bf54a88d522e30eb857aabb929a825951acfca0ac1280dd91f59ccce5c6b1 — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
 use topcoat::{
     Result,
-    view::{Attributes, StaticClass, View, class, component, view},
+    view::{Attributes, Child, StaticClass, View, class, component, view},
 };
 
 /// The classes for a [`kbd`] key cap.
@@ -29,8 +29,11 @@ const KBD: StaticClass = class!(
 /// }
 /// ```
 #[component]
-pub async fn kbd(#[default] mut attrs: Attributes, #[default] child: View) -> Result {
-    view! { <kbd class=(class!(KBD, attrs.remove("class"))) (attrs)>(child)</kbd> }
+pub async fn kbd(
+    #[default] mut attrs: Attributes,
+    #[default] child: Child<'_>,
+) -> Result<impl View> {
+    Ok(view! { <kbd class=(class!(KBD, attrs.remove("class"))) (attrs)>(child)</kbd> })
 }
 
 /// A row of [`kbd`] keys making up one shortcut.
@@ -38,8 +41,11 @@ pub async fn kbd(#[default] mut attrs: Attributes, #[default] child: View) -> Re
 /// The keys keep an even gap and stay on one line, so a chord reads as a
 /// single unit next to the action it triggers.
 #[component]
-pub async fn kbd_group(#[default] mut attrs: Attributes, #[default] child: View) -> Result {
-    view! {
+pub async fn kbd_group(
+    #[default] mut attrs: Attributes,
+    #[default] child: Child<'_>,
+) -> Result<impl View> {
+    Ok(view! {
         <span
             class=(class!(
                 "inline-flex items-center gap-1 whitespace-nowrap",
@@ -49,5 +55,5 @@ pub async fn kbd_group(#[default] mut attrs: Attributes, #[default] child: View)
         >
             (child)
         </span>
-    }
+    })
 }

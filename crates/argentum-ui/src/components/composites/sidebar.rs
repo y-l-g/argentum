@@ -2,7 +2,7 @@ use http::header::COOKIE;
 use topcoat::{
     Result,
     context::{Cx, try_request_context},
-    view::{Attributes, StaticClass, View, attributes, class, component, view},
+    view::{Attributes, Child, StaticClass, View, attributes, class, component, view},
 };
 
 use crate::components::primitives::button::{ButtonSize, ButtonVariant, button_variants};
@@ -49,21 +49,21 @@ fn sidebar_state(cx: &Cx) -> (&'static str, &'static str) {
 pub async fn sidebar_provider(
     cx: &Cx,
     #[default] mut attrs: Attributes,
-    #[default] child: View,
-) -> Result {
+    #[default] child: Child<'_>,
+) -> Result<impl View> {
     let (state, collapsible) = sidebar_state(cx);
-    view! {
-        <div
-            data-sidebar="provider"
-            data-state=(state)
-            data-collapsible=(collapsible)
-            style="--sidebar-width:16rem;--sidebar-width-icon:3rem;--sidebar-width-mobile:18rem"
-            class=(class!(PROVIDER, attrs.remove("class")))
-            (attrs)
-        >
-            (child)
-        </div>
-    }
+    Ok(view! {
+            <div
+                data-sidebar="provider"
+                data-state=(state)
+                data-collapsible=(collapsible)
+                style="--sidebar-width:16rem;--sidebar-width-icon:3rem;--sidebar-width-mobile:18rem"
+                class=(class!(PROVIDER, attrs.remove("class")))
+                (attrs)
+            >
+                (child)
+            </div>
+    })
 }
 
 const INSET: StaticClass = class!(
@@ -74,12 +74,15 @@ const INSET: StaticClass = class!(
 /// Peer-selector contract: when `Sidebar` has `variant=inset` it renders `peer`,
 /// and this inset uses `peer-data-[variant=inset]:...` (shadcn `sidebar.tsx:307-319`).
 #[component]
-pub async fn sidebar_inset(#[default] mut attrs: Attributes, #[default] child: View) -> Result {
-    view! {
-        <div data-sidebar="inset" class=(class!(INSET, attrs.remove("class"))) (attrs)>
-            (child)
-        </div>
-    }
+pub async fn sidebar_inset(
+    #[default] mut attrs: Attributes,
+    #[default] child: Child<'_>,
+) -> Result<impl View> {
+    Ok(view! {
+            <div data-sidebar="inset" class=(class!(INSET, attrs.remove("class"))) (attrs)>
+                (child)
+            </div>
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -105,8 +108,8 @@ pub async fn sidebar(
     #[default] variant: SidebarVariant,
     #[default] side: SidebarSide,
     #[default] mut attrs: Attributes,
-    #[default] child: View,
-) -> Result {
+    #[default] child: Child<'_>,
+) -> Result<impl View> {
     let (state, collapsible) = sidebar_state(cx);
     let variant_str = match variant {
         SidebarVariant::Sidebar => "sidebar",
@@ -119,78 +122,87 @@ pub async fn sidebar(
     };
     let is_inset = variant == SidebarVariant::Inset;
     let is_floating = variant == SidebarVariant::Floating;
-    view! {
-        <div
-            data-sidebar="sidebar"
-            data-state=(state)
-            data-collapsible=(collapsible)
-            data-variant=(variant_str)
-            data-side=(side_str)
-            class=(class!(
-                SIDEBAR,
-                is_inset.then_some("peer"),
-                is_floating.then_some("m-2 rounded-lg border shadow-sm"),
-                is_inset.then_some("m-2 rounded-lg border bg-background shadow-sm"),
-                (side == SidebarSide::Right)
-                    .then_some("right-0 left-auto group-data-[collapsible=offcanvas]:right-[calc(var(--sidebar-width)*-1)] group-data-[collapsible=offcanvas]:left-auto"),
-                attrs.remove("class"),
-            ))
-            (attrs)
-        >
-            (child)
-        </div>
-    }
+    Ok(view! {
+            <div
+                data-sidebar="sidebar"
+                data-state=(state)
+                data-collapsible=(collapsible)
+                data-variant=(variant_str)
+                data-side=(side_str)
+                class=(class!(
+                    SIDEBAR,
+                    is_inset.then_some("peer"),
+                    is_floating.then_some("m-2 rounded-lg border shadow-sm"),
+                    is_inset.then_some("m-2 rounded-lg border bg-background shadow-sm"),
+                    (side == SidebarSide::Right)
+                        .then_some("right-0 left-auto group-data-[collapsible=offcanvas]:right-[calc(var(--sidebar-width)*-1)] group-data-[collapsible=offcanvas]:left-auto"),
+                    attrs.remove("class"),
+                ))
+                (attrs)
+            >
+                (child)
+            </div>
+    })
 }
 
 /// Header area of the sidebar (brand, topbar) — sticky per shadcn.
 #[component]
-pub async fn sidebar_header(#[default] mut attrs: Attributes, #[default] child: View) -> Result {
-    view! {
-        <div
-            data-sidebar="header"
-            class=(class!(
-                "sticky top-0 z-10 flex h-16 shrink-0 items-center gap-2 border-b border-border bg-background px-4",
-                attrs.remove("class"),
-            ))
-            (attrs)
-        >
-            (child)
-        </div>
-    }
+pub async fn sidebar_header(
+    #[default] mut attrs: Attributes,
+    #[default] child: Child<'_>,
+) -> Result<impl View> {
+    Ok(view! {
+            <div
+                data-sidebar="header"
+                class=(class!(
+                    "sticky top-0 z-10 flex h-16 shrink-0 items-center gap-2 border-b border-border bg-background px-4",
+                    attrs.remove("class"),
+                ))
+                (attrs)
+            >
+                (child)
+            </div>
+    })
 }
 
 /// Main scrollable area of the sidebar.
 #[component]
-pub async fn sidebar_content(#[default] mut attrs: Attributes, #[default] child: View) -> Result {
-    view! {
-        <div
-            data-sidebar="content"
-            class=(class!(
-                "flex flex-1 flex-col gap-2 overflow-y-auto p-2",
-                attrs.remove("class"),
-            ))
-            (attrs)
-        >
-            (child)
-        </div>
-    }
+pub async fn sidebar_content(
+    #[default] mut attrs: Attributes,
+    #[default] child: Child<'_>,
+) -> Result<impl View> {
+    Ok(view! {
+            <div
+                data-sidebar="content"
+                class=(class!(
+                    "flex flex-1 flex-col gap-2 overflow-y-auto p-2",
+                    attrs.remove("class"),
+                ))
+                (attrs)
+            >
+                (child)
+            </div>
+    })
 }
 
 /// Footer area of the sidebar.
 #[component]
-pub async fn sidebar_footer(#[default] mut attrs: Attributes, #[default] child: View) -> Result {
-    view! {
-        <div
-            data-sidebar="footer"
-            class=(class!(
-                "flex shrink-0 flex-col gap-2 border-t border-border p-2",
-                attrs.remove("class"),
-            ))
-            (attrs)
-        >
-            (child)
-        </div>
-    }
+pub async fn sidebar_footer(
+    #[default] mut attrs: Attributes,
+    #[default] child: Child<'_>,
+) -> Result<impl View> {
+    Ok(view! {
+            <div
+                data-sidebar="footer"
+                class=(class!(
+                    "flex shrink-0 flex-col gap-2 border-t border-border p-2",
+                    attrs.remove("class"),
+                ))
+                (attrs)
+            >
+                (child)
+            </div>
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -198,51 +210,54 @@ pub async fn sidebar_footer(#[default] mut attrs: Attributes, #[default] child: 
 // ---------------------------------------------------------------------------
 
 #[component]
-pub async fn sidebar_group(#[default] mut attrs: Attributes, #[default] child: View) -> Result {
-    view! {
-        <div
-            data-sidebar="group"
-            class=(class!("flex flex-col gap-2", attrs.remove("class")))
-            (attrs)
-        >
-            (child)
-        </div>
-    }
+pub async fn sidebar_group(
+    #[default] mut attrs: Attributes,
+    #[default] child: Child<'_>,
+) -> Result<impl View> {
+    Ok(view! {
+            <div
+                data-sidebar="group"
+                class=(class!("flex flex-col gap-2", attrs.remove("class")))
+                (attrs)
+            >
+                (child)
+            </div>
+    })
 }
 
 #[component]
 pub async fn sidebar_group_label(
     #[default] mut attrs: Attributes,
-    #[default] child: View,
-) -> Result {
-    view! {
-        <div
-            data-sidebar="group-label"
-            class=(class!(
-                "px-2 py-1 text-xs font-medium text-muted-foreground group-data-[collapsible=icon]:hidden",
-                attrs.remove("class"),
-            ))
-            (attrs)
-        >
-            (child)
-        </div>
-    }
+    #[default] child: Child<'_>,
+) -> Result<impl View> {
+    Ok(view! {
+            <div
+                data-sidebar="group-label"
+                class=(class!(
+                    "px-2 py-1 text-xs font-medium text-muted-foreground group-data-[collapsible=icon]:hidden",
+                    attrs.remove("class"),
+                ))
+                (attrs)
+            >
+                (child)
+            </div>
+    })
 }
 
 #[component]
 pub async fn sidebar_group_content(
     #[default] mut attrs: Attributes,
-    #[default] child: View,
-) -> Result {
-    view! {
-        <div
-            data-sidebar="group-content"
-            class=(class!("flex flex-col gap-1", attrs.remove("class")))
-            (attrs)
-        >
-            (child)
-        </div>
-    }
+    #[default] child: Child<'_>,
+) -> Result<impl View> {
+    Ok(view! {
+            <div
+                data-sidebar="group-content"
+                class=(class!("flex flex-col gap-1", attrs.remove("class")))
+                (attrs)
+            >
+                (child)
+            </div>
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -250,29 +265,35 @@ pub async fn sidebar_group_content(
 // ---------------------------------------------------------------------------
 
 #[component]
-pub async fn sidebar_menu(#[default] mut attrs: Attributes, #[default] child: View) -> Result {
-    view! {
-        <ul
-            data-sidebar="menu"
-            class=(class!("flex flex-col gap-1", attrs.remove("class")))
-            (attrs)
-        >
-            (child)
-        </ul>
-    }
+pub async fn sidebar_menu(
+    #[default] mut attrs: Attributes,
+    #[default] child: Child<'_>,
+) -> Result<impl View> {
+    Ok(view! {
+            <ul
+                data-sidebar="menu"
+                class=(class!("flex flex-col gap-1", attrs.remove("class")))
+                (attrs)
+            >
+                (child)
+            </ul>
+    })
 }
 
 #[component]
-pub async fn sidebar_menu_item(#[default] mut attrs: Attributes, #[default] child: View) -> Result {
-    view! {
-        <li
-            data-sidebar="menu-item"
-            class=(class!("list-none", attrs.remove("class")))
-            (attrs)
-        >
-            (child)
-        </li>
-    }
+pub async fn sidebar_menu_item(
+    #[default] mut attrs: Attributes,
+    #[default] child: Child<'_>,
+) -> Result<impl View> {
+    Ok(view! {
+            <li
+                data-sidebar="menu-item"
+                class=(class!("list-none", attrs.remove("class")))
+                (attrs)
+            >
+                (child)
+            </li>
+    })
 }
 
 const MENU_BUTTON_BASE: StaticClass = class!(
@@ -294,24 +315,24 @@ const MENU_BUTTON_INACTIVE: StaticClass = class!("text-muted-foreground");
 pub async fn sidebar_menu_button(
     #[default] is_active: bool,
     #[default] mut attrs: Attributes,
-    #[default] child: View,
-) -> Result {
+    #[default] child: Child<'_>,
+) -> Result<impl View> {
     let active_class = if is_active {
         MENU_BUTTON_ACTIVE
     } else {
         MENU_BUTTON_INACTIVE
     };
-    view! {
-        <a
-            data-sidebar="menu-button"
-            data-active=(is_active.then_some("true"))
-            aria-current=(is_active.then_some("page"))
-            class=(class!(MENU_BUTTON_BASE, active_class, attrs.remove("class")))
-            (attrs)
-        >
-            (child)
-        </a>
-    }
+    Ok(view! {
+            <a
+                data-sidebar="menu-button"
+                data-active=(is_active.then_some("true"))
+                aria-current=(is_active.then_some("page"))
+                class=(class!(MENU_BUTTON_BASE, active_class, attrs.remove("class")))
+                (attrs)
+            >
+                (child)
+            </a>
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -326,17 +347,17 @@ pub async fn sidebar_menu_button(
 pub async fn sidebar_separator(
     #[default] orientation: SeparatorOrientation,
     #[default] attrs: Attributes,
-) -> Result {
-    view! {
-        separator(
-            orientation: orientation,
-            attrs: attributes! {
-                data-sidebar="separator"
-                class="shrink-0 border-0 bg-border"
-                (attrs)
-            },
-        )
-    }
+) -> Result<impl View> {
+    Ok(view! {
+            separator(
+                orientation: orientation,
+                attrs: attributes! {
+                    data-sidebar="separator"
+                    class="shrink-0 border-0 bg-border"
+                    (attrs)
+                },
+            )
+    })
 }
 
 /// Trigger that toggles the sidebar — always visible. Below `lg` it opens the
@@ -345,20 +366,20 @@ pub async fn sidebar_separator(
 /// with `data-sidebar="trigger"` hook. Persistence via cookie is handled by
 /// `assets/sidebar.js`; this component only renders the hook.
 #[component]
-pub async fn sidebar_trigger(#[default] mut attrs: Attributes) -> Result {
-    view! {
-        <button
-            data-sidebar="trigger"
-            aria-label="Toggle sidebar"
-            class=(class!(
-                button_variants(ButtonVariant::Ghost, ButtonSize::Icon),
-                attrs.remove("class"),
-            ))
-            (attrs)
-        >
-            <span aria-hidden="true">"☰"</span>
-        </button>
-    }
+pub async fn sidebar_trigger(#[default] mut attrs: Attributes) -> Result<impl View> {
+    Ok(view! {
+            <button
+                data-sidebar="trigger"
+                aria-label="Toggle sidebar"
+                class=(class!(
+                    button_variants(ButtonVariant::Ghost, ButtonSize::Icon),
+                    attrs.remove("class"),
+                ))
+                (attrs)
+            >
+                <span aria-hidden="true">"☰"</span>
+            </button>
+    })
 }
 
 /// Rail for edge-click toggle — mirrors `SidebarRail` in shadcn
@@ -367,31 +388,31 @@ pub async fn sidebar_trigger(#[default] mut attrs: Attributes) -> Result {
 /// desktop. Clicking it toggles via the same `[data-sidebar="trigger"]`
 /// handler as `sidebar_trigger` (see `assets/sidebar.js`).
 #[component]
-pub async fn sidebar_rail(#[default] mut attrs: Attributes) -> Result {
+pub async fn sidebar_rail(#[default] mut attrs: Attributes) -> Result<impl View> {
     // Mirrors shadcn `SidebarRail` (`sidebar.tsx:282`): a `w-4 -translate-x-1/2`
     // hit-area with a centered `after:w-[2px]` hairline that only appears on
     // `hover:after:bg-sidebar-border`. Positioned outside the sidebar
     // (`group-data-[side=left]:-right-4` / `right`) with resize cursors.
     // Hidden on mobile (`hidden sm:flex`). The `group-data-[collapsible=offcanvas]`
     // rules keep it attached when the sidebar is offcanvas.
-    view! {
-        <button
-            data-sidebar="rail"
-            aria-label="Toggle sidebar"
-            tabindex="-1"
-            title="Toggle sidebar"
-            class=(class!(
-                "absolute inset-y-0 z-20 hidden w-4 -translate-x-1/2 transition-all ease-linear after:absolute after:inset-y-0 after:left-1/2 after:w-[2px] hover:after:bg-sidebar-border sm:flex",
-                "in-data-[side=left]:cursor-w-resize in-data-[side=right]:cursor-e-resize",
-                "[[data-side=left][data-state=collapsed]_&]:cursor-e-resize [[data-side=right][data-state=collapsed]_&]:cursor-w-resize",
-                "group-data-[collapsible=offcanvas]:translate-x-0 group-data-[collapsible=offcanvas]:after:left-full hover:group-data-[collapsible=offcanvas]:bg-sidebar",
-                "[[data-side=left][data-collapsible=offcanvas]_&]:-right-2",
-                "[[data-side=right][data-collapsible=offcanvas]_&]:-left-2",
-                attrs.remove("class"),
-            ))
-            (attrs)
-        ></button>
-    }
+    Ok(view! {
+            <button
+                data-sidebar="rail"
+                aria-label="Toggle sidebar"
+                tabindex="-1"
+                title="Toggle sidebar"
+                class=(class!(
+                    "absolute inset-y-0 z-20 hidden w-4 -translate-x-1/2 transition-all ease-linear after:absolute after:inset-y-0 after:left-1/2 after:w-[2px] hover:after:bg-sidebar-border sm:flex",
+                    "in-data-[side=left]:cursor-w-resize in-data-[side=right]:cursor-e-resize",
+                    "[[data-side=left][data-state=collapsed]_&]:cursor-e-resize [[data-side=right][data-state=collapsed]_&]:cursor-w-resize",
+                    "group-data-[collapsible=offcanvas]:translate-x-0 group-data-[collapsible=offcanvas]:after:left-full hover:group-data-[collapsible=offcanvas]:bg-sidebar",
+                    "[[data-side=left][data-collapsible=offcanvas]_&]:-right-2",
+                    "[[data-side=right][data-collapsible=offcanvas]_&]:-left-2",
+                    attrs.remove("class"),
+                ))
+                (attrs)
+            ></button>
+    })
 }
 
 /// Variant for the sidebar container — shadcn parity (`variant=floating|inset`).
@@ -416,74 +437,77 @@ pub enum SidebarSide {
 #[component]
 pub async fn sidebar_menu_action(
     #[default] mut attrs: Attributes,
-    #[default] child: View,
-) -> Result {
-    view! {
-        <button
-            data-sidebar="menu-action"
-            class=(class!(
-                "absolute right-1 top-1.5 flex aspect-square w-5 items-center justify-center rounded-md p-0 text-sidebar-foreground outline-none ring-sidebar-ring transition-transform hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 peer-hover/menu-button:text-sidebar-accent-foreground [&>svg]:size-4",
-                attrs.remove("class"),
-            ))
-            (attrs)
-        >
-            (child)
-        </button>
-    }
+    #[default] child: Child<'_>,
+) -> Result<impl View> {
+    Ok(view! {
+            <button
+                data-sidebar="menu-action"
+                class=(class!(
+                    "absolute right-1 top-1.5 flex aspect-square w-5 items-center justify-center rounded-md p-0 text-sidebar-foreground outline-none ring-sidebar-ring transition-transform hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 peer-hover/menu-button:text-sidebar-accent-foreground [&>svg]:size-4",
+                    attrs.remove("class"),
+                ))
+                (attrs)
+            >
+                (child)
+            </button>
+    })
 }
 
 /// Menu badge — counter or status inside a `sidebar_menu_item`.
 #[component]
 pub async fn sidebar_menu_badge(
     #[default] mut attrs: Attributes,
-    #[default] child: View,
-) -> Result {
-    view! {
-        <div
-            data-sidebar="menu-badge"
-            class=(class!(
-                "ml-auto flex h-5 min-w-5 select-none items-center justify-center rounded-md px-1 text-xs font-medium tabular-nums text-sidebar-foreground pointer-events-none",
-                attrs.remove("class"),
-            ))
-            (attrs)
-        >
-            (child)
-        </div>
-    }
+    #[default] child: Child<'_>,
+) -> Result<impl View> {
+    Ok(view! {
+            <div
+                data-sidebar="menu-badge"
+                class=(class!(
+                    "ml-auto flex h-5 min-w-5 select-none items-center justify-center rounded-md px-1 text-xs font-medium tabular-nums text-sidebar-foreground pointer-events-none",
+                    attrs.remove("class"),
+                ))
+                (attrs)
+            >
+                (child)
+            </div>
+    })
 }
 
 /// Sub-menu container — `ul` inside a `sidebar_menu_item`.
 #[component]
-pub async fn sidebar_menu_sub(#[default] mut attrs: Attributes, #[default] child: View) -> Result {
-    view! {
-        <ul
-            data-sidebar="menu-sub"
-            class=(class!(
-                "mx-3.5 flex min-w-0 translate-x-px flex-col gap-1 border-l border-sidebar-border px-2.5 py-0.5 group-data-[collapsible=icon]:hidden",
-                attrs.remove("class"),
-            ))
-            (attrs)
-        >
-            (child)
-        </ul>
-    }
+pub async fn sidebar_menu_sub(
+    #[default] mut attrs: Attributes,
+    #[default] child: Child<'_>,
+) -> Result<impl View> {
+    Ok(view! {
+            <ul
+                data-sidebar="menu-sub"
+                class=(class!(
+                    "mx-3.5 flex min-w-0 translate-x-px flex-col gap-1 border-l border-sidebar-border px-2.5 py-0.5 group-data-[collapsible=icon]:hidden",
+                    attrs.remove("class"),
+                ))
+                (attrs)
+            >
+                (child)
+            </ul>
+    })
 }
 
 /// Sub-menu item — `li` inside `sidebar_menu_sub`.
 #[component]
 pub async fn sidebar_menu_sub_item(
     #[default] mut attrs: Attributes,
-    #[default] child: View,
-) -> Result {
-    view! {
-        <li
-            data-sidebar="menu-sub-item"
-            class=(class!("list-none group/menu-sub-item", attrs.remove("class")))
-            (attrs)
-        >
-            (child)
-        </li>
-    }
+    #[default] child: Child<'_>,
+) -> Result<impl View> {
+    Ok(view! {
+            <li
+                data-sidebar="menu-sub-item"
+                class=(class!("list-none group/menu-sub-item", attrs.remove("class")))
+                (attrs)
+            >
+                (child)
+            </li>
+    })
 }
 
 /// Sub-menu button — link/button inside `sidebar_menu_sub_item`.
@@ -491,27 +515,28 @@ pub async fn sidebar_menu_sub_item(
 pub async fn sidebar_menu_sub_button(
     #[default] is_active: bool,
     #[default] mut attrs: Attributes,
-    #[default] child: View,
-) -> Result {
-    view! {
-        <a
-            data-sidebar="menu-sub-button"
-            data-active=(is_active.then_some("true"))
-            aria-current=(is_active.then_some("page"))
-            class=(class!(
-                "flex h-7 min-w-0 -translate-x-px items-center gap-2 overflow-hidden rounded-md px-2 text-sidebar-foreground outline-none ring-sidebar-ring hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:text-sidebar-accent-foreground data-[active=true]:bg-sidebar-accent data-[active=true]:text-sidebar-accent-foreground",
-                attrs.remove("class"),
-            ))
-            (attrs)
-        >
-            (child)
-        </a>
-    }
+    #[default] child: Child<'_>,
+) -> Result<impl View> {
+    Ok(view! {
+            <a
+                data-sidebar="menu-sub-button"
+                data-active=(is_active.then_some("true"))
+                aria-current=(is_active.then_some("page"))
+                class=(class!(
+                    "flex h-7 min-w-0 -translate-x-px items-center gap-2 overflow-hidden rounded-md px-2 text-sidebar-foreground outline-none ring-sidebar-ring hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:text-sidebar-accent-foreground data-[active=true]:bg-sidebar-accent data-[active=true]:text-sidebar-accent-foreground",
+                    attrs.remove("class"),
+                ))
+                (attrs)
+            >
+                (child)
+            </a>
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use topcoat::context::CxTestBuilder;
+    use topcoat::view::ViewExt;
 
     use super::*;
 
@@ -529,8 +554,16 @@ mod tests {
     async fn provider_and_sidebar_agree_on_collapsed_cookie() {
         let cx = cx_with_cookie("theme=dark; sidebar_state=collapsed; other=1");
         let cx_ref = &cx;
-        let provider = view! { cx_ref => sidebar_provider() }.unwrap().render(&cx);
-        let rail = view! { cx_ref => sidebar() }.unwrap().render(&cx);
+        let provider = view! { cx_ref => sidebar_provider() }
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
+        let rail = view! { cx_ref => sidebar() }
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
         for html in [provider, rail] {
             assert!(
                 html.contains("data-state=\"collapsed\"")
@@ -544,8 +577,16 @@ mod tests {
     async fn malformed_cookie_falls_back_to_expanded() {
         let cx = cx_with_cookie("sidebar_state=pwned");
         let cx_ref = &cx;
-        let provider = view! { cx_ref => sidebar_provider() }.unwrap().render(&cx);
-        let rail = view! { cx_ref => sidebar() }.unwrap().render(&cx);
+        let provider = view! { cx_ref => sidebar_provider() }
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
+        let rail = view! { cx_ref => sidebar() }
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
         for html in [provider, rail] {
             assert!(
                 html.contains("data-state=\"expanded\"") && html.contains("data-collapsible=\"\""),
@@ -558,7 +599,11 @@ mod tests {
     async fn no_request_context_renders_expanded() {
         let cx = CxTestBuilder::new().build();
         let cx_ref = &cx;
-        let rail = view! { cx_ref => sidebar() }.unwrap().render(&cx);
+        let rail = view! { cx_ref => sidebar() }
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
         assert!(rail.contains("data-state=\"expanded\""), "{rail}");
     }
 }

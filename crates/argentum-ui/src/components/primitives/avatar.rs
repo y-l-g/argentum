@@ -1,7 +1,7 @@
-// SYNC: topcoat-ui-registry@0.6.2 sha256:9e35ef11c97b654da183242169356be11cc45cc8ce4850de8c9a0879c80777b8 — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
+// SYNC: topcoat-ui-registry@0.6.2 sha256:39c62fe1705f2fd83d5b387f67f6c89f09ac82bc231b06757d294a70d5478cd8 — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
 use topcoat::{
     Result,
-    view::{Attributes, StaticClass, View, class, component, view},
+    view::{Attributes, Child, StaticClass, View, class, component, view},
 };
 
 /// The size of an [`avatar`].
@@ -66,13 +66,13 @@ pub async fn avatar(
     mut attrs: Attributes,
     /// The avatar's image, fallback, or both.
     #[default]
-    child: View,
-) -> Result {
-    view! {
+    child: Child<'_>,
+) -> Result<impl View> {
+    Ok(view! {
         <span class=(class!(AVATAR, size.classes(), attrs.remove("class"))) (attrs)>
             (child)
         </span>
-    }
+    })
 }
 
 /// The portrait of an [`avatar`], covering the fallback behind it.
@@ -95,8 +95,8 @@ pub async fn avatar_image(
     /// Extra attributes for the `<img>` element.
     #[default]
     mut attrs: Attributes,
-) -> Result {
-    view! {
+) -> Result<impl View> {
+    Ok(view! {
         <img
             alt=(alt)
             class=(class!(
@@ -105,7 +105,7 @@ pub async fn avatar_image(
             ))
             (attrs)
         >
-    }
+    })
 }
 
 /// What an [`avatar`] shows in place of its image: initials, or any small
@@ -115,8 +115,11 @@ pub async fn avatar_image(
 /// laid out behind the [`avatar_image`], so it stands in while the image
 /// loads and whenever there is none.
 #[component]
-pub async fn avatar_fallback(#[default] mut attrs: Attributes, #[default] child: View) -> Result {
-    view! {
+pub async fn avatar_fallback(
+    #[default] mut attrs: Attributes,
+    #[default] child: Child<'_>,
+) -> Result<impl View> {
+    Ok(view! {
         <span
             class=(class!(
                 "flex size-full items-center justify-center bg-foreground/10 font-medium \
@@ -127,5 +130,5 @@ pub async fn avatar_fallback(#[default] mut attrs: Attributes, #[default] child:
         >
             (child)
         </span>
-    }
+    })
 }

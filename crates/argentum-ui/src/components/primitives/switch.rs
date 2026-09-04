@@ -1,7 +1,7 @@
-// SYNC: topcoat-ui-registry@0.6.2 sha256:be5e9566c952de37989b578729ff8e323196f2dc3df3a7fe198fba40894c72e7 — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
+// SYNC: topcoat-ui-registry@0.6.2 sha256:a8d0ee8100d64302938a84385abf6e8825cb8a5c19a6228ea757a4b7d1b24222 — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
 use topcoat::{
     Result,
-    view::{Attributes, StaticClass, class, component, view},
+    view::{Attributes, StaticClass, View, class, component, view},
 };
 
 /// The classes for the native `<input type="checkbox">` serving as the
@@ -45,11 +45,11 @@ const THUMB: StaticClass = class!(
 /// }
 /// ```
 #[component]
-pub async fn switch(#[default] mut attrs: Attributes) -> Result {
+pub async fn switch(#[default] mut attrs: Attributes) -> Result<impl View> {
     // The thumb cannot be drawn by the `<input>` itself, which renders no
     // children or pseudo-elements: it is a sibling overlaid on the track,
     // slid to the far end by the input's `peer` state while checked.
-    view! {
+    Ok(view! {
         <span
             class=(class!(
                 "relative inline-flex shrink-0 has-[:disabled]:opacity-50",
@@ -59,5 +59,5 @@ pub async fn switch(#[default] mut attrs: Attributes) -> Result {
             <input type="checkbox" role="switch" class=(SWITCH) (attrs)>
             <span class=(THUMB)></span>
         </span>
-    }
+    })
 }

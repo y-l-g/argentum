@@ -1,6 +1,7 @@
 use http_body_util::BodyExt;
 use toasty::Db;
 use topcoat::router::Body;
+use topcoat::view::ViewExt;
 
 use showcase::{
     app::router_for_tests as router,
@@ -737,7 +738,14 @@ async fn admin_form_via_resource_renders_text_inputs() {
     use topcoat::context::CxTestBuilder;
     let cx = CxTestBuilder::new().build();
     let form = UserResource::form(&cx);
-    let html = form.render(&cx).await.unwrap().render(&cx);
+    let html = form
+        .render(&cx)
+        .await
+        .unwrap()
+        .single()
+        .await
+        .unwrap()
+        .render(&cx);
     assert!(
         html.contains("grid gap-1.5"),
         "Resource::form should render TextInput(s) with grid gap-1.5 in {html}"

@@ -1,7 +1,7 @@
-// SYNC: topcoat-ui-registry@0.6.2 sha256:ca749b5e7995b78ffb99e57cf01997282ee737cf34f5c8dc27bbdf143306823f — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
+// SYNC: topcoat-ui-registry@0.6.2 sha256:9d31d6ff7de757d823f3c304c1b49cc9dad56ca24676505f4f4eda4826c7de22 — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
 use topcoat::{
     Result,
-    view::{Attributes, StaticClass, View, class, component, view},
+    view::{Attributes, Child, StaticClass, View, class, component, view},
 };
 
 /// The classes for the [`label`] element.
@@ -33,6 +33,11 @@ const LABEL: StaticClass = class!(
 /// }
 /// ```
 #[component]
-pub async fn label(#[default] mut attrs: Attributes, #[default] child: View) -> Result {
-    view! { <label class=(class!(LABEL, attrs.remove("class"))) (attrs)>(child)</label> }
+pub async fn label(
+    #[default] mut attrs: Attributes,
+    #[default] child: Child<'_>,
+) -> Result<impl View> {
+    Ok(view! {
+        <label class=(class!(LABEL, attrs.remove("class"))) (attrs)>(child)</label>
+    })
 }

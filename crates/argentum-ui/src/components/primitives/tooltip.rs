@@ -1,7 +1,7 @@
-// SYNC: topcoat-ui-registry@0.6.2 sha256:3e3929e2330f126467f584bee4d88bbfc577cf2ff6abe3fd1680f2fef880c120 — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
+// SYNC: topcoat-ui-registry@0.6.2 sha256:257cc477e0879964a6374290e7b8dc3f2b8026dcd1dcbaab6d48530e99f0dcfc — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
 use topcoat::{
     Result,
-    view::{Attributes, StaticClass, View, class, component, view},
+    view::{Attributes, Child, StaticClass, View, class, component, view},
 };
 
 /// A tooltip component: a hint that shows while its trigger is hovered or
@@ -23,22 +23,25 @@ use topcoat::{
 ///         button(
 ///             size: ButtonSize::Icon,
 ///             variant: ButtonVariant::Outline,
-///             icon(data: iconify_icon!("feather:copy"), label: "Copy link")
+///             icon(data: iconify_icon!("lucide:copy"), label: "Copy link")
 ///         )
 ///         tooltip_content("Copy link")
 ///     )
 /// }
 /// ```
 #[component]
-pub async fn tooltip(#[default] mut attrs: Attributes, #[default] child: View) -> Result {
-    view! {
+pub async fn tooltip(
+    #[default] mut attrs: Attributes,
+    #[default] child: Child<'_>,
+) -> Result<impl View> {
+    Ok(view! {
         <span
             class=(class!("group relative inline-flex", attrs.remove("class")))
             (attrs)
         >
             (child)
         </span>
-    }
+    })
 }
 
 /// The classes for the [`tooltip_content`] bubble.
@@ -66,10 +69,13 @@ const BUBBLE: StaticClass = class!(
 
 /// The hint a [`tooltip`] shows, in a bubble above its trigger.
 #[component]
-pub async fn tooltip_content(#[default] mut attrs: Attributes, #[default] child: View) -> Result {
-    view! {
+pub async fn tooltip_content(
+    #[default] mut attrs: Attributes,
+    #[default] child: Child<'_>,
+) -> Result<impl View> {
+    Ok(view! {
         <span role="tooltip" class=(class!(BUBBLE, attrs.remove("class"))) (attrs)>
             (child)
         </span>
-    }
+    })
 }

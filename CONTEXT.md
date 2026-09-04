@@ -1,6 +1,6 @@
 # Argentum
 
-Admin toolkit for Rust — server-rendered on Topcoat, persisted with Toasty. Provides the CRUD core of Filament (Panel + Resource → Table + Schema + Action) with no Livewire port, single-panel/single-tenant in Phase 1, explicit preloading and cursor pagination, and a narrow reactivity seam that works on today's shard runtime and migrates to signals v2 + boundary streaming.
+Admin toolkit for Rust — server-rendered on Topcoat, persisted with Toasty. Provides the CRUD core of Filament (Panel + Resource → Table + Schema + Action) with no Livewire port, single-panel/single-tenant in Phase 1, explicit preloading and cursor pagination, and a narrow reactivity seam that works on today's shard runtime; streaming SSR (suspense/live! regions, topcoat PR #373) ships the list shell first and swaps the loaded grid in, while page-refetch reactivity migrates to signals v2.
 
 > **Shipped vs spec:** every term below is vocabulary-level truth. As of Phase 2 (Relations & polish, spec #63, tickets #64–#71, ADR-0011) — **Panel** (with `Brand {name,logo}` + `DarkMode`, `Router`/`Db`/`Shell` + `Resource` routes), **Resource** (`query` tenancy seam + `include` + `TextColumn::computed`/`Select::relationship`), **Table** (`Boundary` + `#[memoize]` + `#[shard]` → `defer`/`boundary`, `searchable`/`sortable`, cursor pagination, `SelectFilter`/`TernaryFilter`/`DateFilter` via `FilterBuilder` + `TableState ?filters=` + `group_by`/`count` + `to_csv`), **Schema** (`Section`/`Group`/`Grid`/`Tabs`/`Wizard` + `TextInput`/`Select`/`FileUpload`/`Repeater` + `required`/`email`/`unique` + `relationship`), **Action**, **Policy** (per-tenant `viewAny`/`view`/`create`/`update`/`delete`), **Notification**, **Boundary**, **Navigation**, **Query**, **Tenancy** (`Tenant` via `Cx::with` + `tenant_id(cx)`), **Filter**, **Field** ship in `argentum-core` with showcase at `/admin/users` + `/admin/authors` + `/admin/posts` (list with `author.name` via `include` + `Select` relationship, search/sort/paginate/create/edit/delete/bulk-delete, filters/grouping/export, all policy-checked, notification, boundary, tenancy, brand/dark_mode, `benchmarks/` Phase-2 budget 50 rows 2 includes `<40ms p50`). **Page, Theme/Token beyond brand/dark_mode, ChartWidget/StatsOverview, via many-to-many, GROUP BY aggregates** remain design targets tracked by #38.
 
@@ -66,10 +66,10 @@ A typed input bound to a Model lens inside a Schema. Knows its nullability, uniq
 
 _Avoid_: Input, Control, Widget (in form context), statePath
 
-### Boundary
-A Topcoat region whose rendered output is hashed and diffed across renders. Used to ship only the changed Table grid on search/sort/page changes. Every Table is a Boundary by default; deferring the initial load is opt-in.
+### Streamed region
+A `suspense`/`live!` region of the page whose content swaps in after the first render (topcoat PR #373). The resource list streams its grid: skeleton first (`Table::render_skeleton`), loaded rows swap in without a client library. `Table::boundary(true)`/`defer(true)` remain as the eager-render demo hooks.
 
-_Avoid_: Shard (as domain term), Region, Island
+_Avoid_: Shard (as domain term), Region, Island, Boundary (pre-#373 topcoat component, removed upstream)
 
 ### Notification
 A transient user-visible message (status + title, ~4s) produced by an Action's result, rendered in a top-level boundary owned by the Panel layout so it survives Table boundary swaps.

@@ -1,7 +1,7 @@
-// SYNC: topcoat-ui-registry@0.6.2 sha256:530fd5976d4d14f12ae6b766846dbf5f9871ffd56b825f75eb311b3fc66caf5b — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
+// SYNC: topcoat-ui-registry@0.6.2 sha256:9cf7ce740191227bde90bf6e085abacca6e90e3b16385c6ace7d455fc032709d — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
 use topcoat::{
     Result,
-    view::{Attributes, StaticClass, View, class, component, view},
+    view::{Attributes, Child, StaticClass, View, class, component, view},
 };
 
 /// The classes for the [`textarea`] control.
@@ -33,10 +33,13 @@ const TEXTAREA: StaticClass = class!(
 /// }
 /// ```
 #[component]
-pub async fn textarea(#[default] mut attrs: Attributes, #[default] child: View) -> Result {
-    view! {
+pub async fn textarea(
+    #[default] mut attrs: Attributes,
+    #[default] child: Child<'_>,
+) -> Result<impl View> {
+    Ok(view! {
         <textarea class=(class!(TEXTAREA, attrs.remove("class"))) (attrs)>
             (child)
         </textarea>
-    }
+    })
 }

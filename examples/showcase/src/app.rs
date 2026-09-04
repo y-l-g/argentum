@@ -10,8 +10,9 @@ use topcoat::{
     asset::AssetBundle,
     context::Cx,
     font::{Font, fontsource::fontsource_font},
-    router::{Router, href, layout},
+    router::{Router, Slot, href, layout},
     tailwind,
+    view::View,
 };
 
 use crate::models::{Author, Comment, Post, User};
@@ -764,7 +765,7 @@ impl Resource for PostResource {
 // ---------------------------------------------------------------------------
 
 #[layout("/admin")]
-async fn admin_layout(cx: &Cx, slot: Result) -> Result {
+async fn admin_layout(cx: &Cx, slot: Slot<'_>) -> Result<impl View> {
     Panel::layout_shell(cx, slot).await
 }
 

@@ -1,7 +1,7 @@
-// SYNC: topcoat-ui-registry@0.6.2 sha256:8af49ab8020ec46c24605d8a9da7d5a90fab5c48edb02bee01a3eecfc5fc282a — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
+// SYNC: topcoat-ui-registry@0.6.2 sha256:b1c4415dd58a3bd9374a52f4da4b75e62540dc5a506ed985f09785c72868a27c — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
 use topcoat::{
     Result,
-    view::{Attributes, StaticClass, View, class, component, view},
+    view::{Attributes, Child, StaticClass, View, class, component, view},
 };
 
 /// The classes for the [`sheet`] overlay: a layer covering the viewport,
@@ -69,9 +69,9 @@ pub async fn sheet(
     mut attrs: Attributes,
     /// The sheet's content.
     #[default]
-    child: View,
-) -> Result {
-    view! {
+    child: Child<'_>,
+) -> Result<impl View> {
+    Ok(view! {
         <dialog
             open=(open)
             class=(class!(OVERLAY, FADE, attrs.remove("class")))
@@ -79,7 +79,7 @@ pub async fn sheet(
         >
             (child)
         </dialog>
-    }
+    })
 }
 
 /// The edge a [`sheet_content`] lies against.
@@ -173,14 +173,14 @@ pub async fn sheet_content(
     mut attrs: Attributes,
     /// The panel's sections.
     #[default]
-    child: View,
-) -> Result {
-    view! {
+    child: Child<'_>,
+) -> Result<impl View> {
+    Ok(view! {
         <div
             class=(class!(CONTENT, side.classes(), side.motion(), attrs.remove("class")))
             (attrs)
         >
             (child)
         </div>
-    }
+    })
 }

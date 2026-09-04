@@ -40,9 +40,9 @@ impl Text {
         Self(content.into())
     }
 
-    async fn render(&self, cx: &Cx) -> Result<View> {
+    async fn render<'a>(&self, cx: &'a Cx) -> Result<BoxView<'a>> {
         let content = self.0.clone();
-        view! { cx => <div class="text-sm text-foreground">(content)</div> }
+        Ok(view! { cx => <div class="text-sm text-foreground">(content)</div> }.boxed())
     }
 }
 
@@ -172,16 +172,16 @@ impl TextInput {
     }
 
     #[allow(dead_code)]
-    async fn render(&self, cx: &Cx) -> Result<View> {
+    async fn render(&self, cx: &Cx) -> Result<impl View> {
         self.render_with(cx, None, &[]).await
     }
 
-    pub(crate) async fn render_with(
+    pub(crate) async fn render_with<'a>(
         &self,
-        cx: &Cx,
+        cx: &'a Cx,
         value: Option<&str>,
         errors: &[String],
-    ) -> Result<View> {
+    ) -> Result<BoxView<'a>> {
         let label_text = self.label.clone();
         let name = self.name.clone();
         let required = self.required;
@@ -199,7 +199,7 @@ impl TextInput {
         } else {
             "ac-field grid gap-1.5"
         };
-        view! {
+        Ok(view! {
             cx =>
             <div class=(field_class)>
                 ui_label(
@@ -224,6 +224,7 @@ impl TextInput {
                 <p class="ac-error text-sm text-destructive" aria-live="polite">(error_text)</p>
             </div>
         }
+        .boxed())
     }
 }
 
@@ -406,12 +407,12 @@ impl Select {
         }
     }
 
-    pub(crate) async fn render_with(
+    pub(crate) async fn render_with<'a>(
         &self,
-        cx: &Cx,
+        cx: &'a Cx,
         value: Option<&str>,
         errors: &[String],
-    ) -> topcoat::Result<View> {
+    ) -> Result<BoxView<'a>> {
         let label_text = self.label.clone();
         let name = self.name.clone();
         let required = self.required;
@@ -420,25 +421,27 @@ impl Select {
         let current = value.unwrap_or("").trim().to_string();
         let options = self.load_options(cx).await.unwrap_or_default();
         // Build option views.
-        let mut option_views: Vec<View> = Vec::new();
+        let mut option_views: Vec<BoxView<'a>> = Vec::new();
         // Placeholder empty option
         let empty_selected = current.is_empty();
         option_views.push(
-            view! { cx => <option value="" selected=(empty_selected)>"-- Select --"</option> }?,
+            view! { cx => <option value="" selected=(empty_selected)>"-- Select --"</option> }
+                .boxed(),
         );
         for (val, lab) in &options {
             let selected = current == *val;
             let val_c = val.clone();
             let lab_c = lab.clone();
-            option_views
-                .push(view! { cx => <option value=(val_c) selected=(selected)>(lab_c)</option> }?);
+            option_views.push(
+                view! { cx => <option value=(val_c) selected=(selected)>(lab_c)</option> }.boxed(),
+            );
         }
         let field_class = if has_error {
             "ac-field ac-field--error grid gap-1.5"
         } else {
             "ac-field grid gap-1.5"
         };
-        view! {
+        Ok(view! {
             cx =>
             <div class=(field_class)>
                 argentum_ui::label(
@@ -463,6 +466,7 @@ impl Select {
                 <p class="ac-error text-sm text-destructive" aria-live="polite">(error_text)</p>
             </div>
         }
+        .boxed())
     }
 }
 
@@ -662,21 +666,21 @@ impl Section {
     }
 
     #[allow(dead_code)]
-    async fn render(&self, cx: &Cx) -> Result<View> {
+    async fn render(&self, cx: &Cx) -> Result<impl View> {
         self.render_with(cx, &HashMap::new(), &HashMap::new()).await
     }
 
-    pub(crate) async fn render_with(
+    pub(crate) async fn render_with<'a>(
         &self,
-        cx: &Cx,
+        cx: &'a Cx,
         values: &HashMap<String, String>,
         errors: &HashMap<String, Vec<String>>,
-    ) -> Result<View> {
+    ) -> Result<BoxView<'a>> {
         let title = self.title.clone();
         let extra = self.extra_class.clone();
         if let Some(schema) = &self.children {
             let child_view = schema.render_with(cx, values, errors).await?;
-            view! {
+            Ok(view! {
                 cx =>
                 card(
                     attrs: attributes! { class=(extra.clone()) },
@@ -684,14 +688,16 @@ impl Section {
                     card_content((child_view))
                 )
             }
+            .boxed())
         } else {
-            view! {
+            Ok(view! {
                 cx =>
                 card(
                     attrs: attributes! { class=(extra.clone()) },
                     card_header(card_title((title)))
                 )
             }
+            .boxed())
         }
     }
 }
@@ -719,21 +725,21 @@ impl Group {
     }
 
     #[allow(dead_code)]
-    async fn render(&self, cx: &Cx) -> Result<View> {
+    async fn render(&self, cx: &Cx) -> Result<impl View> {
         self.render_with(cx, &HashMap::new(), &HashMap::new()).await
     }
 
-    pub(crate) async fn render_with(
+    pub(crate) async fn render_with<'a>(
         &self,
-        cx: &Cx,
+        cx: &'a Cx,
         values: &HashMap<String, String>,
         errors: &HashMap<String, Vec<String>>,
-    ) -> Result<View> {
+    ) -> Result<BoxView<'a>> {
         if let Some(schema) = &self.children {
             let child_view = schema.render_with(cx, values, errors).await?;
-            view! { cx => <div class="flex flex-col gap-4">(child_view)</div> }
+            Ok(view! { cx => <div class="flex flex-col gap-4">(child_view)</div> }.boxed())
         } else {
-            view! { cx => <div class="flex flex-col gap-4"></div> }
+            Ok(view! { cx => <div class="flex flex-col gap-4"></div> }.boxed())
         }
     }
 }
@@ -759,16 +765,16 @@ impl Grid {
     }
 
     #[allow(dead_code)]
-    async fn render(&self, cx: &Cx) -> Result<View> {
+    async fn render(&self, cx: &Cx) -> Result<impl View> {
         self.render_with(cx, &HashMap::new(), &HashMap::new()).await
     }
 
-    pub(crate) async fn render_with(
+    pub(crate) async fn render_with<'a>(
         &self,
-        cx: &Cx,
+        cx: &'a Cx,
         values: &HashMap<String, String>,
         errors: &HashMap<String, Vec<String>>,
-    ) -> Result<View> {
+    ) -> Result<BoxView<'a>> {
         // Static literals for Tailwind scanner — `format!("grid grid-cols-{}")` would be
         // purged because Tailwind only sees literal substrings. See ADR-0007 / T2.
         let class: &'static str = match self.cols {
@@ -787,9 +793,9 @@ impl Grid {
         };
         if let Some(schema) = &self.children {
             let child_view = schema.render_with(cx, values, errors).await?;
-            view! { cx => <div class=(class)>(child_view)</div> }
+            Ok(view! { cx => <div class=(class)>(child_view)</div> }.boxed())
         } else {
-            view! { cx => <div class=(class)></div> }
+            Ok(view! { cx => <div class=(class)></div> }.boxed())
         }
     }
 }
@@ -845,12 +851,12 @@ impl FileUpload {
         errs
     }
 
-    pub(crate) async fn render_with(
+    pub(crate) async fn render_with<'a>(
         &self,
-        cx: &Cx,
+        cx: &'a Cx,
         _value: Option<&str>,
         errors: &[String],
-    ) -> Result<View> {
+    ) -> Result<BoxView<'a>> {
         let label_text = self.label.clone();
         let name = self.name.clone();
         let required = self.required;
@@ -861,7 +867,7 @@ impl FileUpload {
         } else {
             "ac-field grid gap-1.5"
         };
-        view! {
+        Ok(view! {
             cx =>
             <div class=(field_class)>
                 ui_label(
@@ -883,6 +889,7 @@ impl FileUpload {
                 <p class="ac-error text-sm text-destructive" aria-live="polite">(error_text)</p>
             </div>
         }
+        .boxed())
     }
 }
 
@@ -917,16 +924,16 @@ impl Repeater {
         &self.label
     }
 
-    pub(crate) async fn render_with(
+    pub(crate) async fn render_with<'a>(
         &self,
-        cx: &Cx,
+        cx: &'a Cx,
         values: &HashMap<String, String>,
         errors: &HashMap<String, Vec<String>>,
-    ) -> Result<View> {
+    ) -> Result<BoxView<'a>> {
         let title = self.label.clone();
         if let Some(schema) = &self.children {
             let child_view = schema.render_with(cx, values, errors).await?;
-            view! {
+            Ok(view! {
                 cx =>
                 <div class="rounded-md border border-border p-4 flex flex-col gap-4">
                     <h4 class="font-medium text-foreground">(title)</h4>
@@ -935,13 +942,15 @@ impl Repeater {
                     </div>
                 </div>
             }
+            .boxed())
         } else {
-            view! {
+            Ok(view! {
                 cx =>
                 <div class="rounded-md border border-border p-4">
                     <h4 class="font-medium text-foreground">(title)</h4>
                 </div>
             }
+            .boxed())
         }
     }
 }
@@ -962,17 +971,17 @@ impl Tabs {
         self
     }
 
-    pub(crate) async fn render_with(
+    pub(crate) async fn render_with<'a>(
         &self,
-        cx: &Cx,
+        cx: &'a Cx,
         values: &HashMap<String, String>,
         errors: &HashMap<String, Vec<String>>,
-    ) -> Result<View> {
+    ) -> Result<BoxView<'a>> {
         if let Some(schema) = &self.children {
             let child_view = schema.render_with(cx, values, errors).await?;
-            view! { cx => <div class="flex flex-col gap-4 border border-border rounded-md p-4">(child_view)</div> }
+            Ok(view! { cx => <div class="flex flex-col gap-4 border border-border rounded-md p-4">(child_view)</div> }.boxed())
         } else {
-            view! { cx => <div class="flex flex-col gap-4 border border-border rounded-md p-4"></div> }
+            Ok(view! { cx => <div class="flex flex-col gap-4 border border-border rounded-md p-4"></div> }.boxed())
         }
     }
 }
@@ -999,17 +1008,17 @@ impl Wizard {
         self
     }
 
-    pub(crate) async fn render_with(
+    pub(crate) async fn render_with<'a>(
         &self,
-        cx: &Cx,
+        cx: &'a Cx,
         values: &HashMap<String, String>,
         errors: &HashMap<String, Vec<String>>,
-    ) -> Result<View> {
+    ) -> Result<BoxView<'a>> {
         if let Some(schema) = &self.children {
             let child_view = schema.render_with(cx, values, errors).await?;
-            view! { cx => <div class="flex flex-col gap-4 border border-border rounded-md p-4">(child_view)</div> }
+            Ok(view! { cx => <div class="flex flex-col gap-4 border border-border rounded-md p-4">(child_view)</div> }.boxed())
         } else {
-            view! { cx => <div class="flex flex-col gap-4 border border-border rounded-md p-4"></div> }
+            Ok(view! { cx => <div class="flex flex-col gap-4 border border-border rounded-md p-4"></div> }.boxed())
         }
     }
 }
@@ -1040,25 +1049,25 @@ enum Node {
 
 impl Node {
     #[allow(dead_code)]
-    async fn render(&self, cx: &Cx) -> Result<View> {
+    async fn render(&self, cx: &Cx) -> Result<impl View> {
         self.render_with(cx, &HashMap::new(), &HashMap::new()).await
     }
 
-    async fn render_with(
+    async fn render_with<'a>(
         &self,
-        cx: &Cx,
+        cx: &'a Cx,
         values: &HashMap<String, String>,
         errors: &HashMap<String, Vec<String>>,
-    ) -> Result<View> {
+    ) -> Result<BoxView<'a>> {
         match self {
-            Node::Text(t) => t.render(cx).await,
+            Node::Text(t) => Ok(t.render(cx).await?.boxed()),
             Node::TextInput(f) => {
                 let val = values.get(&f.field_name().to_string()).map(|s| s.as_str());
                 let errs: &[String] = errors
                     .get(&f.field_name().to_string())
                     .map(|v| v.as_slice())
                     .unwrap_or(&[]);
-                Box::pin(f.render_with(cx, val, errs)).await
+                Ok(Box::pin(f.render_with(cx, val, errs)).await?.boxed())
             }
             Node::Select(f) => {
                 let val = values.get(&f.field_name().to_string()).map(|s| s.as_str());
@@ -1066,7 +1075,7 @@ impl Node {
                     .get(&f.field_name().to_string())
                     .map(|v| v.as_slice())
                     .unwrap_or(&[]);
-                Box::pin(f.render_with(cx, val, errs)).await
+                Ok(Box::pin(f.render_with(cx, val, errs)).await?.boxed())
             }
             Node::FileUpload(f) => {
                 let val = values.get(&f.field_name().to_string()).map(|s| s.as_str());
@@ -1074,14 +1083,14 @@ impl Node {
                     .get(&f.field_name().to_string())
                     .map(|v| v.as_slice())
                     .unwrap_or(&[]);
-                Box::pin(f.render_with(cx, val, errs)).await
+                Ok(Box::pin(f.render_with(cx, val, errs)).await?.boxed())
             }
-            Node::Repeater(r) => Box::pin(r.render_with(cx, values, errors)).await,
-            Node::Tabs(t) => Box::pin(t.render_with(cx, values, errors)).await,
-            Node::Wizard(w) => Box::pin(w.render_with(cx, values, errors)).await,
-            Node::Section(s) => Box::pin(s.render_with(cx, values, errors)).await,
-            Node::Group(g) => Box::pin(g.render_with(cx, values, errors)).await,
-            Node::Grid(g) => Box::pin(g.render_with(cx, values, errors)).await,
+            Node::Repeater(r) => Ok(Box::pin(r.render_with(cx, values, errors)).await?.boxed()),
+            Node::Tabs(t) => Ok(Box::pin(t.render_with(cx, values, errors)).await?.boxed()),
+            Node::Wizard(w) => Ok(Box::pin(w.render_with(cx, values, errors)).await?.boxed()),
+            Node::Section(s) => Ok(Box::pin(s.render_with(cx, values, errors)).await?.boxed()),
+            Node::Group(g) => Ok(Box::pin(g.render_with(cx, values, errors)).await?.boxed()),
+            Node::Grid(g) => Ok(Box::pin(g.render_with(cx, values, errors)).await?.boxed()),
         }
     }
 }
@@ -1155,27 +1164,32 @@ impl Schema {
     }
 
     /// Render the schema to a `View` (no DB access).
-    pub async fn render(&self, cx: &Cx) -> Result<View> {
+    pub async fn render<'a>(&self, cx: &'a Cx) -> Result<BoxView<'a>> {
         self.render_with(cx, &HashMap::new(), &HashMap::new()).await
     }
 
     /// Render with pre-filled values and inline errors.
-    pub async fn render_with(
+    pub async fn render_with<'a>(
         &self,
-        cx: &Cx,
+        cx: &'a Cx,
         values: &HashMap<String, String>,
         errors: &HashMap<String, Vec<String>>,
-    ) -> Result<View> {
+    ) -> Result<BoxView<'a>> {
         let mut views = Vec::with_capacity(self.nodes.len());
         for node in &self.nodes {
-            views.push(Box::pin(node.render_with(cx, values, errors)).await?);
+            views.push(
+                Box::pin(node.render_with(cx, values, errors))
+                    .await?
+                    .boxed(),
+            );
         }
-        view! {
+        Ok(view! {
             cx =>
             for v in views {
                 (v)
             }
         }
+        .boxed())
     }
 
     /// Collect field names for validation (TextInput + Select).
@@ -1702,7 +1716,14 @@ mod tests {
     async fn text_input_renders_with_label_and_ac_field() {
         let cx = cx();
         let schema = Schema::new(TextInput::r#for(DummyUser::fields().name()));
-        let html = schema.render(&cx).await.unwrap().render(&cx);
+        let html = schema
+            .render(&cx)
+            .await
+            .unwrap()
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
         // Beautiful: grid gap-1.5 wrapper, label + input with Token classes
         assert!(
             html.contains("grid gap-1.5"),
@@ -1770,6 +1791,9 @@ mod tests {
             .render(&cx)
             .await
             .unwrap()
+            .single()
+            .await
+            .unwrap()
             .render(&cx);
         assert!(
             html_req.contains("text-destructive"),
@@ -1791,6 +1815,9 @@ mod tests {
             .render(&cx)
             .await
             .unwrap()
+            .single()
+            .await
+            .unwrap()
             .render(&cx);
         assert!(
             html_email.contains("type=\"email\""),
@@ -1798,6 +1825,9 @@ mod tests {
         );
         let html_text = Schema::new(TextInput::r#for(DummyUser::fields().name()))
             .render(&cx)
+            .await
+            .unwrap()
+            .single()
             .await
             .unwrap()
             .render(&cx);
@@ -1853,7 +1883,14 @@ mod tests {
             TextInput::r#for(DummyUser::fields().name()),
             TextInput::r#for(DummyUser::fields().email()),
         ));
-        let html = schema.render(&cx).await.unwrap().render(&cx);
+        let html = schema
+            .render(&cx)
+            .await
+            .unwrap()
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
         assert!(
             html.matches("grid gap-1.5").count() >= 2,
             "expected 2 fields (grid gap-1.5) in {html}"
@@ -1871,7 +1908,14 @@ mod tests {
             TextInput::r#for(DummyUser::fields().name()).required(),
             TextInput::r#for(DummyUser::fields().email()).email(),
         ))));
-        let html = schema.render(&cx).await.unwrap().render(&cx);
+        let html = schema
+            .render(&cx)
+            .await
+            .unwrap()
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
         // Section now renders as card with Token classes
         assert!(
             html.contains("border-border"),
@@ -1887,7 +1931,14 @@ mod tests {
     async fn section_renders_title_and_child() {
         let cx = cx();
         let schema = Schema::new(Section::new("Account").schema(Text::new("hello")));
-        let html = schema.render(&cx).await.unwrap().render(&cx);
+        let html = schema
+            .render(&cx)
+            .await
+            .unwrap()
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
         assert!(html.contains("Account"), "missing title in {html}");
         assert!(html.contains("hello"), "missing child in {html}");
         // Section now renders as card
@@ -1909,7 +1960,14 @@ mod tests {
     async fn group_renders_children() {
         let cx = cx();
         let schema = Schema::new(Group::new().schema(Text::new("inside group")));
-        let html = schema.render(&cx).await.unwrap().render(&cx);
+        let html = schema
+            .render(&cx)
+            .await
+            .unwrap()
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
         assert!(html.contains("inside group"), "missing child in {html}");
         assert!(
             html.contains("flex flex-col gap-4"),
@@ -1921,7 +1979,14 @@ mod tests {
     async fn grid_renders_with_cols_and_children() {
         let cx = cx();
         let schema = Schema::new(Grid::new(2).schema((Text::new("a"), Text::new("b"))));
-        let html = schema.render(&cx).await.unwrap().render(&cx);
+        let html = schema
+            .render(&cx)
+            .await
+            .unwrap()
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
         assert!(html.contains("grid"), "missing grid class in {html}");
         assert!(
             html.contains("grid-cols-2"),
@@ -1945,7 +2010,14 @@ mod tests {
             Section::new("Outer")
                 .schema(Grid::new(2).schema((Text::new("left"), Text::new("right")))),
         );
-        let html = schema.render(&cx).await.unwrap().render(&cx);
+        let html = schema
+            .render(&cx)
+            .await
+            .unwrap()
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
         assert!(html.contains("Outer"), "missing outer title in {html}");
         assert!(html.contains("left"), "missing left in {html}");
         assert!(html.contains("right"), "missing right in {html}");
@@ -1963,7 +2035,14 @@ mod tests {
             Section::new("A").schema(Text::new("a")),
             Group::new().schema(Text::new("b")),
         ));
-        let html = schema.render(&cx).await.unwrap().render(&cx);
+        let html = schema
+            .render(&cx)
+            .await
+            .unwrap()
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
         assert!(
             html.contains("rounded-xl") && html.contains("border-border"),
             "missing section card in {html}"
@@ -1978,7 +2057,14 @@ mod tests {
     async fn empty_schema_renders_empty() {
         let cx = cx();
         let schema = Schema::empty();
-        let html = schema.render(&cx).await.unwrap().render(&cx);
+        let html = schema
+            .render(&cx)
+            .await
+            .unwrap()
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
         assert!(
             html.is_empty() || !html.contains("border-border"),
             "empty schema should render nothing, got {html}"

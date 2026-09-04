@@ -1,8 +1,8 @@
-// SYNC: topcoat-ui-registry@0.6.2 sha256:367826905b0aae7448b2ce1929dd57be0c0779a09a3c6b0180666008ae0a7805 — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
+// SYNC: topcoat-ui-registry@0.6.2 sha256:c5cb2baa25c978591e222d9e253b6d2c347f48c339bc5f348e1c54e70aaca620 — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
 use topcoat::{
     Result,
     icon::{icon, iconify::iconify_icon},
-    view::{Attributes, StaticClass, attributes, class, component, view},
+    view::{Attributes, StaticClass, View, attributes, class, component, view},
 };
 
 /// The classes for the native `<input type="checkbox">` inside the
@@ -37,11 +37,11 @@ const CHECKBOX: StaticClass = class!(
 /// }
 /// ```
 #[component]
-pub async fn checkbox(#[default] mut attrs: Attributes) -> Result {
+pub async fn checkbox(#[default] mut attrs: Attributes) -> Result<impl View> {
     // The checkmark cannot be drawn by the `<input>` itself, which renders no
     // children or pseudo-elements: it is a sibling icon overlaid on the
     // control, revealed by the input's `peer` state while checked.
-    view! {
+    Ok(view! {
         <span
             class=(class!(
                 "relative inline-flex shrink-0 has-[:disabled]:opacity-50",
@@ -50,12 +50,12 @@ pub async fn checkbox(#[default] mut attrs: Attributes) -> Result {
         >
             <input type="checkbox" class=(CHECKBOX) (attrs)>
             icon(
-                data: iconify_icon!("feather:check"),
+                data: iconify_icon!("lucide:check"),
                 attrs: attributes! {
                     class="pointer-events-none absolute inset-0 m-auto size-3.5 \
                         text-primary-foreground opacity-0 peer-checked:opacity-100"
                 }
             )
         </span>
-    }
+    })
 }
