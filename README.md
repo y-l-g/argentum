@@ -46,7 +46,7 @@ argentum/
 
 Only `argentum-core` + `argentum-macros` are hard dependencies. UI chrome lives in **`argentum-ui`** (ADR-0006/0007): its *primitives* are a verbatim mirror of `topcoat-ui-registry`, synced by `cargo xtask sync-topcoat-ui` and never hand-edited; its *composites* (Sidebar, Page, CodeBlock) are owned Argentum components. Apps depend on the crate — they do not run `topcoat ui add`.
 
-Topcoat stack assumptions (tracking `topcoat@main`): `view!` / `#[component]` (concurrent), `#[page]` / `#[layout]` / `module_router!` + `href!`/`rewrite`/`sitemaps`, `Cx` with `cx.with(...)` + `#[memoize]` (128-bit, no `Clone`/`Eq`), `cookie`/`session`, `asset!`, `tailwind`. Runtime (`signal`/`$(...)`/`#[shard]`/`#[procedure]`) is used as documented in `topcoat/docs/runtime.md` and `topcoat-runtime/macro/docs/shard.md`. Streaming SSR (`suspense` / `live!` + `emit!`, topcoat PR #373) is **adopted** — the resource list streams its rows behind a skeleton — while page-refetch/boundary-diff reactivity and Signals v2 remain **designs** (`SIGNALS.md`, `DESIGN.md`/`DESIGN-2.md`); Argentum must keep working on today's `#[shard]` and migrate without rewriting every resource (see §7).
+Topcoat stack assumptions (tracking `topcoat@main`): `view!` / `#[component]` (concurrent), `#[page]` / `#[layout]` / `module_router!` + `href!`/`rewrite`/`sitemaps`, `Cx` with `cx.with(...)` + `#[memoize]` (128-bit, no `Clone`/`Eq`), `cookie`/`session`, `asset!`, `tailwind`. Runtime (`signal`/`$(...)`/`#[shard]`/`#[procedure]`) is used as documented in `topcoat/docs/runtime.md` and `topcoat-runtime/macro/docs/shard.md`. Streaming SSR (`suspense`, topcoat PR #373 — `live!`/`emit!` not used by Argentum yet) is **adopted** — the resource list streams its rows behind a skeleton — while page-refetch/boundary-diff reactivity and Signals v2 remain **designs** (`SIGNALS.md`, `DESIGN.md`/`DESIGN-2.md`); Argentum must keep working on today's `#[shard]` and migrate without rewriting every resource (see §7).
 
 ---
 
@@ -176,7 +176,7 @@ Action::make("delete")
 - **Routes:** `Panel::resource::<UserResource>()` registers `GET /admin/users` and `Panel` redirects `GET /admin` to the first declared resource. Additional `#[page]` handlers are discovered normally. CRUD routes remain a target.
 - **Layouts:** An app's `#[layout("/admin")]` handler delegates to `Panel::layout_shell(cx, slot)`. The shell owns the complete document, sidebar, runtime scripts, and links to the app-provided `tailwind::stylesheet!()` and `fontsource_font!(.., host: Asset)` handles.
 - **Navigation:** `Panel::resource` derives one item per resource from its slug; `Panel::navigation(NavigationItem::from_href(..))` adds typed links for custom pages. Resource items use exact paths plus slash-boundary subpages for active state.
-- **Errors & redirects:** layouts receive the page as `slot: Slot<'_>` (a lazy `Child`); an error raised by the page propagates through the slot when the document resolves, and the router maps it onto its HTTP response (`error_boundary` around the slot can replace this with a branded error page). Tables propagate `?`; branded empty states are rendered by `Table`, while a dedicated `ErrorState` for load failures is deferred (see `CONTEXT.md`). Note: once the first content streamed, the status line is fixed — an error in a streamed region truncates the body (redirects degrade to `window.location.replace`), so streamed regions should own their failure rendering.
+- **Errors & redirects:** layouts receive the page as `slot: Slot<'_>` (a lazy `Child`); an error raised by the page propagates through the slot when the document resolves, and the router maps it onto its HTTP response (`error_boundary` around the slot can replace this with a branded error page). Tables propagate `?`; branded empty states are rendered by `Table`, while a dedicated `ErrorState` for load failures is deferred (see `CONTEXT.md`, tracked as GH #79). Note: once the first content streamed, the status line is fixed — an error in a streamed region truncates the body (redirects degrade to `window.location.replace`), so streamed regions should own their failure rendering.
 
 ---
 
@@ -270,7 +270,7 @@ Design direction (`SIGNALS.md` #335, `DESIGN.md`/`DESIGN-2.md` #332, `DESIGN_DEL
 
 - `let q = signal(|| String::new())` — function, stable identity via `#[track_caller]` + component stack (no positional comment, no hook ordering). `q.get()` in plain Rust registers as a server dependency.
 - When that dependency changes, the client refetches the page (or shard subset) with `X-Topcoat-State` + `X-Topcoat-Boundaries`; server re-renders; `boundary` diff (`<!--topcoat-boundary id-->`) ships only changed regions.
-- **Adopted (topcoat PR #373):** `suspense(fallback, child)` / `live!` + `emit!` for streaming skeletons: first content ships the shell + skeleton, the loaded content swaps in via `<template data-topcoat-swap>` markers — no client library. `resource_list` streams rows this way; `Table::render_skeleton` is the shared fallback.
+- **Adopted (topcoat PR #373):** `suspense(fallback, child)` for streaming skeletons: first content ships the shell + skeleton, the loaded content swaps in via `<template data-topcoat-swap>` markers — no client library. (Upstream also ships `live!`/`emit!`; Argentum does not use them yet.) `resource_list` streams rows this way; `Table::render_skeleton` is the shared fallback.
 
 **Argentum's contract (works on `main`, migrates without rewriting resources):**
 
@@ -357,7 +357,7 @@ Each phase is shippable and benchable (`benchmarks/` vs `axum-maud`/`leptos`). N
 
 ### Phase 3 — Streaming & next runtime
 
-- **Streaming adopted** on topcoat PR #373 (`suspense`/`live!`+`emit!`): the resource list ships its shell + skeleton first and swaps the loaded grid in. Remaining: adopt `error_boundary`-rendered `ErrorState` for streamed loads (GH #75 follow-up), migrate `ArgentumTable` from single shard to page-level signal + region diff; keep `#[shard]` as opt-in for isolated heavy widgets. Add dev lint for unmemoized deferred loads.
+- **Streaming adopted** on topcoat PR #373: `suspense` regions with page-owned `signal`s (upstream's `live!`/`emit!` not used by Argentum yet). The resource list ships its shell + skeleton first and swaps the loaded grid in. Remaining: an `error_boundary`-rendered `ErrorState` for failures inside streamed regions (GH #79), and making the live-search `#[shard]` real — today the signal input coexists with the `?q=` toolbar while the shard still renders a stub (GH #74); `#[shard]` stays opt-in for isolated heavy widgets. Add dev lint for unmemoized deferred loads.
 
 ### Phase 4 — Widgets & ecosystem
 
