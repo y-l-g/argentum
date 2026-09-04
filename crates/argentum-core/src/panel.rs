@@ -748,54 +748,25 @@ async fn load_table_page<R: Resource>(
 }
 
 /// Helper: parse `application/x-www-form-urlencoded` body into a map.
-/// Falls back to empty map on read error or non-utf8.
+///
+/// Decoding is delegated to `form_urlencoded` (already in the tree via
+/// topcoat): it splits pairs, decodes `+` as space, assembles multi-byte
+/// UTF-8 from `%XX` sequences (`%C3%A9` → `é`, not `Ã©`), and keeps encoded
+/// separators (`%26` → `&`) intact — the hand-rolled `percent_decode` it
+/// replaced pushed each decoded byte through `byte as char`, corrupting
+/// every non-ASCII value (GH #75 item 6). Invalid UTF-8 degrades per-value
+/// (lossy) instead of discarding the whole form.
 async fn parse_form_values(cx: &Cx, body: Body) -> HashMap<String, String> {
     let bytes = match Bytes::from_request(cx, body).await {
         Ok(b) => b,
         Err(_) => return HashMap::new(),
     };
-    if bytes.is_empty() {
-        return HashMap::new();
-    }
-    let s = match String::from_utf8(bytes.to_vec()) {
-        Ok(s) => s,
-        Err(_) => return HashMap::new(),
-    };
-    let mut map = HashMap::new();
-    for pair in s.split('&') {
-        if pair.is_empty() {
-            continue;
-        }
-        let (k, v) = pair.split_once('=').unwrap_or((pair, ""));
-        let k_dec = percent_decode(k);
-        let v_dec = percent_decode(v);
-        map.insert(k_dec, v_dec);
-    }
-    map
+    form_values_from_bytes(&bytes)
 }
 
-fn percent_decode(input: &str) -> String {
-    let mut out = String::with_capacity(input.len());
-    let mut chars = input.chars().peekable();
-    while let Some(c) = chars.next() {
-        if c == '%' {
-            let hi = chars.next().unwrap_or('0');
-            let lo = chars.next().unwrap_or('0');
-            let hex = format!("{hi}{lo}");
-            if let Ok(byte) = u8::from_str_radix(&hex, 16) {
-                out.push(byte as char);
-            } else {
-                out.push('%');
-                out.push(hi);
-                out.push(lo);
-            }
-        } else if c == '+' {
-            out.push(' ');
-        } else {
-            out.push(c);
-        }
-    }
-    out
+/// Pure half of [`parse_form_values`] — testable without a request.
+fn form_values_from_bytes(bytes: &[u8]) -> HashMap<String, String> {
+    form_urlencoded::parse(bytes).into_owned().collect()
 }
 
 #[memoize]
@@ -862,12 +833,11 @@ fn list_url_for_current(cx: &Cx, fallback_slug: &str) -> String {
 fn notification_from_query(cx: &Cx) -> Option<Notification> {
     let query = topcoat::context::try_request_context::<http::request::Parts>(cx)
         .and_then(|parts| parts.uri.query().map(|q| q.to_string()))?;
-    for pair in query.split('&') {
-        let (k, v) = pair.split_once('=')?;
+    for (k, v) in form_urlencoded::parse(query.as_bytes()) {
         if k == "notification" {
-            let title = percent_decode(v);
-            // Decode '+' to space already handled in percent_decode, but ensure.
-            return Some(Notification::success(title));
+            // `form_urlencoded` decodes `+` as space and assembles multi-byte
+            // UTF-8 (same contract as `parse_form_values`, GH #75 item 6).
+            return Some(Notification::success(v.into_owned()));
         }
     }
     None
@@ -1585,5 +1555,26 @@ mod tests {
             Some(&vec!["Email has already been taken".to_string()]),
             "changed-to-duplicate must be flagged, got {errors:?}"
         );
+    }
+
+    #[test]
+    fn form_values_decode_utf8_plus_and_encoded_separators() {
+        // Multi-byte UTF-8: %C3%A9 must assemble to é (the old hand-rolled
+        // decoder pushed each byte through `byte as char` → "Ã©", GH #75
+        // item 6).
+        let got = form_values_from_bytes(b"name=R%C3%A9mi");
+        assert_eq!(got.get("name").map(String::as_str), Some("Rémi"));
+
+        // `+` is a space; a literal plus is %2B — not double-decoded to space.
+        let got = form_values_from_bytes(b"q=a+b&p=C%2B%2B");
+        assert_eq!(got.get("q").map(String::as_str), Some("a b"));
+        assert_eq!(got.get("p").map(String::as_str), Some("C++"));
+
+        // Encoded separators survive as values.
+        let got = form_values_from_bytes(b"a=1%262%3D3");
+        assert_eq!(got.get("a").map(String::as_str), Some("1&2=3"));
+
+        // Empty / blank input → empty map.
+        assert!(form_values_from_bytes(b"").is_empty());
     }
 }

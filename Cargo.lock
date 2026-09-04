@@ -126,6 +126,7 @@ version = "0.1.0"
 dependencies = [
  "argentum-macros",
  "argentum-ui",
+ "form_urlencoded",
  "http",
  "jiff",
  "serde",

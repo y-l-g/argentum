@@ -9,6 +9,7 @@ description = "The core toolkit types for Argentum, a server-rendered admin tool
 [dependencies]
 argentum-macros = { path = "../argentum-macros" }
 argentum-ui = { path = "../argentum-ui" }
+form_urlencoded = "1.2"
 http = "1"
 jiff.workspace = true
 serde.workspace = true
