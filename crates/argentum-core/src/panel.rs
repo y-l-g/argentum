@@ -19,7 +19,7 @@ use topcoat::{
         error::{forbidden, redirect},
         request::{Bytes, FromRequest},
     },
-    view::{BoxView, Child, View, ViewExt, attributes, error_boundary, suspense, view},
+    view::{BoxView, Child, View, ViewExt, attributes, suspense, view},
 };
 
 use crate::db::db;
@@ -648,15 +648,35 @@ fn resource_list<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
 
         // First content: the skeleton grid (same markup the eager
         // `defer(true)` path renders), while the rows load below. The load
-        // runs inside an `error_boundary`: post-stream the status line is
-        // fixed (README §4.5), so a failed load must render the branded
-        // ErrorState inside the region instead of truncating the body.
-        // Pre-stream failures (e.g. the skeleton itself) still propagate and
-        // map onto the response status.
+        // catches its own errors: post-stream the status line is fixed
+        // (README §4.5), so a failed load must render the branded ErrorState
+        // inside the region instead of truncating the body. Pre-stream
+        // failures (e.g. the skeleton itself) still propagate and map onto
+        // the response status. (For children that partially stream before
+        // failing, topcoat's `error_boundary` is the replace-in-place seam.)
         let skeleton = table.render_skeleton(cx).await?;
         let lazy_rows = ThenView::new(async move {
-            let page = load_table_page::<R>(cx, &table, &state).await?;
-            table.render(cx, page).await
+            let grid = async {
+                let page = load_table_page::<R>(cx, &table, &state).await?;
+                table.render(cx, page).await
+            };
+            match grid.await {
+                Ok(view) => Ok(view),
+                Err(error) => {
+                    tracing::error!(resource = R::slug(), error = %error, "table load failed");
+                    let retry = list_url(cx, &R::slug());
+                    let action = view! { cx => <a href=(retry)>"Retry"</a> }.boxed();
+                    Ok(view! {
+                        cx =>
+                        argentum_ui::error_state(
+                            title: format!("Couldn't load {}", R::navigation_label()),
+                            detail: "Something went wrong while loading the records.",
+                            action: Some(action.into())
+                        )
+                    }
+                    .boxed())
+                }
+            }
         });
 
         Ok(view! {
@@ -673,31 +693,7 @@ fn resource_list<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
                             class="w-64 border border-border rounded px-2 py-1"
                         >
                         table_shard(q: $(q.get()))
-                        suspense(
-                            fallback: skeleton,
-                            error_boundary(
-                                fallback: |error| {
-                                    tracing::error!(resource = R::slug(), error = %error, "table load failed");
-                                    let retry = list_url(cx, &R::slug());
-                                    let action = view! { cx => <a href=(retry)>"Retry"</a> }.boxed(
-
-                                    );
-                                    Ok(
-                                        view! {
-                                            cx =>
-                                            argentum_ui::error_state(
-                                                title: format!("Couldn't load {}", R::navigation_label()),
-                                                detail: "Something went wrong while loading the records.",
-                                                action: Some(action.into())
-                                            )
-                                        }.boxed(
-
-                                        ),
-                                    )
-                                },
-                                (lazy_rows.boxed())
-                            )
-                        )
+                        suspense(fallback: skeleton, (lazy_rows.boxed()))
                     </div>
                 )
             )
@@ -1725,6 +1721,19 @@ mod tests {
 
             fn can_view_any(_cx: &Cx) -> bool {
                 true
+            }
+
+            fn table(_cx: &Cx) -> Table<Self::Model> {
+                // A realistic paginated table: the tampered cursor must reach
+                // the decode inside `load_table_page` (only paginated loads
+                // decode cursors), not die earlier on missing declarations.
+                Table::<Subscriber>::new()
+                    .id(|s| s.id.to_string())
+                    .columns(crate::resource::TextColumn::r#for(
+                        Subscriber::fields().email(),
+                        |s: &Subscriber| s.email.clone(),
+                    ))
+                    .paginate(25)
             }
         }
 

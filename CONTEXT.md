@@ -82,7 +82,7 @@ The Table's zero-rows rendering (icon + title + optional action), shown for "no 
 _Avoid_: NoResults, Placeholder, ZeroState
 
 ### ErrorState
-The Table's failed-load rendering: a destructive-accented block (icon + title + optional detail + retry action) shown **inside** the streamed region via topcoat's `error_boundary` when the load `Err`s — the page shell survives and the body is not truncated (GH #79). Distinct from EmptyState: zero rows is a result, a failed load is not.
+The Table's failed-load rendering: a destructive-accented block (icon + title + optional detail + retry action) shown **inside** the streamed region when the load `Err`s — the load catches its own error so the page shell survives and the body is not truncated (GH #79). Distinct from EmptyState: zero rows is a result, a failed load is not.
 
 _Avoid_: ErrorPage, Fallback
 

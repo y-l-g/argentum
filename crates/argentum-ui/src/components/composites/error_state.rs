@@ -33,19 +33,13 @@ const ERROR_STATE_ACTION: StaticClass = class!("text-sm font-medium text-primary
 ///
 /// ```ignore
 /// let action = view! { cx => <a href=(list_url)>"Retry"</a> }.boxed();
-/// error_boundary(
-///     fallback: |error| {
-///         tracing::error!(error = %error, "table load failed");
-///         Ok(view! { cx =>
-///             error_state(
-///                 title: "Couldn't load Users",
-///                 detail: "Something went wrong while loading the records.",
-///                 action: Some(action.into()),
-///             )
-///         }.boxed())
-///     },
-///     (lazy_rows.boxed())
-/// )
+/// Ok(view! { cx =>
+///     error_state(
+///         title: "Couldn't load Users",
+///         detail: "Something went wrong while loading the records.",
+///         action: Some(action.into()),
+///     )
+/// }.boxed())
 /// ```
 #[component]
 pub async fn error_state(
