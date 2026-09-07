@@ -1,6 +1,11 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": [
-    "config:recommended"
+  "extends": ["config:recommended"],
+  "packageRules": [
+    {
+      "description": "syn v3 breaks topcoat fmt's view-macro parser (PR #83 fmt job) — defer until topcoat migrates",
+      "matchPackageNames": ["syn"],
+      "allowedVersions": "<3"
+    }
   ]
 }
