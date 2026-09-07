@@ -128,12 +128,14 @@ dependencies = [
  "argentum-ui",
  "form_urlencoded",
  "http",
+ "http-body-util",
  "jiff",
  "serde",
  "toasty",
  "toasty-core",
  "tokio",
  "topcoat",
+ "tracing",
  "uuid",
 ]
 

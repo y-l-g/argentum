@@ -19,7 +19,7 @@ use topcoat::{
         error::{forbidden, redirect},
         request::{Bytes, FromRequest},
     },
-    view::{BoxView, Child, View, ViewExt, attributes, suspense, view},
+    view::{BoxView, Child, View, ViewExt, attributes, error_boundary, suspense, view},
 };
 
 use crate::db::db;
@@ -647,7 +647,12 @@ fn resource_list<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
         let title = R::navigation_label();
 
         // First content: the skeleton grid (same markup the eager
-        // `defer(true)` path renders), while the rows load below.
+        // `defer(true)` path renders), while the rows load below. The load
+        // runs inside an `error_boundary`: post-stream the status line is
+        // fixed (README §4.5), so a failed load must render the branded
+        // ErrorState inside the region instead of truncating the body.
+        // Pre-stream failures (e.g. the skeleton itself) still propagate and
+        // map onto the response status.
         let skeleton = table.render_skeleton(cx).await?;
         let lazy_rows = ThenView::new(async move {
             let page = load_table_page::<R>(cx, &table, &state).await?;
@@ -668,7 +673,31 @@ fn resource_list<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
                             class="w-64 border border-border rounded px-2 py-1"
                         >
                         table_shard(q: $(q.get()))
-                        suspense(fallback: skeleton, (lazy_rows.boxed()))
+                        suspense(
+                            fallback: skeleton,
+                            error_boundary(
+                                fallback: |error| {
+                                    tracing::error!(resource = R::slug(), error = %error, "table load failed");
+                                    let retry = list_url(cx, &R::slug());
+                                    let action = view! { cx => <a href=(retry)>"Retry"</a> }.boxed(
+
+                                    );
+                                    Ok(
+                                        view! {
+                                            cx =>
+                                            argentum_ui::error_state(
+                                                title: format!("Couldn't load {}", R::navigation_label()),
+                                                detail: "Something went wrong while loading the records.",
+                                                action: Some(action.into())
+                                            )
+                                        }.boxed(
+
+                                        ),
+                                    )
+                                },
+                                (lazy_rows.boxed())
+                            )
+                        )
                     </div>
                 )
             )
@@ -1675,6 +1704,92 @@ mod tests {
                 .await
                 .is_err(),
             "malformed id must not resolve"
+        );
+    }
+
+    #[tokio::test]
+    async fn streamed_list_renders_error_state_when_load_fails() {
+        use topcoat::router::Body;
+
+        #[derive(Debug, toasty::Model)]
+        struct Subscriber {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            #[unique]
+            email: String,
+        }
+        struct SubscriberResource;
+        impl Resource for SubscriberResource {
+            type Model = Subscriber;
+
+            fn can_view_any(_cx: &Cx) -> bool {
+                true
+            }
+        }
+
+        let mut db = Db::builder()
+            .models(toasty::models!(Subscriber))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        toasty::create!(Subscriber { email: "a@b.c" })
+            .exec(&mut db)
+            .await
+            .unwrap();
+        let router = Panel::new("admin")
+            .app_context(db)
+            .resource::<SubscriberResource>()
+            .build();
+
+        // A tampered `?after=` cursor fails to decode inside the streamed
+        // region (GH #79): the page has already streamed with status 200, so
+        // the failure must render the branded ErrorState in place — not
+        // truncate the stream. This test binary declares no `#[layout]`, so
+        // the body is the page fragment stream: page header and toolbar are
+        // the "shell still stands" evidence, and the swap payload must be
+        // complete (the document-level wrap is proven by the layout tests).
+        let response = router
+            .handle(
+                http::Request::builder()
+                    .uri("/admin/subscribers?after=zz-not-a-cursor")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await;
+        assert!(
+            response.status().is_success(),
+            "page still streams, got status {}",
+            response.status()
+        );
+        let bytes = http_body_util::BodyExt::collect(response.into_body())
+            .await
+            .unwrap()
+            .to_bytes();
+        let body = String::from_utf8(bytes.to_vec()).unwrap();
+        assert!(
+            body.contains(">Subscribers</h1>"),
+            "page header must survive the failure: {body}"
+        );
+        assert!(
+            body.contains("Live search..."),
+            "toolbar must survive the failure: {body}"
+        );
+        assert!(
+            body.contains("Couldn't load Subscribers"),
+            "error state must render in the streamed region: {body}"
+        );
+        // The swap payload arrives complete: topcoat streams swap templates
+        // plus the swap script, and a truncated body would cut both.
+        assert!(
+            body.contains("</template><script>topcoat.swap"),
+            "error-state swap payload must be complete: {}",
+            &body[body.len().saturating_sub(300)..]
+        );
+        assert!(
+            !body.contains("No records yet"),
+            "a failed load is not an empty state: {body}"
         );
     }
 }

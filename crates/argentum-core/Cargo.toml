@@ -16,10 +16,12 @@ serde.workspace = true
 toasty.workspace = true
 toasty-core.workspace = true
 topcoat = { workspace = true, features = ["view", "router", "discover", "tailwind", "asset", "font", "font-fontsource", "runtime", "cookie"] }
+tracing = "0.1"
 uuid.workspace = true
 
 [dev-dependencies]
 http = "1"
+http-body-util = "0.1"
 tokio.workspace = true
 uuid.workspace = true
 jiff.workspace = true
