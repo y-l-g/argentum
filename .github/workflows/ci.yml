@@ -50,8 +50,17 @@ jobs:
           cargo fmt -p argentum-core -p argentum-macros -p argentum-ui
           -p showcase -p xtask -- --check
       - name: Install topcoat CLI (for `topcoat fmt`)
+        # Pin to the topcoat revision the workspace locks (Cargo.lock). A
+        # floating `main` install drifts independently of the pinned library
+        # and its view-macro grammar can diverge from what the locked 0.6.2
+        # compiles — it did on 2026-09-07 (main's formatter failed on macros
+        # the locked revision parses fine, same class of failure as PR #83's
+        # syn-v3 diagnosis).
         run: |
-          cargo install --git https://github.com/tokio-rs/topcoat --branch main topcoat-cli --locked
+          REV=$(grep -A 2 '^name = "topcoat"$' Cargo.lock | grep -o '#[0-9a-f]\{40\}' | head -1 | cut -c2-)
+          test -n "$REV" || { echo "could not read topcoat rev from Cargo.lock"; exit 1; }
+          echo "Installing topcoat-cli at locked revision $REV"
+          cargo install --git https://github.com/tokio-rs/topcoat --rev "$REV" topcoat-cli --locked
       - name: topcoat fmt
         run: |
           topcoat fmt
