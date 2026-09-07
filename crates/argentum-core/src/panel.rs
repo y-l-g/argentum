@@ -19,7 +19,7 @@ use topcoat::{
         error::{forbidden, redirect},
         request::{Bytes, FromRequest},
     },
-    view::{BoxView, Child, View, ViewExt, attributes, suspense, view},
+    view::{BoxView, Child, HoistView, View, ViewExt, attributes, suspense, view},
 };
 
 use crate::db::db;
@@ -27,7 +27,7 @@ use crate::notification::{Notification, set_notification, take_notification};
 use crate::resource::{NavigationItem, Resource, Table, TablePage, TableState};
 use topcoat::context::memoize;
 use topcoat::router::Path;
-use topcoat::runtime::{Event, shard};
+use topcoat::runtime::{Event, shard, signal};
 
 /// The admin application.
 ///
@@ -630,7 +630,7 @@ fn route_path(path: &str) -> topcoat::router::PathBuf {
 /// first content, while the row grid loads inside a `suspense` region that
 /// swaps in the skeleton → table without any client-side fetching.
 fn resource_list<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
-    Box::pin(ThenView::new(async move {
+    Box::pin(HoistView::new(ThenView::new(async move {
         if !R::can_view_any(cx) {
             return Err(forbidden().into());
         }
@@ -679,9 +679,14 @@ fn resource_list<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
             }
         });
 
+        // The live-search signal — page-owned per ADR-0003. Topcoat 0.7
+        // replaced the `signal` view-macro statement with this ordinary
+        // function (tokio-rs/topcoat#384); the runtime expressions below
+        // capture the reference as before.
+        let q = signal(cx, String::new);
+
         Ok(view! {
             cx =>
-            signal q = String::new();
             argentum_ui::page(
                 argentum_ui::page_header(argentum_ui::page_title((title.clone())))
                 argentum_ui::page_content(
@@ -698,7 +703,7 @@ fn resource_list<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
                 )
             )
         })
-    }))
+    })))
 }
 
 /// Resolve the declared table (search / filters / sort / pagination) against
@@ -935,13 +940,13 @@ async fn render_edit_page<'a, R: Resource>(
 
 /// Create page GET.
 fn resource_create<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
-    Box::pin(ThenView::new(async move {
+    Box::pin(HoistView::new(ThenView::new(async move {
         if !R::can_create(cx) {
             return Err(forbidden().into());
         }
         let html = render_create_page::<R>(cx, &HashMap::new(), &HashMap::new()).await?;
         Ok(html)
-    }))
+    })))
 }
 
 /// Create page POST.
@@ -993,7 +998,7 @@ async fn check_unique<R: Resource>(
 }
 
 fn resource_create_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
-    Box::pin(ThenView::new(async move {
+    Box::pin(HoistView::new(ThenView::new(async move {
         if !R::can_create(cx) {
             return Err(forbidden().into());
         }
@@ -1024,7 +1029,7 @@ fn resource_create_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
             // inline message (EXTERNAL_GAPS.md unique-violation entry).
             Err(e) => Err(e),
         }
-    }))
+    })))
 }
 
 /// Fetch one record by its URL `id` through the tenancy-scoped query seam.
@@ -1054,7 +1059,7 @@ async fn find_by_key<R: Resource>(cx: &Cx, id: &str) -> Result<R::Model> {
 
 /// Edit page GET — hydrates form from model via Resource::query seam.
 fn resource_edit<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
-    Box::pin(ThenView::new(async move {
+    Box::pin(HoistView::new(ThenView::new(async move {
         let id = topcoat::router::path_param_segment(cx, "id").to_string();
         let record = find_by_key::<R>(cx, &id).await?;
         if !R::can_view(cx, &record) {
@@ -1066,12 +1071,12 @@ fn resource_edit<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
         let values = R::hydrate_form_values(&record);
         let html = render_edit_page::<R>(cx, &id, &values, &HashMap::new()).await?;
         Ok(html)
-    }))
+    })))
 }
 
 /// Edit page POST — validates, checks Policy::update, mutates via Update projection.
 fn resource_edit_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
-    Box::pin(ThenView::new(async move {
+    Box::pin(HoistView::new(ThenView::new(async move {
         let id = topcoat::router::path_param_segment(cx, "id").to_string();
         let record = find_by_key::<R>(cx, &id).await?;
         if !R::can_update(cx, &record) {
@@ -1101,12 +1106,12 @@ fn resource_edit_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
             // inline message (EXTERNAL_GAPS.md unique-violation entry).
             Err(e) => Err(e),
         }
-    }))
+    })))
 }
 
 /// Delete action POST — requires confirmation, runs in transaction, re-checks Policy.
 fn resource_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
-    Box::pin(ThenView::new(async move {
+    Box::pin(HoistView::new(ThenView::new(async move {
         let id = topcoat::router::path_param_segment(cx, "id").to_string();
         let record = find_by_key::<R>(cx, &id).await?;
         if !R::can_delete(cx, &record) {
@@ -1161,60 +1166,62 @@ fn resource_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
         let list_url = format!("{base}?notification=Deleted");
         set_notification(cx, Notification::success("Deleted"));
         Err(redirect(list_url).into())
-    }))
+    })))
 }
 
 /// Bulk delete POST — ids via `ids` form field (comma-separated).
 fn resource_bulk_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
-    Box::pin(ThenView::<_, BoxView<'_>>::new(async move {
-        let values = parse_form_values(cx, body).await;
-        let ids_raw = values.get("ids").cloned().unwrap_or_default();
-        // Dedupe while preserving order so a repeated id can't make the
-        // fetched-rows count check below misfire.
-        let mut ids: Vec<String> = Vec::new();
-        for s in ids_raw.split(',').map(str::trim).filter(|s| !s.is_empty()) {
-            if !ids.iter().any(|existing| existing == s) {
-                ids.push(s.to_string());
+    Box::pin(HoistView::new(ThenView::<_, BoxView<'_>>::new(
+        async move {
+            let values = parse_form_values(cx, body).await;
+            let ids_raw = values.get("ids").cloned().unwrap_or_default();
+            // Dedupe while preserving order so a repeated id can't make the
+            // fetched-rows count check below misfire.
+            let mut ids: Vec<String> = Vec::new();
+            for s in ids_raw.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+                if !ids.iter().any(|existing| existing == s) {
+                    ids.push(s.to_string());
+                }
             }
-        }
-        if ids.is_empty() {
-            return Err(topcoat::router::error::bad_request("no ids provided").into());
-        }
-        // Fetch only the requested rows through the tenancy-scoped seam:
-        // one `pk == a OR pk == b …` query replaces the #75 item-1
-        // fetch-everything-then-match loop. A malformed id cannot exist and
-        // maps to 404; a missing/wrong-tenant id makes the fetch come back
-        // short and 404s as well.
-        let keys: Vec<&str> = ids.iter().map(String::as_str).collect();
-        let Some(pk_filter) = crate::schema::pk_in_expr::<R::Model>(&keys) else {
-            return Err(topcoat::router::error::not_found().into());
-        };
-        let mut db = db(cx);
-        let rows = R::query(cx)
-            .filter(pk_filter)
-            .exec(&mut db)
-            .await
-            .map_err(topcoat::Error::from)?;
-        if rows.len() != ids.len() {
-            return Err(topcoat::router::error::not_found().into());
-        }
-        let table = R::table(cx);
-        for id in &ids {
-            let rec = rows
-                .iter()
-                .find(|m| table.key_for(m).as_deref() == Some(id.as_str()))
-                .ok_or_else(topcoat::router::error::not_found)?;
-            if !R::can_delete(cx, rec) {
-                return Err(forbidden().into());
+            if ids.is_empty() {
+                return Err(topcoat::router::error::bad_request("no ids provided").into());
             }
-        }
-        // All checks passed — perform bulk delete.
-        R::bulk_delete_records(cx, ids).await?;
-        let base = list_url(cx, &R::slug());
-        let list_url = format!("{base}?notification=Bulk+deleted");
-        set_notification(cx, Notification::success("Bulk deleted"));
-        Err(redirect(list_url).into())
-    }))
+            // Fetch only the requested rows through the tenancy-scoped seam:
+            // one `pk == a OR pk == b …` query replaces the #75 item-1
+            // fetch-everything-then-match loop. A malformed id cannot exist and
+            // maps to 404; a missing/wrong-tenant id makes the fetch come back
+            // short and 404s as well.
+            let keys: Vec<&str> = ids.iter().map(String::as_str).collect();
+            let Some(pk_filter) = crate::schema::pk_in_expr::<R::Model>(&keys) else {
+                return Err(topcoat::router::error::not_found().into());
+            };
+            let mut db = db(cx);
+            let rows = R::query(cx)
+                .filter(pk_filter)
+                .exec(&mut db)
+                .await
+                .map_err(topcoat::Error::from)?;
+            if rows.len() != ids.len() {
+                return Err(topcoat::router::error::not_found().into());
+            }
+            let table = R::table(cx);
+            for id in &ids {
+                let rec = rows
+                    .iter()
+                    .find(|m| table.key_for(m).as_deref() == Some(id.as_str()))
+                    .ok_or_else(topcoat::router::error::not_found)?;
+                if !R::can_delete(cx, rec) {
+                    return Err(forbidden().into());
+                }
+            }
+            // All checks passed — perform bulk delete.
+            R::bulk_delete_records(cx, ids).await?;
+            let base = list_url(cx, &R::slug());
+            let list_url = format!("{base}?notification=Bulk+deleted");
+            set_notification(cx, Notification::success("Bulk deleted"));
+            Err(redirect(list_url).into())
+        },
+    )))
 }
 
 /// CSV export — reuses `Resource::query` + `Table` filters/sort, streams `text/csv`.

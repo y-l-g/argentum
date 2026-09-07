@@ -255,20 +255,21 @@ Hide behind `trait Aggregate` so tables don't leak raw SQL.
 
 ## 7. Reactivity — today's API and the seam that survives
 
-Today on `main` (`topcoat/docs/runtime.md`, `topcoat-runtime/macro/docs/shard.md`):
+Today on `main` (topcoat 0.7; `topcoat/docs/runtime.md`, `topcoat-runtime/macro/docs/shard.md`):
 
 ```rust
-signal query = String::new(); // view!-local, client-only; emits <!--::topcoat::signal-->
+let query = signal(cx, String::new); // page-owned; hoists <!--::topcoat::signal--> for client identity
 <input :value=$(query.get()) @input=$(|e: Event| query.set(e.target.value))>
 results(query: $(query.get())) // #[shard] async fn results(cx:&Cx, query:String)->Result
 ```
 
+- `signal(cx, init)` is an ordinary Rust function (topcoat 0.7, PR #384 — the `signal` view-macro statement is gone). It must run inside a page/layout/component/shard body: hand-registered `PageFn`s wrap their body in `HoistView`, exactly what `#[page]` generates.
 - Reads in `$(...)` re-run in JS with no server round-trip. Shard args are `$(...)` expressions; on change the shard POSTs to `/_topcoat/shards/<id>` (`runtime/src/shard.rs`) and swaps HTML. In-flight requests are aborted, same-tick changes coalesced. Re-render **resets** shard-local signals.
 - Guards on page/layout **do not run** on shard requests — the shard must authorize itself.
 
 Design direction (`SIGNALS.md` #335, `DESIGN.md`/`DESIGN-2.md` #332, `DESIGN_DELTA.md`) keeps the same *contract* but changes the mechanism:
 
-- `let q = signal(|| String::new())` — function, stable identity via `#[track_caller]` + component stack (no positional comment, no hook ordering). `q.get()` in plain Rust registers as a server dependency.
+- `q.get()` in plain Rust registers as a server dependency — the function form shipped in 0.7 (`signal(cx, …)`, `#[track_caller]` identity); the ambient `signal(||…)` form did **not** land, `cx` is required.
 - When that dependency changes, the client refetches the page (or shard subset) with `X-Topcoat-State` + `X-Topcoat-Boundaries`; server re-renders; `boundary` diff (`<!--topcoat-boundary id-->`) ships only changed regions.
 - **Adopted (topcoat PR #373):** `suspense(fallback, child)` for streaming skeletons: first content ships the shell + skeleton, the loaded content swaps in via `<template data-topcoat-swap>` markers — no client library. (Upstream also ships `live!`/`emit!`; Argentum does not use them yet.) `resource_list` streams rows this way; `Table::render_skeleton` is the shared fallback.
 
@@ -278,20 +279,18 @@ Design direction (`SIGNALS.md` #335, `DESIGN.md`/`DESIGN-2.md` #332, `DESIGN_DEL
 - Filter/search/sort/page state are **signals owned by the page**. *How* they trigger a server render (today: `#[shard]`, tomorrow: page refetch + boundary diff) is an **internal detail** of `ArgentumTable`. Resources never hand-roll `#[shard]`.
 - All data loads that may be deferred are **`#[memoize]`d** (`topcoat-core/macro/docs/memoize.md`): `#[memoize(as_ref)] async fn load_rows(cx:&Cx, q:String, sort:Sort) -> Vec<Row>`. This makes streaming, concurrent rendering, and fan-out dedup free (`try_join!` of sibling components shares one future).
 
-Today's live-search shape (Phase 1) — future shape in comment:
+Today's live-search shape (Phase 1):
 
 ```rust
-// Phase 1 — compiles on main
 #[component]
 async fn users_page(cx: &Cx) -> Result {
+    let q = signal(cx, String::new);
     view! {
-        signal q = String::new();
         <input :value=$(q.get()) @input=$(|e: Event| q.set(e.target.value))>
         user_table(query: $(q.get())) // user_table is #[shard] internally, owned by Argentum
     }
 }
 // Future — same call site, no hand-rolled shard (ArgentumTable hides the change):
-// let q = signal(|| String::new());
 // view! { <input :value=$(q.get()) @input=$(|e| q.set(e.target.value))> suspense(fallback: skeleton, user_table(cx, &q.get())) }
 ```
 
@@ -458,7 +457,7 @@ impl Resource for UserResource {
 
 ## 13. Open questions (resolved later, not blocking Phase 0)
 
-- `signal` ownership: `signal(cx, ||...)` vs ambient `signal(||...)` (`SIGNALS.md: Open questions: cx`). Argentum hides behind `ArgentumTable` prop so call sites don't care.
+- `signal` ownership: topcoat 0.7 chose `signal(cx, ||…)` — page-owned, `cx` required (#384); the ambient `signal(||…)` form did not land. Argentum hides behind the `ArgentumTable` prop so call sites don't care.
 - Transport for signal refetch / boundary headers (`X-Topcoat-State` size limits at proxies). Same seam.
 - Prewarm hint for `defer` (start memoized load during skeleton pass) and per-region flushing tradeoffs (`DESIGN-2.md: The trade`).
 - `Table` column `key:` stability inside `for row in rows` — enforce `key: &row.id`.
