@@ -29,7 +29,7 @@ These are invariants. Code that violates them is a bug.
 
 1. **Pure renders.** Pages, layouts, and components are side-effect free and deterministic. No `HashMap` iteration in a `boundary`, no `Utc::now()` inside one, no random ID per render. Required for concurrent rendering, boundary hashing, and streaming re-renders.
 2. **One truth for data.** Components query Toasty directly. No REST layer between UI and DB. `Db` lives in `app_context` and is cloned per request (`app_context::<Db>(cx).clone()` → `&mut db` for `exec`). See `demos/coffee-shop/src/models.rs` for the canonical glue.
-3. **Server inputs are untrusted.** Every `#[shard]`, `#[procedure]`, and (soon) signal value comes from the client. `require_admin(cx).await?` (or tenant/policy check) runs **inside** every shard/procedure — layout guards do not cover shard endpoints.
+3. **Server inputs are untrusted.** Every `#[shard]`, `#[procedure]`, and signal value comes from the client. `require_admin(cx).await?` (or tenant/policy check) runs **inside** every shard/procedure — layout guards do not cover shard endpoints.
 4. **Explicit is fast.** `include` for relations, `#[index]` for filter columns, `#[memoize]` for shared loads, `boundary` around skeletons. No magic preloading, no implicit scans.
 5. **Composable `Cx`, not middleware.** Tenant, locale, auth are `cx.with(Tenant(id))` scoped values and `fn require_*(cx: &Cx)` helpers (`topcoat/docs/functions_not_middlewares.md`). No Tower layer for business logic.
 
@@ -263,8 +263,8 @@ let query = signal(cx, String::new); // page-owned; hoists <!--::topcoat::signal
 results(query: $(query.get())) // #[shard] async fn results(cx:&Cx, query:String)->Result
 ```
 
-- `signal(cx, init)` is an ordinary Rust function (topcoat 0.7, PR #384 — the `signal` view-macro statement is gone). It must run inside a page/layout/component/shard body: hand-registered `PageFn`s wrap their body in `HoistView`, exactly what `#[page]` generates.
-- Reads in `$(...)` re-run in JS with no server round-trip. Shard args are `$(...)` expressions; on change the shard POSTs to `/_topcoat/shards/<id>` (`runtime/src/shard.rs`) and swaps HTML. In-flight requests are aborted, same-tick changes coalesced. Re-render **resets** shard-local signals.
+- `signal(cx, init)` is an ordinary Rust function (topcoat 0.7, PR #384 — the `signal` view-macro statement is gone). It returns an owned value that is cheap to clone, so runtime expressions clone the signals they capture. It must run inside a page/layout/component/shard body: hand-registered `PageFn`s wrap their body in `HoistView`, exactly what `#[page]` generates. Identity comes from the creating body plus the call site (topcoat #388), so a body that repeats (for loop) needs a `key` argument on the invocation.
+- Reads in `$(...)` re-run in JS with no server round-trip. Shard args are `$(...)` expressions; on change the shard POSTs to `/_topcoat/shards/<id>` (`runtime/src/shard.rs`) and swaps HTML. In-flight requests are aborted, same-tick changes coalesced. A re-render resumes shard-local signals from the client values (topcoat #388) instead of resetting them; treat those values as untrusted, like shard args.
 - Guards on page/layout **do not run** on shard requests — the shard must authorize itself.
 
 Design direction (`SIGNALS.md` #335, `DESIGN.md`/`DESIGN-2.md` #332, `DESIGN_DELTA.md`) keeps the same *contract* but changes the mechanism:
@@ -457,7 +457,7 @@ impl Resource for UserResource {
 
 ## 13. Open questions (resolved later, not blocking Phase 0)
 
-- `signal` ownership: topcoat 0.7 chose `signal(cx, ||…)` — page-owned, `cx` required (#384); the ambient `signal(||…)` form did not land. Argentum hides behind the `ArgentumTable` prop so call sites don't care.
+- `signal` ownership: topcoat 0.7 chose `signal(cx, ||…)` — page-owned, `cx` required (#384); the ambient `signal(||…)` form did not land. Since #388 the signal is an owned cheap-to-clone value with stable identity (body plus call site) and shard re-renders resume client values. Argentum hides behind the `ArgentumTable` prop so call sites don't care.
 - Transport for signal refetch / boundary headers (`X-Topcoat-State` size limits at proxies). Same seam.
 - Prewarm hint for `defer` (start memoized load during skeleton pass) and per-region flushing tradeoffs (`DESIGN-2.md: The trade`).
 - `Table` column `key:` stability inside `for row in rows` — enforce `key: &row.id`.
