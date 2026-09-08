@@ -2,7 +2,19 @@
 
 > **Filament for Rust** — a server-rendered admin toolkit on **Topcoat** (UI / reactivity) and **Toasty** (ORM).
 
-Status: **Phase 2 shipped** — three crates exist (`argentum-core`, `argentum-macros`, `argentum-ui`) plus a showcase example. Shipped: the typed-lens vertical slice (ADR-0005), declarative `Panel` resource routes and navigation (ADR-0008), a real list view — search toolbar, sort links, cursor pagination, honest empty states (ADR-0009 shell) — the `db(cx)`/`#[memoize]` glue, **single-resource CRUD** (spec #57, tickets #58–#62): `Table` as `Boundary` with `#[memoize]` dedup, `Schema` hydrates/dehydrates `Create`/`Update` via typed lenses + inline validation, `Action` via `#[procedure]` in transaction re-fetching via `Resource::query` and checking `Policy` (default-deny), `Notification` in `Shell` `Boundary` surviving `Table` swaps, showcase at `/admin/users` (create/edit/delete/bulk-delete, all policy-checked), and **Phase 2 — Relations & polish** (spec #63, tickets #64–#71, ADR-0011): `Post` with `BelongsTo author` (`TextColumn::computed("Author", |p| p.author.get()…) after `include(author)` + `Select::for(author_id).relationship(AuthorResource::query, |a| a.name.clone())`), `HasMany comments` via `include`, `FileUpload`/`Repeater` + `Section`/`Grid`, `SelectFilter`/`TernaryFilter`/`DateFilter` via `FilterBuilder` + `TableState ?filters=`, in-memory `group_by` + `count` summarizer + `to_csv()`, CSV export via `GET /admin/{slug}/export` (`text/csv` + `Content-Disposition`), tenancy `cx.with(Tenant)` + `tenant_id(cx)` (`x-tenant-id` header / `Cx` extensions) + per-tenant `Policy`, `Panel::brand(Brand{name,logo})` + `Panel::dark_mode(bool)` in `Shell`, and `benchmarks/` Phase-2 budget (50 rows, 2 includes, `<40ms p50`). Remaining `Page`/`Theme`/`ChartWidget`/`via` gaps tracked in GH issue #38. The sections below mix shipped design with the original spec; where they disagree, the **code and `docs/adr/` win**.
+Status: **Phase 2 shipped** — three crates exist (`argentum-core`, `argentum-macros`, `argentum-ui`) plus a showcase example.
+
+Shipped:
+
+- The typed-lens vertical slice (ADR-0005), declarative `Panel` resource routes and navigation (ADR-0008), a real list view — search toolbar, sort links, cursor pagination, honest empty states (ADR-0009 shell) — and the `db(cx)`/`#[memoize]` glue.
+- **Single-resource CRUD** (spec #57, tickets #58–#62): `Table` as `Boundary` with `#[memoize]` dedup, `Schema` hydrates/dehydrates `Create`/`Update` via typed lenses + inline validation, `Action` via `#[procedure]` in transaction re-fetching via `Resource::query` and checking `Policy` (default-deny), `Notification` in `Shell` `Boundary` surviving `Table` swaps, showcase at `/admin/users` (create/edit/delete/bulk-delete, all policy-checked).
+- **Phase 2 — Relations & polish** (spec #63, tickets #64–#71, ADR-0011):
+  - `Post` with `BelongsTo author` (`TextColumn::computed("Author", |p| p.author.get()…)` after `include(author)` + `Select::for(author_id).relationship(AuthorResource::query, |a| a.name.clone())`), `HasMany comments` via `include`.
+  - `FileUpload`/`Repeater` + `Section`/`Grid`, `SelectFilter`/`TernaryFilter`/`DateFilter` via `FilterBuilder` + `TableState ?filters=`, in-memory `group_by` + `count` summarizer + `to_csv()`, CSV export via `GET /admin/{slug}/export` (`text/csv` + `Content-Disposition`).
+  - Tenancy `cx.with(Tenant)` + `tenant_id(cx)` (`x-tenant-id` header / `Cx` extensions) + per-tenant `Policy`, `Panel::brand(Brand{name,logo})` + `Panel::dark_mode(bool)` in `Shell`.
+  - `benchmarks/` Phase-2 budget (50 rows, 2 includes, `<40ms p50`).
+
+Remaining `Page`/`Theme`/`ChartWidget`/`via` gaps tracked in GH issue #38. The sections below mix shipped design with the original spec; where they disagree, the **code and `docs/adr/` win**.
 
 ---
 
