@@ -27,7 +27,7 @@ use crate::notification::{Notification, set_notification, take_notification};
 use crate::resource::{NavigationItem, Resource, Table, TablePage, TableState};
 use topcoat::context::memoize;
 use topcoat::router::Path;
-use topcoat::runtime::{Event, shard, signal};
+use topcoat::runtime::{Event, RouterBuilderRuntimeExt, shard, signal};
 
 /// The admin application.
 ///
@@ -251,9 +251,11 @@ impl Panel {
     }
 
     /// Build the [`Router`], discovering all `#[page]` / `#[layout]` / `#[shard]`
-    /// items linked into the binary, installing the `Db` and the panel
-    /// navigation on the `app_context`, registering each declared resource's
-    /// list page, and pointing the panel root at the first resource.
+    /// items linked into the binary, mounting the browser-runtime routes
+    /// (`RouterBuilderRuntimeExt::runtime`, required by `runtime::script`),
+    /// installing the `Db` and the panel navigation on the `app_context`,
+    /// registering each declared resource's list page, and pointing the
+    /// panel root at the first resource.
     ///
     /// Panics if no `Db` was provided via [`app_context`](Self::app_context).
     pub fn build(self) -> Router {
@@ -274,7 +276,11 @@ impl Panel {
             root_target,
         } = self;
         let db = db.expect("Panel::build requires a Db via app_context");
-        let mut builder = Router::builder().discover().cookies().app_context(db);
+        let mut builder = Router::builder()
+            .discover()
+            .runtime()
+            .cookies()
+            .app_context(db);
         // The mount prefix travels with the Router so generic handlers derive
         // resource URLs from the declaration instead of sniffing the request
         // path (GH #75 item 6 / B4).
@@ -684,6 +690,10 @@ fn resource_list<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
         // function (tokio-rs/topcoat#384); since tokio-rs/topcoat#388 it
         // returns an owned value that is cheap to clone, so the runtime
         // expressions below clone it. Top-level here, so no `key` needed.
+        // Since tokio-rs/topcoat#391 reads inside `$(...)` stay client-side
+        // (untracked) while plain-Rust `get`/`read` would track a page/shard
+        // dependency — this page only reads through `$(...)`, so it renders
+        // no `::topcoat::dep` marker.
         let q = signal(cx, String::new);
 
         Ok(view! {
@@ -1334,6 +1344,43 @@ mod tests {
         // Router built without panic — the real serving test lives in the
         // admin example's integration test.
         drop(router);
+    }
+
+    #[tokio::test]
+    async fn panel_mounts_runtime_page_rerun_routes() {
+        use crate::resource::Resource;
+
+        #[derive(Debug, toasty::Model)]
+        struct Dummy {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            name: String,
+        }
+        struct DummyResource;
+        impl Resource for DummyResource {
+            type Model = Dummy;
+        }
+
+        let db = Db::builder().connect("sqlite::memory:").await.unwrap();
+        let router = Panel::new("admin")
+            .app_context(db)
+            .resource::<DummyResource>()
+            .build();
+
+        // The list page denies by default (default-deny policy → 403). A
+        // POST through the runtime's page-rerun route rewrites into a GET
+        // for the page, so it reaches the handler and reports 403; without
+        // `.runtime()` on the builder there would be no such route (404).
+        // (Topcoat #391: `runtime::script` requires these routes.)
+        let request = http::Request::builder()
+            .method(http::Method::POST)
+            .uri("/_topcoat/runtime/pages/admin/dummies")
+            .header("content-type", "application/json")
+            .body(Body::from("{}".to_owned()))
+            .unwrap();
+        let response = router.handle(request).await;
+        assert_eq!(response.status(), http::StatusCode::FORBIDDEN);
     }
 
     #[test]
