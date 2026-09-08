@@ -29,7 +29,7 @@ pub use panel::{Brand, DarkMode, Panel};
 pub use policy::{AllowAll, DenyAll, Policy};
 pub use resource::{
     Column, DateFilter, Filter, IntoFilters, NavigationItem, Pages, Resource, RowKey, SelectFilter,
-    Sort, Table, TablePage, TableState, TernaryFilter, TextColumn,
+    Sort, Table, TablePage, TableState, TernaryFilter, TextColumn, VariantFilter,
 };
 pub use schema::{
     FieldLens, FileUpload, Grid, Group, IntoSchema, Repeater, Schema, Section, Select, Tabs, Text,

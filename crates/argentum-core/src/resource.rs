@@ -229,12 +229,104 @@ where
     }
 }
 
+/// Variant filter — exact match on an embedded-enum variant (e.g. `vehicule = "Moto"`).
+///
+/// Unlike [`SelectFilter`] (a `String` lens + options), a variant has no single
+/// lens: Toasty stores it as one discriminant column plus one nullable column
+/// per variant field. The caller therefore supplies prebuilt expressions —
+/// typically `User::fields().vehicule().is_moto()` — one per option. Display
+/// stays `TextColumn::computed` (see GH #77).
+pub struct VariantFilter<M> {
+    name: String,
+    label: String,
+    options: Vec<(String, Expr<bool>)>,
+    _marker: std::marker::PhantomData<M>,
+}
+
+impl<M> std::fmt::Debug for VariantFilter<M> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("VariantFilter")
+            .field("name", &self.name)
+            .field("label", &self.label)
+            .field(
+                "options",
+                &self.options.iter().map(|(k, _)| k).collect::<Vec<_>>(),
+            )
+            .finish()
+    }
+}
+
+impl<M> Clone for VariantFilter<M> {
+    fn clone(&self) -> Self {
+        Self {
+            name: self.name.clone(),
+            label: self.label.clone(),
+            options: self.options.clone(),
+            _marker: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<M> VariantFilter<M>
+where
+    M: toasty::schema::Model,
+{
+    pub fn new(
+        name: impl Into<String>,
+        label: impl Into<String>,
+        options: Vec<(String, Expr<bool>)>,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            label: label.into(),
+            options,
+            _marker: std::marker::PhantomData,
+        }
+    }
+
+    /// Convenience alias so call sites read `VariantFilter::for("vehicule", "Véhicule", vec![...])`.
+    pub fn r#for(
+        name: impl Into<String>,
+        label: impl Into<String>,
+        options: Vec<(String, Expr<bool>)>,
+    ) -> Self {
+        Self::new(name, label, options)
+    }
+
+    pub fn label(mut self, l: impl Into<String>) -> Self {
+        self.label = l.into();
+        self
+    }
+
+    pub fn to_expr(&self, value: &str) -> Option<Expr<bool>> {
+        let v = value.trim();
+        if v.is_empty() {
+            return None;
+        }
+        self.options
+            .iter()
+            .find(|(k, _)| k == v)
+            .map(|(_, e)| e.clone())
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+    pub fn label_str(&self) -> &str {
+        &self.label
+    }
+    pub fn options(&self) -> &[(String, Expr<bool>)] {
+        &self.options
+    }
+}
+
 /// Filter enum — the `Table::filters` seam.
 #[derive(Debug, Clone)]
 pub enum Filter<M> {
     Select(SelectFilter<M>),
     Ternary(TernaryFilter<M>),
     Date(DateFilter<M>),
+    Variant(VariantFilter<M>),
 }
 
 impl<M> From<SelectFilter<M>> for Filter<M> {
@@ -252,6 +344,11 @@ impl<M> From<DateFilter<M>> for Filter<M> {
         Filter::Date(v)
     }
 }
+impl<M> From<VariantFilter<M>> for Filter<M> {
+    fn from(v: VariantFilter<M>) -> Self {
+        Filter::Variant(v)
+    }
+}
 
 impl<M> Filter<M>
 where
@@ -262,6 +359,7 @@ where
             Filter::Select(f) => f.name(),
             Filter::Ternary(f) => f.name(),
             Filter::Date(f) => f.name(),
+            Filter::Variant(f) => f.name(),
         }
     }
     pub fn label(&self) -> &str {
@@ -269,6 +367,7 @@ where
             Filter::Select(f) => f.label_str(),
             Filter::Ternary(f) => f.label_str(),
             Filter::Date(f) => f.label_str(),
+            Filter::Variant(f) => f.label_str(),
         }
     }
     pub fn to_expr(&self, value: &str) -> Option<Expr<bool>> {
@@ -276,6 +375,7 @@ where
             Filter::Select(f) => f.to_expr(value),
             Filter::Ternary(f) => f.to_expr(value),
             Filter::Date(f) => f.to_expr(value),
+            Filter::Variant(f) => f.to_expr(value),
         }
     }
 }
@@ -301,6 +401,11 @@ impl<M> IntoFilters<M> for TernaryFilter<M> {
     }
 }
 impl<M> IntoFilters<M> for DateFilter<M> {
+    fn into_filters(self) -> Vec<Filter<M>> {
+        vec![self.into()]
+    }
+}
+impl<M> IntoFilters<M> for VariantFilter<M> {
     fn into_filters(self) -> Vec<Filter<M>> {
         vec![self.into()]
     }
@@ -2826,5 +2931,147 @@ mod tests {
             .unwrap();
         let tp2 = TablePage::from_toasty_page(page2).unwrap();
         assert_eq!(tp2.rows[0].name, "Bob", "cursor must resume after Ada");
+    }
+
+    #[derive(Debug, Clone, PartialEq, toasty::Embed)]
+    enum Vehicule {
+        Auto {
+            #[shared(puissance)]
+            puissance: String,
+            seats: String,
+        },
+        Moto {
+            #[shared(puissance)]
+            puissance: String,
+            cc: String,
+        },
+    }
+
+    #[derive(Debug, Clone, toasty::Model)]
+    struct Driver {
+        #[key]
+        #[auto]
+        id: uuid::Uuid,
+        name: String,
+        vehicule: Vehicule,
+    }
+
+    fn vehicule_filter() -> VariantFilter<Driver> {
+        VariantFilter::new(
+            "vehicule",
+            "Véhicule",
+            vec![
+                ("Auto".to_string(), Driver::fields().vehicule().is_auto()),
+                ("Moto".to_string(), Driver::fields().vehicule().is_moto()),
+            ],
+        )
+    }
+
+    #[test]
+    fn variant_filter_to_expr_contract() {
+        let f = vehicule_filter();
+        assert_eq!(f.name(), "vehicule");
+        assert_eq!(f.label_str(), "Véhicule");
+        assert!(f.to_expr("").is_none(), "empty yields no filter");
+        assert!(f.to_expr("   ").is_none(), "blank yields no filter");
+        assert!(
+            f.to_expr("Avion").is_none(),
+            "unknown yields no filter, got {:?}",
+            f.to_expr("Avion").is_some()
+        );
+        assert!(f.to_expr("Auto").is_some(), "known variant must match");
+        assert!(f.to_expr("Moto").is_some(), "known variant must match");
+        // Whitespace trims like SelectFilter.
+        assert!(f.to_expr("  Moto  ").is_some());
+        // Via the Filter enum + IntoFilters seam.
+        let via_enum: Filter<Driver> = f.clone().into();
+        assert_eq!(via_enum.name(), "vehicule");
+        assert!(via_enum.to_expr("Moto").is_some());
+        assert!(via_enum.to_expr("nope").is_none());
+        let vec = f.into_filters();
+        assert_eq!(vec.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn variant_filter_hits_only_the_variant() {
+        let mut db = Db::builder()
+            .models(toasty::models!(Driver))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        // Same shared `puissance` value in both variants — the variant gate
+        // must exclude the other variant (GH #77 acceptance).
+        toasty::create!(Driver {
+            name: "Alice",
+            vehicule: Vehicule::Auto {
+                puissance: "80".to_string(),
+                seats: "4".to_string(),
+            },
+        })
+        .exec(&mut db)
+        .await
+        .unwrap();
+        toasty::create!(Driver {
+            name: "Bob",
+            vehicule: Vehicule::Moto {
+                puissance: "80".to_string(),
+                cc: "600".to_string(),
+            },
+        })
+        .exec(&mut db)
+        .await
+        .unwrap();
+        toasty::create!(Driver {
+            name: "Cara",
+            vehicule: Vehicule::Auto {
+                puissance: "120".to_string(),
+                seats: "2".to_string(),
+            },
+        })
+        .exec(&mut db)
+        .await
+        .unwrap();
+
+        let f = vehicule_filter();
+        let mut db2 = db.clone();
+        let motos = Driver::filter(f.to_expr("Moto").unwrap())
+            .exec(&mut db2)
+            .await
+            .unwrap();
+        assert_eq!(
+            motos.len(),
+            1,
+            "Moto filter must hit one row, got {motos:?}"
+        );
+        assert_eq!(motos[0].name, "Bob");
+
+        let autos = Driver::filter(f.to_expr("Auto").unwrap())
+            .exec(&mut db2)
+            .await
+            .unwrap();
+        assert_eq!(
+            autos.len(),
+            2,
+            "Auto filter must hit two rows, got {autos:?}"
+        );
+
+        // Composes with search via AND (the loader's contract).
+        let search = Driver::fields().name().starts_with("B".to_string());
+        let both = search.and(f.to_expr("Moto").unwrap());
+        let rows = Driver::filter(both).exec(&mut db2).await.unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].name, "Bob");
+
+        // Same shared value, other variant excluded.
+        let both = Driver::fields()
+            .name()
+            .starts_with("A".to_string())
+            .and(f.to_expr("Moto").unwrap());
+        let rows = Driver::filter(both).exec(&mut db2).await.unwrap();
+        assert!(
+            rows.is_empty(),
+            "Alice shares puissance 80 but is Auto, must not match Moto: {rows:?}"
+        );
     }
 }
