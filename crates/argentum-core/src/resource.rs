@@ -929,6 +929,12 @@ impl<M> Table<M> {
         self
     }
 
+    /// Whether the bulk checkbox column renders: bulk selection plus a delete
+    /// prefix to post to (GH #74).
+    fn bulk_enabled(&self) -> bool {
+        self.bulk_delete && self.delete_prefix.is_some()
+    }
+
     /// Global search predicate — OR across searchable columns (portable `starts_with`).
     pub fn search_expr(&self, term: &str) -> Option<Expr<bool>>
     where
@@ -1054,6 +1060,29 @@ impl<M> Table<M> {
     where
         M: toasty::schema::Model + Send + Sync + 'static,
     {
+        let state = TableState::from_cx(cx);
+        let path = topcoat::context::try_request_context::<http::request::Parts>(cx)
+            .map(|parts| parts.uri.path().to_string())
+            .unwrap_or_default();
+        self.render_with_state(cx, page, &state, &path).await
+    }
+
+    /// Render with explicit list state and path instead of reading them from
+    /// `cx` — the seam a live-search shard needs (GH #74): shard requests hit
+    /// `POST /_topcoat/runtime/shards/...`, so `TableState::from_cx` would see
+    /// the endpoint URI, not the list page's `?q=/filters/sort`. Callers pass
+    /// the page's state (or shard args rebuilt via
+    /// [`TableState::from_live_args`]) and the list URL explicitly.
+    pub async fn render_with_state<'a>(
+        &self,
+        cx: &'a Cx,
+        page: TablePage<M>,
+        state: &TableState,
+        path: &str,
+    ) -> Result<BoxView<'a>>
+    where
+        M: toasty::schema::Model + Send + Sync + 'static,
+    {
         if self.columns.is_empty() {
             return Err(std::io::Error::other(
                 "Table::render: no columns declared — declare columns via Table::columns(..)",
@@ -1073,27 +1102,24 @@ impl<M> Table<M> {
         if self.show_skeleton {
             return self.render_skeleton(cx).await;
         }
-        let state = TableState::from_cx(cx);
-        let path = topcoat::context::try_request_context::<http::request::Parts>(cx)
-            .map(|parts| parts.uri.path().to_string())
-            .unwrap_or_default();
         let delete_prefix = self.delete_prefix.clone();
+        let with_bulk = self.bulk_enabled();
         let head = self
-            .render_thead(cx, &state, &path, delete_prefix.is_some())
+            .render_thead(cx, state, path, delete_prefix.is_some(), with_bulk)
             .await?;
         let show_search = self.search_enabled();
         let search_bar = if show_search {
-            Some(self.render_search_bar(cx, &state, &path).await?)
+            Some(self.render_search_bar(cx, state, path).await?)
         } else {
             None
         };
         let show_filters = !self.filters.is_empty();
         let filter_bar = if show_filters {
-            Some(self.render_filter_bar(cx, &state, &path).await?)
+            Some(self.render_filter_bar(cx, state, path).await?)
         } else {
             None
         };
-        let bulk_bar_view: BoxView<'_> = if self.bulk_delete && self.delete_prefix.is_some() {
+        let bulk_bar_view: BoxView<'_> = if with_bulk {
             let bulk_action = format!("{}/bulk-delete", self.delete_prefix.clone().unwrap());
             view! {
                 cx =>
@@ -1101,10 +1127,12 @@ impl<M> Table<M> {
                     method="post"
                     action=(bulk_action)
                     class="flex gap-2 p-3 border-b border-border"
+                    data-bulk-form=""
                 >
                     <input
                         name="ids"
                         placeholder="ids comma-separated"
+                        aria-label="Bulk delete ids (or tick rows below)"
                         class="w-64 border border-border rounded px-2 py-1 text-sm"
                     >
                     <button
@@ -1119,7 +1147,7 @@ impl<M> Table<M> {
         } else {
             view! { cx => <span></span> }.boxed()
         };
-        let pager = self.render_pager(cx, &state, &path, &page).await?;
+        let pager = self.render_pager(cx, state, path, &page).await?;
         // Precompute the row presentation so template bodies capture only
         // owned data — the lazy view outlives this call, so it must never
         // borrow `self` or `page`.
@@ -1139,11 +1167,11 @@ impl<M> Table<M> {
 
         if page.rows.is_empty() {
             let empty_cell = self
-                .render_empty_cell(cx, &state, &path, delete_prefix.is_some())
+                .render_empty_cell(cx, state, path, delete_prefix.is_some(), with_bulk)
                 .await?;
             let inner = view! {
                 cx =>
-                <div class="rounded-xl border border-border overflow-hidden">
+                <div class="rounded-xl border border-border overflow-hidden" data-table-root="">
                     if show_search {
                         (search_bar.expect("search bar built when enabled"))
                     }
@@ -1186,7 +1214,7 @@ impl<M> Table<M> {
             }
             let inner = view! {
                 cx =>
-                <div class="rounded-xl border border-border overflow-hidden">
+                <div class="rounded-xl border border-border overflow-hidden" data-table-root="">
                     if show_search {
                         (search_bar.expect("search bar built when enabled"))
                     }
@@ -1203,8 +1231,19 @@ impl<M> Table<M> {
                             for (key, cells) in &row_data {
                                 let key_for_row = key.clone();
                                 let key_for_action = key.clone();
+                                let key_for_select = key.clone();
                                 table_row(
                                     key: key_for_row,
+                                    if with_bulk {
+                                        table_cell(
+                                            <input
+                                                type="checkbox"
+                                                value=(key_for_select)
+                                                aria-label="Select row"
+                                                data-row-select=""
+                                            >
+                                        )
+                                    }
                                     for cell in cells {
                                         table_cell((cell.clone()))
                                     }
@@ -1241,7 +1280,7 @@ impl<M> Table<M> {
 
         let inner = view! {
             cx =>
-            <div class="rounded-xl border border-border overflow-hidden">
+            <div class="rounded-xl border border-border overflow-hidden" data-table-root="">
                 if show_search {
                     (search_bar.expect("search bar built when enabled"))
                 }
@@ -1255,8 +1294,19 @@ impl<M> Table<M> {
                         for (key, cells) in &row_data {
                             let key_for_row = key.clone();
                             let key_for_action = key.clone();
+                            let key_for_select = key.clone();
                             table_row(
                                 key: key_for_row,
+                                if with_bulk {
+                                    table_cell(
+                                        <input
+                                            type="checkbox"
+                                            value=(key_for_select)
+                                            aria-label="Select row"
+                                            data-row-select=""
+                                        >
+                                    )
+                                }
                                 for cell in cells {
                                     table_cell((cell.clone()))
                                 }
@@ -1305,10 +1355,17 @@ impl<M> Table<M> {
             .map(|parts| parts.uri.path().to_string())
             .unwrap_or_default();
         let head = self
-            .render_thead(cx, &state, &path, self.delete_prefix.is_some())
+            .render_thead(
+                cx,
+                &state,
+                &path,
+                self.delete_prefix.is_some(),
+                self.bulk_enabled(),
+            )
             .await?;
         let column_count = self.columns.len();
         let with_delete = self.delete_prefix.is_some();
+        let with_bulk = self.bulk_enabled();
         let inner = view! {
             cx =>
             <div class="rounded-xl border border-border overflow-hidden">
@@ -1318,6 +1375,13 @@ impl<M> Table<M> {
                         for i in 0..3 {
                             table_row(
                                 key: i,
+                                if with_bulk {
+                                    table_cell(
+                                        <div
+                                            class="animate-pulse rounded-md bg-foreground/10 h-4 w-4"
+                                        ></div>
+                                    )
+                                }
                                 for _ in 0..column_count {
                                     table_cell(
                                         <div
@@ -1495,12 +1559,126 @@ impl<M> Table<M> {
         } else {
             None
         };
+        // One typed control per declared filter (GH #74). Controls carry only
+        // `data-filter-name` (no `name`, so they never submit on their own);
+        // `filters.js` composes them into the single `filters` text field on
+        // submit, which stays as the no-JS free-text fallback.
+        let mut controls: Vec<BoxView<'_>> = Vec::with_capacity(self.filters.len());
+        for f in &self.filters {
+            let current = state.filters.get(f.name()).cloned().unwrap_or_default();
+            match f {
+                Filter::Select(s) => {
+                    let name = s.name().to_string();
+                    let label = s.label_str().to_string();
+                    let aria = label.clone();
+                    let mut opts = vec![String::new()];
+                    opts.extend(s.options().iter().cloned());
+                    let current_c = current.clone();
+                    controls.push(
+                        view! {
+                            cx =>
+                            <label class="flex items-center gap-2 text-sm text-muted-foreground">
+                                (label)
+                                <select
+                                    data-filter-name=(name)
+                                    aria-label=(aria)
+                                    class="flex h-9 rounded-md border border-border bg-background px-3 py-1 text-sm shadow-xs"
+                                >
+                                    for opt in opts {
+                                        if opt.is_empty() {
+                                            <option value="" selected=(current_c.is_empty())>"All"</option>
+                                        } else {
+                                            <option value=(opt.clone()) selected=(current_c == opt)>(opt)</option>
+                                        }
+                                    }
+                                </select>
+                            </label>
+                        }
+                        .boxed(),
+                    );
+                }
+                Filter::Ternary(t) => {
+                    let name = t.name().to_string();
+                    let label = t.label_str().to_string();
+                    let aria = label.clone();
+                    let current_c = current.clone();
+                    controls.push(
+                        view! {
+                            cx =>
+                            <label class="flex items-center gap-2 text-sm text-muted-foreground">
+                                (label)
+                                <select
+                                    data-filter-name=(name)
+                                    aria-label=(aria)
+                                    class="flex h-9 rounded-md border border-border bg-background px-3 py-1 text-sm shadow-xs"
+                                >
+                                    <option value="" selected=(current_c.is_empty())>"All"</option>
+                                    <option value="true" selected=(current_c == "true")>"True"</option>
+                                    <option value="false" selected=(current_c == "false")>"False"</option>
+                                </select>
+                            </label>
+                        }
+                        .boxed(),
+                    );
+                }
+                Filter::Date(d) => {
+                    let name = d.name().to_string();
+                    let label = d.label_str().to_string();
+                    let aria = label.clone();
+                    // `<input type=date>` needs YYYY-MM-DD; truncate RFC3339.
+                    let date_value = current.split('T').next().unwrap_or(&current).to_string();
+                    controls.push(
+                        view! {
+                            cx =>
+                            <label class="flex items-center gap-2 text-sm text-muted-foreground">
+                                (label)
+                                <input
+                                    type="date"
+                                    data-filter-name=(name)
+                                    value=(date_value)
+                                    aria-label=(aria)
+                                    class="flex h-9 rounded-md border border-border bg-background px-3 py-1 text-sm shadow-xs"
+                                >
+                            </label>
+                        }
+                        .boxed(),
+                    );
+                }
+                Filter::Variant(v) => {
+                    let name = v.name().to_string();
+                    let label = v.label_str().to_string();
+                    let aria = label.clone();
+                    let keys: Vec<String> = v.options().iter().map(|(k, _)| k.clone()).collect();
+                    let current_c = current.clone();
+                    controls.push(
+                        view! {
+                            cx =>
+                            <label class="flex items-center gap-2 text-sm text-muted-foreground">
+                                (label)
+                                <select
+                                    data-filter-name=(name)
+                                    aria-label=(aria)
+                                    class="flex h-9 rounded-md border border-border bg-background px-3 py-1 text-sm shadow-xs"
+                                >
+                                    <option value="" selected=(current_c.is_empty())>"All"</option>
+                                    for opt in keys {
+                                        <option value=(opt.clone()) selected=(current_c == opt)>(opt)</option>
+                                    }
+                                </select>
+                            </label>
+                        }
+                        .boxed(),
+                    );
+                }
+            }
+        }
         Ok(view! {
             cx =>
             <form
                 method="get"
                 action=(action)
                 class="flex flex-wrap items-center gap-2 border-b border-border p-3"
+                data-filters-form=""
             >
                 if let Some(q) = q_hidden {
                     <input type="hidden" name="q" value=(q)>
@@ -1511,13 +1689,16 @@ impl<M> Table<M> {
                 if let Some(dir) = dir_hidden {
                     <input type="hidden" name="dir" value=(dir)>
                 }
+                for ctl in controls {
+                    (ctl)
+                }
                 ui_input(
                     attrs: attributes! {
                         type="text"
                         name="filters"
                         value=(filters_display)
                         placeholder="filters e.g. status:published"
-                        aria-label="Filter table"
+                        aria-label="Filter table (free text)"
                         class="w-64"
                     }
                 )
@@ -1551,15 +1732,20 @@ impl<M> Table<M> {
         state: &TableState,
         path: &str,
         with_delete: bool,
+        with_bulk: bool,
     ) -> Result<BoxView<'a>>
     where
         M: toasty::schema::Model,
     {
         let mut colspan = self.columns.len();
+        if with_bulk {
+            colspan += 1;
+        }
         if with_delete {
             colspan += 1;
         }
-        let clear_url = if state.search.is_some() {
+        let filtered = state.search.is_some() || !state.filters.is_empty();
+        let clear_url = if filtered {
             Some(match &state.sort {
                 Some(s) => build_url(
                     path,
@@ -1575,7 +1761,13 @@ impl<M> Table<M> {
         };
         let message = match &state.search {
             Some(term) => format!("No results for \u{201c}{term}\u{201d}"),
+            None if !state.filters.is_empty() => "No results for these filters".to_string(),
             None => "No records yet".to_string(),
+        };
+        let clear_label = if state.search.is_some() {
+            "Clear search"
+        } else {
+            "Clear filters"
         };
         Ok(view! {
             cx =>
@@ -1588,7 +1780,7 @@ impl<M> Table<M> {
                             <p class="text-sm text-muted-foreground">(message)</p>
                             if let Some(url) = clear_url {
                                 <a href=(url) class="text-sm text-primary hover:underline">
-                                    "Clear search"
+                                    (clear_label)
                                 </a>
                             }
                         </div>
@@ -1676,6 +1868,7 @@ impl<M> Table<M> {
         state: &TableState,
         path: &str,
         with_delete: bool,
+        with_bulk: bool,
     ) -> Result<BoxView<'a>>
     where
         M: toasty::schema::Model,
@@ -1768,6 +1961,15 @@ impl<M> Table<M> {
             cx =>
             table_header(
                 table_row(
+                    if with_bulk {
+                        table_head(
+                            <input
+                                type="checkbox"
+                                aria-label="Select all rows"
+                                data-bulk-select-all=""
+                            >
+                        )
+                    }
                     for h in heads {
                         (h)
                     }
@@ -1930,6 +2132,58 @@ impl TableState {
                 .collect();
             pairs.sort();
             Some(pairs.join(","))
+        }
+    }
+
+    /// Rebuild list state from live-search shard args (GH #74).
+    ///
+    /// Shard requests hit `POST /_topcoat/runtime/shards/...`, so
+    /// [`Self::from_cx`] would see the endpoint URI — not the list page's
+    /// query. The page passes its (static) filter/sort state plus the live
+    /// `q` signal explicitly. Live search resets pagination (`after`/`before`
+    /// are always `None` — a new search is a new result set, same as the GET
+    /// toolbar) and keeps the page's `group_by`.
+    pub fn from_live_args(
+        q: &str,
+        filters_param: &str,
+        sort: &str,
+        dir: &str,
+        group_by: &str,
+    ) -> Self {
+        let search = {
+            let t = q.trim();
+            if t.is_empty() {
+                None
+            } else {
+                Some(t.to_string())
+            }
+        };
+        let sort = {
+            let c = sort.trim();
+            if c.is_empty() {
+                None
+            } else {
+                Some(Sort {
+                    column: c.to_string(),
+                    descending: dir.trim() == "desc",
+                })
+            }
+        };
+        let non_empty = |v: &str| {
+            let t = v.trim();
+            if t.is_empty() {
+                None
+            } else {
+                Some(t.to_string())
+            }
+        };
+        Self {
+            search,
+            sort,
+            after: None,
+            before: None,
+            filters: parse_filters_param(filters_param),
+            group_by: non_empty(group_by),
         }
     }
 }
@@ -2438,6 +2692,17 @@ mod tests {
         name: String,
     }
 
+    #[derive(Debug, Clone, toasty::Model)]
+    struct Task {
+        #[key]
+        #[auto]
+        id: uuid::Uuid,
+        title: String,
+        status: String,
+        featured: bool,
+        created_at: jiff::Timestamp,
+    }
+
     struct UserResource;
 
     impl Resource for UserResource {
@@ -2722,6 +2987,276 @@ mod tests {
                 row.name
             );
         }
+    }
+
+    #[tokio::test]
+    async fn bulk_checkboxes_render_with_keys_and_select_all() {
+        let cx = CxTestBuilder::new().build();
+        let bulk_table = Table::<User>::r#for(&cx)
+            .id(|u| u.id.to_string())
+            .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()))
+            .with_delete("/admin/users".to_string())
+            .with_bulk_delete(true);
+        let rows = vec![
+            User {
+                id: uuid::Uuid::new_v4(),
+                name: "Ada".to_string(),
+            },
+            User {
+                id: uuid::Uuid::new_v4(),
+                name: "Bob".to_string(),
+            },
+        ];
+        let page: TablePage<User> = rows.clone().into();
+        let html = bulk_table
+            .render(&cx, page)
+            .await
+            .unwrap()
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
+        // Per-row checkbox carries the row key; header select-all present.
+        for row in &rows {
+            assert!(
+                html.contains(&format!("value=\"{}\"", row.id)),
+                "missing checkbox value for {} in {html}",
+                row.id
+            );
+        }
+        assert!(
+            html.contains("data-row-select"),
+            "missing row checkbox marker in {html}"
+        );
+        assert!(
+            html.contains("data-bulk-select-all"),
+            "missing select-all in {html}"
+        );
+        // Bulk form keeps the single `ids` transport + no-JS text fallback.
+        assert!(
+            html.contains("data-bulk-form"),
+            "missing bulk form in {html}"
+        );
+        assert!(
+            html.contains("name=\"ids\"") && html.contains("Bulk Delete"),
+            "missing ids fallback in {html}"
+        );
+        assert!(
+            html.contains("data-table-root"),
+            "missing table root scope in {html}"
+        );
+
+        // Without bulk: no checkboxes, no bulk form.
+        let plain = Table::<User>::r#for(&cx)
+            .id(|u| u.id.to_string())
+            .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()));
+        let page: TablePage<User> = rows.into();
+        let html = plain
+            .render(&cx, page)
+            .await
+            .unwrap()
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
+        assert!(
+            !html.contains("data-row-select") && !html.contains("data-bulk-form"),
+            "plain table must not render bulk chrome in {html}"
+        );
+    }
+
+    #[tokio::test]
+    async fn filter_widgets_render_typed_controls() {
+        let cx = CxTestBuilder::new().build();
+        let table_task1 = Table::<Task>::r#for(&cx)
+            .id(|t| t.id.to_string())
+            .columns(TextColumn::r#for(Task::fields().title(), |t| {
+                t.title.clone()
+            }))
+            .filters((
+                SelectFilter::r#for(
+                    Task::fields().status(),
+                    vec!["draft".to_string(), "published".to_string()],
+                ),
+                TernaryFilter::r#for(Task::fields().featured()),
+                DateFilter::r#for(Task::fields().created_at()),
+            ));
+        let page: TablePage<Task> = Vec::new().into();
+        // State with an active select value pre-selects it.
+        let mut filters = HashMap::new();
+        filters.insert("status".to_string(), "published".to_string());
+        let state = TableState {
+            filters,
+            ..TableState::default()
+        };
+        let html = table_task1
+            .render_with_state(&cx, page, &state, "/admin/tasks")
+            .await
+            .unwrap()
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
+        assert!(
+            html.contains("data-filters-form"),
+            "missing filters form in {html}"
+        );
+        for name in ["status", "featured", "created_at"] {
+            assert!(
+                html.contains(&format!("data-filter-name=\"{name}\"")),
+                "missing control for {name} in {html}"
+            );
+        }
+        // Select options + current selection.
+        assert!(
+            html.contains("draft") && html.contains("published"),
+            "missing select options in {html}"
+        );
+        assert!(
+            html.contains("value=\"published\" selected")
+                || html.contains("value=\"published\" selected=\"\""),
+            "published should be selected in {html}"
+        );
+        // Ternary + date controls.
+        assert!(
+            html.contains("value=\"true\"") && html.contains("value=\"false\""),
+            "missing ternary options in {html}"
+        );
+        assert!(
+            html.contains("type=\"date\""),
+            "missing date input in {html}"
+        );
+        // Free-text fallback keeps the composed value.
+        assert!(
+            html.contains("name=\"filters\"") && html.contains("status:published"),
+            "missing free-text fallback in {html}"
+        );
+    }
+
+    #[tokio::test]
+    async fn variant_filter_renders_select_control() {
+        let cx = CxTestBuilder::new().build();
+        let table_driver1 = Table::<Driver>::r#for(&cx)
+            .id(|d| d.id.to_string())
+            .columns(TextColumn::r#for(Driver::fields().name(), |d| {
+                d.name.clone()
+            }))
+            .filters(vehicule_filter());
+        let page: TablePage<Driver> = Vec::new().into();
+        let html = table_driver1
+            .render_with_state(&cx, page, &TableState::default(), "/admin/drivers")
+            .await
+            .unwrap()
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
+        assert!(
+            html.contains("data-filter-name=\"vehicule\""),
+            "missing variant control in {html}"
+        );
+        assert!(
+            html.contains("Auto") && html.contains("Moto"),
+            "missing variant options in {html}"
+        );
+    }
+
+    #[test]
+    fn from_live_args_builds_state() {
+        let state = TableState::from_live_args(
+            "  Ada ",
+            "status:published, featured:true",
+            "name",
+            "desc",
+            "",
+        );
+        assert_eq!(state.search.as_deref(), Some("Ada"));
+        assert_eq!(
+            state.filters.get("status").map(String::as_str),
+            Some("published")
+        );
+        assert_eq!(
+            state.filters.get("featured").map(String::as_str),
+            Some("true")
+        );
+        assert_eq!(
+            state.sort,
+            Some(Sort {
+                column: "name".to_string(),
+                descending: true,
+            })
+        );
+        assert!(state.after.is_none() && state.before.is_none());
+        // Blank inputs → neutral state.
+        assert_eq!(
+            TableState::from_live_args("", "", "", "", ""),
+            TableState::default()
+        );
+    }
+
+    #[tokio::test]
+    async fn render_with_state_matches_render() {
+        let cx = CxTestBuilder::new().build();
+        let table_user1 = Table::<User>::r#for(&cx)
+            .id(|u| u.id.to_string())
+            .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()));
+        let rows = vec![User {
+            id: uuid::Uuid::nil(),
+            name: "Ada".to_string(),
+        }];
+        let html_render = table_user1
+            .render(&cx, rows.clone().into())
+            .await
+            .unwrap()
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
+        let html_state = table_user1
+            .render_with_state(&cx, rows.into(), &TableState::default(), "")
+            .await
+            .unwrap()
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
+        assert_eq!(html_render, html_state);
+    }
+
+    #[tokio::test]
+    async fn empty_with_filters_shows_filtered_message() {
+        let cx = CxTestBuilder::new().build();
+        let table_task2 = Table::<Task>::r#for(&cx)
+            .id(|t| t.id.to_string())
+            .columns(TextColumn::r#for(Task::fields().title(), |t| {
+                t.title.clone()
+            }))
+            .filters(SelectFilter::r#for(
+                Task::fields().status(),
+                vec!["draft".to_string()],
+            ));
+        let mut filters = HashMap::new();
+        filters.insert("status".to_string(), "draft".to_string());
+        let state = TableState {
+            filters,
+            ..TableState::default()
+        };
+        let html = table_task2
+            .render_with_state(&cx, Vec::new().into(), &state, "/admin/tasks")
+            .await
+            .unwrap()
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
+        assert!(
+            html.contains("No results for these filters"),
+            "filter-only empty must be distinct in {html}"
+        );
+        assert!(
+            html.contains("Clear filters"),
+            "filter-only empty needs a clear link in {html}"
+        );
     }
 
     #[tokio::test]
