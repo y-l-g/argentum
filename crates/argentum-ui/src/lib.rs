@@ -52,6 +52,8 @@ pub const SIDEBAR_JS: topcoat::asset::Asset = topcoat::asset::asset!("../assets/
 pub const THEME_JS: topcoat::asset::Asset = topcoat::asset::asset!("../assets/theme.js");
 pub const DIALOG_JS: topcoat::asset::Asset = topcoat::asset::asset!("../assets/dialog.js");
 pub const CODE_BLOCK_JS: topcoat::asset::Asset = topcoat::asset::asset!("../assets/code_block.js");
+pub const BULK_JS: topcoat::asset::Asset = topcoat::asset::asset!("../assets/bulk.js");
+pub const FILTERS_JS: topcoat::asset::Asset = topcoat::asset::asset!("../assets/filters.js");
 
 /// Tailwind build helper for the per-app contract.
 ///
