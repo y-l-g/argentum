@@ -160,3 +160,102 @@ async fn posts_create_valid_fileupload_repeater_creates() {
     assert_eq!(post.image_path, "/tmp/valid.jpg");
     assert_eq!(post.tags, "valid,tags");
 }
+
+#[tokio::test]
+async fn posts_create_form_is_multipart() {
+    let db = full_db().await;
+    let router = router(db);
+    let resp = router
+        .handle(
+            Request::builder()
+                .uri("/admin/posts/create")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+    assert!(resp.status().is_success());
+    let body = resp.into_body().collect().await.unwrap().to_bytes();
+    let html = String::from_utf8_lossy(&body);
+    assert!(
+        html.contains("enctype=\"multipart/form-data\""),
+        "file form must be multipart, got {}",
+        &html[..html.len().min(2000)]
+    );
+    assert!(
+        html.contains("type=\"file\""),
+        "missing file input {}",
+        &html[..html.len().min(2000)]
+    );
+}
+
+#[tokio::test]
+async fn users_create_form_stays_urlencoded() {
+    let db = full_db().await;
+    let router = router(db);
+    let resp = router
+        .handle(
+            Request::builder()
+                .uri("/admin/users/create")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+    assert!(resp.status().is_success());
+    let body = resp.into_body().collect().await.unwrap().to_bytes();
+    let html = String::from_utf8_lossy(&body);
+    assert!(
+        !html.contains("multipart/form-data"),
+        "plain form must stay urlencoded, got {}",
+        &html[..html.len().min(2000)]
+    );
+}
+
+#[tokio::test]
+async fn posts_create_multipart_file_stores_filename() {
+    let db = full_db().await;
+    let router = router(db.clone());
+    let mut db2 = db.clone();
+    let authors = Author::all().exec(&mut db2).await.unwrap();
+    let first = &authors[0];
+    let boundary = "----TestBoundary789";
+    let body = format!(
+        "--{b}\r\nContent-Disposition: form-data; name=\"title\"\r\n\r\nMultipart Upload\r\n\
+         --{b}\r\nContent-Disposition: form-data; name=\"author_id\"\r\n\r\n{id}\r\n\
+         --{b}\r\nContent-Disposition: form-data; name=\"image_path\"; filename=\"upload.jpg\"\r\nContent-Type: image/jpeg\r\n\r\nFAKEBYTES\r\n\
+         --{b}\r\nContent-Disposition: form-data; name=\"tags\"\r\n\r\nmultipart,tags\r\n\
+         --{b}--\r\n",
+        b = boundary,
+        id = first.id
+    );
+    let before = Post::all().exec(&mut db2).await.unwrap().len();
+    let resp = router
+        .handle(
+            Request::builder()
+                .uri("/admin/posts/create")
+                .method(Method::POST)
+                .header(
+                    CONTENT_TYPE,
+                    format!("multipart/form-data; boundary={boundary}"),
+                )
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await;
+    assert!(
+        resp.status().is_redirection(),
+        "multipart valid should redirect, got {}",
+        resp.status()
+    );
+    let mut db2 = db.clone();
+    let after = Post::all().exec(&mut db2).await.unwrap().len();
+    assert_eq!(after, before + 1);
+    let created = Post::filter(Post::fields().title().eq("Multipart Upload".to_string()))
+        .first()
+        .exec(&mut db2)
+        .await
+        .unwrap()
+        .expect("multipart post");
+    // v1 stores the filename, not the bytes (FileUpload contract).
+    assert_eq!(created.image_path, "upload.jpg");
+    assert_eq!(created.tags, "multipart,tags");
+}

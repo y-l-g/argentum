@@ -797,21 +797,121 @@ async fn load_table_page<R: Resource>(
     }
 }
 
-/// Helper: parse `application/x-www-form-urlencoded` body into a map.
+/// Helper: parse form bodies into a map — `application/x-www-form-urlencoded`
+/// today, plus `multipart/form-data` when a `FileUpload` is present (GH #73).
 ///
-/// Decoding is delegated to `form_urlencoded` (already in the tree via
-/// topcoat): it splits pairs, decodes `+` as space, assembles multi-byte
-/// UTF-8 from `%XX` sequences (`%C3%A9` → `é`, not `Ã©`), and keeps encoded
-/// separators (`%26` → `&`) intact — the hand-rolled `percent_decode` it
-/// replaced pushed each decoded byte through `byte as char`, corrupting
+/// Decoding for urlencoded is delegated to `form_urlencoded` (already in the
+/// tree via topcoat): it splits pairs, decodes `+` as space, assembles
+/// multi-byte UTF-8 from `%XX` sequences (`%C3%A9` → `é`, not `Ã©`), and keeps
+/// encoded separators (`%26` → `&`) intact — the hand-rolled `percent_decode`
+/// it replaced pushed each decoded byte through `byte as char`, corrupting
 /// every non-ASCII value (GH #75 item 6). Invalid UTF-8 degrades per-value
 /// (lossy) instead of discarding the whole form.
+///
+/// Multipart (file) parts store the client filename as the `String` value —
+/// binary bytes are not persisted in v1 (see `FileUpload` storage contract).
+/// Text parts store their raw content. Unknown content types fall back to
+/// urlencoded so existing tests/clients keep working.
 async fn parse_form_values(cx: &Cx, body: Body) -> HashMap<String, String> {
+    let content_type =
+        topcoat::context::try_request_context::<http::request::Parts>(cx).and_then(|parts| {
+            parts
+                .headers
+                .get(http::header::CONTENT_TYPE)
+                .and_then(|v| v.to_str().ok().map(|s| s.to_string()))
+        });
     let bytes = match Bytes::from_request(cx, body).await {
         Ok(b) => b,
         Err(_) => return HashMap::new(),
     };
+    if let Some(ct) = content_type
+        && let Some(boundary) = multipart_boundary(&ct)
+    {
+        return form_values_from_multipart(&bytes, &boundary);
+    }
     form_values_from_bytes(&bytes)
+}
+
+/// Extract the `boundary=` parameter from a `multipart/form-data` content type.
+/// Returns `None` for non-multipart types or a missing boundary.
+fn multipart_boundary(content_type: &str) -> Option<String> {
+    let (mime, params) = content_type.split_once(';')?;
+    if !mime.trim().eq_ignore_ascii_case("multipart/form-data") {
+        return None;
+    }
+    for param in params.split(';') {
+        let param = param.trim();
+        if let Some(rest) = param
+            .strip_prefix("boundary=")
+            .or_else(|| param.strip_prefix("Boundary="))
+        {
+            let b = rest.trim().trim_matches('"').trim();
+            if !b.is_empty() {
+                return Some(b.to_string());
+            }
+        }
+    }
+    None
+}
+
+/// Pure multipart half of [`parse_form_values`] — testable without a request.
+///
+/// Splits on `--boundary`, extracts each part's `name=` (and optional
+/// `filename=`), and collects `name -> value`. File parts contribute their
+/// filename; text parts contribute their raw content (UTF-8 lossy). A missing
+/// trailing CRLF or preamble/epilogue is tolerated.
+fn form_values_from_multipart(bytes: &[u8], boundary: &str) -> HashMap<String, String> {
+    let mut out = HashMap::new();
+    let delimiter = format!("--{boundary}");
+    let body = String::from_utf8_lossy(bytes);
+    for raw_part in body.split(&delimiter) {
+        // Skip preamble and closing `--`: trim leading CRLF only — trimming
+        // trailing CRLF first would eat the header/content separator when the
+        // content itself is empty (no file chosen).
+        let part = raw_part.trim_start_matches(['\r', '\n']);
+        if part.is_empty() || part.starts_with("--") {
+            continue;
+        }
+        let Some(sep) = part.find("\r\n\r\n") else {
+            continue;
+        };
+        let (header_block, content) = part.split_at(sep);
+        let content = content["\r\n\r\n".len()..].trim_end_matches(['\r', '\n']);
+        let mut name: Option<String> = None;
+        let mut filename: Option<String> = None;
+        for header_line in header_block.split("\r\n") {
+            let line = header_line.trim();
+            if let Some(rest) = line.strip_prefix("Content-Disposition:") {
+                for seg in rest.split(';') {
+                    let seg = seg.trim();
+                    if let Some(v) = seg.strip_prefix("name=") {
+                        name = Some(v.trim().trim_matches('"').to_string());
+                    } else if let Some(v) = seg.strip_prefix("filename=") {
+                        filename = Some(v.trim().trim_matches('"').to_string());
+                    }
+                }
+            }
+        }
+        if let Some(n) = name
+            && !n.is_empty()
+        {
+            match filename {
+                Some(f) if !f.is_empty() => {
+                    // v1 stores the filename, not the bytes (FileUpload contract).
+                    out.insert(n, f);
+                }
+                Some(_) => {
+                    // Empty filename (no file chosen) → empty value so `required`
+                    // validation fires instead of treating it as missing.
+                    out.insert(n, String::new());
+                }
+                None => {
+                    out.insert(n, content.to_string());
+                }
+            }
+        }
+    }
+    out
 }
 
 /// Pure half of [`parse_form_values`] — testable without a request.
@@ -885,12 +985,16 @@ async fn render_create_page<'a, R: Resource>(
     let form_html = schema.render_with(cx, values, errors).await?;
     let action = topcoat::router::request::uri(cx).path().to_string();
     let title = format!("Create {}", R::navigation_label());
+    // Browsers only send `<input type="file">` content as multipart (GH #73).
+    let enctype: Option<String> = schema
+        .has_file_upload()
+        .then(|| "multipart/form-data".to_string());
     Ok(view! {
         cx =>
         argentum_ui::page(
             argentum_ui::page_header(argentum_ui::page_title((title.clone())))
             argentum_ui::page_content(
-                <form method="post" action=(action) class="flex flex-col gap-4">
+                <form method="post" action=(action) enctype=(enctype) class="flex flex-col gap-4">
                     (form_html)
                     <div class="flex gap-2">
                         argentum_ui::button(
@@ -922,12 +1026,16 @@ async fn render_edit_page<'a, R: Resource>(
     let form_html = schema.render_with(cx, values, errors).await?;
     let action = topcoat::router::request::uri(cx).path().to_string();
     let title = format!("Edit {}", R::navigation_label());
+    // Browsers only send `<input type="file">` content as multipart (GH #73).
+    let enctype: Option<String> = schema
+        .has_file_upload()
+        .then(|| "multipart/form-data".to_string());
     Ok(view! {
         cx =>
         argentum_ui::page(
             argentum_ui::page_header(argentum_ui::page_title((title.clone())))
             argentum_ui::page_content(
-                <form method="post" action=(action) class="flex flex-col gap-4">
+                <form method="post" action=(action) enctype=(enctype) class="flex flex-col gap-4">
                     (form_html)
                     <div class="flex gap-2">
                         argentum_ui::button(
@@ -1701,6 +1809,49 @@ mod tests {
         assert!(form_values_from_bytes(b"").is_empty());
     }
 
+    #[test]
+    fn multipart_boundary_extracts_param() {
+        assert_eq!(
+            multipart_boundary("multipart/form-data; boundary=----ABC"),
+            Some("----ABC".to_string())
+        );
+        assert_eq!(
+            multipart_boundary("multipart/form-data; boundary=\"----ABC\""),
+            Some("----ABC".to_string())
+        );
+        assert_eq!(
+            multipart_boundary("application/x-www-form-urlencoded"),
+            None
+        );
+        assert_eq!(multipart_boundary("multipart/form-data"), None);
+        assert_eq!(multipart_boundary("text/plain; boundary=x"), None);
+    }
+
+    #[test]
+    fn multipart_values_store_text_and_filenames() {
+        let boundary = "----Boundary123";
+        let body = format!(
+            "--{b}\r\nContent-Disposition: form-data; name=\"title\"\r\n\r\nHello\r\n\
+             --{b}\r\nContent-Disposition: form-data; name=\"image_path\"; filename=\"photo.jpg\"\r\nContent-Type: image/jpeg\r\n\r\nBINARYBYTES\r\n\
+             --{b}\r\nContent-Disposition: form-data; name=\"tags\"\r\n\r\nrust,async\r\n\
+             --{b}--\r\n",
+            b = boundary
+        );
+        let got = form_values_from_multipart(body.as_bytes(), boundary);
+        assert_eq!(got.get("title").map(String::as_str), Some("Hello"));
+        // v1 stores the filename, not the bytes (FileUpload contract).
+        assert_eq!(got.get("image_path").map(String::as_str), Some("photo.jpg"));
+        assert_eq!(got.get("tags").map(String::as_str), Some("rust,async"));
+
+        // Empty filename → empty value so `required` fires.
+        let body = format!(
+            "--{b}\r\nContent-Disposition: form-data; name=\"image_path\"; filename=\"\"\r\nContent-Type: application/octet-stream\r\n\r\n\r\n--{b}--\r\n",
+            b = boundary
+        );
+        let got = form_values_from_multipart(body.as_bytes(), boundary);
+        assert_eq!(got.get("image_path").map(String::as_str), Some(""));
+    }
+
     #[tokio::test]
     async fn find_by_key_loads_one_row_scoped_and_404s_malformed() {
         use topcoat::context::CxTestBuilder;
@@ -1854,6 +2005,62 @@ mod tests {
         assert!(
             !body.contains("No records yet"),
             "a failed load is not an empty state: {body}"
+        );
+    }
+
+    #[tokio::test]
+    async fn create_form_uses_multipart_only_with_file_upload() {
+        use crate::schema::{FileUpload, Schema, TextInput};
+        use topcoat::context::CxTestBuilder;
+
+        #[derive(Debug, toasty::Model)]
+        struct Doc {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            path: String,
+            title: String,
+        }
+        struct WithFile;
+        impl Resource for WithFile {
+            type Model = Doc;
+            fn form(_cx: &Cx) -> Schema {
+                Schema::new(FileUpload::r#for(Doc::fields().path()))
+            }
+        }
+        struct WithoutFile;
+        impl Resource for WithoutFile {
+            type Model = Doc;
+            fn form(_cx: &Cx) -> Schema {
+                Schema::new(TextInput::r#for(Doc::fields().title()))
+            }
+        }
+
+        async fn html_for<R: Resource>(uri: &str) -> String {
+            let (parts, ()) = http::Request::builder()
+                .uri(uri)
+                .body(())
+                .unwrap()
+                .into_parts();
+            let cx = CxTestBuilder::new().request_context(parts).build();
+            render_create_page::<R>(&cx, &HashMap::new(), &HashMap::new())
+                .await
+                .unwrap()
+                .single()
+                .await
+                .unwrap()
+                .render(&cx)
+        }
+
+        let with = html_for::<WithFile>("/admin/docs/create").await;
+        assert!(
+            with.contains("enctype=\"multipart/form-data\""),
+            "file form must be multipart, got {with}"
+        );
+        let without = html_for::<WithoutFile>("/admin/docs/create").await;
+        assert!(
+            !without.contains("multipart/form-data"),
+            "plain form must stay urlencoded, got {without}"
         );
     }
 }

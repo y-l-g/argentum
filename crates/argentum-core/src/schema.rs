@@ -876,6 +876,13 @@ impl Grid {
 }
 
 /// FileUpload field — stores a String path (Asset URL) with file input handling.
+///
+/// Storage contract (GH #73): v1 stores the client filename as a `String` path
+/// (e.g. `image_path`), not binary content. Forms containing a `FileUpload`
+/// render `enctype="multipart/form-data"` (see `Panel`) and the POST parser
+/// extracts the file part's filename; the bytes themselves are not persisted.
+/// Binary/file-asset handling is future work. The `<input type="file">` never
+/// renders a `value` attribute — browsers ignore/mask it for security.
 #[derive(Debug, Clone)]
 pub struct FileUpload {
     name: String,
@@ -971,6 +978,13 @@ impl FileUpload {
 }
 
 /// Repeater — nested Schema repeated as a group (in-memory for v1, no DB array).
+///
+/// v1 honesty (GH #73): this is a single-entry group, not a multi-row repeater —
+/// one titled card with its nested schema once, no add/remove UI, no JS, no
+/// indexed field names (`tags[0]`). Indexed multi-entry semantics, per-entry
+/// validation, and hydration via split/join or a real relation are deferred.
+/// `required` means "the inner fields must not all be empty" and its error is
+/// keyed by label and rendered inline (GH #78).
 #[derive(Debug)]
 pub struct Repeater {
     label: String,
@@ -1059,6 +1073,9 @@ impl Repeater {
 }
 
 /// Tabs — layout primitive for tabbed content (in-memory for v1, no JS).
+///
+/// Static `div` grouping for v1 (GH #73): looks like tabs, behaves as stacked
+/// sections until tab JS lands. Documented, not a placeholder bug.
 #[derive(Debug)]
 pub struct Tabs {
     children: Option<Schema>,
@@ -1106,6 +1123,9 @@ impl Default for Tabs {
 }
 
 /// Wizard — step-based layout (in-memory for v1, no JS).
+///
+/// Static `div` grouping for v1 (GH #73): looks like steps, behaves as stacked
+/// sections until step JS lands. Documented, not a placeholder bug.
 #[derive(Debug)]
 pub struct Wizard {
     children: Option<Schema>,
@@ -1349,6 +1369,25 @@ impl Schema {
             collect_file_uploads(node, &mut map);
         }
         map
+    }
+
+    /// Whether this schema (including nested Section/Group/Grid/Repeater/Tabs/Wizard)
+    /// contains a [`FileUpload`]. `Panel` uses it to emit
+    /// `enctype="multipart/form-data"` only on forms that need it (GH #73).
+    pub fn has_file_upload(&self) -> bool {
+        fn walk(nodes: &[Node]) -> bool {
+            nodes.iter().any(|node| match node {
+                Node::FileUpload(_) => true,
+                Node::Repeater(r) => r.children.as_ref().is_some_and(|s| walk(&s.nodes)),
+                Node::Section(s) => s.children.as_ref().is_some_and(|s| walk(&s.nodes)),
+                Node::Group(g) => g.children.as_ref().is_some_and(|s| walk(&s.nodes)),
+                Node::Grid(g) => g.children.as_ref().is_some_and(|s| walk(&s.nodes)),
+                Node::Tabs(t) => t.children.as_ref().is_some_and(|s| walk(&s.nodes)),
+                Node::Wizard(w) => w.children.as_ref().is_some_and(|s| walk(&s.nodes)),
+                _ => false,
+            })
+        }
+        walk(&self.nodes)
     }
 
     pub fn validate(&self, values: &HashMap<String, String>) -> HashMap<String, Vec<String>> {
@@ -2238,6 +2277,63 @@ mod tests {
         assert!(
             !errors.contains_key("Tags"),
             "filled repeater must pass, got {errors:?}"
+        );
+    }
+
+    #[test]
+    fn has_file_upload_detects_nested() {
+        #[derive(Debug, toasty::Model)]
+        struct Doc {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            path: String,
+            title: String,
+        }
+        let plain = Schema::new(TextInput::r#for(DummyUser::fields().name()));
+        assert!(!plain.has_file_upload());
+        let direct = Schema::new(FileUpload::r#for(Doc::fields().path()));
+        assert!(direct.has_file_upload());
+        // Nested inside Section/Grid/Repeater counts.
+        let nested = Schema::new(Section::new("S").schema(Grid::new(2).schema((
+            TextInput::r#for(DummyUser::fields().name()),
+            FileUpload::r#for(Doc::fields().path()),
+        ))));
+        assert!(nested.has_file_upload());
+        let in_repeater =
+            Schema::new(Repeater::new("R").schema(FileUpload::r#for(Doc::fields().path())));
+        assert!(in_repeater.has_file_upload());
+    }
+
+    #[tokio::test]
+    async fn file_upload_renders_without_value_attr() {
+        let cx = cx();
+        #[derive(Debug, toasty::Model)]
+        struct Doc {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            path: String,
+        }
+        let schema = Schema::new(FileUpload::r#for(Doc::fields().path()));
+        let mut values = HashMap::new();
+        values.insert("path".to_string(), "/tmp/old.jpg".to_string());
+        let html = schema
+            .render_with(&cx, &values, &HashMap::new())
+            .await
+            .unwrap()
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
+        assert!(
+            html.contains("type=\"file\""),
+            "missing file input in {html}"
+        );
+        // Browsers ignore/mask file-input value (GH #73) — must never render.
+        assert!(
+            !html.contains("value=\"/tmp/old.jpg\""),
+            "file input must not carry value in {html}"
         );
     }
 }
