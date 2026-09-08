@@ -1008,21 +1008,49 @@ impl Repeater {
         errors: &HashMap<String, Vec<String>>,
     ) -> Result<BoxView<'a>> {
         let title = self.label.clone();
+        let required = self.required;
+        // Own error lives under the label key (see `Schema::validate_repeaters`).
+        // Field errors key by field name; repeaters have no field name yet, so the
+        // label is the only stable key until repeaters become field-bound (GH #78).
+        let own_errors: &[String] = errors.get(&self.label).map(|v| v.as_slice()).unwrap_or(&[]);
+        let has_error = !own_errors.is_empty();
+        let error_text = own_errors.first().cloned().unwrap_or_default();
+        let container_class = if has_error {
+            "ac-field ac-field--error rounded-md border border-border p-4 flex flex-col gap-4"
+        } else {
+            "ac-field rounded-md border border-border p-4 flex flex-col gap-4"
+        };
         if let Some(schema) = &self.children {
             let child_view = schema.render_with(cx, values, errors).await?;
             Ok(view! {
                 cx =>
-                <div class="rounded-md border border-border p-4 flex flex-col gap-4">
-                    <h4 class="font-medium text-foreground">(title)</h4>
+                <div class=(container_class)>
+                    <h4 class="font-medium text-foreground">
+                        (title)
+                        if required {
+                            <span class="text-destructive" aria-hidden="true">"*"</span>
+                        }
+                    </h4>
                     <div class="grid gap-4">(child_view)</div>
+                    <p class="ac-error text-sm text-destructive" aria-live="polite">
+                        (error_text)
+                    </p>
                 </div>
             }
             .boxed())
         } else {
             Ok(view! {
                 cx =>
-                <div class="rounded-md border border-border p-4">
-                    <h4 class="font-medium text-foreground">(title)</h4>
+                <div class=(container_class)>
+                    <h4 class="font-medium text-foreground">
+                        (title)
+                        if required {
+                            <span class="text-destructive" aria-hidden="true">"*"</span>
+                        }
+                    </h4>
+                    <p class="ac-error text-sm text-destructive" aria-live="polite">
+                        (error_text)
+                    </p>
                 </div>
             }
             .boxed())
@@ -2163,6 +2191,53 @@ mod tests {
         assert!(
             html.is_empty() || !html.contains("border-border"),
             "empty schema should render nothing, got {html}"
+        );
+    }
+
+    #[tokio::test]
+    async fn repeater_required_error_renders_inline() {
+        let cx = cx();
+        // Single-entry repeater (GH #78): the required error is keyed by label
+        // until repeaters become field-bound.
+        let schema = Schema::new(
+            Repeater::new("Tags")
+                .required()
+                .schema(TextInput::r#for(DummyUser::fields().name()).label("Tag")),
+        );
+        let values = HashMap::new();
+        let errors = schema.validate(&values);
+        assert!(
+            errors.contains_key("Tags"),
+            "required repeater must produce a label-keyed error, got {errors:?}"
+        );
+        let html = schema
+            .render_with(&cx, &values, &errors)
+            .await
+            .unwrap()
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
+        assert!(
+            html.contains("Tags is required"),
+            "repeater error must reach the HTML, got {html}"
+        );
+        // Same inline error contract as TextInput: ac-error slot + live region.
+        assert!(
+            html.contains("ac-error") && html.contains("text-destructive"),
+            "missing inline error slot in {html}"
+        );
+        assert!(
+            html.contains("aria-live=\"polite\""),
+            "missing aria-live in {html}"
+        );
+        // Non-empty inner value clears the error.
+        let mut filled = HashMap::new();
+        filled.insert("name".to_string(), "rust".to_string());
+        let errors = schema.validate(&filled);
+        assert!(
+            !errors.contains_key("Tags"),
+            "filled repeater must pass, got {errors:?}"
         );
     }
 }
