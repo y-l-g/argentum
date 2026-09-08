@@ -14,6 +14,7 @@ Shipped:
   - Tenancy `cx.with(Tenant)` + `tenant_id(cx)` (`x-tenant-id` header / `Cx` extensions) + per-tenant `Policy`, `Panel::brand(Brand{name,logo})` + `Panel::dark_mode(bool)` in `Shell`.
   - `benchmarks/` Phase-2 budget (50 rows, 2 includes, `<40ms p50`).
 - **Post-Phase-2 polish (GH #73, #77, #78):** `FileUpload` forms emit `enctype="multipart/form-data"` and the POST parser stores the file filename as the `String` path (bytes not persisted in v1, no `value` on `type=file`); `Repeater` is a documented single-entry group with its label-keyed `required` error rendered inline; `VariantFilter` filters embedded-enum variants via prebuilt `is_variant()` predicates through `TableState ?filters=`.
+- **Table chrome honesty (GH #74):** bulk selection is a checkbox column with select-all (JS joins keys into the single `ids` transport, text field stays as fallback); every declared filter renders a typed control composed into the single `?filters=` param (free-text input stays as fallback); the dummy live-search `signal` + shard was removed so the `?q=` GET toolbar is the one search UI.
 
 Remaining `Page`/`Theme`/`ChartWidget`/`via` gaps tracked in GH issue #38. The sections below mix shipped design with the original spec; where they disagree, the **code and `docs/adr/` win**.
 
@@ -293,7 +294,9 @@ Design direction (`SIGNALS.md` #335, `DESIGN.md`/`DESIGN-2.md` #332, `DESIGN_DEL
 - Filter/search/sort/page state are **signals owned by the page**. *How* they trigger a server render (shard args today, tracked server reads re-running the page or the shard subset since #391, `boundary` diff later) is an **internal detail** of `ArgentumTable`. Resources never hand-roll `#[shard]`.
 - All data loads that may be deferred are **`#[memoize]`d** (`topcoat-core/macro/docs/memoize.md`): `#[memoize(as_ref)] async fn load_rows(cx:&Cx, q:String, sort:Sort) -> Vec<Row>`. This makes streaming, concurrent rendering, and fan-out dedup free (`try_join!` of sibling components shares one future).
 
-Today's live-search shape (Phase 1):
+Today's live-search shape (Phase 1 — the Topcoat mechanism; `resource_list`
+itself ships the `?q=` GET toolbar + streamed `suspense` table since GH #74
+removed the dummy shard input):
 
 ```rust
 #[component]
@@ -372,7 +375,7 @@ Each phase is shippable and benchable (`benchmarks/` vs `axum-maud`/`leptos`). N
 
 ### Phase 3 — Streaming & next runtime
 
-- **Streaming adopted** on topcoat PR #373: `suspense` regions with page-owned `signal`s (upstream's `live!`/`emit!` not used by Argentum yet). The resource list ships its shell + skeleton first and swaps the loaded grid in; a failed load is caught in-region and renders the `ErrorState` instead of truncating the body (GH #79). Remaining: making the live-search `#[shard]` real — today the signal input coexists with the `?q=` toolbar while the shard still renders a stub (GH #74); `#[shard]` stays opt-in for isolated heavy widgets. Add dev lint for unmemoized deferred loads.
+- **Streaming adopted** on topcoat PR #373: `suspense` regions with page-owned `signal`s (upstream's `live!`/`emit!` not used by Argentum yet). The resource list ships its shell + skeleton first and swaps the loaded grid in; a failed load is caught in-region and renders the `ErrorState` instead of truncating the body (GH #79). Table chrome is honest (GH #74): bulk selection is a leading checkbox column with select-all whose JS joins keys into the existing single-`ids` transport (text field stays as the no-JS fallback), and every declared filter renders a typed control (Select/Variant dropdown, Ternary All/True/False, Date) composed into the single `?filters=` param with the free-text input as fallback. The old `signal` + `table_shard` dummy was removed — it rendered an input that never filtered — so live search is the `?q=` GET toolbar; a true keystroke-live shard waits on a slug-dispatch registry design (`#[shard]` inventory only discovers concrete fns, so a generic shard is undiscoverable; `Table::render_with_state` + `TableState::from_live_args` are the kept seam). `#[shard]` stays opt-in for isolated heavy widgets. Add dev lint for unmemoized deferred loads.
 
 ### Phase 4 — Widgets & ecosystem
 
