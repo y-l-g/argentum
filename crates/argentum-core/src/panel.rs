@@ -681,8 +681,9 @@ fn resource_list<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
 
         // The live-search signal — page-owned per ADR-0003. Topcoat 0.7
         // replaced the `signal` view-macro statement with this ordinary
-        // function (tokio-rs/topcoat#384); the runtime expressions below
-        // capture the reference as before.
+        // function (tokio-rs/topcoat#384); since tokio-rs/topcoat#388 it
+        // returns an owned value that is cheap to clone, so the runtime
+        // expressions below clone it. Top-level here, so no `key` needed.
         let q = signal(cx, String::new);
 
         Ok(view! {
