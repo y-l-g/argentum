@@ -25,9 +25,8 @@ use topcoat::{
 use crate::db::db;
 use crate::notification::{Notification, set_notification, take_notification};
 use crate::resource::{NavigationItem, Resource, Table, TablePage, TableState};
-use topcoat::context::memoize;
 use topcoat::router::Path;
-use topcoat::runtime::{Event, RouterBuilderRuntimeExt, shard, signal};
+use topcoat::runtime::RouterBuilderRuntimeExt;
 
 /// The admin application.
 ///
@@ -662,6 +661,14 @@ fn resource_list<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
         // failures (e.g. the skeleton itself) still propagate and map onto
         // the response status. (For children that partially stream before
         // failing, topcoat's `error_boundary` is the replace-in-place seam.)
+        //
+        // Live search is the `?q=` GET toolbar inside the table (GH #74): the
+        // previous `signal` + `table_shard` dummy rendered an input that never
+        // filtered rows, so it was removed. A real keystroke-live shard needs
+        // per-resource endpoints, but `#[shard]` inventory only discovers
+        // concrete fns — a generic shard is undiscoverable — so it waits on a
+        // slug-dispatch registry design. `render_with_state` +
+        // `from_live_args` are the kept seam for it.
         let skeleton = table.render_skeleton(cx).await?;
         let lazy_rows = ThenView::new(async move {
             let grid = async {
@@ -687,30 +694,12 @@ fn resource_list<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
             }
         });
 
-        // The live-search signal — page-owned per ADR-0003. Topcoat 0.7
-        // replaced the `signal` view-macro statement with this ordinary
-        // function (tokio-rs/topcoat#384); since tokio-rs/topcoat#388 it
-        // returns an owned value that is cheap to clone, so the runtime
-        // expressions below clone it. Top-level here, so no `key` needed.
-        // Since tokio-rs/topcoat#391 reads inside `$(...)` stay client-side
-        // (untracked) while plain-Rust `get`/`read` would track a page/shard
-        // dependency — this page only reads through `$(...)`, so it renders
-        // no `::topcoat::dep` marker.
-        let q = signal(cx, String::new);
-
         Ok(view! {
             cx =>
             argentum_ui::page(
                 argentum_ui::page_header(argentum_ui::page_title((title.clone())))
                 argentum_ui::page_content(
                     <div class="flex flex-col gap-4">
-                        <input
-                            :value=$(q.get())
-                            @input=$(|e: Event| q.set(e.target.value))
-                            placeholder="Live search..."
-                            class="w-64 border border-border rounded px-2 py-1"
-                        >
-                        table_shard(q: $(q.get()))
                         suspense(fallback: skeleton, (lazy_rows.boxed()))
                     </div>
                 )
@@ -919,26 +908,6 @@ fn form_values_from_multipart(bytes: &[u8], boundary: &str) -> HashMap<String, S
 /// Pure half of [`parse_form_values`] — testable without a request.
 fn form_values_from_bytes(bytes: &[u8]) -> HashMap<String, String> {
     form_urlencoded::parse(bytes).into_owned().collect()
-}
-
-#[memoize]
-async fn memoized_dummy(cx: &Cx, q: &str) -> String {
-    let _ = cx;
-    q.to_string()
-}
-
-#[shard]
-async fn table_shard(cx: &Cx, q: String) -> Result<impl View> {
-    let _ = memoized_dummy(cx, &q).await;
-    Ok(view! {
-        cx =>
-        <div data-boundary="table">
-            <p>
-                "Shard Table for "
-                (q)
-            </p>
-        </div>
-    })
 }
 
 /// The list URL for a resource: `{panel prefix}/{slug}`.
@@ -1990,8 +1959,8 @@ mod tests {
             "page header must survive the failure: {body}"
         );
         assert!(
-            body.contains("Live search..."),
-            "toolbar must survive the failure: {body}"
+            body.contains("Email"),
+            "column header must survive the failure: {body}"
         );
         assert!(
             body.contains("Couldn't load Subscribers"),
