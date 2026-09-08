@@ -13,6 +13,7 @@ Shipped:
   - `FileUpload`/`Repeater` + `Section`/`Grid`, `SelectFilter`/`TernaryFilter`/`DateFilter` via `FilterBuilder` + `TableState ?filters=`, in-memory `group_by` + `count` summarizer + `to_csv()`, CSV export via `GET /admin/{slug}/export` (`text/csv` + `Content-Disposition`).
   - Tenancy `cx.with(Tenant)` + `tenant_id(cx)` (`x-tenant-id` header / `Cx` extensions) + per-tenant `Policy`, `Panel::brand(Brand{name,logo})` + `Panel::dark_mode(bool)` in `Shell`.
   - `benchmarks/` Phase-2 budget (50 rows, 2 includes, `<40ms p50`).
+- **Post-Phase-2 polish (GH #73, #77, #78):** `FileUpload` forms emit `enctype="multipart/form-data"` and the POST parser stores the file filename as the `String` path (bytes not persisted in v1, no `value` on `type=file`); `Repeater` is a documented single-entry group with its label-keyed `required` error rendered inline; `VariantFilter` filters embedded-enum variants via prebuilt `is_variant()` predicates through `TableState ?filters=`.
 
 Remaining `Page`/`Theme`/`ChartWidget`/`via` gaps tracked in GH issue #38. The sections below mix shipped design with the original spec; where they disagree, the **code and `docs/adr/` win**.
 
