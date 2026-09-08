@@ -25,6 +25,59 @@ async fn full_db() -> Db {
 }
 
 #[tokio::test]
+async fn posts_filter_widgets_render_typed_controls() {
+    let db = full_db().await;
+    let router = router(db);
+    let resp = router
+        .handle(
+            Request::builder()
+                .uri("/admin/posts?filters=status:published")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+    assert!(resp.status().is_success());
+    let body = resp.into_body().collect().await.unwrap().to_bytes();
+    let html = String::from_utf8_lossy(&body);
+    // One typed control per declared filter, composed by filters.js into the
+    // single filters param (free-text input stays as the fallback).
+    for name in ["status", "featured", "created_at"] {
+        assert!(
+            html.contains(&format!("data-filter-name=\"{name}\"")),
+            "missing control for {name} in {html}",
+            name = name,
+            html = html
+        );
+    }
+    assert!(
+        html.contains("data-filters-form"),
+        "missing filters form in {}",
+        html
+    );
+    // Select options, ternary values, date input, current selection.
+    assert!(
+        html.contains("draft") && html.contains("published"),
+        "missing status options in {}",
+        html
+    );
+    assert!(
+        html.contains("value=\"true\"") && html.contains("value=\"false\""),
+        "missing ternary options in {}",
+        html
+    );
+    assert!(
+        html.contains("type=\"date\""),
+        "missing date control in {}",
+        html
+    );
+    assert!(
+        html.contains("name=\"filters\"") && html.contains("status:published"),
+        "missing free-text fallback in {}",
+        html
+    );
+}
+
+#[tokio::test]
 async fn posts_filter_select_status_published() {
     let db = full_db().await;
     let router = router(db);

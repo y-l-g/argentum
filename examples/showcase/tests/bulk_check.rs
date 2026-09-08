@@ -105,6 +105,108 @@ async fn bulk_delete_deletes_selected() {
 }
 
 #[tokio::test]
+async fn bulk_bar_renders_checkboxes_with_row_keys() {
+    let db = seeded_db().await;
+    let router = router(db.clone());
+    let mut db_q = db.clone();
+    let users = User::all().exec(&mut db_q).await.unwrap();
+    assert_eq!(users.len(), 3);
+    let ids: std::collections::HashSet<String> = users.iter().map(|u| u.id.to_string()).collect();
+
+    // The list streams (skeleton first, rows in the swap payload); the
+    // collected body contains both. The table paginates by 2, so the first
+    // page carries exactly 2 row checkboxes.
+    let resp = router
+        .handle(
+            Request::builder()
+                .uri("/admin/users")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+    assert!(resp.status().is_success());
+    let body = resp.into_body().collect().await.unwrap().to_bytes();
+    let html = String::from_utf8_lossy(&body);
+    assert_eq!(
+        html.matches("data-row-select").count(),
+        2,
+        "first page should carry 2 row checkboxes in {}",
+        html
+    );
+    // Every rendered checkbox value is a real row key (the two visible rows;
+    // delete forms carry ids in actions, never in `value=`).
+    let mut found = 0;
+    for u in &users {
+        if html.contains(&format!("value=\"{}\"", u.id)) {
+            found += 1;
+        }
+    }
+    assert_eq!(
+        found, 2,
+        "both visible row keys should be checkbox values in {}",
+        html
+    );
+    assert!(
+        html.contains("data-bulk-select-all"),
+        "missing select-all in {}",
+        html
+    );
+    // Bulk form keeps the single ids transport (JS joins checked keys into
+    // it; the text field is the no-JS fallback).
+    assert!(
+        html.contains("data-bulk-form") && html.contains("name=\"ids\""),
+        "missing bulk form transport in {}",
+        html
+    );
+    // A filtered list shows only the matching row's checkbox.
+    let ada = users.iter().find(|u| u.name == "Ada Lovelace").unwrap();
+    let resp = router
+        .handle(
+            Request::builder()
+                .uri("/admin/users?q=Ada")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+    let body = resp.into_body().collect().await.unwrap().to_bytes();
+    let html = String::from_utf8_lossy(&body);
+    assert!(
+        html.contains(&format!("value=\"{}\"", ada.id)),
+        "filtered row checkbox missing in {}",
+        html
+    );
+    assert!(
+        !ids.iter()
+            .filter(|id| *id != &ada.id.to_string())
+            .any(|id| html.contains(&format!("value=\"{id}\""))),
+        "only the filtered row should be selectable in {}",
+        html
+    );
+    // Checkbox-joined POST uses the same comma format the handler parses.
+    let ids_param = users
+        .iter()
+        .take(2)
+        .map(|u| u.id.to_string())
+        .collect::<Vec<_>>()
+        .join(",");
+    let resp = router
+        .handle(
+            Request::builder()
+                .uri("/admin/users/bulk-delete")
+                .method(Method::POST)
+                .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .body(Body::from(format!("ids={}", ids_param)))
+                .unwrap(),
+        )
+        .await;
+    assert!(
+        resp.status().is_redirection(),
+        "checkbox-joined bulk delete should redirect, got {}",
+        resp.status()
+    );
+}
+
+#[tokio::test]
 async fn bulk_delete_partial_deny_aborts() {
     use argentum_core::{Resource, Schema, Table, TextColumn, TextInput};
 
