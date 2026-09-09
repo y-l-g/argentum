@@ -238,6 +238,12 @@ impl Resource for AuthorResource {
         Self::can_view_any(cx)
     }
 
+    // Tenant-scoped model (GH #87): every handler fails closed without a
+    // tenant instead of leaking unscoped rows or minting nil-tenant orphans.
+    fn requires_tenant() -> bool {
+        true
+    }
+
     fn table(cx: &Cx) -> Table<Author> {
         Table::r#for(cx)
             .id(|a: &Author| a.id.to_string())
@@ -290,7 +296,7 @@ impl Resource for AuthorResource {
                 .unwrap_or_default()
                 .trim()
                 .to_string();
-            let tid = tenant_id(&cx).unwrap_or(uuid::Uuid::nil());
+            let tid = tenant_id(&cx).expect("requires_tenant handlers always set a tenant (GH #87)");
             toasty::create!(Author {
                 tenant_id: tid,
                 name: name,
@@ -414,6 +420,12 @@ impl Resource for PostResource {
     }
     fn can_delete(cx: &Cx, _record: &Post) -> bool {
         Self::can_view_any(cx)
+    }
+
+    // Tenant-scoped model (GH #87): every handler fails closed without a
+    // tenant instead of leaking unscoped rows or minting nil-tenant orphans.
+    fn requires_tenant() -> bool {
+        true
     }
 
     fn table(cx: &Cx) -> Table<Post> {
@@ -553,7 +565,7 @@ impl Resource for PostResource {
                 .unwrap_or_default()
                 .trim()
                 .to_string();
-            let tid = tenant_id(&cx).unwrap_or(uuid::Uuid::nil());
+            let tid = tenant_id(&cx).expect("requires_tenant handlers always set a tenant (GH #87)");
             toasty::create!(Post {
                 tenant_id: tid,
                 title: title,

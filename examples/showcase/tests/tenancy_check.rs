@@ -188,3 +188,142 @@ async fn tenancy_via_cx_with_tenant_scopes_query_directly() {
     assert_eq!(rows2.len(), 1);
     assert_eq!(rows2[0].title, "T2 Post");
 }
+
+#[tokio::test]
+async fn tenantless_requests_to_gated_resources_fail_closed() {
+    // GH #87: Author/Post declare requires_tenant — every handler 403s
+    // without a tenant instead of leaking rows or minting nil orphans.
+    use http::Method;
+    use http::header::{CONTENT_TYPE, COOKIE};
+    use showcase::models::{Author, seed, seed_phase2};
+    use topcoat::router::Body;
+
+    let mut db = Db::builder()
+        .models(toasty::models!(
+            showcase::models::User,
+            showcase::models::Author,
+            showcase::models::Post,
+            showcase::models::Comment
+        ))
+        .connect("sqlite::memory:")
+        .await
+        .unwrap();
+    db.push_schema().await.unwrap();
+    seed(&mut db).await.unwrap();
+    seed_phase2(&mut db).await.unwrap();
+    let router = router(db.clone());
+
+    // List without tenant → 403 (not unscoped rows).
+    let resp = router
+        .handle(
+            Request::builder()
+                .uri("/admin/posts")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+    assert_eq!(resp.status(), 403, "tenantless list must fail closed");
+
+    // Create without tenant → 403 and no row (not a nil-tenant orphan).
+    let csrf = uuid::Uuid::new_v4().to_string();
+    let mut db_q = db.clone();
+    let authors = Author::all().exec(&mut db_q).await.unwrap();
+    let before = showcase::models::Post::all()
+        .exec(&mut db_q)
+        .await
+        .unwrap()
+        .len();
+    let resp = router
+        .handle(
+            Request::builder()
+                .uri("/admin/posts/create")
+                .method(Method::POST)
+                .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .header(COOKIE, format!("argentum_csrf={csrf}"))
+                .body(Body::from(format!(
+                    "title=Orphan&author_id={}&image_path=/tmp/o.jpg&tags=o&csrf_token={csrf}",
+                    authors[0].id
+                )))
+                .unwrap(),
+        )
+        .await;
+    assert_eq!(resp.status(), 403, "tenantless create must fail closed");
+    let after = showcase::models::Post::all()
+        .exec(&mut db_q)
+        .await
+        .unwrap()
+        .len();
+    assert_eq!(before, after, "no nil-tenant orphan may be minted");
+    // Seeds themselves carry the demo tenant — no nil rows exist.
+    let nil_rows = showcase::models::Post::filter(
+        showcase::models::Post::fields()
+            .tenant_id()
+            .eq(uuid::Uuid::nil()),
+    )
+    .exec(&mut db_q)
+    .await
+    .unwrap();
+    assert!(
+        nil_rows.is_empty(),
+        "seed migration must leave zero nil-tenant rows"
+    );
+}
+
+#[tokio::test]
+async fn header_create_assigns_header_tenant() {
+    // GH #87: creates land in the request tenant, never nil.
+    use http::Method;
+    use http::header::{CONTENT_TYPE, COOKIE};
+    use showcase::models::{Author, seed, seed_phase2};
+    use topcoat::router::Body;
+
+    let mut db = Db::builder()
+        .models(toasty::models!(
+            showcase::models::User,
+            showcase::models::Author,
+            showcase::models::Post,
+            showcase::models::Comment
+        ))
+        .connect("sqlite::memory:")
+        .await
+        .unwrap();
+    db.push_schema().await.unwrap();
+    seed(&mut db).await.unwrap();
+    seed_phase2(&mut db).await.unwrap();
+    let router = router(db.clone());
+    let tenant = showcase::models::DEMO_TENANT;
+    let csrf = uuid::Uuid::new_v4().to_string();
+    let mut db_q = db.clone();
+    let authors = Author::all().exec(&mut db_q).await.unwrap();
+    let resp = router
+        .handle(
+            Request::builder()
+                .uri("/admin/posts/create")
+                .method(Method::POST)
+                .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .header(COOKIE, format!("argentum_csrf={csrf}"))
+                .header("x-tenant-id", tenant.to_string())
+                .body(Body::from(format!(
+                    "title=Tenanted&author_id={}&image_path=/tmp/t.jpg&tags=t&csrf_token={csrf}",
+                    authors[0].id
+                )))
+                .unwrap(),
+        )
+        .await;
+    assert!(
+        resp.status().is_redirection(),
+        "header-authed create must redirect, got {}",
+        resp.status()
+    );
+    let created = showcase::models::Post::filter(
+        showcase::models::Post::fields()
+            .title()
+            .eq("Tenanted".to_string()),
+    )
+    .first()
+    .exec(&mut db_q)
+    .await
+    .unwrap()
+    .expect("created post");
+    assert_eq!(created.tenant_id, tenant);
+}

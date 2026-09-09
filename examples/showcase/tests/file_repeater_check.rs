@@ -2,7 +2,7 @@ use http::{Method, Request, header::{CONTENT_TYPE, COOKIE}};
 use http_body_util::BodyExt;
 use showcase::{
     app::router_for_tests as router,
-    models::{Author, Post, seed, seed_phase2},
+    models::{Author, DEMO_TENANT, Post, seed, seed_phase2},
 };
 use toasty::Db;
 use topcoat::router::Body;
@@ -32,6 +32,7 @@ async fn posts_create_shows_fileupload_and_repeater() {
         .handle(
             Request::builder()
                 .uri("/admin/posts/create")
+                .header("x-tenant-id", DEMO_TENANT.to_string())
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -93,6 +94,7 @@ async fn posts_create_invalid_fileupload_repeater_shows_errors() {
         .handle(
             Request::builder()
                 .uri("/admin/posts/create")
+                .header("x-tenant-id", DEMO_TENANT.to_string())
                 .method(Method::POST)
                 .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
                 .header(COOKIE, format!("argentum_csrf={csrf}"))
@@ -136,6 +138,7 @@ async fn posts_create_valid_fileupload_repeater_creates() {
         .handle(
             Request::builder()
                 .uri("/admin/posts/create")
+                .header("x-tenant-id", DEMO_TENANT.to_string())
                 .method(Method::POST)
                 .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
                 .header(COOKIE, format!("argentum_csrf={csrf}"))
@@ -173,6 +176,7 @@ async fn posts_create_form_is_multipart() {
         .handle(
             Request::builder()
                 .uri("/admin/posts/create")
+                .header("x-tenant-id", DEMO_TENANT.to_string())
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -238,6 +242,7 @@ async fn posts_create_multipart_file_stores_filename() {
         .handle(
             Request::builder()
                 .uri("/admin/posts/create")
+                .header("x-tenant-id", DEMO_TENANT.to_string())
                 .method(Method::POST)
                 .header(
                     CONTENT_TYPE,
@@ -287,6 +292,7 @@ async fn posts_edit_untouched_file_keeps_stored_path() {
         .handle(
             Request::builder()
                 .uri(format!("/admin/posts/{}/edit", post.id))
+                .header("x-tenant-id", DEMO_TENANT.to_string())
                 .method(Method::POST)
                 .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
                 .header(COOKIE, format!("argentum_csrf={csrf}"))

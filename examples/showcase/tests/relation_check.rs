@@ -5,7 +5,7 @@ use http::{
 use http_body_util::BodyExt;
 use showcase::{
     app::router_for_tests as router,
-    models::{Author, Post, seed, seed_phase2},
+    models::{Author, DEMO_TENANT, Post, seed, seed_phase2},
 };
 use toasty::Db;
 use topcoat::router::Body;
@@ -35,6 +35,7 @@ async fn posts_list_shows_author_name() {
         .handle(
             Request::builder()
                 .uri("/admin/posts")
+                .header("x-tenant-id", DEMO_TENANT.to_string())
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -54,6 +55,7 @@ async fn posts_create_shows_select_with_author_options() {
         .handle(
             Request::builder()
                 .uri("/admin/posts/create")
+                .header("x-tenant-id", DEMO_TENANT.to_string())
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -78,6 +80,7 @@ async fn posts_create_empty_author_shows_required_error() {
         .handle(
             Request::builder()
                 .uri("/admin/posts/create")
+                .header("x-tenant-id", DEMO_TENANT.to_string())
                 .method(Method::POST)
                 .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
                 .header(COOKIE, format!("argentum_csrf={csrf}"))
@@ -117,6 +120,7 @@ async fn posts_create_invalid_author_shows_invalid_error() {
         .handle(
             Request::builder()
                 .uri("/admin/posts/create")
+                .header("x-tenant-id", DEMO_TENANT.to_string())
                 .method(Method::POST)
                 .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
                 .header(COOKIE, format!("argentum_csrf={csrf}"))
@@ -154,6 +158,7 @@ async fn posts_create_valid_redirects_and_creates() {
         .handle(
             Request::builder()
                 .uri("/admin/posts/create")
+                .header("x-tenant-id", DEMO_TENANT.to_string())
                 .method(Method::POST)
                 .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
                 .header(COOKIE, format!("argentum_csrf={csrf}"))
@@ -195,6 +200,7 @@ async fn posts_edit_hydrates_author() {
         .handle(
             Request::builder()
                 .uri("/admin/posts/create")
+                .header("x-tenant-id", DEMO_TENANT.to_string())
                 .method(Method::POST)
                 .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
                 .header(COOKIE, format!("argentum_csrf={csrf}"))
@@ -217,6 +223,7 @@ async fn posts_edit_hydrates_author() {
         .handle(
             Request::builder()
                 .uri(edit_url)
+                .header("x-tenant-id", DEMO_TENANT.to_string())
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -240,6 +247,7 @@ async fn posts_list_shows_comments_count_via_include() {
         .handle(
             Request::builder()
                 .uri("/admin/posts")
+                .header("x-tenant-id", DEMO_TENANT.to_string())
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -288,6 +296,7 @@ async fn posts_update_rechecks_author_existence() {
         .handle(
             Request::builder()
                 .uri(edit_url.clone())
+                .header("x-tenant-id", DEMO_TENANT.to_string())
                 .method(Method::POST)
                 .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
                 .header(COOKIE, format!("argentum_csrf={csrf}"))
@@ -309,6 +318,7 @@ async fn posts_update_rechecks_author_existence() {
         .handle(
             Request::builder()
                 .uri(edit_url)
+                .header("x-tenant-id", DEMO_TENANT.to_string())
                 .method(Method::POST)
                 .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
                 .header(COOKIE, format!("argentum_csrf={csrf}"))

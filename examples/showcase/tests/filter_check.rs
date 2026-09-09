@@ -2,7 +2,7 @@ use http::Request;
 use http_body_util::BodyExt;
 use showcase::{
     app::router_for_tests as router,
-    models::{seed, seed_phase2},
+    models::{DEMO_TENANT, seed, seed_phase2},
 };
 use toasty::Db;
 use topcoat::router::Body;
@@ -32,6 +32,7 @@ async fn posts_filter_widgets_render_typed_controls() {
         .handle(
             Request::builder()
                 .uri("/admin/posts?filters=status:published")
+                .header("x-tenant-id", DEMO_TENANT.to_string())
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -86,6 +87,7 @@ async fn posts_filter_select_status_published() {
         .handle(
             Request::builder()
                 .uri("/admin/posts?filters=status:published")
+                .header("x-tenant-id", DEMO_TENANT.to_string())
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -114,6 +116,7 @@ async fn posts_filter_ternary_featured_true() {
         .handle(
             Request::builder()
                 .uri("/admin/posts?filters=featured:true")
+                .header("x-tenant-id", DEMO_TENANT.to_string())
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -141,6 +144,7 @@ async fn posts_filter_ternary_featured_false() {
         .handle(
             Request::builder()
                 .uri("/admin/posts?filters=featured:false")
+                .header("x-tenant-id", DEMO_TENANT.to_string())
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -169,6 +173,7 @@ async fn posts_filter_date_created_at() {
         .handle(
             Request::builder()
                 .uri("/admin/posts?filters=created_at:2024-01-15T09:30:00Z")
+                .header("x-tenant-id", DEMO_TENANT.to_string())
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -197,6 +202,7 @@ async fn posts_filter_composes_and() {
         .handle(
             Request::builder()
                 .uri("/admin/posts?filters=status:published,featured:true")
+                .header("x-tenant-id", DEMO_TENANT.to_string())
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -214,6 +220,7 @@ async fn posts_filter_composes_and() {
         .handle(
             Request::builder()
                 .uri("/admin/posts?filters=status:draft,featured:true")
+                .header("x-tenant-id", DEMO_TENANT.to_string())
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -241,6 +248,7 @@ async fn table_state_parses_filters_and_filter_expr() {
     // Test parsing
     let (parts, ()) = http::Request::builder()
         .uri("/admin/posts?filters=status:published,featured:true")
+        .header("x-tenant-id", DEMO_TENANT.to_string())
         .body(())
         .unwrap()
         .into_parts();
@@ -294,6 +302,7 @@ async fn typo_filter_warns_on_list_but_refuses_export() {
         .handle(
             Request::builder()
                 .uri("/admin/posts?filters=stauts:published")
+                .header("x-tenant-id", DEMO_TENANT.to_string())
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -310,6 +319,7 @@ async fn typo_filter_warns_on_list_but_refuses_export() {
         .handle(
             Request::builder()
                 .uri("/admin/posts/export?filters=stauts:published")
+                .header("x-tenant-id", DEMO_TENANT.to_string())
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -326,6 +336,7 @@ async fn typo_filter_warns_on_list_but_refuses_export() {
         .handle(
             Request::builder()
                 .uri("/admin/posts/export?filters=status:Published")
+                .header("x-tenant-id", DEMO_TENANT.to_string())
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -342,6 +353,7 @@ async fn typo_filter_warns_on_list_but_refuses_export() {
         .handle(
             Request::builder()
                 .uri("/admin/posts/export?filters=status:published")
+                .header("x-tenant-id", DEMO_TENANT.to_string())
                 .body(Body::empty())
                 .unwrap(),
         )

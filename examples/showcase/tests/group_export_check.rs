@@ -2,7 +2,7 @@ use http::Request;
 use http_body_util::BodyExt;
 use showcase::{
     app::router_for_tests as router,
-    models::{seed, seed_phase2},
+    models::{DEMO_TENANT, seed, seed_phase2},
 };
 use toasty::Db;
 use topcoat::router::Body;
@@ -33,6 +33,7 @@ async fn posts_export_bom_opt_in_prepends_bom() {
         .handle(
             Request::builder()
                 .uri("/admin/posts/export?bom=1")
+                .header("x-tenant-id", DEMO_TENANT.to_string())
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -49,6 +50,7 @@ async fn posts_export_bom_opt_in_prepends_bom() {
         .handle(
             Request::builder()
                 .uri("/admin/posts/export")
+                .header("x-tenant-id", DEMO_TENANT.to_string())
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -69,6 +71,7 @@ async fn posts_group_by_status_shows_counts() {
         .handle(
             Request::builder()
                 .uri("/admin/posts?group_by=status")
+                .header("x-tenant-id", DEMO_TENANT.to_string())
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -102,6 +105,7 @@ async fn posts_export_streams_csv_with_content_disposition() {
         .handle(
             Request::builder()
                 .uri("/admin/posts/export")
+                .header("x-tenant-id", DEMO_TENANT.to_string())
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -164,6 +168,7 @@ async fn posts_export_streams_csv_with_content_disposition() {
         .handle(
             Request::builder()
                 .uri("/admin/posts/export?filters=status:published")
+                .header("x-tenant-id", DEMO_TENANT.to_string())
                 .body(Body::empty())
                 .unwrap(),
         )

@@ -109,11 +109,15 @@ pub async fn seed(db: &mut Db) -> toasty::Result<()> {
     Ok(())
 }
 
+/// The tenant owning all showcase seed rows (GH #87): seeds never mint
+/// nil-tenant orphans, and gated-resource tests send this as `x-tenant-id`.
+pub const DEMO_TENANT: uuid::Uuid = uuid::Uuid::from_u128(100);
+
 /// Seed Phase 2 relation data (Authors + Posts + Comments) — call only when DB was built with all models.
 pub async fn seed_phase2(db: &mut Db) -> toasty::Result<()> {
     // Authors
     if Author::all().exec(db).await?.is_empty() {
-        let tenant = uuid::Uuid::nil();
+        let tenant = DEMO_TENANT;
         let ada_author = toasty::create!(Author {
             tenant_id: tenant,
             name: "Ada Author",
