@@ -67,7 +67,7 @@ A `suspense` region of the page whose content swaps in after the first render. T
 _Avoid_: Shard (as domain term), Region, Island, Boundary (pre-#373 topcoat component, removed upstream)
 
 ### Notification
-A transient user-visible message (status + title, ~4s) produced by a record operation's result, rendered in a shell-level stack owned by the Panel layout so it survives table swaps.
+A transient user-visible message (status + title, auto-dismissed after ~4s by `notifications.js` with manual dismiss) produced by a record operation's result, rendered in a shell-level stack owned by the Panel layout so it survives table swaps.
 
 _Avoid_: Toast, Flash, Alert (as domain term)
 

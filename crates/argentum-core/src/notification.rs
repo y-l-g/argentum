@@ -1,7 +1,9 @@
 //! `Notification` — transient user-visible message (CONTEXT.md).
 //!
 //! Produced by an `Action`'s result and rendered in the `Panel` shell's
-//! top-level boundary so it survives `Table` swaps. Status + title, ~4s.
+//! top-level boundary so it survives `Table` swaps. Status + title,
+//! auto-dismissed after ~4s by `argentum-ui/assets/notifications.js`
+//! (manual dismiss via `[data-notification-close]`).
 
 use topcoat::context::{Cx, try_request_context};
 use topcoat::cookie::{Cookie, CookieJarCell, Cookies, cookies};
@@ -65,7 +67,7 @@ impl Notification {
     }
 
     /// Encode to cookie value: `status:title` (title is percent-encoded to avoid `:` issues).
-    fn encode(&self) -> String {
+    pub(crate) fn encode(&self) -> String {
         // Simple encoding: status + ":" + percent-encoded title (use URL encoding for ":" and ";")
         // For MVP, just replace ":" with "%3A" and ";" with "%3B"
         let escaped = self
@@ -89,7 +91,7 @@ impl Notification {
     }
 }
 
-const COOKIE_NAME: &str = "argentum_notification";
+pub(crate) const COOKIE_NAME: &str = "argentum_notification";
 
 /// Store a notification for the next request (flash).
 #[allow(clippy::question_mark)]
@@ -134,7 +136,7 @@ pub fn render_notification(cx: &Cx) -> Option<String> {
     // The actual rendering will be done via view! in panel.rs; this helper just provides data.
     // But we expose a helper to get the notification for rendering.
     Some(format!(
-        r#"<div class="rounded-xl border {border} shadow-sm p-4"><p class="text-sm font-medium">{}</p></div>"#,
+        r#"<div class="rounded-xl border {border} shadow-sm p-4" data-notification=""><p class="text-sm font-medium">{}</p><button type="button" data-notification-close="" aria-label="Dismiss notification">Dismiss</button></div>"#,
         html_escape(&n.title)
     ))
 }
@@ -219,6 +221,15 @@ mod tests {
             assert!(!html.contains("<script>"), "title must be escaped, got {html}");
             assert!(html.contains("&lt;script&gt;"), "missing escaped title, got {html}");
             assert!(html.contains("&#x27;"), "single quote must be escaped, got {html}");
+            // Auto-dismiss hook for notifications.js (GH #97).
+            assert!(
+                html.contains("data-notification"),
+                "missing data-notification hook, got {html}"
+            );
+            assert!(
+                html.contains("data-notification-close"),
+                "missing dismiss hook, got {html}"
+            );
         }
     }
 }

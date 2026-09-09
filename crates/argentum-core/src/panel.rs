@@ -496,8 +496,15 @@ impl Panel {
                 cx =>
                 <div
                     class=(card_class)
+                    data-notification=""
                 >
                     <p class="text-sm font-medium text-foreground">(title)</p>
+                    <button
+                        type="button"
+                        class="text-xs text-muted-foreground underline"
+                        aria-label="Dismiss notification"
+                        data-notification-close=""
+                    >"Dismiss"</button>
                 </div>
             }
             .boxed()
@@ -622,6 +629,7 @@ impl Panel {
                 <script src=(argentum_ui::CODE_BLOCK_JS)></script>
                 <script src=(argentum_ui::BULK_JS)></script>
                 <script src=(argentum_ui::FILTERS_JS)></script>
+                <script src=(argentum_ui::NOTIFICATION_JS)></script>
             }
             .boxed(),
             None => view! {
@@ -2520,6 +2528,57 @@ mod tests {
         assert!(
             html.contains("&quot;"),
             "attribute quotes must be escaped, got {html}"
+        );
+    }
+
+    #[tokio::test]
+    async fn shell_notification_carries_dismiss_hooks() {
+        use crate::notification::Notification;
+        use crate::resource::NavigationItem;
+        use topcoat::context::CxTestBuilder;
+        use topcoat::cookie::CookieJarCell;
+        use topcoat::view::view;
+
+        // GH #97: the shell toast carries the auto-dismiss hooks that
+        // notifications.js arms (~4s fade + manual dismiss).
+        let enc = Notification::success("Created").encode();
+        let mut parts = http::Request::builder()
+            .uri("/admin/users")
+            .body(())
+            .unwrap()
+            .into_parts()
+            .0;
+        parts.headers.insert(
+            http::header::COOKIE,
+            format!("{}={enc}", crate::notification::COOKIE_NAME)
+                .parse()
+                .unwrap(),
+        );
+        let cx = CxTestBuilder::new()
+            .request_context(parts)
+            .request_context(CookieJarCell::new())
+            .build();
+        let nav_items = vec![NavigationItem {
+            label: "Users".to_string(),
+            url: "/admin/users".to_string(),
+            href_check: None,
+        }];
+        let cx_ref = &cx;
+        let slot = view! { cx_ref => "hello" }.boxed().into();
+        let html = Panel::render_shell(&cx, &nav_items, "/admin/users", slot, None)
+            .await
+            .unwrap()
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
+        assert!(
+            html.contains("data-notification"),
+            "shell toast must carry data-notification, got {html}"
+        );
+        assert!(
+            html.contains("data-notification-close"),
+            "shell toast must carry dismiss button, got {html}"
         );
     }
 

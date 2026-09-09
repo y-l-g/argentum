@@ -54,6 +54,8 @@ pub const DIALOG_JS: topcoat::asset::Asset = topcoat::asset::asset!("../assets/d
 pub const CODE_BLOCK_JS: topcoat::asset::Asset = topcoat::asset::asset!("../assets/code_block.js");
 pub const BULK_JS: topcoat::asset::Asset = topcoat::asset::asset!("../assets/bulk.js");
 pub const FILTERS_JS: topcoat::asset::Asset = topcoat::asset::asset!("../assets/filters.js");
+pub const NOTIFICATION_JS: topcoat::asset::Asset =
+    topcoat::asset::asset!("../assets/notifications.js");
 
 /// Tailwind build helper for the per-app contract.
 ///
