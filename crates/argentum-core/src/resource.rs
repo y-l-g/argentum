@@ -1218,6 +1218,8 @@ impl<M> Table<M> {
         // Grouping (in-memory, count summarizer) — when `?group_by=` is present and table has a group key.
         // Rendered after skeleton/empty so defer shows skeleton and empty shows
         // the honest empty state even when `?group_by=` is set (GH #75).
+        // Counts are page-local (GH #92): label them as such so page 1 never
+        // reads as a table total.
         if let (Some(group_fn), Some(_)) = (&self.group_by, &state.group_by) {
             use std::collections::BTreeMap;
             let mut groups: BTreeMap<String, usize> = BTreeMap::new();
@@ -1226,7 +1228,7 @@ impl<M> Table<M> {
             }
             let mut group_views: Vec<BoxView<'_>> = Vec::new();
             for (key, count) in groups {
-                let text = format!("{} ({})", key, count);
+                let text = format!("{} ({} on this page)", key, count);
                 group_views.push(
                     view! {
                         cx =>
@@ -1503,6 +1505,7 @@ impl<M> Table<M> {
             .as_ref()
             .map(|s| if s.descending { "desc" } else { "asc" });
         let filters_hidden = state.filters_param();
+        let group_hidden = state.group_by.clone();
         let clear_url = state
             .sort
             .as_ref()
@@ -1513,13 +1516,26 @@ impl<M> Table<M> {
                         ("sort", Some(s.column.as_str())),
                         ("dir", Some(if s.descending { "desc" } else { "asc" })),
                         ("filters", filters_hidden.as_deref()),
+                        ("group_by", state.group_by.as_deref()),
                     ],
                 )
             })
             .or_else(|| {
-                filters_hidden
-                    .as_ref()
-                    .map(|f| build_url(path, &[("filters", Some(f.as_str()))]))
+                filters_hidden.as_ref().map(|f| {
+                    build_url(
+                        path,
+                        &[
+                            ("filters", Some(f.as_str())),
+                            ("group_by", state.group_by.as_deref()),
+                        ],
+                    )
+                })
+            })
+            .or_else(|| {
+                state
+                    .group_by
+                    .as_deref()
+                    .map(|g| build_url(path, &[("group_by", Some(g))]))
             });
         Ok(view! {
             cx =>
@@ -1536,6 +1552,9 @@ impl<M> Table<M> {
                 }
                 if let Some(filters) = filters_hidden.clone() {
                     <input type="hidden" name="filters" value=(filters)>
+                }
+                if let Some(group_by) = group_hidden {
+                    <input type="hidden" name="group_by" value=(group_by)>
                 }
                 ui_input(
                     attrs: attributes! {
@@ -1586,6 +1605,7 @@ impl<M> Table<M> {
             .as_ref()
             .map(|s| if s.descending { "desc" } else { "asc" });
         let q_hidden = state.search.clone();
+        let group_hidden = state.group_by.clone();
         let clear_url = if !state.filters.is_empty() {
             Some(build_url(
                 path,
@@ -1593,6 +1613,7 @@ impl<M> Table<M> {
                     ("q", state.search.as_deref()),
                     ("sort", state.sort.as_ref().map(|s| s.column.as_str())),
                     ("dir", dir_hidden),
+                    ("group_by", state.group_by.as_deref()),
                 ],
             ))
         } else {
@@ -1728,6 +1749,9 @@ impl<M> Table<M> {
                 if let Some(dir) = dir_hidden {
                     <input type="hidden" name="dir" value=(dir)>
                 }
+                if let Some(group_by) = group_hidden {
+                    <input type="hidden" name="group_by" value=(group_by)>
+                }
                 for ctl in controls {
                     (ctl)
                 }
@@ -1856,6 +1880,7 @@ impl<M> Table<M> {
             ("sort", state.sort.as_ref().map(|s| s.column.as_str())),
             ("dir", dir),
             ("filters", filters_param.as_deref()),
+            ("group_by", state.group_by.as_deref()),
         ];
         let href = |param: &str, cursor: &str| {
             let mut params = Vec::with_capacity(preserve.len() + 1);
@@ -1943,6 +1968,7 @@ impl<M> Table<M> {
                         ("sort", Some(col.name())),
                         ("dir", Some(if next_desc { "desc" } else { "asc" })),
                         ("filters", state.filters_param().as_deref()),
+                        ("group_by", state.group_by.as_deref()),
                     ],
                 );
                 let aria_label = format!(
@@ -3764,5 +3790,45 @@ mod tests {
         // Legacy plain values still parse.
         let legacy = parse_filters_param("status:published, featured:true");
         assert_eq!(legacy.get("status").map(String::as_str), Some("published"));
+    }
+
+    #[tokio::test]
+    async fn group_by_survives_pager_and_labels_page_local_counts() {
+        let cx = CxTestBuilder::new().build();
+        let grouped = Table::<User>::r#for(&cx)
+            .id(|u| u.id.to_string())
+            .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()).sortable())
+            .group_by(|u| u.name.clone())
+            .paginate(1);
+        let state = TableState {
+            group_by: Some("status".to_string()),
+            sort: Some(Sort {
+                column: "name".to_string(),
+                descending: false,
+            }),
+            ..TableState::default()
+        };
+        let rows = vec![User {
+            id: uuid::Uuid::nil(),
+            name: "Ada".to_string(),
+        }];
+        let page = TablePage {
+            rows,
+            next_cursor: Some("abc".to_string()),
+            prev_cursor: None,
+        };
+        let html = grouped
+            .render_with_state(&cx, page, &state, "/admin/users")
+            .await
+            .unwrap()
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
+        assert!(html.contains("on this page"), "group header must be page-local, got {html}");
+        assert!(
+            html.contains("group_by") && html.contains("after=abc"),
+            "pager must preserve group_by, got {html}"
+        );
     }
 }
