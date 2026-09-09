@@ -147,18 +147,16 @@ impl Resource for UserResource {
                 .await
                 .map_err(|e| -> topcoat::Error { e.into() })?
                 .ok_or_else(topcoat::router::error::not_found)?;
-            let name = values
-                .get("name")
-                .cloned()
-                .unwrap_or_default()
-                .trim()
-                .to_string();
-            let email = values
-                .get("email")
-                .cloned()
-                .unwrap_or_default()
-                .trim()
-                .to_string();
+            let name = match values.get("name") {
+                // Absent keys keep the stored value (GH #89): an omitted
+                // optional field must not silently blank the record.
+                Some(v) => v.trim().to_string(),
+                None => record.name.clone(),
+            };
+            let email = match values.get("email") {
+                Some(v) => v.trim().to_string(),
+                None => record.email.clone(),
+            };
             toasty::update!(record {
                 name: name,
                 email: email,
@@ -361,18 +359,15 @@ impl Resource for AuthorResource {
                 .await
                 .map_err(|e| -> topcoat::Error { e.into() })?
                 .ok_or_else(topcoat::router::error::not_found)?;
-            let name = values
-                .get("name")
-                .cloned()
-                .unwrap_or_default()
-                .trim()
-                .to_string();
-            let email = values
-                .get("email")
-                .cloned()
-                .unwrap_or_default()
-                .trim()
-                .to_string();
+            let name = match values.get("name") {
+                // Absent keys keep the stored value (GH #89).
+                Some(v) => v.trim().to_string(),
+                None => rec.name.clone(),
+            };
+            let email = match values.get("email") {
+                Some(v) => v.trim().to_string(),
+                None => rec.email.clone(),
+            };
             toasty::update!(rec {
                 name: name,
                 email: email
@@ -652,21 +647,17 @@ impl Resource for PostResource {
                 .await
                 .map_err(|e| -> topcoat::Error { e.into() })?
                 .ok_or_else(topcoat::router::error::not_found)?;
-            let title = values
-                .get("title")
-                .cloned()
-                .unwrap_or_default()
-                .trim()
-                .to_string();
-            let author_id_str = values
-                .get("author_id")
-                .cloned()
-                .unwrap_or_default()
-                .trim()
-                .to_string();
-            let author_id = author_id_str.parse::<uuid::Uuid>().map_err(|e| {
-                topcoat::Error::from(std::io::Error::other(format!("invalid author_id: {e}")))
-            })?;
+            let title = match values.get("title") {
+                // Absent keys keep the stored value (GH #89).
+                Some(v) => v.trim().to_string(),
+                None => rec.title.clone(),
+            };
+            let author_id = match values.get("author_id") {
+                Some(s) => s.trim().parse::<uuid::Uuid>().map_err(|e| {
+                    topcoat::Error::from(std::io::Error::other(format!("invalid author_id: {e}")))
+                })?,
+                None => rec.author_id,
+            };
             // Symmetric FK double-check (GH #91, mirrors create): validate_async
             // already checked, but the author may be cross-tenant or deleted since.
             let author_exists = AuthorResource::query(&cx)
@@ -681,18 +672,15 @@ impl Resource for PostResource {
                     "author not found",
                 )));
             }
-            let image_path = values
-                .get("image_path")
-                .cloned()
-                .unwrap_or_default()
-                .trim()
-                .to_string();
-            let tags = values
-                .get("tags")
-                .cloned()
-                .unwrap_or_default()
-                .trim()
-                .to_string();
+            let image_path = match values.get("image_path") {
+                // Absent keys keep the stored value (GH #89).
+                Some(v) => v.trim().to_string(),
+                None => rec.image_path.clone(),
+            };
+            let tags = match values.get("tags") {
+                Some(v) => v.trim().to_string(),
+                None => rec.tags.clone(),
+            };
             toasty::update!(rec {
                 title: title,
                 author_id: author_id,

@@ -266,3 +266,32 @@ async fn edit_policy_deny() {
         resp.status()
     );
 }
+
+#[tokio::test]
+async fn update_record_keeps_absent_fields() {
+    use argentum_core::Resource;
+    use showcase::app::UserResource;
+    use std::collections::HashMap;
+
+    let db = seeded_db().await;
+    let cx = topcoat::context::CxTestBuilder::new()
+        .app_context(db.clone())
+        .build();
+    let mut db_q = db.clone();
+    let users = User::all().exec(&mut db_q).await.unwrap();
+    let user = users.first().unwrap().clone();
+    // Only email submitted: name must keep its stored value (GH #89).
+    let mut values = HashMap::new();
+    values.insert("email".to_string(), "kept@example.com".to_string());
+    UserResource::update_record(&cx, user.id.to_string(), values)
+        .await
+        .unwrap();
+    let mut db_check = db.clone();
+    let fresh = User::get_by_id(&mut db_check, &user.id).await.unwrap();
+    assert_eq!(fresh.email, "kept@example.com");
+    assert_eq!(
+        fresh.name, user.name,
+        "absent fields must not be blanked, got {}",
+        fresh.name
+    );
+}
