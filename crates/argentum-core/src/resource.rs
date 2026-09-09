@@ -1607,8 +1607,8 @@ impl<M> Table<M> {
                         type="search"
                         name="q"
                         value=(q_display)
-                        placeholder="Search…"
-                        aria-label="Search table"
+                        placeholder="Prefix search…"
+                        aria-label="Prefix search table"
                         class="w-64"
                     }
                 )
@@ -1868,8 +1868,10 @@ impl<M> Table<M> {
         } else {
             None
         };
+        // Search is prefix-only (`starts_with`, GH #101): the empty copy says
+        // so instead of implying general search.
         let message = match &state.search {
-            Some(term) => format!("No results for \u{201c}{term}\u{201d}"),
+            Some(term) => format!("No prefix matches for \u{201c}{term}\u{201d}"),
             None if !state.filters.is_empty() => "No results for these filters".to_string(),
             None => "No records yet".to_string(),
         };

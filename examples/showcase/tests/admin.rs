@@ -677,8 +677,8 @@ async fn admin_list_empty_search_shows_no_results_with_clear() {
     let body = response.into_body().collect().await.unwrap().to_bytes();
     let html = String::from_utf8_lossy(&body);
     assert!(
-        html.contains("No results for"),
-        "search-empty state must say No results: {html}"
+        html.contains("No prefix matches for"),
+        "search-empty state must say No prefix matches: {html}"
     );
     assert!(
         !html.contains("No records yet"),
