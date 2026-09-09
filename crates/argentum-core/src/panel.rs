@@ -658,6 +658,18 @@ fn route_path(path: &str) -> topcoat::router::PathBuf {
         .to_owned()
 }
 
+/// Enforce tenancy gating for resources that require it (GH #87).
+///
+/// Wired into every resource handler; a no-op unless the resource overrides
+/// `Resource::requires_tenant`. Fails closed (403) when no tenant is present
+/// instead of serving unscoped rows.
+fn enforce_tenant<R: Resource>(cx: &Cx) -> Result<(), topcoat::Error> {
+    if R::requires_tenant() {
+        crate::tenancy::require_tenant(cx)?;
+    }
+    Ok(())
+}
+
 /// The list page every declared [`Resource`] gets at `{prefix}/{slug}`.
 ///
 /// One generic handler drives all resources: resolve the [`TableState`] from
@@ -672,6 +684,7 @@ fn route_path(path: &str) -> topcoat::router::PathBuf {
 /// the swap by design).
 fn resource_list<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
     Box::pin(HoistView::new(ThenView::new(async move {
+        enforce_tenant::<R>(cx)?;
         if !R::can_view_any(cx) {
             return Err(forbidden().into());
         }
@@ -1135,6 +1148,7 @@ async fn render_edit_page<'a, R: Resource>(
 /// Create page GET.
 fn resource_create<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
     Box::pin(HoistView::new(ThenView::new(async move {
+        enforce_tenant::<R>(cx)?;
         if !R::can_create(cx) {
             return Err(forbidden().into());
         }
@@ -1201,6 +1215,7 @@ async fn check_unique<R: Resource>(
 
 fn resource_create_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
     Box::pin(HoistView::new(ThenView::new(async move {
+        enforce_tenant::<R>(cx)?;
         if !R::can_create(cx) {
             return Err(forbidden().into());
         }
@@ -1263,6 +1278,7 @@ async fn find_by_key<R: Resource>(cx: &Cx, id: &str) -> Result<R::Model> {
 /// Edit page GET — hydrates form from model via Resource::query seam.
 fn resource_edit<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
     Box::pin(HoistView::new(ThenView::new(async move {
+        enforce_tenant::<R>(cx)?;
         let id = topcoat::router::path_param_segment(cx, "id").to_string();
         let record = find_by_key::<R>(cx, &id).await?;
         if !R::can_view(cx, &record) {
@@ -1284,6 +1300,7 @@ fn resource_edit<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
 /// a view-denied but writable record must not be mutable by direct POST.
 fn resource_edit_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
     Box::pin(HoistView::new(ThenView::new(async move {
+        enforce_tenant::<R>(cx)?;
         let id = topcoat::router::path_param_segment(cx, "id").to_string();
         let record = find_by_key::<R>(cx, &id).await?;
         if !R::can_view(cx, &record) {
@@ -1323,6 +1340,7 @@ fn resource_edit_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
 /// Delete action POST — requires confirmation, re-checks Policy (no framework transaction today — GH #84).
 fn resource_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
     Box::pin(HoistView::new(ThenView::new(async move {
+        enforce_tenant::<R>(cx)?;
         let id = topcoat::router::path_param_segment(cx, "id").to_string();
         let record = find_by_key::<R>(cx, &id).await?;
         if !R::can_delete(cx, &record) {
@@ -1392,6 +1410,7 @@ fn resource_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
 fn resource_bulk_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
     Box::pin(HoistView::new(ThenView::<_, BoxView<'_>>::new(
         async move {
+            enforce_tenant::<R>(cx)?;
             let values = parse_form_values(cx, body).await?;
             crate::csrf::verify(cx, &values)?;
             let ids_raw = values.get("ids").cloned().unwrap_or_default();
@@ -1459,6 +1478,7 @@ fn parse_bulk_ids(raw: &str) -> Vec<String> {
 /// cells are defused per OWASP in [`Table::to_csv`].
 fn resource_export<R: Resource>(cx: &Cx, _body: Body) -> RouteFuture<'_> {
     Box::pin(async move {
+        enforce_tenant::<R>(cx)?;
         if !R::can_view_any(cx) {
             return Err(forbidden().into());
         }
@@ -2015,8 +2035,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn export_drops_rows_failing_can_view() {
-        use crate::resource::Resource;
+    async fn export_drops_rows_failing_can_view() {        use crate::resource::Resource;
         use http_body_util::BodyExt;
         use std::collections::HashMap;
 
@@ -2093,6 +2112,98 @@ mod tests {
         assert!(
             !csv.contains("denied"),
             "export must not exceed row visibility (GH #86), got {csv}"
+        );
+    }
+
+    #[tokio::test]
+    async fn tenant_gated_resource_fails_closed_without_tenant() {
+        use crate::resource::Resource;
+        use std::collections::HashMap;
+
+        #[derive(Debug, toasty::Model)]
+        struct Dummy {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            name: String,
+        }
+        struct GatedResource;
+        impl Resource for GatedResource {
+            type Model = Dummy;
+            fn slug() -> String {
+                "dummies".to_string()
+            }
+            fn requires_tenant() -> bool {
+                true
+            }
+            fn can_view_any(_cx: &Cx) -> bool {
+                true
+            }
+            fn can_create(_cx: &Cx) -> bool {
+                true
+            }
+            fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
+                crate::resource::Table::r#for(cx)
+                    .id(|d: &Dummy| d.id.to_string())
+                    .columns(crate::resource::TextColumn::r#for(
+                        Dummy::fields().name(),
+                        |d: &Dummy| d.name.clone(),
+                    ))
+            }
+            fn hydrate_form_values(_record: &Dummy) -> HashMap<String, String> {
+                HashMap::new()
+            }
+        }
+
+        let db = Db::builder()
+            .models(toasty::models!(Dummy))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        let router = Panel::new("admin")
+            .app_context(db)
+            .resource::<GatedResource>()
+            .build();
+        // No tenant anywhere → 403, not unscoped rows (GH #87).
+        let resp = router
+            .handle(
+                http::Request::builder()
+                    .uri("/admin/dummies")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await;
+        assert_eq!(resp.status(), http::StatusCode::FORBIDDEN);
+        // Valid CSRF but still no tenant → 403 from the tenant gate.
+        let token = uuid::Uuid::new_v4().to_string();
+        let resp = router
+            .handle(
+                http::Request::builder()
+                    .uri("/admin/dummies/create")
+                    .method(http::Method::POST)
+                    .header(http::header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                    .header(http::header::COOKIE, format!("argentum_csrf={token}"))
+                    .body(Body::from(format!("name=Ada&csrf_token={token}")))
+                    .unwrap(),
+            )
+            .await;
+        assert_eq!(resp.status(), http::StatusCode::FORBIDDEN);
+        // Harness header supplies the tenant → gate passes (create page 200).
+        let tenant = uuid::Uuid::new_v4().to_string();
+        let resp = router
+            .handle(
+                http::Request::builder()
+                    .uri("/admin/dummies/create")
+                    .header("x-tenant-id", tenant)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await;
+        assert!(
+            resp.status().is_success(),
+            "tenant-gated GET with tenant must pass the gate, got {}",
+            resp.status()
         );
     }
 

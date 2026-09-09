@@ -2639,6 +2639,16 @@ pub trait Resource: Sized + Send + Sync + 'static {
         toasty::stmt::Query::<List<Self::Model>>::all()
     }
 
+    /// Whether this resource requires a tenant in every handler (GH #87).
+    ///
+    /// Opt-in and default-open today: `false` preserves the current behavior
+    /// (unscoped `Resource::query` default). Resources with a `tenant_id`
+    /// column should override to `true` so a missing tenant fails closed
+    /// (403) instead of leaking unscoped rows or minting nil-tenant orphans.
+    fn requires_tenant() -> bool {
+        false
+    }
+
     /// Description of the list view.
     ///
     /// The default is empty, and an empty table **cannot render**: the
