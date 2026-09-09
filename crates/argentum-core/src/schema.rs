@@ -27,6 +27,11 @@ type RelationshipLoader = std::sync::Arc<
         + Sync,
 >;
 
+/// Max options a relationship `Select` will load (GH #91): the loader carries
+/// `limit(Self + 1)` and fails past the cap instead of scanning a 10k-row
+/// table per select per submit.
+pub const MAX_RELATIONSHIP_OPTIONS: usize = 200;
+
 // ---------------------------------------------------------------------------
 // Public layout primitives
 // ---------------------------------------------------------------------------
@@ -355,10 +360,12 @@ impl Select {
     /// only used for type inference; the loader calls `R::query(cx)` directly so tenancy is
     /// preserved. The second argument maps the related record to its display label.
     ///
-    /// Known limit (GH #91): the loader execs the full related table with no
-    /// limit, once per select per validate plus re-render scans. Suitable for
-    /// small reference tables only; a bounded/searchable dropdown with
-    /// per-request memoization is future work.
+    /// Bounded (GH #91): the loader fetches at most `MAX_RELATIONSHIP_OPTIONS`
+    /// + 1 rows and fails when the related table is larger — a 10k-row
+    /// reference table costs bounded work per submit and surfaces
+    /// `could not load options, retry` instead of silently validating against
+    /// a truncated list. Suitable for small reference tables only; a
+    /// searchable/paginated dropdown with per-request memoization is future work.
     pub fn relationship<R>(
         mut self,
         _query: fn(&Cx) -> toasty::stmt::Query<toasty::stmt::List<R::Model>>,
@@ -375,9 +382,19 @@ impl Select {
             Box::pin(async move {
                 let mut db = crate::db::db(&cx);
                 let records = R::query(&cx)
+                    .limit(MAX_RELATIONSHIP_OPTIONS + 1)
                     .exec(&mut db)
                     .await
                     .map_err(topcoat::Error::from)?;
+                if records.len() > MAX_RELATIONSHIP_OPTIONS {
+                    // Fail visibly (GH #91): validating against a silent
+                    // truncation would reject legitimate FKs as "invalid"
+                    // while rendering a misleading subset.
+                    return Err(std::io::Error::other(format!(
+                        "too many options (max {MAX_RELATIONSHIP_OPTIONS})"
+                    ))
+                    .into());
+                }
                 let table = R::table(&cx);
                 let mut opts = Vec::new();
                 for rec in &records {
@@ -461,7 +478,16 @@ impl Select {
         let has_error = !errors.is_empty();
         let error_text = errors.first().cloned().unwrap_or_default();
         let current = value.unwrap_or("").trim().to_string();
-        let options = self.load_options(cx).await.unwrap_or_default();
+        let loaded = self.load_options(cx).await;
+        let load_failed = loaded.is_err();
+        let mut options = loaded.unwrap_or_default();
+        if load_failed && !current.is_empty() && !options.iter().any(|(v, _)| v == &current) {
+            // Keep the stored FK selectable when the loader fails or the
+            // table overflows the cap (GH #91): an edit must not blank the
+            // relation into a required-error, and the submit surfaces
+            // `could not load options, retry`.
+            options.push((current.clone(), current.clone()));
+        }
         // Build option views.
         let mut option_views: Vec<BoxView<'a>> = Vec::new();
         // Placeholder empty option
@@ -2536,5 +2562,65 @@ mod tests {
         let rows = TemporalPk::filter(expr).exec(&mut db2).await.unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].name, "Ada");
+    }
+
+    #[tokio::test]
+    async fn relationship_loader_fails_past_option_cap() {
+        use crate::resource::Resource;
+
+        #[derive(Debug, toasty::Model)]
+        struct RefAuthor {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            name: String,
+        }
+        struct RefAuthorResource;
+        impl Resource for RefAuthorResource {
+            type Model = RefAuthor;
+            fn table(cx: &Cx) -> crate::resource::Table<RefAuthor> {
+                crate::resource::Table::r#for(cx)
+                    .id(|a: &RefAuthor| a.id.to_string())
+                    .columns(crate::resource::TextColumn::r#for(
+                        RefAuthor::fields().name(),
+                        |a: &RefAuthor| a.name.clone(),
+                    ))
+            }
+        }
+        #[derive(Debug, toasty::Model)]
+        struct RefPost {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            author_id: uuid::Uuid,
+        }
+
+        let mut db = toasty::Db::builder()
+            .models(toasty::models!(RefAuthor, RefPost))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        for i in 0..(MAX_RELATIONSHIP_OPTIONS + 1) {
+            toasty::create!(RefAuthor {
+                name: format!("author-{i}"),
+            })
+            .exec(&mut db)
+            .await
+            .unwrap();
+        }
+        let cx = CxTestBuilder::new().app_context(db).build();
+        let select =
+            Select::r#for(RefPost::fields().author_id()).relationship::<RefAuthorResource>(
+                RefAuthorResource::query,
+                |a: &RefAuthor| a.name.clone(),
+            );
+        // Over the cap: bounded work, visible retry error — never an
+        // empty-options passthrough (GH #91).
+        let errs = select.validate_async(&cx, "whatever").await;
+        assert!(
+            errs.iter().any(|e| e.contains("could not load options")),
+            "overflow must surface retry error, got {errs:?}"
+        );
     }
 }
