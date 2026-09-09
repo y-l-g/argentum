@@ -73,11 +73,14 @@ impl TextInput {
     where
         M: toasty::schema::Model,
     {
-        let (field_name, label_str) = lens_field_name_and_label(path);
+        let (field_name, label_str, nullable) = lens_field_name_label_and_nullable(path);
         Self {
             name: field_name,
             label: label_str,
-            required: false,
+            // Non-nullable columns are required by default (GH #100): an
+            // empty submit would die at the driver instead of failing
+            // inline. Override with `.optional()` for nullable columns.
+            required: !nullable,
             is_email: false,
             unique: false,
             placeholder: None,
@@ -94,6 +97,13 @@ impl TextInput {
 
     pub fn required(mut self) -> Self {
         self.required = true;
+        self
+    }
+
+    /// Opt out of the non-nullable default (GH #100): for nullable columns
+    /// where an empty submit is legitimate.
+    pub fn optional(mut self) -> Self {
+        self.required = false;
         self
     }
 
@@ -588,6 +598,37 @@ where
     (field_name, label_str)
 }
 
+/// Field name, label, and nullability behind a lens in one walk (GH #100) —
+/// the `TextInput` required-default needs all three; walking once keeps the
+/// single `toasty_core` import site obvious.
+pub(crate) fn lens_field_name_label_and_nullable<M, T>(
+    path: FieldLens<M, T>,
+) -> (String, String, bool)
+where
+    M: toasty::schema::Model,
+{
+    let core_path: toasty_core::stmt::Path = path.into();
+    require_single_segment(&core_path, "lens");
+    let idx = core_path
+        .projection
+        .as_slice()
+        .first()
+        .copied()
+        .expect("field lens must have a projection");
+    let model = M::schema();
+    let (field_name, nullable) = model
+        .fields()
+        .get(idx)
+        .map(|f| (f.name.app_unwrap().to_string(), f.nullable))
+        .unwrap_or_else(|| {
+            panic!(
+                "field index {idx} out of bounds for {}",
+                std::any::type_name::<M>()
+            )
+        });
+    (field_name.clone(), capitalize(&field_name), nullable)
+}
+
 /// Panic unless a lens path addresses exactly one field (GH #100).
 ///
 /// A traversal lens (relation hops, embedded steps) has no single field name,
@@ -734,9 +775,6 @@ where
         // features this build doesn't enable (`rust_decimal`, `bigdecimal`,
         // `net`) and composite keys have no URL representation — both stay
         // documented limits.
-        toasty_core::stmt::Type::Zoned => {
-            toasty_core::stmt::Value::Zoned(id.parse().ok()?)
-        }
         toasty_core::stmt::Type::Timestamp => {
             toasty_core::stmt::Value::Timestamp(id.parse().ok()?)
         }
@@ -2089,10 +2127,38 @@ mod tests {
             "required should reject whitespace"
         );
         assert!(
+            !TextInput::r#for(DummyUser::fields().name())
+                .validate("")
+                .is_empty(),
+            "non-nullable columns default to required (GH #100)"
+        );
+        assert!(
             TextInput::r#for(DummyUser::fields().name())
+                .optional()
                 .validate("")
                 .is_empty(),
             "optional should accept empty"
+        );
+    }
+
+    #[test]
+    fn required_default_follows_lens_nullability() {
+        // GH #100: `required` defaults from the DB column, with an explicit
+        // `.optional()` escape hatch.
+        #[derive(Debug, toasty::Model)]
+        struct NullableDoc {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            nick: Option<String>,
+        }
+        assert!(lens_field_is_nullable(NullableDoc::fields().nick()));
+        assert!(!lens_field_is_nullable(DummyUser::fields().name()));
+        assert!(
+            !TextInput::r#for(DummyUser::fields().name())
+                .validate("")
+                .is_empty(),
+            "String columns are non-nullable, empty must fail inline"
         );
     }
 
@@ -2175,6 +2241,7 @@ mod tests {
         assert!(
             TextInput::r#for(DummyUser::fields().email())
                 .email()
+                .optional()
                 .validate("")
                 .is_empty(),
             "optional email should accept empty"

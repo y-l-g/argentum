@@ -40,7 +40,7 @@ impl IntoExpr<T> for stmt::Value { … }          // or: trait Model { fn parse_
 
 **Where:** `TextInput::validate` / `Create`/`Update` hydration (`crates/argentum-core/src/schema.rs:TextInput`).
 
-**Today:** `FieldLens` is just `Path<M,T>`; `TextInput` knows `required`/`is_email` but not `is_nullable`/`is_unique`/`storage_name`. Validation manually checks `required` and hand-rolled `is_valid_email`.
+**Today:** `FieldLens` is just `Path<M,T>`; `TextInput` knows `required`/`is_email` but not `is_nullable`/`is_unique`/`storage_name`. Validation manually checks `required` and hand-rolled `is_valid_email`. Since GH #100, `TextInput::for_lens` defaults `required` from the bridged `field.nullable` (opt out with `.optional()`).
 
 **Clean upstream API:** Same as lens gap — `Path::is_nullable()`, `Path::is_unique()`, `Path::storage_name()`, plus `FieldTy` so `TextInput::for(...).required()` can default from `field.nullable == false`.
 
