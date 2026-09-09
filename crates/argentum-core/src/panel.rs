@@ -1287,21 +1287,25 @@ fn resource_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
 }
 
 /// Bulk delete POST — ids via `ids` form field (comma-separated).
+///
+/// Identity is the typed PK fetch alone (GH #85): the display closure
+/// `Table::id` is never re-matched, so non-canonical keys (uppercase UUID,
+/// email key) cannot 404 a batch whose rows exist. Bounded by
+/// `MAX_BULK_IDS` so the N-way `OR` predicate cannot be amplified into a DoS.
 fn resource_bulk_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
     Box::pin(HoistView::new(ThenView::<_, BoxView<'_>>::new(
         async move {
             let values = parse_form_values(cx, body).await;
             let ids_raw = values.get("ids").cloned().unwrap_or_default();
-            // Dedupe while preserving order so a repeated id can't make the
-            // fetched-rows count check below misfire.
-            let mut ids: Vec<String> = Vec::new();
-            for s in ids_raw.split(',').map(str::trim).filter(|s| !s.is_empty()) {
-                if !ids.iter().any(|existing| existing == s) {
-                    ids.push(s.to_string());
-                }
-            }
+            let ids = parse_bulk_ids(&ids_raw);
             if ids.is_empty() {
                 return Err(topcoat::router::error::bad_request("no ids provided").into());
+            }
+            if ids.len() > MAX_BULK_IDS {
+                return Err(topcoat::router::error::bad_request(format!(
+                    "too many ids (max {MAX_BULK_IDS})"
+                ))
+                .into());
             }
             // Fetch only the requested rows through the tenancy-scoped seam:
             // one `pk == a OR pk == b …` query replaces the #75 item-1
@@ -1321,12 +1325,7 @@ fn resource_bulk_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
             if rows.len() != ids.len() {
                 return Err(topcoat::router::error::not_found().into());
             }
-            let table = R::table(cx);
-            for id in &ids {
-                let rec = rows
-                    .iter()
-                    .find(|m| table.key_for(m).as_deref() == Some(id.as_str()))
-                    .ok_or_else(topcoat::router::error::not_found)?;
+            for rec in &rows {
                 if !R::can_delete(cx, rec) {
                     return Err(forbidden().into());
                 }
@@ -1339,6 +1338,21 @@ fn resource_bulk_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
             Err(redirect(list_url).into())
         },
     )))
+}
+
+/// Max ids accepted by bulk delete (GH #85): bounds the N-way `OR` predicate.
+const MAX_BULK_IDS: usize = 400;
+
+/// Parse + dedupe bulk `ids` while preserving order, so a repeated id can't
+/// make the fetched-rows count check misfire.
+fn parse_bulk_ids(raw: &str) -> Vec<String> {
+    let mut ids: Vec<String> = Vec::new();
+    for s in raw.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+        if !ids.iter().any(|existing| existing == s) {
+            ids.push(s.to_string());
+        }
+    }
+    ids
 }
 
 /// CSV export — reuses `Resource::query` + `Table` filters/sort, downloads `text/csv`.
@@ -1676,6 +1690,104 @@ mod tests {
             http::StatusCode::FORBIDDEN,
             "view-denied edit POST must not mutate"
         );
+    }
+
+    #[test]
+    fn parse_bulk_ids_dedupes_and_trims() {
+        assert!(parse_bulk_ids("").is_empty());
+        assert_eq!(parse_bulk_ids("a, b ,a,, c"), vec!["a", "b", "c"]);
+    }
+
+    #[tokio::test]
+    async fn bulk_delete_caps_ids_and_ignores_display_key() {
+        use crate::resource::Resource;
+        use std::collections::HashMap;
+
+        #[derive(Debug, toasty::Model)]
+        struct Dummy {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            name: String,
+        }
+        struct UpperKeyResource;
+        impl Resource for UpperKeyResource {
+            type Model = Dummy;
+            fn slug() -> String {
+                "dummies".to_string()
+            }
+            fn can_delete(_cx: &Cx, _record: &Dummy) -> bool {
+                true
+            }
+            fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
+                // Non-canonical display key (GH #85): bulk must still resolve
+                // via the typed PK fetch alone.
+                crate::resource::Table::r#for(cx)
+                    .id(|d: &Dummy| d.id.to_string().to_uppercase())
+                    .columns(crate::resource::TextColumn::r#for(
+                        Dummy::fields().name(),
+                        |d: &Dummy| d.name.clone(),
+                    ))
+            }
+            fn bulk_delete_records(
+                _cx: &Cx,
+                _ids: Vec<String>,
+            ) -> impl std::future::Future<Output = Result<()>> + Send {
+                async move { Ok(()) }
+            }
+            fn hydrate_form_values(_record: &Dummy) -> HashMap<String, String> {
+                HashMap::new()
+            }
+        }
+
+        let mut db = Db::builder()
+            .models(toasty::models!(Dummy))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        let row = toasty::create!(Dummy {
+            name: "Ada".to_string(),
+        })
+        .exec(&mut db)
+        .await
+        .unwrap();
+        let router = Panel::new("admin")
+            .app_context(db)
+            .resource::<UpperKeyResource>()
+            .build();
+        // Canonical lowercase id succeeds despite uppercase Table::id.
+        let ok = router
+            .handle(
+                http::Request::builder()
+                    .uri("/admin/dummies/bulk-delete")
+                    .method(http::Method::POST)
+                    .header(http::header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                    .body(Body::from(format!("ids={}", row.id)))
+                    .unwrap(),
+            )
+            .await;
+        assert!(
+            ok.status().is_redirection(),
+            "PK-authenticated bulk must not 404 on display-key mismatch, got {}",
+            ok.status()
+        );
+        // Over-cap batch is a clear 400 before any DB work.
+        let big = (0..(MAX_BULK_IDS + 1))
+            .map(|i| format!("00000000-0000-0000-0000-{:012}", i))
+            .collect::<Vec<_>>()
+            .join(",");
+        let capped = router
+            .handle(
+                http::Request::builder()
+                    .uri("/admin/dummies/bulk-delete")
+                    .method(http::Method::POST)
+                    .header(http::header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                    .body(Body::from(format!("ids={big}")))
+                    .unwrap(),
+            )
+            .await;
+        assert_eq!(capped.status(), http::StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]

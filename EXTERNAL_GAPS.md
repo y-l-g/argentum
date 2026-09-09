@@ -170,6 +170,18 @@ trait Model {
 
 ---
 
+## Toasty — `IN` predicate for bulk id lists
+
+**Where:** `crates/argentum-core/src/schema.rs` `pk_in_expr` (N-way `OR`), bounded by `MAX_BULK_IDS = 400` in `panel.rs` bulk-delete (GH #85).
+
+**Today:** no `IN` combinator on the public facade for a dynamic id list, so bulk builds `pk == a OR pk == b …`. The cap keeps planner/URL pressure bounded.
+
+**Clean upstream API:** `fn eq_any(Path, Vec<T>) -> Expr<bool>` (or `IN` combinator) usable from generic code holding parsed `stmt::Value`s.
+
+**Argentum plan:** keep the capped `OR` chain; swap to `IN` when it lands and delete this entry.
+
+---
+
 ## Retired entries
 
 - **Topcoat error conversion** (fixed 2026-08-26, Argentum-side): `toasty::Error → anyhow → topcoat::Error` via `From`; canonical pattern is `.map_err(Into::into)` / `?`. The `db.rs` memoize site stays under its own entry.

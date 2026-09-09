@@ -686,6 +686,9 @@ where
 /// OR of primary-key equality predicates for a bulk id list — `pk == a OR
 /// pk == b OR …`. `None` when any id fails to parse as the PK's type (an
 /// unparseable id cannot exist) or the PK is not a single primitive field.
+///
+/// No `IN` predicate exists upstream yet; the N-way `OR` is bounded by
+/// `MAX_BULK_IDS` in the bulk-delete handler (GH #85).
 pub(crate) fn pk_in_expr<M>(ids: &[&str]) -> Option<toasty::stmt::Expr<bool>>
 where
     M: toasty::schema::Model,
