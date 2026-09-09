@@ -19,7 +19,7 @@ What still genuinely requires `toasty_core`:
 2. **Dynamic-value predicates.** The facade's `find_by_primary_key(Expr<M::PrimaryKey>)` is typed — generic code holding a parsed `stmt::Value` cannot build `pk == value` through it (`IntoExpr<Value>` is not implemented; `Path::eq` requires the concrete Rust type). The `pk_*` bridge helpers construct `stmt::Expr::eq(Expr::ref_self_field(fid), value)` in core and wrap via the public `Expr::from_untyped`.
 3. **Cursor values.** `cursor.rs` holds `toasty_core::stmt::Value` / `ValueRecord` for cursor encode/decode.
 
-**Why fragile:** those spots only. A toasty refactor of `Path`/`Projection`/`Expr`/`Value` breaks them at compile time; the rest survives.
+**Why fragile:** those spots only. A toasty refactor of `Path`/`Projection`/`Expr`/`Value` breaks the bridge helpers at compile time; the cursor codec's catch-all for unsupported `Value` variants instead fails at runtime on encode (GH #95).
 
 **Clean upstream API:**
 ```rust

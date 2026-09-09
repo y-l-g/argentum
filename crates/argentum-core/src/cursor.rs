@@ -60,7 +60,8 @@ pub fn encode(value: &Value) -> Result<String> {
 ///
 /// Errors on malformed input (wrong length, unknown tag or version) so a
 /// tampered or truncated `?after=`/`?before=` parameter fails loudly instead
-/// of silently restarting pagination.
+/// of silently restarting pagination. Record nesting is depth-capped (GH #95)
+/// so attacker-controlled tokens cannot drive unbounded recursion.
 pub fn decode(token: &str) -> Result<Value> {
     let payload = hex_decode(token)?;
     let mut buf = &payload[..];
@@ -68,12 +69,15 @@ pub fn decode(token: &str) -> Result<Value> {
     if version != VERSION {
         return Err(std::io::Error::other(format!("cursor: unsupported version {version}")).into());
     }
-    let (value, rest) = read_value(buf)?;
+    let (value, rest) = read_value_with_depth(buf, 0)?;
     if !rest.is_empty() {
         return Err(std::io::Error::other("cursor: trailing bytes after value").into());
     }
     Ok(value)
 }
+
+/// Max nested-record depth accepted on decode (GH #95).
+const MAX_CURSOR_DEPTH: usize = 16;
 
 fn write_value(value: &Value, out: &mut Vec<u8>) -> Result<()> {
     match value {
@@ -172,6 +176,13 @@ fn write_value(value: &Value, out: &mut Vec<u8>) -> Result<()> {
 
 /// Reads one tagged value; returns it plus the remaining buffer.
 fn read_value(buf: &[u8]) -> Result<(Value, &[u8])> {
+    read_value_with_depth(buf, 0)
+}
+
+fn read_value_with_depth(buf: &[u8], depth: usize) -> Result<(Value, &[u8])> {
+    if depth > MAX_CURSOR_DEPTH {
+        return Err(std::io::Error::other("cursor: record nesting too deep").into());
+    }
     let mut buf = buf;
     let tag = take(&mut buf, 1)?[0];
     match tag {
@@ -294,7 +305,7 @@ fn read_value(buf: &[u8]) -> Result<(Value, &[u8])> {
             let count = u32::from_le_bytes(take(&mut buf, 4)?.try_into().unwrap()) as usize;
             let mut fields = Vec::with_capacity(count.min(64));
             for _ in 0..count {
-                let (field, rest) = read_value(buf)?;
+                let (field, rest) = read_value_with_depth(buf, depth + 1)?;
                 buf = rest;
                 fields.push(field);
             }
@@ -434,5 +445,18 @@ mod tests {
     #[test]
     fn rejects_unsupported_variants() {
         assert!(encode(&Value::List(vec![Value::I64(1)])).is_err());
+    }
+
+    #[test]
+    fn rejects_overly_deep_record_nesting() {
+        let mut value = Value::I64(1);
+        for _ in 0..(MAX_CURSOR_DEPTH + 2) {
+            value = Value::Record(ValueRecord::from_vec(vec![value]));
+        }
+        let token = encode(&value).expect("deep encode must succeed");
+        assert!(
+            decode(&token).is_err(),
+            "decode must cap record nesting at {MAX_CURSOR_DEPTH}"
+        );
     }
 }

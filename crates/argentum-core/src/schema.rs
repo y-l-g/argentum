@@ -6,8 +6,9 @@
 //! form via the `IntoSchema` trait.
 //!
 //! Bridge note: `lens_field_name_and_label` reaches into `toasty_core` (see
-//! `EXTERNAL_GAPS.md` at repo root). It is the single `toasty_core` import
-//! site; migrate to public `Path::field_name()` when Toasty exposes it.
+//! `EXTERNAL_GAPS.md` at repo root), alongside the `pk_*` bridge helpers and
+//! `cursor.rs` cursor values; migrate to public `Path::field_name()` when
+//! Toasty exposes it.
 
 use std::collections::HashMap;
 
@@ -659,6 +660,7 @@ where
     let value = match prim.ty {
         toasty_core::stmt::Type::Uuid => toasty_core::stmt::Value::Uuid(id.parse().ok()?),
         toasty_core::stmt::Type::String => toasty_core::stmt::Value::String(id.to_string()),
+        toasty_core::stmt::Type::Bool => toasty_core::stmt::Value::Bool(id.parse().ok()?),
         toasty_core::stmt::Type::I8 => toasty_core::stmt::Value::I8(id.parse().ok()?),
         toasty_core::stmt::Type::I16 => toasty_core::stmt::Value::I16(id.parse().ok()?),
         toasty_core::stmt::Type::I32 => toasty_core::stmt::Value::I32(id.parse().ok()?),
@@ -667,6 +669,14 @@ where
         toasty_core::stmt::Type::U16 => toasty_core::stmt::Value::U16(id.parse().ok()?),
         toasty_core::stmt::Type::U32 => toasty_core::stmt::Value::U32(id.parse().ok()?),
         toasty_core::stmt::Type::U64 => toasty_core::stmt::Value::U64(id.parse().ok()?),
+        toasty_core::stmt::Type::F32 => toasty_core::stmt::Value::F32(id.parse().ok()?),
+        toasty_core::stmt::Type::F64 => toasty_core::stmt::Value::F64(id.parse().ok()?),
+        // Bytes PKs have no canonical URL text form; accept the UTF-8 bytes so
+        // list/edit round-trip instead of 404ing (GH #95). Temporal/composite
+        // PKs remain without a URL representation.
+        toasty_core::stmt::Type::Bytes => {
+            toasty_core::stmt::Value::Bytes(id.as_bytes().to_vec())
+        }
         _ => return None,
     };
     Some((fid, value))
