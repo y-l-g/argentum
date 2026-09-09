@@ -1539,7 +1539,7 @@ fn resource_bulk_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
                 .into());
             }
             // Fetch only the requested rows through the tenancy-scoped seam:
-            // one `pk == a OR pk == b …` query replaces the #75 item-1
+            // one `pk IN (…)` query replaces the #75 item-1
             // fetch-everything-then-match loop. A malformed id cannot exist and
             // maps to 404; a missing/wrong-tenant id makes the fetch come back
             // short and 404s as well.
@@ -1571,7 +1571,7 @@ fn resource_bulk_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
     )))
 }
 
-/// Max ids accepted by bulk delete (GH #85): bounds the N-way `OR` predicate.
+/// Max ids accepted by bulk delete (GH #85): bounds the `IN` list.
 const MAX_BULK_IDS: usize = 400;
 
 /// Max rows an export will materialize (GH #94): the filtered query carries
@@ -1593,6 +1593,11 @@ fn export_wants_bom(cx: &Cx) -> bool {
 
 /// Parse + dedupe bulk `ids` while preserving order, so a repeated id can't
 /// make the fetched-rows count check misfire.
+///
+/// Known limit (GH #85): the split happens after url-decoding, so a
+/// `String`-PK id containing a literal comma (`%2C`) splits into phantom
+/// ids and the batch 404s. Comma-bearing string PKs need a different
+/// transport (future work); all other PK types are comma-free.
 fn parse_bulk_ids(raw: &str) -> Vec<String> {
     let mut ids: Vec<String> = Vec::new();
     for s in raw.split(',').map(str::trim).filter(|s| !s.is_empty()) {

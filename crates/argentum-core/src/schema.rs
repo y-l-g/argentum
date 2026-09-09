@@ -769,23 +769,33 @@ where
     Some(toasty::stmt::Expr::from_untyped(cond))
 }
 
-/// OR of primary-key equality predicates for a bulk id list — `pk == a OR
-/// pk == b OR …`. `None` when any id fails to parse as the PK's type (an
-/// unparseable id cannot exist) or the PK is not a single primitive field.
+/// `IN` predicate over primary keys for a bulk id list — `pk IN (a, b, …)`.
+/// `None` when any id fails to parse as the PK's type (an unparseable id
+/// cannot exist, so the batch fails closed) or the PK is not a single
+/// primitive field.
 ///
-/// No `IN` predicate exists upstream yet; the N-way `OR` is bounded by
-/// `MAX_BULK_IDS` in the bulk-delete handler (GH #85).
+/// A single `IN` predicate, not an N-way `OR` chain (GH #85): the batch is
+/// still bounded by `MAX_BULK_IDS` in the bulk-delete handler.
 pub(crate) fn pk_in_expr<M>(ids: &[&str]) -> Option<toasty::stmt::Expr<bool>>
 where
     M: toasty::schema::Model,
 {
-    let mut exprs = ids
-        .iter()
-        .map(|id| pk_eq_expr::<M>(id))
-        .collect::<Option<Vec<_>>>()?
-        .into_iter();
-    let first = exprs.next()?;
-    Some(exprs.fold(first, |acc, e| acc.or(e)))
+    let mut parsed = ids.iter().map(|id| pk_field_value::<M>(id));
+    let (fid, first) = parsed.next()??;
+    let mut values = vec![first];
+    for item in parsed {
+        let (f, v) = item?;
+        debug_assert_eq!(
+            f.index, fid.index,
+            "pk_in_expr: one model, one PK field — mixed fields are a bug"
+        );
+        values.push(v);
+    }
+    let cond = toasty_core::stmt::Expr::in_list(
+        toasty_core::stmt::Expr::ref_self_field(fid),
+        toasty_core::stmt::Expr::list(values),
+    );
+    Some(toasty::stmt::Expr::from_untyped(cond))
 }
 
 pub(crate) fn capitalize(s: &str) -> String {
@@ -2518,6 +2528,20 @@ mod tests {
         values.remove("role");
         values.remove("confirm");
         assert!(schema.unknown_keys(&values).is_empty());
+    }
+
+    #[test]
+    fn pk_in_expr_builds_one_in_predicate_and_fails_closed() {
+        // GH #85: single IN predicate; empty lists and unparseable ids yield
+        // None (the bulk handler 400s empty before reaching here; an
+        // unparseable id cannot exist, so the batch must not silently drop
+        // it — the handler maps None to 404).
+        assert!(pk_in_expr::<DummyUser>(&[]).is_none());
+        assert!(pk_in_expr::<DummyUser>(&["not-a-uuid"]).is_none());
+        let a = uuid::Uuid::new_v4().to_string();
+        let b = uuid::Uuid::new_v4().to_string();
+        assert!(pk_in_expr::<DummyUser>(&[a.as_str(), b.as_str()]).is_some());
+        assert!(pk_in_expr::<DummyUser>(&[a.as_str(), "not-a-uuid"]).is_none());
     }
 
     #[test]

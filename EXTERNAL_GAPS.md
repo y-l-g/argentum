@@ -170,18 +170,6 @@ trait Model {
 
 ---
 
-## Toasty — `IN` predicate for bulk id lists
-
-**Where:** `crates/argentum-core/src/schema.rs` `pk_in_expr` (N-way `OR`), bounded by `MAX_BULK_IDS = 400` in `panel.rs` bulk-delete (GH #85).
-
-**Today:** no `IN` combinator on the public facade for a dynamic id list, so bulk builds `pk == a OR pk == b …`. The cap keeps planner/URL pressure bounded.
-
-**Clean upstream API:** `fn eq_any(Path, Vec<T>) -> Expr<bool>` (or `IN` combinator) usable from generic code holding parsed `stmt::Value`s.
-
-**Argentum plan:** keep the capped `OR` chain; swap to `IN` when it lands and delete this entry.
-
----
-
 ## Topcoat — cookie layer drops `Set-Cookie` on error-path responses
 
 **Where:** `topcoat-cookie/src/router.rs` (`CookieLayer::handle` awaits `next.run(...).await?`, so `write_cookies` never runs for `Err` responses); hit by every Argentum mutation redirect (`crates/argentum-core/src/panel.rs` returns redirects as `Err(redirect(...))`, Topcoat's documented redirect idiom).
@@ -195,6 +183,8 @@ trait Model {
 ---
 
 ## Retired entries
+
+- **Toasty `IN` predicate for bulk id lists** (fixed Argentum-side, GH #85): `pk_in_expr` builds a single core `Expr::in_list(pk, Expr::list(values))` — the facade's typed `in_list` can't serve generic code holding parsed `stmt::Value`s, but the core combinator can. The `MAX_BULK_IDS` cap stays as DoS bound.
 
 - **Topcoat error conversion** (fixed 2026-08-26, Argentum-side): `toasty::Error → anyhow → topcoat::Error` via `From`; canonical pattern is `.map_err(Into::into)` / `?`. The `db.rs` memoize site stays under its own entry.
 - **Panel prefix vs `NavigationItem`** (fixed internally): `from_resource_with_prefix` + `Panel::nav_item` respect the mount prefix; `from_resource` is the `"/admin"` shorthand. No upstream gap.
