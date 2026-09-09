@@ -2548,7 +2548,8 @@ pub trait Resource: Sized + Send + Sync + 'static {
     /// The `Panel` create handler validates `required`/`email` inline and checks
     /// `Policy::can_create` before calling this. The default implementation
     /// returns an error; resources should override to perform the actual
-    /// `toasty::create!` (or `Insert`) inside a transaction.
+    /// `toasty::create!` (or `Insert`). No framework transaction is opened
+    /// today (GH #84) — impls needing atomicity must open their own tx.
     fn create_record(
         _cx: &Cx,
         _values: HashMap<String, String>,
@@ -2598,8 +2599,8 @@ pub trait Resource: Sized + Send + Sync + 'static {
         }
     }
 
-    /// Bulk-delete records by their string ids. Default is per-row `delete_record`
-    /// in a transaction; override for efficiency if needed.
+    /// Bulk-delete records by their string ids. Default is sequential per-row
+    /// `delete_record` with no atomicity (GH #84); override for efficiency if needed.
     fn bulk_delete_records(
         _cx: &Cx,
         _ids: Vec<String>,

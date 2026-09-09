@@ -1117,7 +1117,7 @@ fn resource_create_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
             let html = render_create_page::<R>(cx, &values, &errors).await?;
             return Ok(html);
         }
-        // Attempt creation via Resource hook (transaction inside).
+        // Attempt creation via Resource hook (no framework transaction today — GH #84).
         match R::create_record(cx, values.clone()).await {
             Ok(()) => {
                 let base = list_url(cx, &R::slug());
@@ -1211,7 +1211,7 @@ fn resource_edit_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
     })))
 }
 
-/// Delete action POST — requires confirmation, runs in transaction, re-checks Policy.
+/// Delete action POST — requires confirmation, re-checks Policy (no framework transaction today — GH #84).
 fn resource_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
     Box::pin(HoistView::new(ThenView::new(async move {
         let id = topcoat::router::path_param_segment(cx, "id").to_string();
@@ -1262,7 +1262,7 @@ fn resource_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
             };
             return Ok(html);
         }
-        // Perform delete via Resource hook (transaction inside).
+        // Perform delete via Resource hook (no framework transaction today — GH #84).
         R::delete_record(cx, id).await?;
         let base = list_url(cx, &R::slug());
         let list_url = format!("{base}?notification=Deleted");
