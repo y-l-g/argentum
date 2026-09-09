@@ -76,6 +76,7 @@ pub struct Panel {
     pages: Vec<PageFn>,
     routes: Vec<RouteFn>,
     root_target: Option<String>,
+    slugs: Vec<String>,
 }
 
 /// The application-owned assets used by [`Panel::layout_shell`].
@@ -125,6 +126,7 @@ impl Panel {
             pages: Vec::new(),
             routes: Vec::new(),
             root_target: None,
+            slugs: Vec::new(),
         }
     }
 
@@ -166,7 +168,16 @@ impl Panel {
     /// and the router can never disagree. The panel root redirects to the
     /// first declared resource's list. Multiple calls compose; navigation
     /// order follows declaration order.
+    ///
+    /// Panics on duplicate slugs (GH #102): two resources over the same slug
+    /// would shadow each other's routes with last-wins semantics.
     pub fn resource<R: Resource>(mut self) -> Self {
+        let slug = R::slug();
+        assert!(
+            !self.slugs.iter().any(|s| s == &slug),
+            "duplicate resource slug '{slug}': each Resource needs a distinct slug (see Resource::slug)"
+        );
+        self.slugs.push(slug);
         let url = format!("{}/{}", self.prefix, R::slug());
         self.pages.push(PageFn::new(
             http::Method::GET,
@@ -273,6 +284,7 @@ impl Panel {
             pages,
             routes,
             root_target,
+            slugs: _,
         } = self;
         let db = db.expect("Panel::build requires a Db via app_context");
         let mut builder = Router::builder()
@@ -1537,6 +1549,38 @@ mod tests {
         assert_eq!(users.url, "/admin/users");
         assert_eq!(categories.url, "/admin/categories");
         assert_ne!(users.url, categories.url);
+    }
+
+    #[test]
+    #[should_panic(expected = "duplicate resource slug")]
+    fn panel_rejects_duplicate_resource_slugs() {
+        use crate::resource::Resource;
+
+        #[derive(Debug, toasty::Model)]
+        struct Dummy {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            name: String,
+        }
+        struct FirstResource;
+        impl Resource for FirstResource {
+            type Model = Dummy;
+            fn slug() -> String {
+                "dummies".to_string()
+            }
+        }
+        struct SecondResource;
+        impl Resource for SecondResource {
+            type Model = Dummy;
+            fn slug() -> String {
+                "dummies".to_string()
+            }
+        }
+
+        let _ = Panel::new("admin")
+            .resource::<FirstResource>()
+            .resource::<SecondResource>();
     }
 
     #[tokio::test]
