@@ -565,7 +565,12 @@ impl Panel {
                     <main class="flex-1 mx-auto max-w-7xl w-full p-6">(slot)</main>
                 )
                 // Notification stack — fixed top-right, survives Boundary swaps
-                <div class="fixed top-4 right-4 z-50 flex flex-col gap-2">
+                // (GH #98: polite live region so streamed swaps are announced).
+                <div
+                    class="fixed top-4 right-4 z-50 flex flex-col gap-2"
+                    role="status"
+                    aria-live="polite"
+                >
                     (notification_view)
                 </div>
             ) // Scripts are owned by the document (layout_shell).
@@ -654,9 +659,11 @@ fn route_path(path: &str) -> topcoat::router::PathBuf {
 /// apply the table's search/sort/pagination declarations, render through
 /// `Resource::table`. The page title is the resource's navigation label.
 ///
-/// The page streams: shell, header and the search toolbar go out with the
-/// first content, while the row grid loads inside a `suspense` region that
-/// swaps in the skeleton → table without any client-side fetching.
+/// The page streams: shell and header go out with the first content, while the
+/// row grid (toolbar/filter/bulk/pager included) loads inside a `suspense`
+/// region that swaps in the skeleton → table without any client-side fetching
+/// (GH #98: the skeleton is thead + placeholders only, so chrome pops in with
+/// the swap by design).
 fn resource_list<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
     Box::pin(HoistView::new(ThenView::new(async move {
         if !R::can_view_any(cx) {
@@ -691,6 +698,9 @@ fn resource_list<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
         // slug-dispatch registry design. `render_with_state` +
         // `from_live_args` are the kept seam for it.
         let skeleton = table.render_skeleton(cx).await?;
+        // The swap payload must be rows even when the declared table sets
+        // `.defer(true)` (GH #98 trap: render() would return a second skeleton).
+        let table = table.without_skeleton();
         let lazy_rows = ThenView::new(async move {
             let grid = async {
                 let page = load_table_page::<R>(cx, &table, &state).await?;
@@ -700,14 +710,15 @@ fn resource_list<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
                 Ok(view) => Ok(view),
                 Err(error) => {
                     tracing::error!(resource = R::slug(), error = %error, "table load failed");
-                    let retry = list_url(cx, &R::slug());
+                    let retry = state.retry_url(&list_url(cx, &R::slug()));
                     let action = view! { cx => <a href=(retry)>"Retry"</a> }.boxed();
                     Ok(view! {
                         cx =>
                         argentum_ui::error_state(
                             title: format!("Couldn't load {}", R::navigation_label()),
                             detail: "Something went wrong while loading the records.",
-                            action: Some(action.into())
+                            action: Some(action.into()),
+                            attrs: attributes! { role="alert" }
                         )
                     }
                     .boxed())

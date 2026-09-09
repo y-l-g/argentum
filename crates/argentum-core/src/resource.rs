@@ -919,6 +919,18 @@ impl<M> Table<M> {
         self
     }
 
+    /// Clear the eager-skeleton flag for the streamed swap payload (GH #98).
+    ///
+    /// The list page streams `skeleton` as the `suspense` fallback, then swaps
+    /// in `table.render(page)`. If the declared table has `.defer(true)`, the
+    /// swap would be a second skeleton; the streamed path renders through a
+    /// copy with the flag cleared so rows always arrive.
+    pub fn without_skeleton(mut self) -> Self {
+        self.show_skeleton = false;
+        self.defer_initial = false;
+        self
+    }
+
     /// Whether the table is a `Boundary`.
     pub fn is_boundary(&self) -> bool {
         self.is_boundary
@@ -1393,7 +1405,7 @@ impl<M> Table<M> {
         let with_bulk = self.bulk_enabled();
         let inner = view! {
             cx =>
-            <div class="rounded-xl border border-border overflow-hidden">
+            <div class="rounded-xl border border-border overflow-hidden" data-table-root="">
                 table(
                     (head)
                     table_body(
@@ -2205,6 +2217,29 @@ impl TableState {
         }
     }
 
+    /// List URL preserving the full table state for the streamed retry link
+    /// (GH #98): a filtered/sorted/paginated failure retries the same evidence,
+    /// not the bare list.
+    pub(crate) fn retry_url(&self, path: &str) -> String {
+        let dir = self
+            .sort
+            .as_ref()
+            .map(|s| if s.descending { "desc" } else { "asc" });
+        let filters = self.filters_param();
+        build_url(
+            path,
+            &[
+                ("q", self.search.as_deref()),
+                ("sort", self.sort.as_ref().map(|s| s.column.as_str())),
+                ("dir", dir),
+                ("filters", filters.as_deref()),
+                ("group_by", self.group_by.as_deref()),
+                ("after", self.after.as_deref()),
+                ("before", self.before.as_deref()),
+            ],
+        )
+    }
+
     /// Rebuild list state from live-search shard args (GH #74).
     ///
     /// Shard requests hit `POST /_topcoat/runtime/shards/...`, so
@@ -2324,7 +2359,7 @@ fn encode_path_segment(value: &str) -> String {
 }
 
 /// Build `path?k=v&…` from ordered optional parameters, skipping `None`.
-fn build_url(path: &str, params: &[(&str, Option<&str>)]) -> String {
+pub(crate) fn build_url(path: &str, params: &[(&str, Option<&str>)]) -> String {
     let query = params
         .iter()
         .filter_map(|(k, v)| v.map(|v| format!("{k}={}", encode_query_value(v))))
@@ -3836,5 +3871,61 @@ mod tests {
             html.contains("group_by") && html.contains("after=abc"),
             "pager must preserve group_by, got {html}"
         );
+    }
+
+    #[tokio::test]
+    async fn skeleton_shares_table_root_and_defer_clears_for_swap() {
+        let cx = CxTestBuilder::new().build();
+        let deferred = Table::<User>::r#for(&cx)
+            .id(|u| u.id.to_string())
+            .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()))
+            .defer(true);
+        assert!(deferred.is_defer());
+        let html = deferred
+            .render_skeleton(&cx)
+            .await
+            .unwrap()
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
+        assert!(html.contains("data-table-root"), "skeleton must share table root, got {html}");
+        // The streamed swap renders through a copy with the flag cleared.
+        let swapped = deferred.without_skeleton();
+        assert!(!swapped.is_defer());
+        let rows = vec![User {
+            id: uuid::Uuid::nil(),
+            name: "Ada".to_string(),
+        }];
+        let html = swapped
+            .render_with_state(&cx, rows.into(), &TableState::default(), "/admin/users")
+            .await
+            .unwrap()
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
+        assert!(html.contains("Ada"), "swap payload must be rows, got {html}");
+    }
+
+    #[test]
+    fn retry_url_preserves_full_table_state() {
+        let mut filters = HashMap::new();
+        filters.insert("status".to_string(), "published".to_string());
+        let state = TableState {
+            search: Some("Ada".to_string()),
+            sort: Some(Sort {
+                column: "name".to_string(),
+                descending: true,
+            }),
+            after: Some("cur".to_string()),
+            filters,
+            group_by: Some("status".to_string()),
+            ..TableState::default()
+        };
+        let url = state.retry_url("/admin/users");
+        for part in ["q=Ada", "sort=name", "dir=desc", "filters=", "group_by=status", "after=cur"] {
+            assert!(url.contains(part), "retry must preserve {part}, got {url}");
+        }
     }
 }
