@@ -2160,6 +2160,9 @@ impl TableState {
     }
 
     /// Serialized `filters` for URL (`key:value,key2:value2`), or `None` when empty.
+    ///
+    /// Keys/values escape `%`, `:`, `,` (`%25`/`%3A`/`%2C`, GH #93) so a
+    /// free-text value like `a,b` round-trips instead of splitting.
     pub fn filters_param(&self) -> Option<String> {
         if self.filters.is_empty() {
             None
@@ -2167,7 +2170,9 @@ impl TableState {
             let mut pairs: Vec<String> = self
                 .filters
                 .iter()
-                .map(|(k, v)| format!("{}:{}", k, v))
+                .map(|(k, v)| {
+                    format!("{}:{}", encode_filter_component(k), encode_filter_component(v))
+                })
                 .collect();
             pairs.sort();
             Some(pairs.join(","))
@@ -2228,6 +2233,10 @@ impl TableState {
 }
 
 /// Parse `filters` query param: `key:value,key2:value2` (trimmed, blank ignored).
+///
+/// `,`/`:`/`%` inside keys/values are `%`-escaped by [`TableState::filters_param`]
+/// (GH #93); decoding restores them. Duplicate keys keep the first occurrence
+/// instead of silent last-wins.
 fn parse_filters_param(raw: &str) -> HashMap<String, String> {
     let mut map = HashMap::new();
     for part in raw.split(',') {
@@ -2235,15 +2244,33 @@ fn parse_filters_param(raw: &str) -> HashMap<String, String> {
         if part.is_empty() {
             continue;
         }
-        if let Some((k, v)) = part.split_once(':') {
-            let k = k.trim().to_string();
-            let v = v.trim().to_string();
-            if !k.is_empty() && !v.is_empty() {
+        // Split on the first *unescaped* colon: `%3A` stays inside the key/value,
+        // so a plain `split_once(':')` is correct on the encoded form.
+        if let Some((k_enc, v_enc)) = part.split_once(':') {
+            let k = decode_filter_component(k_enc.trim());
+            let v = decode_filter_component(v_enc.trim());
+            if !k.is_empty() && !v.is_empty() && !map.contains_key(&k) {
                 map.insert(k, v);
             }
         }
     }
     map
+}
+
+/// Escape `%`, `:`, `,` inside a filter key/value (GH #93).
+fn encode_filter_component(s: &str) -> String {
+    s.replace('%', "%25")
+        .replace(':', "%3A")
+        .replace(',', "%2C")
+}
+
+/// Decode [`encode_filter_component`] (case-insensitive hex, single pass).
+fn decode_filter_component(s: &str) -> String {
+    s.replace("%2C", ",")
+        .replace("%2c", ",")
+        .replace("%3A", ":")
+        .replace("%3a", ":")
+        .replace("%25", "%")
 }
 
 /// Percent-encode a query parameter value (`unreserved` RFC 3986 set passes).
@@ -3715,5 +3742,27 @@ mod tests {
         assert_eq!(encode_path_segment("a+b@c.com"), "a%2Bb%40c.com");
         assert_eq!(encode_path_segment("100%"), "100%25");
         assert_eq!(encode_path_segment("a?b#c"), "a%3Fb%23c");
+    }
+
+    #[test]
+    fn filters_param_round_trips_reserved_chars() {
+        let mut filters = HashMap::new();
+        filters.insert("q".to_string(), "a,b".to_string());
+        filters.insert("tag".to_string(), "x:y%z".to_string());
+        let state = TableState {
+            filters,
+            ..TableState::default()
+        };
+        let param = state.filters_param().expect("must serialize");
+        assert!(param.contains("%2C") && param.contains("%3A") && param.contains("%25"));
+        let back = parse_filters_param(&param);
+        assert_eq!(back.get("q").map(String::as_str), Some("a,b"));
+        assert_eq!(back.get("tag").map(String::as_str), Some("x:y%z"));
+        // Duplicate keys keep the first, never silent last-wins.
+        let dup = parse_filters_param("k:a,k:b");
+        assert_eq!(dup.get("k").map(String::as_str), Some("a"));
+        // Legacy plain values still parse.
+        let legacy = parse_filters_param("status:published, featured:true");
+        assert_eq!(legacy.get("status").map(String::as_str), Some("published"));
     }
 }
