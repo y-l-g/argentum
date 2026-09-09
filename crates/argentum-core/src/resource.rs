@@ -808,7 +808,9 @@ impl<M> Table<M> {
     ///
     /// Required before [`Self::render`]: row identity is not optional
     /// (`CONTEXT.md` Table) — renders without it return an error rather than
-    /// falling back to loop indices.
+    /// falling back to loop indices. The projection must be injective within
+    /// a page (GH #96): duplicate keys corrupt keyed diffs and bulk selection,
+    /// and are debug-asserted at render time.
     pub fn id(mut self, key: impl Fn(&M) -> String + Send + Sync + 'static) -> Self {
         self.row_key = Some(Arc::new(key));
         self
@@ -1176,6 +1178,15 @@ impl<M> Table<M> {
                 (key, cells)
             })
             .collect();
+        // Row keys must be injective within a page (GH #96): duplicates corrupt
+        // keyed diffs and bulk selection (two rows, one checkbox value).
+        debug_assert!(
+            {
+                let mut seen = std::collections::HashSet::new();
+                row_data.iter().all(|(k, _)| seen.insert(k.clone()))
+            },
+            "duplicate Table::id keys in one page: Table::id must be injective"
+        );
 
         if page.rows.is_empty() {
             let empty_cell = self
@@ -1263,7 +1274,7 @@ impl<M> Table<M> {
                                         table_cell(
                                             <form
                                                 method="post"
-                                                action=(format!("{}/{}/delete", prefix, key_for_action))
+                                                action=(format!("{}/{}/delete", prefix, encode_path_segment(&key_for_action)))
                                             >
                                                 button(
                                                     variant: ButtonVariant::Ghost,
@@ -1326,7 +1337,7 @@ impl<M> Table<M> {
                                     table_cell(
                                         <form
                                             method="post"
-                                            action=(format!("{}/{}/delete", prefix, key_for_action))
+                                            action=(format!("{}/{}/delete", prefix, encode_path_segment(&key_for_action)))
                                         >
                                             button(
                                                 variant: ButtonVariant::Ghost,
@@ -2247,6 +2258,16 @@ fn encode_query_value(value: &str) -> String {
         }
     }
     out
+}
+
+/// Percent-encode a single path segment (GH #96).
+///
+/// Row keys are `String` by contract, so `/`, `?`, `#`, `%`, `+` inside a key
+/// must not rewrite the action URL. Topcoat's `path_param_segment` returns
+/// the percent-decoded segment, so this round-trips; UUID keys pass through
+/// unchanged.
+fn encode_path_segment(value: &str) -> String {
+    encode_query_value(value)
 }
 
 /// Build `path?k=v&…` from ordered optional parameters, skipping `None`.
@@ -3683,5 +3704,15 @@ mod tests {
         assert!(!col.is_searchable() && !col.is_sortable());
         assert!(col.to_search_expr("x").is_none());
         assert!(col.to_order_by(false).is_none());
+    }
+
+    #[test]
+    fn path_segment_encoding_keeps_uuids_and_escapes_reserved() {
+        let uuid = uuid::Uuid::nil().to_string();
+        assert_eq!(encode_path_segment(&uuid), uuid);
+        assert_eq!(encode_path_segment("a/b"), "a%2Fb");
+        assert_eq!(encode_path_segment("a+b@c.com"), "a%2Bb%40c.com");
+        assert_eq!(encode_path_segment("100%"), "100%25");
+        assert_eq!(encode_path_segment("a?b#c"), "a%3Fb%23c");
     }
 }
