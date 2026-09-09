@@ -31,6 +31,12 @@ too_many_lines = "allow"
 # `cargo update -p topcoat` / `cargo update -p toasty`. For temporary
 # live-editing against a local checkout, add an uncommitted `[patch]`
 # section redirecting to `../topcoat` / `../toasty` (see ADR-0003).
+#
+# Pin policy (GH #103): `benchmarks/argentum` is a detached workspace with
+# its own lockfile resolving `main` independently — bump it in the same
+# commit (`cd benchmarks/argentum && cargo update -p topcoat -p toasty`),
+# and keep the revs identical to this lockfile. Drift means the bench
+# measures different upstream code than the workspace ships.
 [workspace.dependencies]
 topcoat = { git = "https://github.com/tokio-rs/topcoat", branch = "main", default-features = false, features = ["view", "router", "discover"] }
 toasty = { git = "https://github.com/tokio-rs/toasty", branch = "main", default-features = false, features = ["sqlite", "jiff"] }

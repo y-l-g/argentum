@@ -6,7 +6,8 @@ use toasty::{Db, Deferred};
 use topcoat::{
     Result,
     context::{Cx, memoize},
-    router::{Router, layout},
+    router::{Router, Slot, layout},
+    view::View,
 };
 
 /// Author for bench — tenant_id + posts HasMany (mirrors showcase).
@@ -247,21 +248,28 @@ async fn run_bench(iterations: usize) {
     println!("memoized (cache hit) — p50: {p50:.2}ms p90: {p90:.2}ms p99: {p99:.2}ms min: {min:.2}ms max: {max:.2}ms");
     println!("uncached (1 query with 2 includes) — p50: {uncached_p50:.2}ms");
     println!("budget: <40ms p50 (Phase 2, 50 rows, 2 includes, filters+group_by)");
+    // The budget gates the COLD path (GH #103): fresh Cx per iteration, no
+    // memoize hits — the memoized figure is reporting only. FAIL exits
+    // nonzero so CI can gate on it.
+    let mut failed = false;
     if p50 < 40.0 {
-        println!("PASS: p50 {p50:.2}ms < 40ms (memoized)");
+        println!("PASS: p50 {p50:.2}ms < 40ms (memoized, informational)");
     } else {
-        println!("FAIL: p50 {p50:.2}ms >= 40ms");
+        println!("WARN: memoized p50 {p50:.2}ms >= 40ms (informational only)");
     }
     if uncached_p50 < 40.0 {
-        println!("PASS: uncached p50 {uncached_p50:.2}ms < 40ms");
+        println!("PASS: uncached (cold Cx) p50 {uncached_p50:.2}ms < 40ms");
     } else {
-        println!("FAIL: uncached p50 {uncached_p50:.2}ms >= 40ms (still reports, but budget expects <40ms)");
+        println!("FAIL: uncached (cold Cx) p50 {uncached_p50:.2}ms >= 40ms");
+        failed = true;
     }
-    // Ensure we exit with 0 even if FAIL, so CI can report; the printed PASS/FAIL is the signal.
+    if failed {
+        std::process::exit(1);
+    }
 }
 
 #[layout("/admin")]
-async fn admin_layout(cx: &Cx, slot: Result) -> Result {
+async fn admin_layout(cx: &Cx, slot: Slot<'_>) -> Result<impl View> {
     Panel::layout_shell(cx, slot).await
 }
 

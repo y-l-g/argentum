@@ -7,6 +7,12 @@ publish = false
 # Detached from the Argentum workspace on purpose: the bench app links the
 # toolkit plus a full topcoat runtime, so it is a standalone crate with its
 # own dependency tree (mirrors topcoat/benchmarks).
+#
+# Pin policy (GH #103): topcoat/toasty resolve `main` independently here —
+# always bump in lockstep with the workspace lock
+# (`cd benchmarks/argentum && cargo update -p topcoat -p toasty` in the same
+# commit), keeping identical revs. Drift means the bench measures different
+# upstream code than the workspace ships.
 [workspace]
 
 [dependencies]
@@ -16,3 +22,6 @@ toasty = { git = "https://github.com/tokio-rs/toasty", branch = "main", features
 jiff = "0.2"
 uuid = { version = "1.23", features = ["v4"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+
+[lints.rust]
+unsafe_code = "deny"

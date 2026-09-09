@@ -33,6 +33,9 @@ so the harness never interferes with `cargo test` / `clippy`.
 # Bench the Argentum list (50 rows, 2 includes) without starting a server:
 cargo run -p storefront-argentum -- --bench --iterations 100
 
+# The budget (<40ms p50) gates the COLD path (fresh Cx per iteration);
+# FAIL exits nonzero so CI can gate on it (GH #103).
+
 # Full matrix vs baselines (requires `oha`):
 ./benchmarks/scripts/bench.sh
 # -> benchmarks/results/bench.json + results.md
