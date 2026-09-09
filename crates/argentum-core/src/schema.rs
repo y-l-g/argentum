@@ -155,11 +155,14 @@ impl TextInput {
     }
 
     fn is_valid_email(s: &str) -> bool {
-        // `s` is already trimmed by `validate`. Stricter than the original
-        // `split('@') && domain.contains('.')` — rejects `a@b..c`, `a@b`,
-        // `.a@b.com`, `a@.b.com` etc. without pulling `validator` crate.
-        // Keeps `TextInput::validate("a@b..c")` failing as GH #11 expects.
-        if s.contains(' ') || s.contains("..") {
+        // Accepted subset, specified (GH #100) — stricter than the original
+        // `split('@') && domain.contains('.')`, deliberately narrower than
+        // RFC 5322 (no quoted local parts, IP literals, or unicode):
+        // `local@domain` with exactly one `@`, no spaces, no `..`; local part
+        // 1–64 chars not starting/ending with `.`; domain of 2+ labels, each
+        // 1–63 chars, not starting/ending with `-`, containing no `_`; TLD
+        // (last label) at least 2 chars; 254 chars total.
+        if s.len() > 254 || s.contains(' ') || s.contains("..") {
             return false;
         }
         let parts: Vec<&str> = s.split('@').collect();
@@ -167,10 +170,10 @@ impl TextInput {
             return false;
         }
         let (local, domain) = (parts[0], parts[1]);
-        if local.is_empty() || domain.is_empty() {
-            return false;
-        }
-        if local.starts_with('.')
+        if local.is_empty()
+            || local.len() > 64
+            || domain.is_empty()
+            || local.starts_with('.')
             || local.ends_with('.')
             || domain.starts_with('.')
             || domain.ends_with('.')
@@ -183,12 +186,21 @@ impl TextInput {
             return false;
         }
         // each domain label must be non-empty and not start/end with '-'
+        let mut labels = 0;
+        let mut tld_len = 0;
         for label in domain.split('.') {
-            if label.is_empty() || label.starts_with('-') || label.ends_with('-') {
+            labels += 1;
+            if label.is_empty()
+                || label.len() > 63
+                || label.starts_with('-')
+                || label.ends_with('-')
+                || label.contains('_')
+            {
                 return false;
             }
+            tld_len = label.len();
         }
-        true
+        labels >= 2 && tld_len >= 2
     }
 
     #[allow(dead_code)]
@@ -2130,6 +2142,34 @@ mod tests {
                 .is_empty(),
             "email should trim"
         );
+    }
+
+    #[test]
+    fn text_input_email_subset_edges() {
+        let input = TextInput::r#for(DummyUser::fields().email()).email();
+        // Accepted subset (GH #100).
+        for ok in ["a@b.com", "user+tag@sub.example.co", "Ada@Example.COM"] {
+            assert!(input.validate(ok).is_empty(), "{ok} should pass");
+        }
+        // Rejected: underscore host, single-char TLD, overlong parts.
+        for bad in [
+            "user@my_host.com".to_string(),
+            "a@b.c".to_string(),
+            format!("{}@b.com", "a".repeat(65)),
+            format!("a@{}.com", "b".repeat(64)),
+            // 255 chars total, every part individually valid (GH #100).
+            format!(
+                "{}@{}.{}.{}",
+                "a".repeat(64),
+                "b".repeat(63),
+                "c".repeat(63),
+                "d".repeat(62)
+            ),
+            "\"a b\"@example.com".to_string(),
+            "a@b..com".to_string(),
+        ] {
+            assert!(!input.validate(&bad).is_empty(), "{bad} should fail");
+        }
     }
 
     #[tokio::test]
