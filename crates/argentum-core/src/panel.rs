@@ -1599,6 +1599,20 @@ fn resource_export<R: Resource>(cx: &Cx, _body: Body) -> RouteFuture<'_> {
         }
         let state = TableState::from_cx(cx);
         let table = R::table(cx);
+        // Fail closed on unapplied filters (GH #93): a typo'd `?filters=`
+        // must not silently export the unfiltered table.
+        if !table.unapplied_filters(&state).is_empty() {
+            return Err(topcoat::router::error::bad_request(format!(
+                "invalid filters: {}",
+                table
+                    .unapplied_filters(&state)
+                    .iter()
+                    .map(|(pair, reason)| format!("{pair} ({reason})"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ))
+            .into());
+        }
         let mut query = R::query(cx);
         if let Some(term) = &state.search
             && let Some(expr) = table.search_expr(term)

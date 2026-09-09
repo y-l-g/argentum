@@ -282,3 +282,69 @@ async fn table_state_parses_filters_and_filter_expr() {
     assert_eq!(filter.name(), "status");
     assert!(filter.to_expr("published").is_some());
 }
+
+#[tokio::test]
+async fn typo_filter_warns_on_list_but_refuses_export() {
+    // GH #93: unknown/typo'd filters warn visibly on the list (200) and fail
+    // closed on export (400) instead of silently over-sharing.
+    let db = full_db().await;
+    let router = router(db);
+
+    let resp = router
+        .handle(
+            Request::builder()
+                .uri("/admin/posts?filters=stauts:published")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+    assert!(resp.status().is_success(), "typo filter keeps 200");
+    let body = resp.into_body().collect().await.unwrap().to_bytes();
+    let html = String::from_utf8_lossy(&body);
+    assert!(
+        html.contains("role=\"alert\"") && html.contains("stauts:published"),
+        "typo filter must warn, got {html}"
+    );
+
+    let resp = router
+        .handle(
+            Request::builder()
+                .uri("/admin/posts/export?filters=stauts:published")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+    assert_eq!(
+        resp.status(),
+        400,
+        "typo'd export must refuse, got {}",
+        resp.status()
+    );
+
+    // Rejected values (capital P) behave the same.
+    let resp = router
+        .handle(
+            Request::builder()
+                .uri("/admin/posts/export?filters=status:Published")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+    assert_eq!(
+        resp.status(),
+        400,
+        "rejected-value export must refuse, got {}",
+        resp.status()
+    );
+
+    // Valid filters still export fine.
+    let resp = router
+        .handle(
+            Request::builder()
+                .uri("/admin/posts/export?filters=status:published")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+    assert!(resp.status().is_success(), "valid export must stay 200");
+}

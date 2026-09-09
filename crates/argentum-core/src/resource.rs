@@ -882,6 +882,31 @@ impl<M> Table<M> {
         }
     }
 
+    /// Requested filters that produced no predicate (GH #93): `(key:value, reason)`
+    /// where reason is `"unknown filter"` (no declared filter owns the key)
+    /// or `"invalid value"` (the declared filter rejected the value).
+    ///
+    /// The list view renders these as a `role=alert` banner and keeps a 200;
+    /// the export refuses the request with 400 instead of silently
+    /// over-sharing an effectively-unfiltered CSV.
+    pub fn unapplied_filters(&self, state: &TableState) -> Vec<(String, String)>
+    where
+        M: toasty::schema::Model,
+    {
+        let mut out = Vec::new();
+        for (key, value) in &state.filters {
+            match self.filters.iter().find(|f| f.name() == key) {
+                None => out.push((format!("{key}:{value}"), "unknown filter".to_string())),
+                Some(f) if f.to_expr(value).is_none() => {
+                    out.push((format!("{key}:{value}"), "invalid value".to_string()))
+                }
+                Some(_) => {}
+            }
+        }
+        out.sort();
+        out
+    }
+
     /// Group rows in-memory by a named key (count summarizer). No GROUP BY SQL.
     ///
     /// `name` declares the `?group_by=` value this table accepts
@@ -1243,6 +1268,51 @@ impl<M> Table<M> {
         };
         let pager = self.render_pager(cx, state, path, &page).await?;
         let csrf_token = crate::csrf::current_token(cx);
+        // Fail-visible filters (GH #93): requested filters that produced no
+        // predicate render as a `role=alert` banner; the list keeps a 200
+        // while the export refuses with 400 (see `resource_export`).
+        let filter_warning: Option<BoxView<'_>> = {
+            let unapplied = self.unapplied_filters(state);
+            if unapplied.is_empty() {
+                None
+            } else {
+                let detail = unapplied
+                    .iter()
+                    .map(|(pair, reason)| format!("{pair} ({reason})"))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let text =
+                    format!("Ignored filter(s): {detail} — showing unfiltered results.");
+                let dir = state
+                    .sort
+                    .as_ref()
+                    .map(|s| if s.descending { "desc" } else { "asc" });
+                let group = self.effective_group_name(state);
+                let clear = build_url(
+                    path,
+                    &[
+                        ("q", state.search.as_deref()),
+                        (
+                            "sort",
+                            state.sort.as_ref().map(|s| s.column.as_str()),
+                        ),
+                        ("dir", dir),
+                        ("group_by", group.as_deref()),
+                    ],
+                );
+                Some(
+                    view! {
+                        cx =>
+                        <div class="border-b border-destructive/30 bg-muted px-4 py-2 text-sm" role="alert">
+                            (text)
+                            " "
+                            <a href=(clear) class="underline">"Clear filters"</a>
+                        </div>
+                    }
+                    .boxed(),
+                )
+            }
+        };
         // Precompute the row presentation so template bodies capture only
         // owned data — the lazy view outlives this call, so it must never
         // borrow `self` or `page`.
@@ -1329,6 +1399,9 @@ impl<M> Table<M> {
                         (filter_bar.expect("filter bar built when enabled"))
                     }
                     (bulk_bar_view)
+                    if let Some(warning) = filter_warning {
+                        (warning)
+                    }
                     for gv in group_views {
                         (gv)
                     }
@@ -1397,6 +1470,9 @@ impl<M> Table<M> {
                     (filter_bar.expect("filter bar built when enabled"))
                 }
                 (bulk_bar_view)
+                if let Some(warning) = filter_warning {
+                    (warning)
+                }
                 table(
                     (head)
                     table_body(
@@ -4018,6 +4094,96 @@ mod tests {
         // Legacy plain values still parse.
         let legacy = parse_filters_param("status:published, featured:true");
         assert_eq!(legacy.get("status").map(String::as_str), Some("published"));
+    }
+
+    fn status_table(cx: &Cx) -> Table<Task> {
+        Table::<Task>::r#for(cx)
+            .id(|t| t.id.to_string())
+            .columns(TextColumn::r#for(Task::fields().title(), |t| t.title.clone()))
+            .filters(SelectFilter::r#for(
+                Task::fields().status(),
+                vec!["published".to_string(), "draft".to_string()],
+            ))
+    }
+
+    fn filters_state(pairs: &[(&str, &str)]) -> TableState {
+        TableState {
+            filters: pairs
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+            ..TableState::default()
+        }
+    }
+
+    #[test]
+    fn unapplied_filters_flags_unknown_keys_and_rejected_values() {
+        // GH #93: typo'd keys and allowlist-missed values must be visible,
+        // never silently unfiltered.
+        let cx = CxTestBuilder::new().build();
+        let tbl = status_table(&cx);
+        assert!(tbl.unapplied_filters(&filters_state(&[])).is_empty());
+        assert!(
+            tbl
+                .unapplied_filters(&filters_state(&[("status", "published")]))
+                .is_empty(),
+            "valid filter must apply"
+        );
+        assert_eq!(
+            tbl.unapplied_filters(&filters_state(&[("stauts", "published")])),
+            vec![("stauts:published".to_string(), "unknown filter".to_string())]
+        );
+        assert_eq!(
+            tbl.unapplied_filters(&filters_state(&[("status", "Published")])),
+            vec![("status:Published".to_string(), "invalid value".to_string())]
+        );
+    }
+
+    #[tokio::test]
+    async fn unknown_filter_renders_alert_banner_and_keeps_200() {
+        // GH #93: the list keeps a 200 but warns instead of lying about
+        // "these filters".
+        let cx = CxTestBuilder::new().build();
+        let tbl = status_table(&cx);
+        let rows = vec![Task {
+            id: uuid::Uuid::nil(),
+            title: "Hello".to_string(),
+            status: "published".to_string(),
+            featured: false,
+            created_at: jiff::Timestamp::now(),
+        }];
+        let html = tbl
+            .render_with_state(&cx, rows.into(), &filters_state(&[("stauts", "published")]), "/admin/tasks")
+            .await
+            .unwrap()
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
+        assert!(
+            html.contains("role=\"alert\"") && html.contains("stauts:published"),
+            "typo filter must warn, got {html}"
+        );
+
+        let rows = vec![Task {
+            id: uuid::Uuid::nil(),
+            title: "Hello".to_string(),
+            status: "published".to_string(),
+            featured: false,
+            created_at: jiff::Timestamp::now(),
+        }];
+        let html = tbl
+            .render_with_state(&cx, rows.into(), &filters_state(&[("status", "published")]), "/admin/tasks")
+            .await
+            .unwrap()
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
+        assert!(
+            !html.contains("role=\"alert\""),
+            "valid filter must not warn, got {html}"
+        );
     }
 
     #[tokio::test]
