@@ -1413,8 +1413,10 @@ impl<M> Table<M> {
                                 let key_for_action = key.clone();
                                 let key_for_select = key.clone();
                                 let csrf_for_row = csrf_token.clone();
+                                let row_dom_id = row_dom_id(&key_for_row);
                                 table_row(
                                     key: key_for_row,
+                                    attrs: attributes! { id=(row_dom_id) },
                                     if with_bulk {
                                         table_cell(
                                             <input
@@ -1481,8 +1483,10 @@ impl<M> Table<M> {
                             let key_for_action = key.clone();
                             let key_for_select = key.clone();
                             let csrf_for_row = csrf_token.clone();
+                            let row_dom_id = row_dom_id(&key_for_row);
                             table_row(
                                 key: key_for_row,
+                                attrs: attributes! { id=(row_dom_id) },
                                 if with_bulk {
                                     table_cell(
                                         <input
@@ -2548,6 +2552,23 @@ fn encode_query_value(value: &str) -> String {
 /// unchanged.
 fn encode_path_segment(value: &str) -> String {
     encode_query_value(value)
+}
+
+/// Stable DOM id for a table row (GH #104): Topcoat's morph (#392) follows
+/// elements by `id` across reruns, so reorderable row content needs one in
+/// addition to the keyed-diff `key:`. Derived from the row key (stable for
+/// the record, unlike a loop index), sanitized to an HTML-safe token.
+fn row_dom_id(key: &str) -> String {
+    let mut out = String::with_capacity(key.len() + 4);
+    out.push_str("row-");
+    for c in key.chars() {
+        if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | ':' | '.') {
+            out.push(c);
+        } else {
+            out.push('-');
+        }
+    }
+    out
 }
 
 /// Build `path?k=v&…` from ordered optional parameters, skipping `None`.
@@ -4125,6 +4146,63 @@ mod tests {
         assert_eq!(encode_path_segment("a+b@c.com"), "a%2Bb%40c.com");
         assert_eq!(encode_path_segment("100%"), "100%25");
         assert_eq!(encode_path_segment("a?b#c"), "a%3Fb%23c");
+    }
+
+    #[test]
+    fn row_dom_ids_are_stable_and_html_safe() {
+        // GH #104: morph follows `id`s across reruns — derived from the row
+        // key (record-stable), never a loop index, sanitized to tokens.
+        assert_eq!(
+            row_dom_id("550e8400-e29b-41d4-a716-446655440000"),
+            "row-550e8400-e29b-41d4-a716-446655440000"
+        );
+        assert_eq!(row_dom_id("a+b@c.com"), "row-a-b-c.com");
+        assert_eq!(row_dom_id("Ada Lovelace"), "row-Ada-Lovelace");
+        assert_eq!(row_dom_id("a/b?c"), "row-a-b-c");
+    }
+
+    #[tokio::test]
+    async fn rendered_rows_carry_stable_dom_ids() {
+        // GH #104: every rendered row exposes its morph id; re-rendering the
+        // same page yields the same ids.
+        let cx = CxTestBuilder::new().build();
+        let tbl = Table::<User>::r#for(&cx)
+            .id(|u| u.id.to_string())
+            .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()));
+        let rows = vec![
+            User {
+                id: uuid::Uuid::nil(),
+                name: "Ada".to_string(),
+            },
+            User {
+                id: uuid::Uuid::max(),
+                name: "Alan".to_string(),
+            },
+        ];
+        let render = async |rows: Vec<User>| {
+            tbl.render_with_state(&cx, rows.into(), &TableState::default(), "/admin/users")
+                .await
+                .unwrap()
+                .single()
+                .await
+                .unwrap()
+                .render(&cx)
+        };
+        let first = render(rows.clone()).await;
+        assert!(
+            first.contains("id=\"row-00000000-0000-0000-0000-000000000000\""),
+            "missing morph id for first row, got {first}"
+        );
+        assert!(
+            first.contains("id=\"row-ffffffff-ffff-ffff-ffff-ffffffffffff\""),
+            "missing morph id for second row, got {first}"
+        );
+        let second = render(rows).await;
+        assert_eq!(
+            first.matches("id=\"row-").count(),
+            second.matches("id=\"row-").count(),
+            "reruns must keep stable row ids"
+        );
     }
 
     #[test]
