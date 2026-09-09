@@ -1400,6 +1400,8 @@ impl<M> Table<M> {
     /// stream in ([`Table::render`] also uses it for the eager
     /// `defer(true)` demo path). Wrapped in the same `data-boundary` region
     /// as the real grid so the markup shape matches when the swap arrives.
+    /// Carries `aria-busy` while loading (GH #98); the surrounding chrome
+    /// (toolbar/filter/pager) intentionally streams in with the swap.
     pub async fn render_skeleton<'a>(&self, cx: &'a Cx) -> Result<BoxView<'a>>
     where
         M: toasty::schema::Model,
@@ -1422,7 +1424,7 @@ impl<M> Table<M> {
         let with_bulk = self.bulk_enabled();
         let inner = view! {
             cx =>
-            <div class="rounded-xl border border-border overflow-hidden" data-table-root="">
+            <div class="rounded-xl border border-border overflow-hidden" data-table-root="" aria-busy="true">
                 table(
                     (head)
                     table_body(
@@ -3969,6 +3971,7 @@ mod tests {
             .unwrap()
             .render(&cx);
         assert!(html.contains("data-table-root"), "skeleton must share table root, got {html}");
+        assert!(html.contains("aria-busy"), "skeleton must announce loading, got {html}");
         // The streamed swap renders through a copy with the flag cleared.
         let swapped = deferred.without_skeleton();
         assert!(!swapped.is_defer());
