@@ -1404,13 +1404,31 @@ fn resource_edit_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
         if !R::can_update(cx, &record) {
             return Err(forbidden().into());
         }
-        let values = parse_form_values(cx, body).await?;
+        let mut values = parse_form_values(cx, body).await?;
         crate::csrf::verify(cx, &values)?;
         let schema = R::form(cx);
         reject_unknown_form_keys(&schema, &values)?;
-        let mut errors = schema.validate_async(cx, &values).await;
         // Unique check excludes this record's own unchanged values.
         let current = R::hydrate_form_values(&record);
+        // Untouched file inputs preserve the stored path (GH #90): the edit
+        // form renders an empty file input (browsers never pre-fill it), so
+        // an empty submit means "keep", not "clear" — without this the
+        // required check rejects untouched edits and optional uploads get
+        // blanked. Explicit clearing needs its own control (future work).
+        for name in schema.file_uploads().keys() {
+            let empty = values
+                .get(name)
+                .map(|v| v.trim().is_empty())
+                .unwrap_or(true);
+            if empty
+                && current
+                    .get(name)
+                    .is_some_and(|v| !v.trim().is_empty())
+            {
+                values.insert(name.clone(), current[name].clone());
+            }
+        }
+        let mut errors = schema.validate_async(cx, &values).await;
         for (name, errs) in check_unique::<R>(cx, &schema, &values, &current).await {
             errors.entry(name).or_default().extend(errs);
         }

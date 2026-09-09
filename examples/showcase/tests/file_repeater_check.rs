@@ -266,3 +266,47 @@ async fn posts_create_multipart_file_stores_filename() {
     assert_eq!(created.image_path, "upload.jpg");
     assert_eq!(created.tags, "multipart,tags");
 }
+
+#[tokio::test]
+async fn posts_edit_untouched_file_keeps_stored_path() {
+    // GH #90: the edit form renders an empty file input, so an empty submit
+    // means "keep" — it must not blank the stored path or trip required.
+    let db = full_db().await;
+    let router = router(db.clone());
+    let mut db_q = db.clone();
+    let post = Post::filter(showcase::models::Post::fields().title().eq("Hello Toasty".to_string()))
+        .first()
+        .exec(&mut db_q)
+        .await
+        .unwrap()
+        .expect("seeded post");
+    assert_eq!(post.image_path, "/images/hello.jpg");
+    let authors = Author::all().exec(&mut db_q).await.unwrap();
+    let csrf = uuid::Uuid::new_v4().to_string();
+    let resp = router
+        .handle(
+            Request::builder()
+                .uri(format!("/admin/posts/{}/edit", post.id))
+                .method(Method::POST)
+                .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .header(COOKIE, format!("argentum_csrf={csrf}"))
+                .body(Body::from(format!(
+                    "title=Renamed&author_id={}&image_path=&tags=rust&csrf_token={csrf}",
+                    authors[0].id
+                )))
+                .unwrap(),
+        )
+        .await;
+    assert!(
+        resp.status().is_redirection(),
+        "untouched-file edit must redirect, got {}",
+        resp.status()
+    );
+    let kept = Post::filter(showcase::models::Post::fields().title().eq("Renamed".to_string()))
+        .first()
+        .exec(&mut db_q)
+        .await
+        .unwrap()
+        .expect("renamed post");
+    assert_eq!(kept.image_path, "/images/hello.jpg", "stored path must survive untouched edit");
+}
