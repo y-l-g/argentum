@@ -182,6 +182,18 @@ trait Model {
 
 ---
 
+## Topcoat — cookie layer drops `Set-Cookie` on error-path responses
+
+**Where:** `topcoat-cookie/src/router.rs` (`CookieLayer::handle` awaits `next.run(...).await?`, so `write_cookies` never runs for `Err` responses); hit by every Argentum mutation redirect (`crates/argentum-core/src/panel.rs` returns redirects as `Err(redirect(...))`, Topcoat's documented redirect idiom).
+
+**Today:** `set_notification` on a create/edit/delete/bulk POST never reaches the browser — the `?notification=` query param is the only working toast transport, which is why refresh/share replays it (GH #97). CSRF is unaffected (its cookie is set on GET pages, which return `Ok`). A tripwire test (`mutation_redirect_carries_query_until_cookies_flush_on_error`) fails as soon as upstream flushes, signalling the switch to one-time cookie-only redirects.
+
+**Clean upstream API:** flush pending cookies for `Err` responses too — or a PRG-via-`Ok` redirect compatible with view handlers (`see_other` needs `Ok<impl IntoResponse>`, which a `BoxView` handler cannot return).
+
+**Argentum plan:** keep emitting `?notification=` until the flush lands; then drop the query param (one-time semantics) and delete this entry.
+
+---
+
 ## Retired entries
 
 - **Topcoat error conversion** (fixed 2026-08-26, Argentum-side): `toasty::Error → anyhow → topcoat::Error` via `From`; canonical pattern is `.map_err(Into::into)` / `?`. The `db.rs` memoize site stays under its own entry.

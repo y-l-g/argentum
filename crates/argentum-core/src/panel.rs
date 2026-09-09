@@ -2261,6 +2261,90 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn mutation_redirect_carries_query_until_cookies_flush_on_error() {
+        // Tripwire for the EXTERNAL_GAPS cookie-flush entry (GH #97): Topcoat's
+        // cookie layer skips `Set-Cookie` on `Err`-path responses, and mutation
+        // redirects return via `Err` — so the toast rides `?notification=`
+        // until upstream flushes. If the cookie assertion below starts failing,
+        // implement one-time cookie-only redirects and delete the gap entry.
+        use crate::resource::Resource;
+        use std::collections::HashMap;
+
+        #[derive(Debug, toasty::Model)]
+        struct Dummy {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            name: String,
+        }
+        struct NotifyingResource;
+        impl Resource for NotifyingResource {
+            type Model = Dummy;
+            fn slug() -> String {
+                "dummies".to_string()
+            }
+            fn can_create(_cx: &Cx) -> bool {
+                true
+            }
+            fn form(_cx: &Cx) -> crate::schema::Schema {
+                crate::schema::Schema::empty()
+            }
+            fn create_record(
+                _cx: &Cx,
+                _values: HashMap<String, String>,
+            ) -> impl std::future::Future<Output = Result<()>> + Send {
+                async move { Ok(()) }
+            }
+            fn hydrate_form_values(_record: &Dummy) -> HashMap<String, String> {
+                HashMap::new()
+            }
+        }
+
+        let db = Db::builder()
+            .models(toasty::models!(Dummy))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        let router = Panel::new("admin")
+            .app_context(db)
+            .resource::<NotifyingResource>()
+            .build();
+        let token = uuid::Uuid::new_v4().to_string();
+        let resp = router
+            .handle(
+                http::Request::builder()
+                    .uri("/admin/dummies/create")
+                    .method(http::Method::POST)
+                    .header(http::header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                    .header(http::header::COOKIE, format!("argentum_csrf={token}"))
+                    .body(Body::from(format!("csrf_token={token}")))
+                    .unwrap(),
+            )
+            .await;
+        assert!(resp.status().is_redirection());
+        let loc = resp
+            .headers()
+            .get(http::header::LOCATION)
+            .unwrap()
+            .to_str()
+            .unwrap();
+        assert!(
+            loc.contains("notification"),
+            "query must carry the toast until cookies flush, got {loc}"
+        );
+        let has_notif_cookie = resp
+            .headers()
+            .get_all(http::header::SET_COOKIE)
+            .iter()
+            .any(|v| v.to_str().unwrap().starts_with("argentum_notification="));
+        assert!(
+            !has_notif_cookie,
+            "cookies now flush on Err redirect: switch to one-time notifications (GH #97)"
+        );
+    }
+
+    #[tokio::test]
     async fn layout_shell_renders_a_complete_document() {
         use crate::resource::NavigationItem;
         use topcoat::context::CxTestBuilder;
