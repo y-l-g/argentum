@@ -1,6 +1,6 @@
 use http::{
     Method, Request,
-    header::{CONTENT_TYPE, LOCATION},
+    header::{CONTENT_TYPE, COOKIE, LOCATION},
 };
 use http_body_util::BodyExt;
 use showcase::{
@@ -73,15 +73,17 @@ async fn posts_create_shows_select_with_author_options() {
 async fn posts_create_empty_author_shows_required_error() {
     let db = full_db().await;
     let router = router(db.clone());
+    let csrf = uuid::Uuid::new_v4().to_string();
     let resp = router
         .handle(
             Request::builder()
                 .uri("/admin/posts/create")
                 .method(Method::POST)
                 .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
-                .body(Body::from(
-                    "title=Test+Post&author_id=&image_path=/tmp/a.jpg&tags=a",
-                ))
+                .header(COOKIE, format!("argentum_csrf={csrf}"))
+                .body(Body::from(format!(
+                    "title=Test+Post&author_id=&image_path=/tmp/a.jpg&tags=a&csrf_token={csrf}",
+                )))
                 .unwrap(),
         )
         .await;
@@ -109,6 +111,7 @@ async fn posts_create_empty_author_shows_required_error() {
 async fn posts_create_invalid_author_shows_invalid_error() {
     let db = full_db().await;
     let router = router(db.clone());
+    let csrf = uuid::Uuid::new_v4().to_string();
     let fake_id = uuid::Uuid::new_v4();
     let resp = router
         .handle(
@@ -116,8 +119,9 @@ async fn posts_create_invalid_author_shows_invalid_error() {
                 .uri("/admin/posts/create")
                 .method(Method::POST)
                 .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .header(COOKIE, format!("argentum_csrf={csrf}"))
                 .body(Body::from(format!(
-                    "title=Test+Post&author_id={}&image_path=/tmp/a.jpg&tags=a",
+                    "title=Test+Post&author_id={}&image_path=/tmp/a.jpg&tags=a&csrf_token={csrf}",
                     fake_id
                 )))
                 .unwrap(),
@@ -141,6 +145,7 @@ async fn posts_create_invalid_author_shows_invalid_error() {
 async fn posts_create_valid_redirects_and_creates() {
     let db = full_db().await;
     let router = router(db.clone());
+    let csrf = uuid::Uuid::new_v4().to_string();
     let mut db2 = db.clone();
     let authors = Author::all().exec(&mut db2).await.unwrap();
     let first = &authors[0];
@@ -151,8 +156,9 @@ async fn posts_create_valid_redirects_and_creates() {
                 .uri("/admin/posts/create")
                 .method(Method::POST)
                 .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .header(COOKIE, format!("argentum_csrf={csrf}"))
                 .body(Body::from(format!(
-                    "title=New+Post&author_id={}&image_path=/tmp/new.jpg&tags=new",
+                    "title=New+Post&author_id={}&image_path=/tmp/new.jpg&tags=new&csrf_token={csrf}",
                     first.id
                 )))
                 .unwrap(),
@@ -180,6 +186,7 @@ async fn posts_create_valid_redirects_and_creates() {
 async fn posts_edit_hydrates_author() {
     let db = full_db().await;
     let router = router(db.clone());
+    let csrf = uuid::Uuid::new_v4().to_string();
     let mut db2 = db.clone();
     let authors = Author::all().exec(&mut db2).await.unwrap();
     let first = &authors[0];
@@ -190,8 +197,9 @@ async fn posts_edit_hydrates_author() {
                 .uri("/admin/posts/create")
                 .method(Method::POST)
                 .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .header(COOKIE, format!("argentum_csrf={csrf}"))
                 .body(Body::from(format!(
-                    "title=EditMe&author_id={}&image_path=/tmp/edit.jpg&tags=edit",
+                    "title=EditMe&author_id={}&image_path=/tmp/edit.jpg&tags=edit&csrf_token={csrf}",
                     first.id
                 )))
                 .unwrap(),
@@ -262,6 +270,7 @@ async fn posts_list_shows_comments_count_via_include() {
 async fn posts_update_rechecks_author_existence() {
     let db = full_db().await;
     let router = router(db.clone());
+    let csrf = uuid::Uuid::new_v4().to_string();
     let mut db_q = db.clone();
     let authors = Author::all().exec(&mut db_q).await.unwrap();
     let first = &authors[0];
@@ -275,8 +284,9 @@ async fn posts_update_rechecks_author_existence() {
                 .uri(edit_url.clone())
                 .method(Method::POST)
                 .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .header(COOKIE, format!("argentum_csrf={csrf}"))
                 .body(Body::from(format!(
-                    "title=Updated+Title&author_id={}&image_path=/tmp/u.jpg&tags=u",
+                    "title=Updated+Title&author_id={}&image_path=/tmp/u.jpg&tags=u&csrf_token={csrf}",
                     first.id
                 )))
                 .unwrap(),
@@ -295,8 +305,9 @@ async fn posts_update_rechecks_author_existence() {
                 .uri(edit_url)
                 .method(Method::POST)
                 .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .header(COOKIE, format!("argentum_csrf={csrf}"))
                 .body(Body::from(format!(
-                    "title=Bad&author_id={fake}&image_path=/tmp/u.jpg&tags=u"
+                    "title=Bad&author_id={fake}&image_path=/tmp/u.jpg&tags=u&csrf_token={csrf}"
                 )))
                 .unwrap(),
         )

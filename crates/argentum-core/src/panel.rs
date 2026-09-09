@@ -669,6 +669,9 @@ fn resource_list<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
         if !R::can_view_any(cx) {
             return Err(forbidden().into());
         }
+        // Ensure the CSRF cookie before streaming starts (GH #99): streamed
+        // children can only read it via current_token.
+        crate::csrf::ensure_token(cx);
         let state = TableState::from_cx(cx);
         let mut table = R::table(cx);
         // Wire delete/bulk-delete action base from the Panel prefix — the
@@ -1046,12 +1049,14 @@ async fn render_create_page<'a, R: Resource>(
     let enctype: Option<String> = schema
         .has_file_upload()
         .then(|| "multipart/form-data".to_string());
+    let csrf = crate::csrf::current_token(cx);
     Ok(view! {
         cx =>
         argentum_ui::page(
             argentum_ui::page_header(argentum_ui::page_title((title.clone())))
             argentum_ui::page_content(
                 <form method="post" action=(action) enctype=(enctype) class="flex flex-col gap-4">
+                    <input type="hidden" name="csrf_token" value=(csrf)>
                     (form_html)
                     <div class="flex gap-2">
                         argentum_ui::button(
@@ -1087,12 +1092,14 @@ async fn render_edit_page<'a, R: Resource>(
     let enctype: Option<String> = schema
         .has_file_upload()
         .then(|| "multipart/form-data".to_string());
+    let csrf = crate::csrf::current_token(cx);
     Ok(view! {
         cx =>
         argentum_ui::page(
             argentum_ui::page_header(argentum_ui::page_title((title.clone())))
             argentum_ui::page_content(
                 <form method="post" action=(action) enctype=(enctype) class="flex flex-col gap-4">
+                    <input type="hidden" name="csrf_token" value=(csrf)>
                     (form_html)
                     <div class="flex gap-2">
                         argentum_ui::button(
@@ -1120,6 +1127,7 @@ fn resource_create<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
         if !R::can_create(cx) {
             return Err(forbidden().into());
         }
+        crate::csrf::ensure_token(cx);
         let html = render_create_page::<R>(cx, &HashMap::new(), &HashMap::new()).await?;
         Ok(html)
     })))
@@ -1186,6 +1194,7 @@ fn resource_create_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
             return Err(forbidden().into());
         }
         let values = parse_form_values(cx, body).await?;
+        crate::csrf::verify(cx, &values)?;
         let schema = R::form(cx);
         let mut errors = schema.validate_async(cx, &values).await;
         // App-side unique check over every `unique()`-marked input — the only
@@ -1251,6 +1260,7 @@ fn resource_edit<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
         if !R::can_update(cx, &record) {
             return Err(forbidden().into());
         }
+        crate::csrf::ensure_token(cx);
         let values = R::hydrate_form_values(&record);
         let html = render_edit_page::<R>(cx, &id, &values, &HashMap::new()).await?;
         Ok(html)
@@ -1272,6 +1282,7 @@ fn resource_edit_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
             return Err(forbidden().into());
         }
         let values = parse_form_values(cx, body).await?;
+        crate::csrf::verify(cx, &values)?;
         let schema = R::form(cx);
         let mut errors = schema.validate_async(cx, &values).await;
         // Unique check excludes this record's own unchanged values.
@@ -1307,11 +1318,13 @@ fn resource_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
             return Err(forbidden().into());
         }
         let values = parse_form_values(cx, body).await?;
+        crate::csrf::verify(cx, &values)?;
         let confirmed = values
             .get("confirm")
             .is_some_and(|v| v == "1" || v == "true" || v == "yes");
         if !confirmed {
             // Render confirmation page.
+            let csrf = crate::csrf::current_token(cx);
             let html = view! {
                 cx =>
                 argentum_ui::page(
@@ -1331,6 +1344,7 @@ fn resource_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
                                 class="flex gap-2"
                             >
                                 <input type="hidden" name="confirm" value="1">
+                                <input type="hidden" name="csrf_token" value=(csrf)>
                                 argentum_ui::button(
                                     variant: argentum_ui::ButtonVariant::Primary,
                                     attrs: attributes! { r#type="submit" },
@@ -1368,6 +1382,7 @@ fn resource_bulk_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
     Box::pin(HoistView::new(ThenView::<_, BoxView<'_>>::new(
         async move {
             let values = parse_form_values(cx, body).await?;
+            crate::csrf::verify(cx, &values)?;
             let ids_raw = values.get("ids").cloned().unwrap_or_default();
             let ids = parse_bulk_ids(&ids_raw);
             if ids.is_empty() {
@@ -1747,7 +1762,26 @@ mod tests {
             )
             .await;
         assert_eq!(get.status(), http::StatusCode::FORBIDDEN);
+        // Valid CSRF token still 403 on policy (not on CSRF).
+        let token = uuid::Uuid::new_v4().to_string();
         let post = router
+            .handle(
+                http::Request::builder()
+                    .uri(&url)
+                    .method(http::Method::POST)
+                    .header(http::header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                    .header(http::header::COOKIE, format!("argentum_csrf={token}"))
+                    .body(Body::from(format!("name=Ada&csrf_token={token}")))
+                    .unwrap(),
+            )
+            .await;
+        assert_eq!(
+            post.status(),
+            http::StatusCode::FORBIDDEN,
+            "view-denied edit POST must not mutate"
+        );
+        // Missing token is 403 even before policy (GH #99).
+        let no_token = router
             .handle(
                 http::Request::builder()
                     .uri(&url)
@@ -1757,11 +1791,7 @@ mod tests {
                     .unwrap(),
             )
             .await;
-        assert_eq!(
-            post.status(),
-            http::StatusCode::FORBIDDEN,
-            "view-denied edit POST must not mutate"
-        );
+        assert_eq!(no_token.status(), http::StatusCode::FORBIDDEN);
     }
 
     #[test]
@@ -1829,13 +1859,15 @@ mod tests {
             .resource::<UpperKeyResource>()
             .build();
         // Canonical lowercase id succeeds despite uppercase Table::id.
+        let token = uuid::Uuid::new_v4().to_string();
         let ok = router
             .handle(
                 http::Request::builder()
                     .uri("/admin/dummies/bulk-delete")
                     .method(http::Method::POST)
                     .header(http::header::CONTENT_TYPE, "application/x-www-form-urlencoded")
-                    .body(Body::from(format!("ids={}", row.id)))
+                    .header(http::header::COOKIE, format!("argentum_csrf={token}"))
+                    .body(Body::from(format!("ids={}&csrf_token={token}", row.id)))
                     .unwrap(),
             )
             .await;
@@ -1855,11 +1887,24 @@ mod tests {
                     .uri("/admin/dummies/bulk-delete")
                     .method(http::Method::POST)
                     .header(http::header::CONTENT_TYPE, "application/x-www-form-urlencoded")
-                    .body(Body::from(format!("ids={big}")))
+                    .header(http::header::COOKIE, format!("argentum_csrf={token}"))
+                    .body(Body::from(format!("ids={big}&csrf_token={token}")))
                     .unwrap(),
             )
             .await;
         assert_eq!(capped.status(), http::StatusCode::BAD_REQUEST);
+        // Missing token is 403 (GH #99).
+        let no_token = router
+            .handle(
+                http::Request::builder()
+                    .uri("/admin/dummies/bulk-delete")
+                    .method(http::Method::POST)
+                    .header(http::header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                    .body(Body::from(format!("ids={}", row.id)))
+                    .unwrap(),
+            )
+            .await;
+        assert_eq!(no_token.status(), http::StatusCode::FORBIDDEN);
     }
 
     #[tokio::test]

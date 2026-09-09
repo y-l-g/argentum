@@ -174,11 +174,7 @@ fn write_value(value: &Value, out: &mut Vec<u8>) -> Result<()> {
     Ok(())
 }
 
-/// Reads one tagged value; returns it plus the remaining buffer.
-fn read_value(buf: &[u8]) -> Result<(Value, &[u8])> {
-    read_value_with_depth(buf, 0)
-}
-
+/// Reads one tagged value with depth tracking; returns it plus the remaining buffer.
 fn read_value_with_depth(buf: &[u8], depth: usize) -> Result<(Value, &[u8])> {
     if depth > MAX_CURSOR_DEPTH {
         return Err(std::io::Error::other("cursor: record nesting too deep").into());

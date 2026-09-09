@@ -1,6 +1,6 @@
 use http::{
     Method, Request,
-    header::{CONTENT_TYPE, LOCATION},
+    header::{CONTENT_TYPE, COOKIE, LOCATION},
 };
 use http_body_util::BodyExt;
 use showcase::{
@@ -30,6 +30,7 @@ async fn delete_requires_confirmation_and_deletes() {
     let user = users.first().unwrap();
     let id = user.id.to_string();
     let delete_url = format!("/admin/users/{}/delete", id);
+    let csrf = uuid::Uuid::new_v4().to_string();
 
     // Check that list page contains Delete button
     let resp = router
@@ -59,7 +60,8 @@ async fn delete_requires_confirmation_and_deletes() {
                 .uri(delete_url.clone())
                 .method(Method::POST)
                 .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
-                .body(Body::from(""))
+                .header(COOKIE, format!("argentum_csrf={csrf}"))
+                .body(Body::from(format!("csrf_token={csrf}")))
                 .unwrap(),
         )
         .await;
@@ -83,7 +85,8 @@ async fn delete_requires_confirmation_and_deletes() {
                 .uri(delete_url.clone())
                 .method(Method::POST)
                 .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
-                .body(Body::from("confirm=1"))
+                .header(COOKIE, format!("argentum_csrf={csrf}"))
+                .body(Body::from(format!("confirm=1&csrf_token={csrf}")))
                 .unwrap(),
         )
         .await;
@@ -133,13 +136,15 @@ async fn delete_404_for_missing_or_wrong_tenant() {
     let db = seeded_db().await;
     let router = router(db.clone());
     let fake_id = uuid::Uuid::new_v4().to_string();
+    let csrf = uuid::Uuid::new_v4().to_string();
     let resp = router
         .handle(
             Request::builder()
                 .uri(format!("/admin/users/{}/delete", fake_id))
                 .method(Method::POST)
                 .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
-                .body(Body::from("confirm=1"))
+                .header(COOKIE, format!("argentum_csrf={csrf}"))
+                .body(Body::from(format!("confirm=1&csrf_token={csrf}")))
                 .unwrap(),
         )
         .await;
@@ -207,13 +212,15 @@ async fn delete_policy_deny() {
         .build();
     let slug = DenyDeleteResource::slug();
     let delete_url = format!("/admin/{}/{}/delete", slug, rec.id);
+    let csrf = uuid::Uuid::new_v4().to_string();
     let resp = router
         .handle(
             Request::builder()
                 .uri(delete_url)
                 .method(Method::POST)
                 .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
-                .body(Body::from("confirm=1"))
+                .header(http::header::COOKIE, format!("argentum_csrf={csrf}"))
+                .body(Body::from(format!("confirm=1&csrf_token={csrf}")))
                 .unwrap(),
         )
         .await;

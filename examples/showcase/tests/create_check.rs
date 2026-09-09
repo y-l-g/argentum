@@ -57,13 +57,17 @@ async fn manual_create_check() {
     );
 
     // Test POST empty name
+    let csrf = uuid::Uuid::new_v4().to_string();
     let resp = router
         .handle(
             Request::builder()
                 .uri("/admin/users/create")
                 .method(Method::POST)
                 .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
-                .body(Body::from("name=&email=not-an-email"))
+                .header(COOKIE, format!("argentum_csrf={csrf}"))
+                .body(Body::from(format!(
+                    "name=&email=not-an-email&csrf_token={csrf}"
+                )))
                 .unwrap(),
         )
         .await;
@@ -97,7 +101,10 @@ async fn manual_create_check() {
                 .uri("/admin/users/create")
                 .method(Method::POST)
                 .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
-                .body(Body::from("name=New%20User&email=new%40example.com"))
+                .header(COOKIE, format!("argentum_csrf={csrf}"))
+                .body(Body::from(format!(
+                    "name=New%20User&email=new%40example.com&csrf_token={csrf}"
+                )))
                 .unwrap(),
         )
         .await;
@@ -245,13 +252,20 @@ async fn create_policy_deny() {
     assert_eq!(resp.status(), 403, "GET create should be 403 when denied");
 
     // POST should also be 403 and not create
+    let csrf = uuid::Uuid::new_v4().to_string();
     let resp = router
         .handle(
             Request::builder()
                 .uri(create_url)
                 .method(Method::POST)
                 .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
-                .body(topcoat::router::Body::from("name=test"))
+                .header(
+                    http::header::COOKIE,
+                    format!("argentum_csrf={csrf}"),
+                )
+                .body(topcoat::router::Body::from(format!(
+                    "name=test&csrf_token={csrf}"
+                )))
                 .unwrap(),
         )
         .await;
@@ -265,4 +279,21 @@ async fn create_policy_deny() {
     let mut db_check = db.clone();
     let count = DummyUser::all().exec(&mut db_check).await.unwrap().len();
     assert_eq!(count, 0, "should not create when denied");
+}
+
+#[tokio::test]
+async fn create_post_without_csrf_is_forbidden() {
+    let db = seeded_db().await;
+    let router = router(db);
+    let resp = router
+        .handle(
+            Request::builder()
+                .uri("/admin/users/create")
+                .method(Method::POST)
+                .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .body(Body::from("name=NoToken&email=notoken%40example.com"))
+                .unwrap(),
+        )
+        .await;
+    assert_eq!(resp.status(), 403, "missing CSRF must be 403");
 }

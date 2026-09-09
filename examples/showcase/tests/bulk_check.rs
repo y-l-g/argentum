@@ -1,6 +1,6 @@
 use http::{
     Method, Request,
-    header::{CONTENT_TYPE, LOCATION},
+    header::{CONTENT_TYPE, COOKIE, LOCATION},
 };
 use http_body_util::BodyExt;
 use showcase::{
@@ -26,6 +26,7 @@ async fn seeded_db() -> Db {
 async fn bulk_delete_deletes_selected() {
     let db = seeded_db().await;
     let router = router(db.clone());
+    let csrf = uuid::Uuid::new_v4().to_string();
     let mut db_q = db.clone();
     let users = User::all().exec(&mut db_q).await.unwrap();
     assert_eq!(users.len(), 3);
@@ -61,7 +62,8 @@ async fn bulk_delete_deletes_selected() {
                 .uri("/admin/users/bulk-delete")
                 .method(Method::POST)
                 .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
-                .body(Body::from(format!("ids={}", ids_param)))
+                .header(COOKIE, format!("argentum_csrf={csrf}"))
+                .body(Body::from(format!("ids={ids_param}&csrf_token={csrf}")))
                 .unwrap(),
         )
         .await;
@@ -108,6 +110,7 @@ async fn bulk_delete_deletes_selected() {
 async fn bulk_bar_renders_checkboxes_with_row_keys() {
     let db = seeded_db().await;
     let router = router(db.clone());
+    let csrf = uuid::Uuid::new_v4().to_string();
     let mut db_q = db.clone();
     let users = User::all().exec(&mut db_q).await.unwrap();
     assert_eq!(users.len(), 3);
@@ -195,7 +198,8 @@ async fn bulk_bar_renders_checkboxes_with_row_keys() {
                 .uri("/admin/users/bulk-delete")
                 .method(Method::POST)
                 .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
-                .body(Body::from(format!("ids={}", ids_param)))
+                .header(COOKIE, format!("argentum_csrf={csrf}"))
+                .body(Body::from(format!("ids={ids_param}&csrf_token={csrf}")))
                 .unwrap(),
         )
         .await;
@@ -265,13 +269,15 @@ async fn bulk_delete_partial_deny_aborts() {
         .build();
     let slug = PartialDenyResource::slug();
     let ids = format!("{},{}", a.id, b.id);
+    let csrf = uuid::Uuid::new_v4().to_string();
     let resp = router
         .handle(
             Request::builder()
                 .uri(format!("/admin/{}/bulk-delete", slug))
                 .method(Method::POST)
                 .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
-                .body(Body::from(format!("ids={}", ids)))
+                .header(http::header::COOKIE, format!("argentum_csrf={csrf}"))
+                .body(Body::from(format!("ids={ids}&csrf_token={csrf}")))
                 .unwrap(),
         )
         .await;

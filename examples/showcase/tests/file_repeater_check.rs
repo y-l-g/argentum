@@ -1,4 +1,4 @@
-use http::{Method, Request, header::CONTENT_TYPE};
+use http::{Method, Request, header::{CONTENT_TYPE, COOKIE}};
 use http_body_util::BodyExt;
 use showcase::{
     app::router_for_tests as router,
@@ -84,6 +84,7 @@ async fn posts_create_shows_fileupload_and_repeater() {
 async fn posts_create_invalid_fileupload_repeater_shows_errors() {
     let db = full_db().await;
     let router = router(db.clone());
+    let csrf = uuid::Uuid::new_v4().to_string();
     let mut db2 = db.clone();
     let authors = Author::all().exec(&mut db2).await.unwrap();
     let first = &authors[0];
@@ -94,8 +95,9 @@ async fn posts_create_invalid_fileupload_repeater_shows_errors() {
                 .uri("/admin/posts/create")
                 .method(Method::POST)
                 .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .header(COOKIE, format!("argentum_csrf={csrf}"))
                 .body(Body::from(format!(
-                    "title=Test&author_id={}&image_path=&tags=",
+                    "title=Test&author_id={}&image_path=&tags=&csrf_token={csrf}",
                     first.id
                 )))
                 .unwrap(),
@@ -125,6 +127,7 @@ async fn posts_create_invalid_fileupload_repeater_shows_errors() {
 async fn posts_create_valid_fileupload_repeater_creates() {
     let db = full_db().await;
     let router = router(db.clone());
+    let csrf = uuid::Uuid::new_v4().to_string();
     let mut db2 = db.clone();
     let authors = Author::all().exec(&mut db2).await.unwrap();
     let first = &authors[0];
@@ -135,8 +138,9 @@ async fn posts_create_valid_fileupload_repeater_creates() {
                 .uri("/admin/posts/create")
                 .method(Method::POST)
                 .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .header(COOKIE, format!("argentum_csrf={csrf}"))
                 .body(Body::from(format!(
-                    "title=Valid+With+Files&author_id={}&image_path=/tmp/valid.jpg&tags=valid,tags",
+                    "title=Valid+With+Files&author_id={}&image_path=/tmp/valid.jpg&tags=valid,tags&csrf_token={csrf}",
                     first.id
                 )))
                 .unwrap(),
@@ -214,6 +218,7 @@ async fn users_create_form_stays_urlencoded() {
 async fn posts_create_multipart_file_stores_filename() {
     let db = full_db().await;
     let router = router(db.clone());
+    let csrf = uuid::Uuid::new_v4().to_string();
     let mut db2 = db.clone();
     let authors = Author::all().exec(&mut db2).await.unwrap();
     let first = &authors[0];
@@ -223,6 +228,7 @@ async fn posts_create_multipart_file_stores_filename() {
          --{b}\r\nContent-Disposition: form-data; name=\"author_id\"\r\n\r\n{id}\r\n\
          --{b}\r\nContent-Disposition: form-data; name=\"image_path\"; filename=\"upload.jpg\"\r\nContent-Type: image/jpeg\r\n\r\nFAKEBYTES\r\n\
          --{b}\r\nContent-Disposition: form-data; name=\"tags\"\r\n\r\nmultipart,tags\r\n\
+         --{b}\r\nContent-Disposition: form-data; name=\"csrf_token\"\r\n\r\n{csrf}\r\n\
          --{b}--\r\n",
         b = boundary,
         id = first.id
@@ -237,6 +243,7 @@ async fn posts_create_multipart_file_stores_filename() {
                     CONTENT_TYPE,
                     format!("multipart/form-data; boundary={boundary}"),
                 )
+                .header(COOKIE, format!("argentum_csrf={csrf}"))
                 .body(Body::from(body))
                 .unwrap(),
         )

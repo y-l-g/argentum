@@ -11,7 +11,8 @@ pub mod __macro {
     pub use topcoat::context::Cx;
 }
 // The toolkit surface: Panel, Resource, Table, Schema, Notification,
-// Policy, Tenancy, and the `Db` glue, plus a small `heading` demo component.
+// Policy, Tenancy, CSRF, and the `Db` glue, plus a small `heading` demo component.
+pub mod csrf;
 pub mod cursor;
 pub mod db;
 pub mod notification;

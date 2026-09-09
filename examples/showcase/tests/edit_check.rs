@@ -1,6 +1,6 @@
 use http::{
     Method, Request,
-    header::{CONTENT_TYPE, LOCATION},
+    header::{CONTENT_TYPE, COOKIE, LOCATION},
 };
 use http_body_util::BodyExt;
 use showcase::{
@@ -66,13 +66,15 @@ async fn edit_page_hydrates_and_updates() {
     );
 
     // Invalid POST should re-render with errors and not mutate
+    let csrf = uuid::Uuid::new_v4().to_string();
     let resp = router
         .handle(
             Request::builder()
                 .uri(edit_url.clone())
                 .method(Method::POST)
                 .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
-                .body(Body::from("name=&email=bad"))
+                .header(COOKIE, format!("argentum_csrf={csrf}"))
+                .body(Body::from(format!("name=&email=bad&csrf_token={csrf}")))
                 .unwrap(),
         )
         .await;
@@ -100,9 +102,10 @@ async fn edit_page_hydrates_and_updates() {
                 .uri(edit_url.clone())
                 .method(Method::POST)
                 .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
-                .body(Body::from(
-                    "name=Updated%20Name&email=updated%40example.com",
-                ))
+                .header(COOKIE, format!("argentum_csrf={csrf}"))
+                .body(Body::from(format!(
+                    "name=Updated%20Name&email=updated%40example.com&csrf_token={csrf}",
+                )))
                 .unwrap(),
         )
         .await;
@@ -242,13 +245,17 @@ async fn edit_policy_deny() {
     );
 
     // POST should also be 403
+    let csrf = uuid::Uuid::new_v4().to_string();
     let resp = router
         .handle(
             Request::builder()
                 .uri(edit_url)
                 .method(Method::POST)
                 .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
-                .body(topcoat::router::Body::from("name=y"))
+                .header(http::header::COOKIE, format!("argentum_csrf={csrf}"))
+                .body(topcoat::router::Body::from(format!(
+                    "name=y&csrf_token={csrf}"
+                )))
                 .unwrap(),
         )
         .await;

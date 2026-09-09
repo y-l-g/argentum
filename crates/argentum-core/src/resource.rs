@@ -1147,6 +1147,7 @@ impl<M> Table<M> {
         };
         let bulk_bar_view: BoxView<'_> = if with_bulk {
             let bulk_action = format!("{}/bulk-delete", self.delete_prefix.clone().unwrap());
+            let csrf = crate::csrf::current_token(cx);
             view! {
                 cx =>
                 <form
@@ -1155,6 +1156,7 @@ impl<M> Table<M> {
                     class="flex gap-2 p-3 border-b border-border"
                     data-bulk-form=""
                 >
+                    <input type="hidden" name="csrf_token" value=(csrf)>
                     <input
                         name="ids"
                         placeholder="ids comma-separated"
@@ -1174,6 +1176,7 @@ impl<M> Table<M> {
             view! { cx => <span></span> }.boxed()
         };
         let pager = self.render_pager(cx, state, path, &page).await?;
+        let csrf_token = crate::csrf::current_token(cx);
         // Precompute the row presentation so template bodies capture only
         // owned data — the lazy view outlives this call, so it must never
         // borrow `self` or `page`.
@@ -1269,6 +1272,7 @@ impl<M> Table<M> {
                                 let key_for_row = key.clone();
                                 let key_for_action = key.clone();
                                 let key_for_select = key.clone();
+                                let csrf_for_row = csrf_token.clone();
                                 table_row(
                                     key: key_for_row,
                                     if with_bulk {
@@ -1290,6 +1294,7 @@ impl<M> Table<M> {
                                                 method="post"
                                                 action=(format!("{}/{}/delete", prefix, encode_path_segment(&key_for_action)))
                                             >
+                                                <input type="hidden" name="csrf_token" value=(csrf_for_row)>
                                                 button(
                                                     variant: ButtonVariant::Ghost,
                                                     size: ButtonSize::Md,
@@ -1332,6 +1337,7 @@ impl<M> Table<M> {
                             let key_for_row = key.clone();
                             let key_for_action = key.clone();
                             let key_for_select = key.clone();
+                            let csrf_for_row = csrf_token.clone();
                             table_row(
                                 key: key_for_row,
                                 if with_bulk {
@@ -1353,6 +1359,7 @@ impl<M> Table<M> {
                                             method="post"
                                             action=(format!("{}/{}/delete", prefix, encode_path_segment(&key_for_action)))
                                         >
+                                            <input type="hidden" name="csrf_token" value=(csrf_for_row)>
                                             button(
                                                 variant: ButtonVariant::Ghost,
                                                 size: ButtonSize::Md,
