@@ -1297,8 +1297,14 @@ pub struct Schema {
 
 impl Schema {
     /// Build a `Schema` from any `IntoSchema` (single node, tuple, or `Schema`).
+    ///
+    /// Panics on duplicate field names (GH #100): two inputs sharing one name
+    /// render two `<input name="x">`, POST one value to both, and collapse to
+    /// one validation rule via last-wins `map.insert`.
     pub fn new(children: impl IntoSchema) -> Self {
-        children.into_schema()
+        let schema = children.into_schema();
+        schema.assert_unique_field_names();
+        schema
     }
 
     /// An empty schema (no nodes).
@@ -1342,6 +1348,17 @@ impl Schema {
             collect_field_names(node, &mut out);
         }
         out
+    }
+
+    fn assert_unique_field_names(&self) {
+        let names = self.field_names();
+        let mut seen = std::collections::HashSet::new();
+        for name in names {
+            assert!(
+                seen.insert(name.clone()),
+                "duplicate field name '{name}': each Schema input needs a distinct field (GH #100)"
+            );
+        }
     }
 
     /// Build a map of `field_name -> TextInput` for validation.
@@ -2335,5 +2352,14 @@ mod tests {
             !html.contains("value=\"/tmp/old.jpg\""),
             "file input must not carry value in {html}"
         );
+    }
+
+    #[test]
+    #[should_panic(expected = "duplicate field name")]
+    fn schema_rejects_duplicate_field_names() {
+        let _ = Schema::new((
+            TextInput::r#for(DummyUser::fields().name()),
+            TextInput::r#for(DummyUser::fields().name()),
+        ));
     }
 }
