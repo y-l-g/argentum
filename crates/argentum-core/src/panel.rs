@@ -938,24 +938,55 @@ fn sanitize_filename(raw: &str) -> String {
 
 /// Extract the `boundary=` parameter from a `multipart/form-data` content type.
 /// Returns `None` for non-multipart types or a missing boundary.
+///
+/// Lenient where RFC 7578 is (GH #90): the parameter name matches
+/// case-insensitively, whitespace around `=` is tolerated, and single- as
+/// well as double-quoted values are unquoted.
 fn multipart_boundary(content_type: &str) -> Option<String> {
     let (mime, params) = content_type.split_once(';')?;
     if !mime.trim().eq_ignore_ascii_case("multipart/form-data") {
         return None;
     }
     for param in params.split(';') {
-        let param = param.trim();
-        if let Some(rest) = param
-            .strip_prefix("boundary=")
-            .or_else(|| param.strip_prefix("Boundary="))
-        {
-            let b = rest.trim().trim_matches('"').trim();
-            if !b.is_empty() {
-                return Some(b.to_string());
-            }
+        let Some((key, value)) = param.split_once('=') else {
+            continue;
+        };
+        if !key.trim().eq_ignore_ascii_case("boundary") {
+            continue;
+        }
+        let b = value.trim().trim_matches(['"', '\'']).trim();
+        if !b.is_empty() {
+            return Some(b.to_string());
         }
     }
     None
+}
+
+/// Decode an RFC 5987/6266 `filename*=UTF-8''...` value (GH #90).
+///
+/// Only UTF-8 is supported; other charsets yield `None` so the caller falls
+/// back to `filename=`. Malformed percent sequences fail the whole value
+/// rather than lossy-mangling the stored name.
+fn decode_rfc5987(value: &str) -> Option<String> {
+    let (charset, rest) = value.split_once('\'')?;
+    let (_lang, encoded) = rest.split_once('\'')?;
+    if !charset.eq_ignore_ascii_case("utf-8") {
+        return None;
+    }
+    let bytes = encoded.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' {
+            let hex = std::str::from_utf8(bytes.get(i + 1..i + 3)?).ok()?;
+            out.push(u8::from_str_radix(hex, 16).ok()?);
+            i += 3;
+        } else {
+            out.push(bytes[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8(out).ok()
 }
 
 /// Pure multipart half of [`parse_form_values`] — testable without a request.
@@ -983,19 +1014,41 @@ fn form_values_from_multipart(bytes: &[u8], boundary: &str) -> HashMap<String, S
         let content = content["\r\n\r\n".len()..].trim_end_matches(['\r', '\n']);
         let mut name: Option<String> = None;
         let mut filename: Option<String> = None;
+        let mut filename_star: Option<String> = None;
         for header_line in header_block.split("\r\n") {
             let line = header_line.trim();
-            if let Some(rest) = line.strip_prefix("Content-Disposition:") {
-                for seg in rest.split(';') {
-                    let seg = seg.trim();
-                    if let Some(v) = seg.strip_prefix("name=") {
-                        name = Some(v.trim().trim_matches('"').to_string());
-                    } else if let Some(v) = seg.strip_prefix("filename=") {
-                        filename = Some(v.trim().trim_matches('"').to_string());
-                    }
+            // Header names are case-insensitive (GH #90). Prefix matching uses
+            // `get` so non-ASCII junk fails the match instead of panicking.
+            let rest = if line
+                .get(..20)
+                .is_some_and(|h| h.eq_ignore_ascii_case("content-disposition:"))
+            {
+                &line[20..]
+            } else {
+                continue;
+            };
+            for seg in rest.split(';') {
+                let seg = seg.trim();
+                if seg
+                    .get(..9)
+                    .is_some_and(|h| h.eq_ignore_ascii_case("filename="))
+                {
+                    filename = Some(seg[9..].trim().trim_matches(['"', '\'']).to_string());
+                } else if seg
+                    .get(..10)
+                    .is_some_and(|h| h.eq_ignore_ascii_case("filename*="))
+                {
+                    filename_star = Some(seg[10..].trim().to_string());
+                } else if seg.get(..5).is_some_and(|h| h.eq_ignore_ascii_case("name=")) {
+                    name = Some(seg[5..].trim().trim_matches(['"', '\'']).to_string());
                 }
             }
         }
+        // RFC 6266: `filename*=` (decoded) takes precedence over `filename=`.
+        let filename = filename_star
+            .as_deref()
+            .and_then(decode_rfc5987)
+            .or(filename);
         if let Some(n) = name
             && !n.is_empty()
         {
@@ -2469,6 +2522,15 @@ mod tests {
             multipart_boundary("multipart/form-data; boundary=\"----ABC\""),
             Some("----ABC".to_string())
         );
+        // GH #90 hardening: case-insensitive name, spaces, single quotes.
+        assert_eq!(
+            multipart_boundary("multipart/form-data; BOUNDARY = '----ABC' "),
+            Some("----ABC".to_string())
+        );
+        assert_eq!(
+            multipart_boundary("multipart/form-data; charset=x; boundary=----ABC"),
+            Some("----ABC".to_string())
+        );
         assert_eq!(
             multipart_boundary("application/x-www-form-urlencoded"),
             None
@@ -2500,6 +2562,33 @@ mod tests {
         );
         let got = form_values_from_multipart(body.as_bytes(), boundary);
         assert_eq!(got.get("image_path").map(String::as_str), Some(""));
+    }
+
+    #[test]
+    fn multipart_headers_are_case_insensitive_and_decode_filename_star() {
+        let boundary = "----Boundary99";
+        // Lowercase disposition, single-quoted name, RFC 5987 filename*.
+        let body = format!(
+            "--{b}\r\ncontent-disposition: form-data; name='image_path'; filename*=UTF-8''%E2%82%ACphoto.jpg\r\nContent-Type: image/jpeg\r\n\r\nBYTES\r\n--{b}--\r\n",
+            b = boundary
+        );
+        let got = form_values_from_multipart(body.as_bytes(), boundary);
+        assert_eq!(
+            got.get("image_path").map(String::as_str),
+            Some("€photo.jpg"),
+            "filename*=UTF-8 must decode and win, got {got:?}"
+        );
+        // Non-UTF-8 charset falls back to plain filename=.
+        let body = format!(
+            "--{b}\r\nContent-Disposition: form-data; name=\"image_path\"; filename=\"plain.jpg\"; filename*=latin-1''%E9.jpg\r\nContent-Type: image/jpeg\r\n\r\nBYTES\r\n--{b}--\r\n",
+            b = boundary
+        );
+        let got = form_values_from_multipart(body.as_bytes(), boundary);
+        assert_eq!(
+            got.get("image_path").map(String::as_str),
+            Some("plain.jpg"),
+            "unsupported charset must fall back, got {got:?}"
+        );
     }
 
     #[test]
