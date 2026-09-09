@@ -493,22 +493,37 @@ impl Resource for PostResource {
                     .searchable()
                     .sortable(),
                 TextColumn::computed("Author", |p: &Post| {
+                    // Loud on missing includes (GH #101): a silent "-" reads
+                    // as data. The list/export loaders always `include`
+                    // author, so this only fires if the query changes.
+                    debug_assert!(
+                        !p.author.is_unloaded(),
+                        "Author column needs Post::query to include author"
+                    );
                     if p.author.is_unloaded() {
-                        "-".to_string()
+                        "(unloaded)".to_string()
                     } else {
                         p.author.get().name.clone()
                     }
                 }),
                 TextColumn::computed("Comments", |p: &Post| {
+                    debug_assert!(
+                        !p.comments.is_unloaded(),
+                        "Comments column needs Post::query to include comments"
+                    );
                     if p.comments.is_unloaded() {
-                        "0".to_string()
+                        "(unloaded)".to_string()
                     } else {
                         p.comments.get().len().to_string()
                     }
                 }),
                 TextColumn::computed("Author Email", |p: &Post| {
+                    debug_assert!(
+                        !p.author.is_unloaded(),
+                        "Author Email column needs Post::query to include author"
+                    );
                     if p.author.is_unloaded() {
-                        String::new()
+                        "(unloaded)".to_string()
                     } else {
                         p.author.get().email.clone()
                     }

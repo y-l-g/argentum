@@ -264,6 +264,12 @@ async fn posts_list_shows_comments_count_via_include() {
         "missing comment count 0 {}",
         html
     );
+    // GH #101: loaded relations must never render the unloaded marker.
+    assert!(
+        !html.contains("(unloaded)"),
+        "unloaded marker leaked into list {}",
+        html
+    );
 }
 
 #[tokio::test]
