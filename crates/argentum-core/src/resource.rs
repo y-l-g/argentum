@@ -2514,6 +2514,12 @@ pub trait Resource: Sized + Send + Sync + 'static {
     }
 
     /// Whether the current user may view the given record.
+    ///
+    /// Checked on the edit page (GET) and edit POST (which requires both
+    /// `can_view` and `can_update`, GH #86). List and CSV export currently
+    /// check only `can_view_any` — per-row `can_view` is not applied there,
+    /// so row-level impls must not rely on list/export filtering until GH #86
+    /// is fully addressed.
     fn can_view(_cx: &Cx, _record: &Self::Model) -> bool {
         false
     }

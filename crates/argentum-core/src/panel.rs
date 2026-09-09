@@ -1186,10 +1186,16 @@ fn resource_edit<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
 }
 
 /// Edit page POST — validates, checks Policy::update, mutates via Update projection.
+///
+/// Requires both `can_view` and `can_update` (matching GET, GH #86 deny-by-default):
+/// a view-denied but writable record must not be mutable by direct POST.
 fn resource_edit_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
     Box::pin(HoistView::new(ThenView::new(async move {
         let id = topcoat::router::path_param_segment(cx, "id").to_string();
         let record = find_by_key::<R>(cx, &id).await?;
+        if !R::can_view(cx, &record) {
+            return Err(forbidden().into());
+        }
         if !R::can_update(cx, &record) {
             return Err(forbidden().into());
         }
@@ -1590,6 +1596,86 @@ mod tests {
         let _ = Panel::new("admin")
             .resource::<FirstResource>()
             .resource::<SecondResource>();
+    }
+
+    #[tokio::test]
+    async fn edit_post_requires_can_view_as_well_as_can_update() {
+        use crate::resource::Resource;
+        use std::collections::HashMap;
+
+        #[derive(Debug, toasty::Model)]
+        struct Dummy {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            name: String,
+        }
+        struct ViewDeniedResource;
+        impl Resource for ViewDeniedResource {
+            type Model = Dummy;
+            fn slug() -> String {
+                "dummies".to_string()
+            }
+            fn can_view(_cx: &Cx, _record: &Dummy) -> bool {
+                false
+            }
+            fn can_update(_cx: &Cx, _record: &Dummy) -> bool {
+                true
+            }
+            fn hydrate_form_values(_record: &Dummy) -> HashMap<String, String> {
+                HashMap::new()
+            }
+            fn update_record(
+                _cx: &Cx,
+                _id: String,
+                _values: HashMap<String, String>,
+            ) -> impl std::future::Future<Output = Result<()>> + Send {
+                async move { Ok(()) }
+            }
+        }
+
+        let mut db = Db::builder()
+            .models(toasty::models!(Dummy))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        let row = toasty::create!(Dummy {
+            name: "Ada".to_string(),
+        })
+        .exec(&mut db)
+        .await
+        .unwrap();
+        let router = Panel::new("admin")
+            .app_context(db)
+            .resource::<ViewDeniedResource>()
+            .build();
+        let url = format!("/admin/dummies/{}/edit", row.id);
+        // GET already required both; POST must match (GH #86).
+        let get = router
+            .handle(
+                http::Request::builder()
+                    .uri(&url)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await;
+        assert_eq!(get.status(), http::StatusCode::FORBIDDEN);
+        let post = router
+            .handle(
+                http::Request::builder()
+                    .uri(&url)
+                    .method(http::Method::POST)
+                    .header(http::header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                    .body(Body::from("name=Ada"))
+                    .unwrap(),
+            )
+            .await;
+        assert_eq!(
+            post.status(),
+            http::StatusCode::FORBIDDEN,
+            "view-denied edit POST must not mutate"
+        );
     }
 
     #[tokio::test]
