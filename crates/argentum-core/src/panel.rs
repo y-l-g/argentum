@@ -824,7 +824,7 @@ async fn load_table_page<R: Resource>(
 /// binary bytes are not persisted in v1 (see `FileUpload` storage contract).
 /// Text parts store their raw content. Unknown content types fall back to
 /// urlencoded so existing tests/clients keep working.
-async fn parse_form_values(cx: &Cx, body: Body) -> HashMap<String, String> {
+async fn parse_form_values(cx: &Cx, body: Body) -> Result<HashMap<String, String>, topcoat::Error> {
     let content_type =
         topcoat::context::try_request_context::<http::request::Parts>(cx).and_then(|parts| {
             parts
@@ -832,16 +832,70 @@ async fn parse_form_values(cx: &Cx, body: Body) -> HashMap<String, String> {
                 .get(http::header::CONTENT_TYPE)
                 .and_then(|v| v.to_str().ok().map(|s| s.to_string()))
         });
-    let bytes = match Bytes::from_request(cx, body).await {
-        Ok(b) => b,
-        Err(_) => return HashMap::new(),
-    };
-    if let Some(ct) = content_type
-        && let Some(boundary) = multipart_boundary(&ct)
-    {
-        return form_values_from_multipart(&bytes, &boundary);
+    let bytes = Bytes::from_request(cx, body)
+        .await
+        .map_err(|_| topcoat::router::error::bad_request("cannot read form body"))?;
+    form_values_from_request_parts(content_type.as_deref(), bytes.as_ref())
+}
+
+/// Pure request dispatch for [`parse_form_values`] (GH #90) — testable without a request.
+///
+/// - Rejects bodies over `MAX_FORM_BYTES` with 413 (v1 stores filenames only,
+///   never file bytes, so large uploads are pure memory pressure).
+/// - A `multipart/form-data` content type without a boundary is a 400, not a
+///   silent urlencoded fallback that turns binary bytes into confusing
+///   required-errors.
+fn form_values_from_request_parts(
+    content_type: Option<&str>,
+    bytes: &[u8],
+) -> Result<HashMap<String, String>, topcoat::Error> {
+    if bytes.len() > MAX_FORM_BYTES {
+        return Err(topcoat::router::error::content_too_large().into());
     }
-    form_values_from_bytes(&bytes)
+    if let Some(ct) = content_type {
+        let is_multipart = ct
+            .split(';')
+            .next()
+            .is_some_and(|mime| mime.trim().eq_ignore_ascii_case("multipart/form-data"));
+        if is_multipart {
+            let Some(boundary) = multipart_boundary(ct) else {
+                return Err(
+                    topcoat::router::error::bad_request("malformed multipart: missing boundary")
+                        .into(),
+                );
+            };
+            return Ok(form_values_from_multipart(bytes, &boundary));
+        }
+    }
+    Ok(form_values_from_bytes(bytes))
+}
+
+/// Max form/multipart body accepted (GH #90): 10 MiB. v1 keeps filenames only.
+const MAX_FORM_BYTES: usize = 10 * 1024 * 1024;
+
+/// Sanitize a client-supplied filename to a basename (GH #90).
+///
+/// Strips directory components (`../../etc/passwd` → `passwd`,
+/// `/abs/path` → `path`, `C:\fakepath\x` → `x`), trims whitespace, drops
+/// control chars, and caps length at 255 bytes. Empty stays empty so
+/// `required` validation fires.
+fn sanitize_filename(raw: &str) -> String {
+    let base = raw
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or(raw)
+        .trim();
+    let clean: String = base.chars().filter(|c| !c.is_control()).collect();
+    let trimmed = clean.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    // Cap at 255 chars (common filename limit), preserving the tail.
+    if trimmed.len() > 255 {
+        trimmed[trimmed.len() - 255..].to_string()
+    } else {
+        trimmed.to_string()
+    }
 }
 
 /// Extract the `boundary=` parameter from a `multipart/form-data` content type.
@@ -909,8 +963,8 @@ fn form_values_from_multipart(bytes: &[u8], boundary: &str) -> HashMap<String, S
         {
             match filename {
                 Some(f) if !f.is_empty() => {
-                    // v1 stores the filename, not the bytes (FileUpload contract).
-                    out.insert(n, f);
+                    // v1 stores the sanitized basename, not the bytes (FileUpload contract, GH #90).
+                    out.insert(n, sanitize_filename(&f));
                 }
                 Some(_) => {
                     // Empty filename (no file chosen) → empty value so `required`
@@ -1113,7 +1167,7 @@ fn resource_create_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
         if !R::can_create(cx) {
             return Err(forbidden().into());
         }
-        let values = parse_form_values(cx, body).await;
+        let values = parse_form_values(cx, body).await?;
         let schema = R::form(cx);
         let mut errors = schema.validate_async(cx, &values).await;
         // App-side unique check over every `unique()`-marked input — the only
@@ -1199,7 +1253,7 @@ fn resource_edit_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
         if !R::can_update(cx, &record) {
             return Err(forbidden().into());
         }
-        let values = parse_form_values(cx, body).await;
+        let values = parse_form_values(cx, body).await?;
         let schema = R::form(cx);
         let mut errors = schema.validate_async(cx, &values).await;
         // Unique check excludes this record's own unchanged values.
@@ -1234,7 +1288,7 @@ fn resource_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
         if !R::can_delete(cx, &record) {
             return Err(forbidden().into());
         }
-        let values = parse_form_values(cx, body).await;
+        let values = parse_form_values(cx, body).await?;
         let confirmed = values
             .get("confirm")
             .is_some_and(|v| v == "1" || v == "true" || v == "yes");
@@ -1295,7 +1349,7 @@ fn resource_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
 fn resource_bulk_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
     Box::pin(HoistView::new(ThenView::<_, BoxView<'_>>::new(
         async move {
-            let values = parse_form_values(cx, body).await;
+            let values = parse_form_values(cx, body).await?;
             let ids_raw = values.get("ids").cloned().unwrap_or_default();
             let ids = parse_bulk_ids(&ids_raw);
             if ids.is_empty() {
@@ -2075,6 +2129,43 @@ mod tests {
         );
         let got = form_values_from_multipart(body.as_bytes(), boundary);
         assert_eq!(got.get("image_path").map(String::as_str), Some(""));
+    }
+
+    #[test]
+    fn filenames_sanitize_to_basename_and_dispatch_guards_size() {
+        assert_eq!(sanitize_filename("upload.jpg"), "upload.jpg");
+        assert_eq!(sanitize_filename("../../../etc/cron.d/x"), "x");
+        assert_eq!(sanitize_filename("/abs/path"), "path");
+        assert_eq!(sanitize_filename("C:\\fakepath\\x"), "x");
+        assert_eq!(sanitize_filename(""), "");
+        // Traversal via multipart lands sanitized.
+        let boundary = "B";
+        let body = format!(
+            "--{b}\r\nContent-Disposition: form-data; name=\"image_path\"; filename=\"../../../etc/passwd\"\r\nContent-Type: application/octet-stream\r\n\r\nBYTES\r\n--{b}--\r\n",
+            b = boundary
+        );
+        let got = form_values_from_multipart(body.as_bytes(), boundary);
+        assert_eq!(got.get("image_path").map(String::as_str), Some("passwd"));
+        // Bare multipart without boundary is a 400, not silent urlencoded fallback.
+        assert!(
+            form_values_from_request_parts(Some("multipart/form-data"), b"name=x").is_err()
+        );
+        // Over-cap body is rejected before buffering into maps.
+        let big = vec![b'a'; MAX_FORM_BYTES + 1];
+        assert!(
+            form_values_from_request_parts(
+                Some("application/x-www-form-urlencoded"),
+                &big
+            )
+            .is_err()
+        );
+        // Normal urlencoded still parses.
+        let ok = form_values_from_request_parts(
+            Some("application/x-www-form-urlencoded"),
+            b"name=Ada",
+        )
+        .unwrap();
+        assert_eq!(ok.get("name").map(String::as_str), Some("Ada"));
     }
 
     #[tokio::test]
