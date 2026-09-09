@@ -1548,6 +1548,23 @@ fn resource_bulk_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
 /// Max ids accepted by bulk delete (GH #85): bounds the N-way `OR` predicate.
 const MAX_BULK_IDS: usize = 400;
 
+/// Max rows an export will materialize (GH #94): the filtered query carries
+/// `limit(MAX_EXPORT_ROWS + 1)` and anything past the cap is a 413, so a
+/// 100k-row table stays bounded in memory instead of buffering `Vec<Model>` +
+/// `String` without end.
+const MAX_EXPORT_ROWS: usize = 10_000;
+
+/// `?bom=1` opts into a UTF-8 BOM prefix on the CSV body for Excel (GH #94).
+fn export_wants_bom(cx: &Cx) -> bool {
+    let Some(parts) = topcoat::context::try_request_context::<http::request::Parts>(cx) else {
+        return false;
+    };
+    let Some(query) = parts.uri.query() else {
+        return false;
+    };
+    form_urlencoded::parse(query.as_bytes()).any(|(k, v)| k == "bom" && v == "1")
+}
+
 /// Parse + dedupe bulk `ids` while preserving order, so a repeated id can't
 /// make the fetched-rows count check misfire.
 fn parse_bulk_ids(raw: &str) -> Vec<String> {
@@ -1562,8 +1579,10 @@ fn parse_bulk_ids(raw: &str) -> Vec<String> {
 
 /// CSV export — reuses `Resource::query` + `Table` filters/sort, downloads `text/csv`.
 ///
-/// Buffers the full filtered result in memory (not chunked streaming); formula
-/// cells are defused per OWASP in [`Table::to_csv`].
+/// The filtered query is capped at [`MAX_EXPORT_ROWS`] + 1 rows (413 beyond
+/// the cap) so a 100k-row table cannot OOM the handler; formula cells are
+/// defused per OWASP in [`Table::to_csv`]. `?bom=1` prepends a UTF-8 BOM for
+/// Excel interop (GH #94).
 fn resource_export<R: Resource>(cx: &Cx, _body: Body) -> RouteFuture<'_> {
     Box::pin(async move {
         enforce_tenant::<R>(cx)?;
@@ -1584,15 +1603,27 @@ fn resource_export<R: Resource>(cx: &Cx, _body: Body) -> RouteFuture<'_> {
         for ord in table.order_bys_for_state(&state) {
             query = query.order_by(ord);
         }
+        // Bound the export at the query layer (GH #94): the DB returns at
+        // most one row past the cap, so memory stays bounded.
+        query = query.limit(MAX_EXPORT_ROWS + 1);
         let mut db = db(cx);
         let rows: Vec<R::Model> = query.exec(&mut db).await.map_err(topcoat::Error::from)?;
+        if rows.len() > MAX_EXPORT_ROWS {
+            return Err(topcoat::router::error::content_too_large().into());
+        }
         // Export must not exceed row visibility (GH #86): drop rows the
         // caller may not view. (The list page still checks only `can_view_any`
         // — page-local per-row filtering would mislabel pagination.)
         let rows: Vec<R::Model> = rows.into_iter().filter(|r| R::can_view(cx, r)).collect();
         // Build TablePage without pagination for CSV (all rows)
         let page: TablePage<R::Model> = rows.into();
-        let csv = table.to_csv(&page);
+        let mut csv = table.to_csv(&page);
+        // Opt-in BOM for Excel (GH #94): `?bom=1` prepends U+FEFF so
+        // non-ASCII cells open correctly; default stays BOM-free so existing
+        // clients/tests see a plain UTF-8 body.
+        if export_wants_bom(cx) {
+            csv.insert(0, '\u{FEFF}');
+        }
         let filename = format!("{}.csv", R::slug());
         let res = http::Response::builder()
             .status(200)
@@ -2201,6 +2232,27 @@ mod tests {
             !csv.contains("denied"),
             "export must not exceed row visibility (GH #86), got {csv}"
         );
+    }
+
+    #[test]
+    fn export_bom_flag_reads_bom_query_param() {
+        use topcoat::context::CxTestBuilder;
+
+        fn cx_for(uri: &str) -> Cx {
+            let (parts, ()) = http::Request::builder()
+                .uri(uri)
+                .body(())
+                .unwrap()
+                .into_parts();
+            CxTestBuilder::new().request_context(parts).build()
+        }
+
+        assert!(export_wants_bom(&cx_for("/admin/users/export?bom=1")));
+        assert!(!export_wants_bom(&cx_for("/admin/users/export")));
+        assert!(!export_wants_bom(&cx_for("/admin/users/export?bom=0")));
+        assert!(!export_wants_bom(&cx_for("/admin/users/export?BOM=1")));
+        // MAX_EXPORT_ROWS bounds the export (GH #94).
+        assert_eq!(MAX_EXPORT_ROWS, 10_000);
     }
 
     #[tokio::test]

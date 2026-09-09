@@ -1496,8 +1496,9 @@ impl<M> Table<M> {
     /// Formula cells are defused per OWASP (a leading `'` is prepended when
     /// the cell starts with `=`, `+`, `-`, `@`, `|`, or `%`) so a stored
     /// value like `=1+1` opens as text, not a live spreadsheet formula.
-    /// The full table is buffered in memory; callers with very large tables
-    /// should paginate or cap the export.
+    /// The page passed in is buffered as one `String`; the export handler
+    /// caps the filtered query (GH #94) so callers cannot buffer an
+    /// unbounded table.
     pub fn to_csv(&self, page: &TablePage<M>) -> String
     where
         M: toasty::schema::Model,

@@ -171,7 +171,7 @@ Columns/filters declare **how to query**, not just how to render: `searchable()`
 
 - **Filters:** the `Filter` enum (`SelectFilter`/`TernaryFilter`/`DateFilter`/`VariantFilter`) over `IntoFilters` tuples. `Table::filter_expr` ANDs the active `?filters=` expressions into the loader. `VariantFilter` holds prebuilt `(label, Expr<bool>)` options (e.g. `is_variant()` predicates) for embedded-enum fields. Every declared filter renders a typed control composed into the single `?filters=` param (free-text input stays as fallback).
 - **Bulk selection** is a leading checkbox column with select-all whose JS joins keys into the single `ids` transport (text field stays as fallback).
-- **Grouping/export:** in-memory `group_by` + `count` summarizer + `Table::to_csv()` (RFC4180) via `GET /admin/{slug}/export` (`text/csv` + `Content-Disposition`), reusing `Resource::query` + filters/sort.
+- **Grouping/export:** in-memory `group_by` + `count` summarizer + `Table::to_csv()` (RFC4180, OWASP formula-defused) via `GET /admin/{slug}/export` (`text/csv; charset=utf-8` + `Content-Disposition`), reusing `Resource::query` + filters/sort, capped at 10k rows (413 past the cap, `?bom=1` opts into an Excel BOM).
 - **Rendering:** `Table` is a boundary by default (`data-boundary="table"` wrapper) with an eager-render `defer` demo hook; the streamed list uses the skeleton as its `suspense` fallback, and failed loads render the branded `ErrorState` in-region.
 
 ### 4.5 Deletes, notifications, policy

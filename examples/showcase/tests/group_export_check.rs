@@ -25,6 +25,43 @@ async fn full_db() -> Db {
 }
 
 #[tokio::test]
+async fn posts_export_bom_opt_in_prepends_bom() {
+    // GH #94: `?bom=1` opts into a UTF-8 BOM for Excel; default stays BOM-free.
+    let db = full_db().await;
+    let router = router(db);
+    let resp = router
+        .handle(
+            Request::builder()
+                .uri("/admin/posts/export?bom=1")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+    assert!(resp.status().is_success());
+    let body = resp.into_body().collect().await.unwrap().to_bytes();
+    let csv = String::from_utf8_lossy(&body);
+    assert!(
+        csv.starts_with('\u{FEFF}'),
+        "bom=1 export must start with BOM, got {csv:?}"
+    );
+
+    let resp = router
+        .handle(
+            Request::builder()
+                .uri("/admin/posts/export")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+    let body = resp.into_body().collect().await.unwrap().to_bytes();
+    let csv = String::from_utf8_lossy(&body);
+    assert!(
+        !csv.starts_with('\u{FEFF}'),
+        "default export must stay BOM-free, got {csv:?}"
+    );
+}
+
+#[tokio::test]
 async fn posts_group_by_status_shows_counts() {
     let db = full_db().await;
     let router = router(db);
