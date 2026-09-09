@@ -518,19 +518,17 @@ pub type FieldLens<M, T> = toasty::stmt::Path<M, T>;
 /// Resolve a typed lens to its app-level field name and capitalized label.
 ///
 /// Hides the `Path → toasty_core::stmt::Path → projection → M::schema()` walk
-/// (single import site, see EXTERNAL_GAPS.md). Used by both `TextInput` and
+/// (see EXTERNAL_GAPS.md). Used by both `TextInput` and
 /// `TextColumn` so the shape is defined once.
+///
+/// Traversal lenses are rejected (GH #100): a multi-step path has no single
+/// field name, and silently binding its first segment misbinds in release.
 pub(crate) fn lens_field_name_and_label<M, T>(path: FieldLens<M, T>) -> (String, String)
 where
     M: toasty::schema::Model,
 {
     let core_path: toasty_core::stmt::Path = path.into();
-    debug_assert!(
-        !core_path.projection.as_slice().is_empty(),
-        "lens expects a field lens, got root path"
-    );
-    // Only single-field lenses are supported; multi-step paths will panic in
-    // debug and fall back to first segment in release.
+    require_single_segment(&core_path, "lens");
     let idx = core_path
         .projection
         .as_slice()
@@ -552,12 +550,27 @@ where
     (field_name, label_str)
 }
 
+/// Panic unless a lens path addresses exactly one field (GH #100).
+///
+/// A traversal lens (relation hops, embedded steps) has no single field name,
+/// nullability, or uniqueness — silently binding its first segment misbinds in
+/// release, so every lens helper rejects multi-segment paths loudly instead.
+pub(crate) fn require_single_segment(path: &toasty_core::stmt::Path, what: &str) {
+    assert_eq!(
+        path.projection.as_slice().len(),
+        1,
+        "{what} requires a single-field lens, got a {}-segment traversal path (GH #100)",
+        path.projection.as_slice().len()
+    );
+}
+
 /// Returns whether the field behind a lens is nullable (GH #11).
 pub fn lens_field_is_nullable<M, T>(path: FieldLens<M, T>) -> bool
 where
     M: toasty::schema::Model,
 {
     let core_path: toasty_core::stmt::Path = path.into();
+    require_single_segment(&core_path, "lens");
     let idx = core_path
         .projection
         .as_slice()
@@ -573,6 +586,7 @@ where
     M: toasty::schema::Model,
 {
     let core_path: toasty_core::stmt::Path = path.into();
+    require_single_segment(&core_path, "lens");
     let idx = core_path
         .projection
         .as_slice()
@@ -606,6 +620,7 @@ where
     M: toasty::schema::Model,
 {
     let core_path: toasty_core::stmt::Path = path.into();
+    require_single_segment(&core_path, "lens");
     let idx = core_path
         .projection
         .as_slice()
@@ -2421,5 +2436,16 @@ mod tests {
         values.remove("role");
         values.remove("confirm");
         assert!(schema.unknown_keys(&values).is_empty());
+    }
+
+    #[test]
+    fn single_segment_lens_passes_traversal_panics() {
+        use toasty::schema::Model;
+        let single = toasty_core::stmt::Path::field(DummyUser::id(), 0);
+        require_single_segment(&single, "lens");
+        let mut two = toasty_core::stmt::Path::field(DummyUser::id(), 0);
+        two.chain(&toasty_core::stmt::Path::field(DummyUser::id(), 1));
+        let result = std::panic::catch_unwind(|| require_single_segment(&two, "lens"));
+        assert!(result.is_err(), "traversal lens must panic, not misbind");
     }
 }
