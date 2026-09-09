@@ -203,20 +203,30 @@ where
         self
     }
 
+    /// Build the predicate for a submitted value (GH #93).
+    ///
+    /// Full RFC3339 timestamps match the exact instant (documented); a
+    /// date-only `YYYY-MM-DD` matches the whole UTC day
+    /// (`>= midnight AND < next midnight`), so rows stamped with any
+    /// time-of-day still match.
     pub fn to_expr(&self, value: &str) -> Option<Expr<bool>> {
         let v = value.trim();
         if v.is_empty() {
             return None;
         }
-        // Accept RFC3339 or YYYY-MM-DD (midnight UTC)
+        // Accept RFC3339 or YYYY-MM-DD (whole UTC day).
         if let Ok(ts) = v.parse::<jiff::Timestamp>() {
             return Some(self.lens.clone().eq(ts));
         }
         if let Ok(date) = v.parse::<jiff::civil::Date>() {
-            let ts = date.to_string() + "T00:00:00Z";
-            if let Ok(ts) = ts.parse::<jiff::Timestamp>() {
-                return Some(self.lens.clone().eq(ts));
-            }
+            let start: jiff::Timestamp = format!("{date}T00:00:00Z").parse().ok()?;
+            let end = start + jiff::Span::new().hours(24);
+            return Some(
+                self.lens
+                    .clone()
+                    .ge(start)
+                    .and(self.lens.clone().lt(end)),
+            );
         }
         None
     }
@@ -3651,6 +3661,48 @@ mod tests {
                 ("Moto".to_string(), Driver::fields().vehicule().is_moto()),
             ],
         )
+    }
+
+    #[tokio::test]
+    async fn date_filter_date_only_matches_whole_day() {
+        let mut db = Db::builder()
+            .models(toasty::models!(Task))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        for (title, ts) in [
+            ("Morning", "2024-01-15T09:30:00Z"),
+            ("Night", "2024-01-15T23:59:59Z"),
+            ("Next", "2024-01-16T00:00:01Z"),
+        ] {
+            toasty::create!(Task {
+                title: title.to_string(),
+                status: "draft".to_string(),
+                featured: false,
+                created_at: ts.parse::<jiff::Timestamp>().unwrap(),
+            })
+            .exec(&mut db)
+            .await
+            .unwrap();
+        }
+        let f = DateFilter::r#for(Task::fields().created_at());
+        let expr = f.to_expr("2024-01-15").expect("date-only must build");
+        let mut db2 = db.clone();
+        let mut rows = Task::filter(expr).exec(&mut db2).await.unwrap();
+        rows.sort_by(|a, b| a.title.cmp(&b.title));
+        assert_eq!(
+            rows.iter().map(|r| r.title.as_str()).collect::<Vec<_>>(),
+            vec!["Morning", "Night"],
+            "date-only must match the whole UTC day (GH #93)"
+        );
+        // Exact RFC3339 instants still match exactly.
+        let expr = f
+            .to_expr("2024-01-15T09:30:00Z")
+            .expect("rfc3339 must build");
+        let rows = Task::filter(expr).exec(&mut db2).await.unwrap();
+        assert_eq!(rows.len(), 1);
+        assert!(f.to_expr("not-a-date").is_none());
     }
 
     #[test]
