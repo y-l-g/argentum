@@ -68,6 +68,12 @@ impl Brand {
 }
 
 /// Whether the shell starts in dark mode. Persisted via `theme.js` (`localStorage` + `theme` cookie).
+///
+/// Precedence (GH #102): this build-time default only sets the initial
+/// `<html class>` — the blocking `theme_init_script` + `theme.js` correct it
+/// pre-paint from `localStorage` first, then the `theme` cookie. The server
+/// never reads the cookie per request; a user toggle wins over this default
+/// on every later visit.
 #[derive(Debug, Clone, Copy)]
 pub struct DarkMode(pub bool);
 
@@ -403,7 +409,7 @@ impl Panel {
     ) -> Result<BoxView<'a>> {
         use argentum_ui::{
             sidebar_group, sidebar_group_content, sidebar_group_label, sidebar_menu,
-            sidebar_menu_button, sidebar_menu_item, sidebar_separator,
+            sidebar_menu_button, sidebar_menu_item,
         };
         let nav_items = nav_items.to_vec();
         let current_path = current_path.to_string();
@@ -432,15 +438,6 @@ impl Panel {
                     )
                 )
             )
-            sidebar_separator()
-            sidebar_group(
-                sidebar_group_label("Resources")
-                sidebar_group_content(
-                    <div class="px-2 text-xs text-muted-foreground">
-                        "Managed via Resource::query seam"
-                    </div>
-                )
-            )
         }
         .boxed())
     }
@@ -448,8 +445,8 @@ impl Panel {
     /// Render the Filament-grade Shell that frames every admin page.
     ///
     /// Composes `argentum-ui` `sidebar` + main `max-w-7xl p-6` area with
-    /// grouped NavigationItems, active highlight (`bg-sidebar-accent` + `aria-current="page"`),
-    /// `separator`, and `sidebar_trigger` for responsive `sheet` drawer.
+    /// a single Navigation group, active highlight (`bg-sidebar-accent` + `aria-current="page"`),
+    /// and `sidebar_trigger` for responsive `sheet` drawer.
     /// Includes dark-mode toggle (Ghost button, persists via cookie/session) and
     /// notification stack (fixed top-right). Additive `class` is allowed on the
     /// outer container only (narrow seam).
@@ -2858,10 +2855,12 @@ mod tests {
             html.contains("data-state=\"expanded\"") || html.contains("data-state"),
             "missing data-state in {html}"
         );
-        // Separator
+        // No separator: the dead "Resources" placeholder group it divided
+        // is gone (GH #102), and a trailing rule with no following group is
+        // chrome noise.
         assert!(
-            html.contains("shrink-0") && html.contains("bg-border"),
-            "missing separator in {html}"
+            !html.contains("Managed via Resource::query seam"),
+            "dead placeholder must be gone, got {html}"
         );
         // Sheet trigger hook
         assert!(
