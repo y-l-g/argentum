@@ -279,7 +279,7 @@ Testing: `CxTestBuilder` for unit renders, `Page` golden tests, per-resource pol
 
 ## 9. Validation & errors
 
-Validate in `Schema` (field rules), then in the POST handler, then DB constraints. Return inline field errors (not toast-only). DB `#[unique]` violations cannot map to inline errors yet — toasty exposes no unique-violation predicate (see `EXTERNAL_GAPS.md`); uniqueness is pre-checked app-side until it lands. Router errors bubble via `Result` + `?` into the router's error→status mapping; a layout can wrap its `Slot<'_>` in `error_boundary` to brand them. Redirects via `Err(redirect("/..."))` — before first content they are `Location` responses; mid-stream they degrade to a `window.location.replace` script.
+Validate in `Schema` (field rules), then in the POST handler, then DB constraints. Return inline field errors (not toast-only). Absent keys validate as `""`, so updates must only write present keys and allow-list POST keys via `Schema::unknown_keys` (GH #89). DB `#[unique]` violations cannot map to inline errors yet — toasty exposes no unique-violation predicate (see `EXTERNAL_GAPS.md`); uniqueness is pre-checked app-side until it lands. Router errors bubble via `Result` + `?` into the router's error→status mapping; a layout can wrap its `Slot<'_>` in `error_boundary` to brand them. Redirects via `Err(redirect("/..."))` — before first content they are `Location` responses; mid-stream they degrade to a `window.location.replace` script.
 
 ---
 

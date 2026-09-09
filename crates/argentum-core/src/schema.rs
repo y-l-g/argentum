@@ -1353,6 +1353,26 @@ impl Schema {
         out
     }
 
+    /// Keys in `values` that no declared input owns, sorted (GH #89).
+    ///
+    /// Framework-level allow-list seam: record handlers already whitelist via
+    /// per-field `.get(..)`, but a generic impl iterating `values` would
+    /// silently promote `role`/`tenant_id`/handler keys (`confirm`, `ids`)
+    /// to client-controlled writes. Callers should reject or ignore these
+    /// (at least `debug_assert!` in tests); handler keys must be filtered by
+    /// the caller before calling this.
+    pub fn unknown_keys(&self, values: &HashMap<String, String>) -> Vec<String> {
+        use std::collections::HashSet;
+        let known: HashSet<String> = self.field_names().into_iter().collect();
+        let mut out: Vec<String> = values
+            .keys()
+            .filter(|k| !known.contains(k.as_str()))
+            .cloned()
+            .collect();
+        out.sort();
+        out
+    }
+
     fn assert_unique_field_names(&self) {
         let names = self.field_names();
         let mut seen = std::collections::HashSet::new();
@@ -1410,6 +1430,12 @@ impl Schema {
         walk(&self.nodes)
     }
 
+    /// Validate submitted values against declared inputs (GH #89).
+    ///
+    /// Absent keys are treated as `""` for validation; update record fns must
+    /// therefore only write keys present in the submission, or an omitted
+    /// optional field silently blanks the stored value. Use
+    /// [`Self::unknown_keys`] to allow-list POST keys.
     pub fn validate(&self, values: &HashMap<String, String>) -> HashMap<String, Vec<String>> {
         let inputs = self.text_inputs();
         let mut errors: HashMap<String, Vec<String>> = HashMap::new();
@@ -2364,5 +2390,18 @@ mod tests {
             TextInput::r#for(DummyUser::fields().name()),
             TextInput::r#for(DummyUser::fields().name()),
         ));
+    }
+
+    #[test]
+    fn unknown_keys_flags_undeclared_post_keys() {
+        let schema = Schema::new(TextInput::r#for(DummyUser::fields().name()));
+        let mut values = HashMap::new();
+        values.insert("name".to_string(), "Ada".to_string());
+        values.insert("role".to_string(), "admin".to_string());
+        values.insert("confirm".to_string(), "1".to_string());
+        assert_eq!(schema.unknown_keys(&values), vec!["confirm".to_string(), "role".to_string()]);
+        values.remove("role");
+        values.remove("confirm");
+        assert!(schema.unknown_keys(&values).is_empty());
     }
 }
