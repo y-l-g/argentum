@@ -725,14 +725,18 @@ where
         toasty_core::stmt::Type::F32 => toasty_core::stmt::Value::F32(id.parse().ok()?),
         toasty_core::stmt::Type::F64 => toasty_core::stmt::Value::F64(id.parse().ok()?),
         // Bytes PKs have no canonical URL text form; accept the UTF-8 bytes so
-        // list/edit round-trip instead of 404ing (GH #95). Temporal/composite
-        // PKs remain without a URL representation.
+        // list/edit round-trip instead of 404ing (GH #95).
         toasty_core::stmt::Type::Bytes => {
             toasty_core::stmt::Value::Bytes(id.as_bytes().to_vec())
         }
         // Temporal PKs parse from their canonical string forms, in lockstep
-        // with the cursor codec (GH #95). Zoned/decimal/net PKs and composite
-        // keys still have no URL representation.
+        // with the cursor codec (GH #95). Decimal/net PKs need Toasty
+        // features this build doesn't enable (`rust_decimal`, `bigdecimal`,
+        // `net`) and composite keys have no URL representation — both stay
+        // documented limits.
+        toasty_core::stmt::Type::Zoned => {
+            toasty_core::stmt::Value::Zoned(id.parse().ok()?)
+        }
         toasty_core::stmt::Type::Timestamp => {
             toasty_core::stmt::Value::Timestamp(id.parse().ok()?)
         }
@@ -744,6 +748,9 @@ where
         }
         toasty_core::stmt::Type::DateTime => {
             toasty_core::stmt::Value::DateTime(id.parse().ok()?)
+        }
+        toasty_core::stmt::Type::Zoned => {
+            toasty_core::stmt::Value::Zoned(id.parse().ok()?)
         }
         _ => return None,
     };
@@ -2560,6 +2567,44 @@ mod tests {
         #[key]
         at: jiff::Timestamp,
         name: String,
+    }
+
+    #[derive(Debug, Clone, toasty::Model)]
+    struct ZonedPk {
+        #[key]
+        at: jiff::Zoned,
+        name: String,
+    }
+
+    #[tokio::test]
+    async fn zoned_pks_parse_from_url_ids() {
+        // Zoned PKs parse from canonical forms, in lockstep with the cursor
+        // codec (GH #95); garbage stays a 404.
+        let z = jiff::civil::date(2024, 1, 15)
+            .at(9, 30, 0, 0)
+            .to_zoned(jiff::tz::TimeZone::UTC)
+            .unwrap();
+        assert!(pk_eq_expr::<ZonedPk>(&z.to_string()).is_some());
+        assert!(pk_eq_expr::<ZonedPk>("not-a-time").is_none());
+        // Round-trip through sqlite: the parsed value filters the row.
+        let mut db = toasty::Db::builder()
+            .models(toasty::models!(ZonedPk))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        toasty::create!(ZonedPk {
+            at: z.clone(),
+            name: "Ada".to_string(),
+        })
+        .exec(&mut db)
+        .await
+        .unwrap();
+        let mut db2 = db.clone();
+        let expr = pk_eq_expr::<ZonedPk>(&z.to_string()).unwrap();
+        let rows = ZonedPk::filter(expr).exec(&mut db2).await.unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].name, "Ada");
     }
 
     #[tokio::test]

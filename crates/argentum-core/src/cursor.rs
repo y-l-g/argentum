@@ -41,6 +41,7 @@ const TAG_DATE: u8 = b'd';
 const TAG_DATETIME: u8 = b'm';
 const TAG_TIME: u8 = b'i';
 const TAG_BYTES: u8 = b'x';
+const TAG_ZONED: u8 = b'z';
 const TAG_RECORD: u8 = b'r';
 
 /// Encode a cursor value into a URL-safe token (`[0-9a-f]` only).
@@ -152,6 +153,10 @@ fn write_value(value: &Value, out: &mut Vec<u8>) -> Result<()> {
         }
         Value::Time(v) => {
             out.push(TAG_TIME);
+            write_len_prefixed(v.to_string().as_bytes(), out);
+        }
+        Value::Zoned(v) => {
+            out.push(TAG_ZONED);
             write_len_prefixed(v.to_string().as_bytes(), out);
         }
         Value::Record(record) => {
@@ -297,6 +302,17 @@ fn read_value_with_depth(buf: &[u8], depth: usize) -> Result<(Value, &[u8])> {
             let s = read_len_prefixed(&mut buf)?;
             Ok((Value::Bytes(s), buf))
         }
+        TAG_ZONED => {
+            let s = read_len_prefixed(&mut buf)?;
+            let text = std::str::from_utf8(&s)
+                .map_err(|e| std::io::Error::other(format!("cursor: invalid zoned: {e}")))?;
+            Ok((
+                Value::Zoned(text.parse::<jiff::Zoned>().map_err(|e| {
+                    std::io::Error::other(format!("cursor: invalid zoned: {e}"))
+                })?),
+                buf,
+            ))
+        }
         TAG_RECORD => {
             let count = u32::from_le_bytes(take(&mut buf, 4)?.try_into().unwrap()) as usize;
             let mut fields = Vec::with_capacity(count.min(64));
@@ -404,6 +420,12 @@ mod tests {
             "2024-01-15T09:30:00".parse().expect("datetime"),
         ));
         round_trip(Value::Time("09:30:00".parse().expect("time")));
+        round_trip(Value::Zoned(
+            jiff::civil::date(2024, 1, 15)
+                .at(9, 30, 0, 0)
+                .to_zoned(jiff::tz::TimeZone::UTC)
+                .expect("zoned"),
+        ));
     }
 
     #[test]
