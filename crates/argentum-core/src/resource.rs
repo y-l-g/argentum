@@ -218,6 +218,15 @@ where
         if let Ok(ts) = v.parse::<jiff::Timestamp>() {
             return Some(self.lens.clone().eq(ts));
         }
+        // Query decoding turns `+` into space, destroying numeric offsets
+        // (`?filters=created_at:2024-01-15T09:30:00+02:00` arrives with a
+        // space). A timestamp never legitimately contains a space, so retry
+        // with `+` restored before giving up (GH #93).
+        if v.contains(' ')
+            && let Ok(ts) = v.replace(' ', "+").parse::<jiff::Timestamp>()
+        {
+            return Some(self.lens.clone().eq(ts));
+        }
         if let Ok(date) = v.parse::<jiff::civil::Date>() {
             let start: jiff::Timestamp = format!("{date}T00:00:00Z").parse().ok()?;
             let end = start + jiff::Span::new().hours(24);
@@ -3725,6 +3734,16 @@ mod tests {
         let rows = Task::filter(expr).exec(&mut db2).await.unwrap();
         assert_eq!(rows.len(), 1);
         assert!(f.to_expr("not-a-date").is_none());
+    }
+
+    #[test]
+    fn date_filter_recovers_plus_offsets_mangled_by_query_decode() {
+        let f = DateFilter::r#for(Task::fields().created_at());
+        // `+02:00` arrives as ` 02:00` after `+`-as-space decoding (GH #93).
+        assert!(f.to_expr("2024-01-15T09:30:00 02:00").is_some());
+        assert!(f.to_expr("2024-01-15T09:30:00+02:00").is_some());
+        assert!(f.to_expr("not-a-date").is_none());
+        assert!(f.to_expr("").is_none());
     }
 
     #[test]
