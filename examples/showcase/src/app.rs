@@ -667,6 +667,20 @@ impl Resource for PostResource {
             let author_id = author_id_str.parse::<uuid::Uuid>().map_err(|e| {
                 topcoat::Error::from(std::io::Error::other(format!("invalid author_id: {e}")))
             })?;
+            // Symmetric FK double-check (GH #91, mirrors create): validate_async
+            // already checked, but the author may be cross-tenant or deleted since.
+            let author_exists = AuthorResource::query(&cx)
+                .filter(Author::fields().id().eq(author_id))
+                .first()
+                .exec(&mut db)
+                .await
+                .map_err(|e| -> topcoat::Error { e.into() })?
+                .is_some();
+            if !author_exists {
+                return Err(topcoat::Error::from(std::io::Error::other(
+                    "author not found",
+                )));
+            }
             let image_path = values
                 .get("image_path")
                 .cloned()

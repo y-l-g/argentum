@@ -257,3 +257,53 @@ async fn posts_list_shows_comments_count_via_include() {
         html
     );
 }
+
+#[tokio::test]
+async fn posts_update_rechecks_author_existence() {
+    let db = full_db().await;
+    let router = router(db.clone());
+    let mut db_q = db.clone();
+    let authors = Author::all().exec(&mut db_q).await.unwrap();
+    let first = &authors[0];
+    let posts = Post::all().exec(&mut db_q).await.unwrap();
+    let post = &posts[0];
+    let edit_url = format!("/admin/posts/{}/edit", post.id);
+    // Valid same-author update still redirects (symmetric double-check, GH #91).
+    let resp = router
+        .handle(
+            Request::builder()
+                .uri(edit_url.clone())
+                .method(Method::POST)
+                .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .body(Body::from(format!(
+                    "title=Updated+Title&author_id={}&image_path=/tmp/u.jpg&tags=u",
+                    first.id
+                )))
+                .unwrap(),
+        )
+        .await;
+    assert!(
+        resp.status().is_redirection(),
+        "valid update should redirect, got {}",
+        resp.status()
+    );
+    // Bogus author is rejected, not silently written (validate_async invalid).
+    let fake = uuid::Uuid::new_v4();
+    let resp = router
+        .handle(
+            Request::builder()
+                .uri(edit_url)
+                .method(Method::POST)
+                .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .body(Body::from(format!(
+                    "title=Bad&author_id={fake}&image_path=/tmp/u.jpg&tags=u"
+                )))
+                .unwrap(),
+        )
+        .await;
+    assert!(
+        !resp.status().is_redirection(),
+        "bogus author update must not redirect, got {}",
+        resp.status()
+    );
+}

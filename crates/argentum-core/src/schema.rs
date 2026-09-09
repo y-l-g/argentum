@@ -341,6 +341,11 @@ impl Select {
     /// The first argument is the resource's `query` fn (e.g. `AuthorResource::query`) — it is
     /// only used for type inference; the loader calls `R::query(cx)` directly so tenancy is
     /// preserved. The second argument maps the related record to its display label.
+    ///
+    /// Known limit (GH #91): the loader execs the full related table with no
+    /// limit, once per select per validate plus re-render scans. Suitable for
+    /// small reference tables only; a bounded/searchable dropdown with
+    /// per-request memoization is future work.
     pub fn relationship<R>(
         mut self,
         _query: fn(&Cx) -> toasty::stmt::Query<toasty::stmt::List<R::Model>>,
@@ -395,6 +400,9 @@ impl Select {
     }
 
     /// Async existence check: if relationship is configured and value non-empty, ensure it matches a loaded option.
+    ///
+    /// A loader failure surfaces as a form-level error (GH #91) instead of an
+    /// empty-options passthrough that would 500 at FK write time.
     pub async fn validate_async(&self, cx: &Cx, value: &str) -> Vec<String> {
         let mut errs = self.validate(value);
         if errs.is_empty() && !value.trim().is_empty() {
@@ -407,7 +415,7 @@ impl Select {
                         }
                     }
                     Err(_) => {
-                        // If loader fails, don't add error here; DB will surface.
+                        errs.push(format!("{} could not load options, retry", self.label));
                     }
                 }
             } else if !self.options_static.is_empty() {
