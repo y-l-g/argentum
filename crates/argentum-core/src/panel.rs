@@ -1274,6 +1274,7 @@ async fn check_unique<R: Resource>(
     schema: &crate::schema::Schema,
     values: &HashMap<String, String>,
     current: &HashMap<String, String>,
+    ex: &mut dyn toasty::Executor,
 ) -> HashMap<String, Vec<String>> {
     let mut errors: HashMap<String, Vec<String>> = HashMap::new();
     for (name, input) in schema.text_inputs() {
@@ -1291,11 +1292,12 @@ async fn check_unique<R: Resource>(
         if current.get(&name).map(|s| s.trim().to_string()) == Some(submitted.clone()) {
             continue;
         }
-        let mut db = db(cx);
+        // Inside the handler's tx (GH #84): the check observes the same
+        // snapshot as the write that follows.
         let rows = R::query(cx)
             .filter(input.eq_filter::<R::Model>(submitted))
             .limit(1)
-            .exec(&mut db)
+            .exec(&mut *ex)
             .await;
         if matches!(rows, Ok(rows) if !rows.is_empty()) {
             errors.insert(
@@ -1318,19 +1320,34 @@ fn resource_create_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
         let schema = R::form(cx);
         reject_unknown_form_keys(&schema, &values)?;
         let mut errors = schema.validate_async(cx, &values).await;
+        // Framework-owned transaction (GH #84): opened only after
+        // validation — `validate_async` relationship loaders run on their
+        // own handle, which would block on the pool while the tx holds it
+        // (see `db` pool discipline). The unique check and the write then
+        // observe one snapshot and commit atomically. Dropping `tx`
+        // without commit (validation errors, policy denials) rolls back.
+        let mut db = db(cx);
+        let mut tx = db.transaction().await.map_err(topcoat::Error::from)?;
         // App-side unique check over every `unique()`-marked input — the only
         // error layer until toasty exposes a unique-violation predicate
         // (EXTERNAL_GAPS.md; never string-match driver error messages).
-        for (name, errs) in check_unique::<R>(cx, &schema, &values, &HashMap::new()).await {
+        for (name, errs) in
+            check_unique::<R>(cx, &schema, &values, &HashMap::new(), &mut tx).await
+        {
             errors.entry(name).or_default().extend(errs);
         }
         if !errors.is_empty() {
+            // Drop the tx before rendering (GH #84): the re-rendered form
+            // reloads relationship options on its own handle, which would
+            // block on the pool while the tx holds it.
+            drop(tx);
             let html = render_create_page::<R>(cx, &values, &errors).await?;
             return Ok(html);
         }
-        // Attempt creation via Resource hook (no framework transaction today — GH #84).
-        match R::create_record(cx, values.clone()).await {
+        // Attempt creation via Resource hook, inside the tx.
+        match R::create_record(cx, values.clone(), &mut tx).await {
             Ok(()) => {
+                tx.commit().await.map_err(topcoat::Error::from)?;
                 let base = list_url(cx, &R::slug());
                 let list_url = format!("{base}?notification=Created");
                 // Also set cookie for Boundary survival (if layer present)
@@ -1355,15 +1372,21 @@ fn resource_create_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
 /// check.
 ///
 /// A malformed or unknown id maps to 404, not a query error.
-async fn find_by_key<R: Resource>(cx: &Cx, id: &str) -> Result<R::Model> {
+///
+/// Runs on the caller's executor: mutation handlers pass the open framework
+/// transaction (GH #84) so the fetched snapshot is the checked snapshot.
+async fn find_by_key<R: Resource>(
+    cx: &Cx,
+    id: &str,
+    ex: &mut dyn toasty::Executor,
+) -> Result<R::Model> {
     let Some(expr) = crate::schema::pk_eq_expr::<R::Model>(id) else {
         return Err(topcoat::router::error::not_found().into());
     };
-    let mut db = db(cx);
     R::query(cx)
         .filter(expr)
         .first()
-        .exec(&mut db)
+        .exec(&mut *ex)
         .await
         .map_err(topcoat::Error::from)?
         .ok_or_else(topcoat::router::error::not_found)
@@ -1375,7 +1398,8 @@ fn resource_edit<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
     Box::pin(HoistView::new(ThenView::new(async move {
         enforce_tenant::<R>(cx)?;
         let id = topcoat::router::path_param_segment(cx, "id").to_string();
-        let record = find_by_key::<R>(cx, &id).await?;
+        let mut db = db(cx);
+        let record = find_by_key::<R>(cx, &id, &mut db).await?;
         if !R::can_view(cx, &record) {
             return Err(forbidden().into());
         }
@@ -1397,11 +1421,18 @@ fn resource_edit_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
     Box::pin(HoistView::new(ThenView::new(async move {
         enforce_tenant::<R>(cx)?;
         let id = topcoat::router::path_param_segment(cx, "id").to_string();
-        let record = find_by_key::<R>(cx, &id).await?;
-        if !R::can_view(cx, &record) {
+        // Advisory load on a pooled handle (GH #86): feeds hydration and the
+        // pre-validation file backfill below. The authoritative load +
+        // policy check happens inside the framework transaction — validation
+        // (`validate_async` relationship loaders) runs on its own handle and
+        // must never execute while the tx holds the pool (see `db` pool
+        // discipline).
+        let mut db0 = db(cx);
+        let advisory = find_by_key::<R>(cx, &id, &mut db0).await?;
+        if !R::can_view(cx, &advisory) {
             return Err(forbidden().into());
         }
-        if !R::can_update(cx, &record) {
+        if !R::can_update(cx, &advisory) {
             return Err(forbidden().into());
         }
         let mut values = parse_form_values(cx, body).await?;
@@ -1409,7 +1440,7 @@ fn resource_edit_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
         let schema = R::form(cx);
         reject_unknown_form_keys(&schema, &values)?;
         // Unique check excludes this record's own unchanged values.
-        let current = R::hydrate_form_values(&record);
+        let current = R::hydrate_form_values(&advisory);
         // Untouched file inputs preserve the stored path (GH #90): the edit
         // form renders an empty file input (browsers never pre-fill it), so
         // an empty submit means "keep", not "clear" — without this the
@@ -1429,15 +1460,30 @@ fn resource_edit_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
             }
         }
         let mut errors = schema.validate_async(cx, &values).await;
-        for (name, errs) in check_unique::<R>(cx, &schema, &values, &current).await {
+        // Authoritative load inside the framework transaction (GH #84, #86):
+        // policy is checked on this snapshot and the same record flows into
+        // the write — never a silent re-load outside the checked snapshot.
+        let mut db = db(cx);
+        let mut tx = db.transaction().await.map_err(topcoat::Error::from)?;
+        let record = find_by_key::<R>(cx, &id, &mut tx).await?;
+        if !R::can_view(cx, &record) {
+            return Err(forbidden().into());
+        }
+        if !R::can_update(cx, &record) {
+            return Err(forbidden().into());
+        }
+        for (name, errs) in check_unique::<R>(cx, &schema, &values, &current, &mut tx).await {
             errors.entry(name).or_default().extend(errs);
         }
         if !errors.is_empty() {
+            // Drop the tx before rendering (GH #84): see create POST.
+            drop(tx);
             let html = render_edit_page::<R>(cx, &id, &values, &errors).await?;
             return Ok(html);
         }
-        match R::update_record(cx, id.clone(), values.clone()).await {
+        match R::update_record(cx, record, values.clone(), &mut tx).await {
             Ok(()) => {
+                tx.commit().await.map_err(topcoat::Error::from)?;
                 let base = list_url(cx, &R::slug());
                 let list_url = format!("{base}?notification=Updated");
                 set_notification(cx, Notification::success("Updated"));
@@ -1451,12 +1497,15 @@ fn resource_edit_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
     })))
 }
 
-/// Delete action POST — requires confirmation, re-checks Policy (no framework transaction today — GH #84).
+/// Delete action POST — requires confirmation, re-checks Policy, runs in the
+/// framework transaction (GH #84): the checked record flows into the write.
 fn resource_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
     Box::pin(HoistView::new(ThenView::new(async move {
         enforce_tenant::<R>(cx)?;
+        let mut db = db(cx);
+        let mut tx = db.transaction().await.map_err(topcoat::Error::from)?;
         let id = topcoat::router::path_param_segment(cx, "id").to_string();
-        let record = find_by_key::<R>(cx, &id).await?;
+        let record = find_by_key::<R>(cx, &id, &mut tx).await?;
         if !R::can_delete(cx, &record) {
             return Err(forbidden().into());
         }
@@ -1466,6 +1515,10 @@ fn resource_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
             .get("confirm")
             .is_some_and(|v| v == "1" || v == "true" || v == "yes");
         if !confirmed {
+            // Render confirmation page. Drop the tx first (GH #84): nothing
+            // has been written, and holding the pool handle across the
+            // response serves nothing.
+            drop(tx);
             // Render confirmation page.
             let csrf = crate::csrf::current_token(cx);
             let html = view! {
@@ -1506,8 +1559,10 @@ fn resource_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
             };
             return Ok(html);
         }
-        // Perform delete via Resource hook (no framework transaction today — GH #84).
-        R::delete_record(cx, id).await?;
+        // Perform delete via Resource hook, inside the tx — commit makes
+        // the checked delete durable, any error rolls it back (GH #84).
+        R::delete_record(cx, record, &mut tx).await?;
+        tx.commit().await.map_err(topcoat::Error::from)?;
         let base = list_url(cx, &R::slug());
         let list_url = format!("{base}?notification=Deleted");
         set_notification(cx, Notification::success("Deleted"));
@@ -1520,7 +1575,9 @@ fn resource_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
 /// Identity is the typed PK fetch alone (GH #85): the display closure
 /// `Table::id` is never re-matched, so non-canonical keys (uppercase UUID,
 /// email key) cannot 404 a batch whose rows exist. Bounded by
-/// `MAX_BULK_IDS` so the N-way `OR` predicate cannot be amplified into a DoS.
+/// `MAX_BULK_IDS` so the `IN` list cannot be amplified into a DoS.
+/// Fetch, policy checks, and deletes share one framework transaction
+/// (GH #84): a mid-loop failure deletes zero rows.
 fn resource_bulk_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
     Box::pin(HoistView::new(ThenView::<_, BoxView<'_>>::new(
         async move {
@@ -1548,9 +1605,10 @@ fn resource_bulk_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
                 return Err(topcoat::router::error::not_found().into());
             };
             let mut db = db(cx);
+            let mut tx = db.transaction().await.map_err(topcoat::Error::from)?;
             let rows = R::query(cx)
                 .filter(pk_filter)
-                .exec(&mut db)
+                .exec(&mut tx)
                 .await
                 .map_err(topcoat::Error::from)?;
             if rows.len() != ids.len() {
@@ -1561,8 +1619,11 @@ fn resource_bulk_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
                     return Err(forbidden().into());
                 }
             }
-            // All checks passed — perform bulk delete.
-            R::bulk_delete_records(cx, ids).await?;
+            // All checks passed — perform bulk delete inside the tx, then
+            // commit once. Any error drops `tx` uncommitted: zero rows
+            // deleted, never half-applied.
+            R::bulk_delete_records(cx, rows, &mut tx).await?;
+            tx.commit().await.map_err(topcoat::Error::from)?;
             let base = list_url(cx, &R::slug());
             let list_url = format!("{base}?notification=Bulk+deleted");
             set_notification(cx, Notification::success("Bulk deleted"));
@@ -1939,8 +2000,9 @@ mod tests {
             }
             fn update_record(
                 _cx: &Cx,
-                _id: String,
+                _record: Dummy,
                 _values: HashMap<String, String>,
+                _ex: &mut dyn toasty::Executor,
             ) -> impl std::future::Future<Output = Result<()>> + Send {
                 async move { Ok(()) }
             }
@@ -2044,7 +2106,8 @@ mod tests {
             }
             fn bulk_delete_records(
                 _cx: &Cx,
-                _ids: Vec<String>,
+                _records: Vec<Dummy>,
+                _ex: &mut dyn toasty::Executor,
             ) -> impl std::future::Future<Output = Result<()>> + Send {
                 async move { Ok(()) }
             }
@@ -2116,6 +2179,112 @@ mod tests {
             )
             .await;
         assert_eq!(no_token.status(), http::StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn bulk_delete_mid_loop_failure_deletes_zero_rows() {
+        // GH #84 acceptance: fetch, policy checks, and deletes share one
+        // framework transaction — an impl that fails halfway rolls everything
+        // back instead of half-applying.
+        use crate::resource::Resource;
+        use std::collections::HashMap;
+
+        #[derive(Debug, toasty::Model)]
+        struct Dummy {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            name: String,
+        }
+        struct FlakyBulkResource;
+        impl Resource for FlakyBulkResource {
+            type Model = Dummy;
+            fn slug() -> String {
+                "dummies".to_string()
+            }
+            fn can_delete(_cx: &Cx, _record: &Dummy) -> bool {
+                true
+            }
+            fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
+                crate::resource::Table::r#for(cx)
+                    .id(|d: &Dummy| d.id.to_string())
+                    .columns(crate::resource::TextColumn::r#for(
+                        Dummy::fields().name(),
+                        |d: &Dummy| d.name.clone(),
+                    ))
+            }
+            fn bulk_delete_records(
+                _cx: &Cx,
+                records: Vec<Dummy>,
+                ex: &mut dyn toasty::Executor,
+            ) -> impl std::future::Future<Output = Result<()>> + Send {
+                async move {
+                    // Delete the first row, then blow up: without the
+                    // framework tx the first delete would stick.
+                    let first = records.into_iter().next().unwrap();
+                    Dummy::filter(Dummy::fields().id().eq(first.id))
+                        .delete()
+                        .exec(&mut *ex)
+                        .await
+                        .map_err(topcoat::Error::from)?;
+                    Err(std::io::Error::other("boom").into())
+                }
+            }
+            fn hydrate_form_values(_record: &Dummy) -> HashMap<String, String> {
+                HashMap::new()
+            }
+        }
+
+        let mut db = Db::builder()
+            .models(toasty::models!(Dummy))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        for name in ["one", "two"] {
+            toasty::create!(Dummy {
+                name: name.to_string(),
+            })
+            .exec(&mut db)
+            .await
+            .unwrap();
+        }
+        let mut db_ids = db.clone();
+        let rows = Dummy::all().exec(&mut db_ids).await.unwrap();
+        assert_eq!(rows.len(), 2);
+        let ids = rows
+            .iter()
+            .map(|r| r.id.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+        let router = Panel::new("admin")
+            .app_context(db.clone())
+            .resource::<FlakyBulkResource>()
+            .build();
+        let token = uuid::Uuid::new_v4().to_string();
+        let resp = router
+            .handle(
+                http::Request::builder()
+                    .uri("/admin/dummies/bulk-delete")
+                    .method(http::Method::POST)
+                    .header(http::header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                    .header(http::header::COOKIE, format!("argentum_csrf={token}"))
+                    .body(Body::from(format!("ids={ids}&csrf_token={token}")))
+                    .unwrap(),
+            )
+            .await;
+        assert!(
+            resp.status().is_server_error(),
+            "mid-loop failure must error, got {}",
+            resp.status()
+        );
+        let rows = Dummy::all().exec(&mut db_ids).await.unwrap();
+        assert_eq!(
+            rows.len(),
+            2,
+            "rollback must leave zero rows deleted, got {}",
+            2 - rows.len()
+        );
     }
 
     #[tokio::test]
@@ -2424,6 +2593,7 @@ mod tests {
             fn create_record(
                 _cx: &Cx,
                 _values: HashMap<String, String>,
+                _ex: &mut dyn toasty::Executor,
             ) -> impl std::future::Future<Output = Result<()>> + Send {
                 async move { Ok(()) }
             }
@@ -2756,6 +2926,7 @@ mod tests {
             .await
             .unwrap();
         let cx = CxTestBuilder::new().app_context(db).build();
+        let mut ex = crate::db::db(&cx);
 
         let schema = Schema::new(TextInput::r#for(Subscriber::fields().email()).unique());
         let mut values = HashMap::new();
@@ -2763,7 +2934,7 @@ mod tests {
 
         // Create: duplicate → inline error on the field, label-derived.
         let errors =
-            check_unique::<SubscriberResource>(&cx, &schema, &values, &HashMap::new()).await;
+            check_unique::<SubscriberResource>(&cx, &schema, &values, &HashMap::new(), &mut ex).await;
         assert_eq!(
             errors.get("email"),
             Some(&vec!["Email has already been taken".to_string()]),
@@ -2774,13 +2945,13 @@ mod tests {
         let mut fresh = HashMap::new();
         fresh.insert("email".to_string(), "other@b.c".to_string());
         let errors =
-            check_unique::<SubscriberResource>(&cx, &schema, &fresh, &HashMap::new()).await;
+            check_unique::<SubscriberResource>(&cx, &schema, &fresh, &HashMap::new(), &mut ex).await;
         assert!(errors.is_empty(), "fresh value must pass, got {errors:?}");
 
         // Edit: the record's own unchanged value is not a duplicate.
         let mut current = HashMap::new();
         current.insert("email".to_string(), "a@b.c".to_string());
-        let errors = check_unique::<SubscriberResource>(&cx, &schema, &values, &current).await;
+        let errors = check_unique::<SubscriberResource>(&cx, &schema, &values, &current, &mut ex).await;
         assert!(
             errors.is_empty(),
             "own unchanged value must be skipped, got {errors:?}"
@@ -2790,7 +2961,7 @@ mod tests {
         let mut changed_current = HashMap::new();
         changed_current.insert("email".to_string(), "old@b.c".to_string());
         let errors =
-            check_unique::<SubscriberResource>(&cx, &schema, &values, &changed_current).await;
+            check_unique::<SubscriberResource>(&cx, &schema, &values, &changed_current, &mut ex).await;
         assert_eq!(
             errors.get("email"),
             Some(&vec!["Email has already been taken".to_string()]),
@@ -2802,7 +2973,7 @@ mod tests {
         let mut empty = HashMap::new();
         empty.insert("email".to_string(), "   ".to_string());
         let errors =
-            check_unique::<SubscriberResource>(&cx, &schema, &empty, &HashMap::new()).await;
+            check_unique::<SubscriberResource>(&cx, &schema, &empty, &HashMap::new(), &mut ex).await;
         assert!(errors.is_empty(), "empty must be skipped, got {errors:?}");
     }
 
@@ -3014,9 +3185,10 @@ mod tests {
             .await
             .unwrap();
         let cx = CxTestBuilder::new().app_context(db).build();
+        let mut ex = crate::db::db(&cx);
 
         // Existing id → exactly that row (typed PK filter, not a full scan).
-        let got = find_by_key::<SubscriberResource>(&cx, &a.id.to_string())
+        let got = find_by_key::<SubscriberResource>(&cx, &a.id.to_string(), &mut ex)
             .await
             .unwrap();
         assert_eq!(got.id, a.id);
@@ -3024,7 +3196,7 @@ mod tests {
         // Well-formed but unknown id → 404.
         let missing = uuid::Uuid::new_v4().to_string();
         assert!(
-            find_by_key::<SubscriberResource>(&cx, &missing)
+            find_by_key::<SubscriberResource>(&cx, &missing, &mut ex)
                 .await
                 .is_err(),
             "unknown id must not resolve"
@@ -3032,7 +3204,7 @@ mod tests {
 
         // Malformed id (not a Uuid) → 404, not a query error.
         assert!(
-            find_by_key::<SubscriberResource>(&cx, "not-a-uuid")
+            find_by_key::<SubscriberResource>(&cx, "not-a-uuid", &mut ex)
                 .await
                 .is_err(),
             "malformed id must not resolve"

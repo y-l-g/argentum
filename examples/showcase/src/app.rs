@@ -91,13 +91,13 @@ impl Resource for UserResource {
     }
 
     fn create_record(
-        cx: &Cx,
+        _cx: &Cx,
         values: HashMap<String, String>,
+        ex: &mut dyn toasty::Executor,
     ) -> impl std::future::Future<Output = Result<()>> + Send
     where
         Self: Sized,
     {
-        let cx = cx.clone();
         async move {
             let name = values
                 .get("name")
@@ -111,7 +111,6 @@ impl Resource for UserResource {
                 .unwrap_or_default()
                 .trim()
                 .to_string();
-            let mut db = argentum_core::db::db(&cx);
             toasty::create!(User {
                 name: name,
                 email: email,
@@ -119,7 +118,7 @@ impl Resource for UserResource {
                 active: true,
                 created_at: jiff::Timestamp::now(),
             })
-            .exec(&mut db)
+            .exec(&mut *ex)
             .await
             .map_err(|e| -> topcoat::Error { e.into() })?;
             Ok(())
@@ -127,26 +126,17 @@ impl Resource for UserResource {
     }
 
     fn update_record(
-        cx: &Cx,
-        id: String,
+        _cx: &Cx,
+        mut record: User,
         values: HashMap<String, String>,
+        ex: &mut dyn toasty::Executor,
     ) -> impl std::future::Future<Output = Result<()>> + Send
     where
         Self: Sized,
     {
-        let cx = cx.clone();
         async move {
-            let uuid = id.parse::<uuid::Uuid>().map_err(|e| {
-                topcoat::Error::from(std::io::Error::other(format!("invalid id: {e}")))
-            })?;
-            let mut db = argentum_core::db::db(&cx);
-            let mut record = Self::query(&cx)
-                .filter(User::fields().id().eq(uuid))
-                .first()
-                .exec(&mut db)
-                .await
-                .map_err(|e| -> topcoat::Error { e.into() })?
-                .ok_or_else(topcoat::router::error::not_found)?;
+            // The handler's checked snapshot (GH #86): `record` was loaded
+            // inside the framework tx and policy-checked — no re-query.
             let name = match values.get("name") {
                 // Absent keys keep the stored value (GH #89): an omitted
                 // optional field must not silently blank the record.
@@ -161,35 +151,28 @@ impl Resource for UserResource {
                 name: name,
                 email: email,
             })
-            .exec(&mut db)
+            .exec(&mut *ex)
             .await
             .map_err(|e| -> topcoat::Error { e.into() })?;
             Ok(())
         }
     }
 
-    fn delete_record(cx: &Cx, id: String) -> impl std::future::Future<Output = Result<()>> + Send
+    fn delete_record(
+        cx: &Cx,
+        record: User,
+        ex: &mut dyn toasty::Executor,
+    ) -> impl std::future::Future<Output = Result<()>> + Send
     where
         Self: Sized,
     {
         let cx = cx.clone();
         async move {
-            let uuid = id.parse::<uuid::Uuid>().map_err(|e| {
-                topcoat::Error::from(std::io::Error::other(format!("invalid id: {e}")))
-            })?;
-            let mut db = argentum_core::db::db(&cx);
-            let record = Self::query(&cx)
-                .filter(User::fields().id().eq(uuid))
-                .first()
-                .exec(&mut db)
-                .await
-                .map_err(|e| -> topcoat::Error { e.into() })?
-                .ok_or_else(topcoat::router::error::not_found)?;
             // Use the model's delete via query to respect tenancy.
             Self::query(&cx)
                 .filter(User::fields().id().eq(record.id))
                 .delete()
-                .exec(&mut db)
+                .exec(&mut *ex)
                 .await
                 .map_err(|e| -> topcoat::Error { e.into() })?;
             Ok(())
@@ -198,39 +181,21 @@ impl Resource for UserResource {
 
     fn bulk_delete_records(
         cx: &Cx,
-        ids: Vec<String>,
+        records: Vec<User>,
+        ex: &mut dyn toasty::Executor,
     ) -> impl std::future::Future<Output = Result<()>> + Send
     where
         Self: Sized,
     {
         let cx = cx.clone();
         async move {
-            let mut db = argentum_core::db::db(&cx);
-            // All-or-nothing: verify each exists and passes policy before deleting.
-            for id in &ids {
-                let uuid = id.parse::<uuid::Uuid>().map_err(|e| {
-                    topcoat::Error::from(std::io::Error::other(format!("invalid id: {e}")))
-                })?;
-                let rec = Self::query(&cx)
-                    .filter(User::fields().id().eq(uuid))
-                    .first()
-                    .exec(&mut db)
-                    .await
-                    .map_err(|e| -> topcoat::Error { e.into() })?
-                    .ok_or_else(topcoat::router::error::not_found)?;
-                if !Self::can_delete(&cx, &rec) {
-                    return Err(topcoat::router::error::forbidden().into());
-                }
-            }
-            // Perform deletes.
-            for id in ids {
-                let uuid = id.parse::<uuid::Uuid>().map_err(|e| {
-                    topcoat::Error::from(std::io::Error::other(format!("invalid id: {e}")))
-                })?;
+            // Framework-checked records (GH #84, #86): delete each inside
+            // the handler's tx — any error rolls the batch back.
+            for rec in &records {
                 Self::query(&cx)
-                    .filter(User::fields().id().eq(uuid))
+                    .filter(User::fields().id().eq(rec.id))
                     .delete()
-                    .exec(&mut db)
+                    .exec(&mut *ex)
                     .await
                     .map_err(|e| -> topcoat::Error { e.into() })?;
             }
@@ -306,6 +271,7 @@ impl Resource for AuthorResource {
     fn create_record(
         cx: &Cx,
         values: HashMap<String, String>,
+        ex: &mut dyn toasty::Executor,
     ) -> impl std::future::Future<Output = Result<()>> + Send
     where
         Self: Sized,
@@ -325,13 +291,12 @@ impl Resource for AuthorResource {
                 .trim()
                 .to_string();
             let tid = tenant_id(&cx).unwrap_or(uuid::Uuid::nil());
-            let mut db = argentum_core::db::db(&cx);
             toasty::create!(Author {
                 tenant_id: tid,
                 name: name,
                 email: email
             })
-            .exec(&mut db)
+            .exec(&mut *ex)
             .await
             .map_err(|e| -> topcoat::Error { e.into() })?;
             Ok(())
@@ -339,26 +304,16 @@ impl Resource for AuthorResource {
     }
 
     fn update_record(
-        cx: &Cx,
-        id: String,
+        _cx: &Cx,
+        mut rec: Author,
         values: HashMap<String, String>,
+        ex: &mut dyn toasty::Executor,
     ) -> impl std::future::Future<Output = Result<()>> + Send
     where
         Self: Sized,
     {
-        let cx = cx.clone();
         async move {
-            let uuid = id.parse::<uuid::Uuid>().map_err(|e| {
-                topcoat::Error::from(std::io::Error::other(format!("invalid id: {e}")))
-            })?;
-            let mut db = argentum_core::db::db(&cx);
-            let mut rec = Self::query(&cx)
-                .filter(Author::fields().id().eq(uuid))
-                .first()
-                .exec(&mut db)
-                .await
-                .map_err(|e| -> topcoat::Error { e.into() })?
-                .ok_or_else(topcoat::router::error::not_found)?;
+            // The handler's checked snapshot (GH #86) — no re-query.
             let name = match values.get("name") {
                 // Absent keys keep the stored value (GH #89).
                 Some(v) => v.trim().to_string(),
@@ -372,34 +327,27 @@ impl Resource for AuthorResource {
                 name: name,
                 email: email
             })
-            .exec(&mut db)
+            .exec(&mut *ex)
             .await
             .map_err(|e| -> topcoat::Error { e.into() })?;
             Ok(())
         }
     }
 
-    fn delete_record(cx: &Cx, id: String) -> impl std::future::Future<Output = Result<()>> + Send
+    fn delete_record(
+        cx: &Cx,
+        rec: Author,
+        ex: &mut dyn toasty::Executor,
+    ) -> impl std::future::Future<Output = Result<()>> + Send
     where
         Self: Sized,
     {
         let cx = cx.clone();
         async move {
-            let uuid = id.parse::<uuid::Uuid>().map_err(|e| {
-                topcoat::Error::from(std::io::Error::other(format!("invalid id: {e}")))
-            })?;
-            let mut db = argentum_core::db::db(&cx);
-            let rec = Self::query(&cx)
-                .filter(Author::fields().id().eq(uuid))
-                .first()
-                .exec(&mut db)
-                .await
-                .map_err(|e| -> topcoat::Error { e.into() })?
-                .ok_or_else(topcoat::router::error::not_found)?;
             Self::query(&cx)
                 .filter(Author::fields().id().eq(rec.id))
                 .delete()
-                .exec(&mut db)
+                .exec(&mut *ex)
                 .await
                 .map_err(|e| -> topcoat::Error { e.into() })?;
             Ok(())
@@ -408,37 +356,20 @@ impl Resource for AuthorResource {
 
     fn bulk_delete_records(
         cx: &Cx,
-        ids: Vec<String>,
+        records: Vec<Author>,
+        ex: &mut dyn toasty::Executor,
     ) -> impl std::future::Future<Output = Result<()>> + Send
     where
         Self: Sized,
     {
         let cx = cx.clone();
         async move {
-            let mut db = argentum_core::db::db(&cx);
-            for id in &ids {
-                let uuid = id.parse::<uuid::Uuid>().map_err(|e| {
-                    topcoat::Error::from(std::io::Error::other(format!("invalid id: {e}")))
-                })?;
-                let rec = Self::query(&cx)
-                    .filter(Author::fields().id().eq(uuid))
-                    .first()
-                    .exec(&mut db)
-                    .await
-                    .map_err(|e| -> topcoat::Error { e.into() })?
-                    .ok_or_else(topcoat::router::error::not_found)?;
-                if !Self::can_delete(&cx, &rec) {
-                    return Err(topcoat::router::error::forbidden().into());
-                }
-            }
-            for id in ids {
-                let uuid = id.parse::<uuid::Uuid>().map_err(|e| {
-                    topcoat::Error::from(std::io::Error::other(format!("invalid id: {e}")))
-                })?;
+            // Framework-checked records (GH #84, #86) — delete inside the tx.
+            for rec in &records {
                 Self::query(&cx)
-                    .filter(Author::fields().id().eq(uuid))
+                    .filter(Author::fields().id().eq(rec.id))
                     .delete()
-                    .exec(&mut db)
+                    .exec(&mut *ex)
                     .await
                     .map_err(|e| -> topcoat::Error { e.into() })?;
             }
@@ -575,6 +506,7 @@ impl Resource for PostResource {
     fn create_record(
         cx: &Cx,
         values: HashMap<String, String>,
+        ex: &mut dyn toasty::Executor,
     ) -> impl std::future::Future<Output = Result<()>> + Send
     where
         Self: Sized,
@@ -597,11 +529,10 @@ impl Resource for PostResource {
                 topcoat::Error::from(std::io::Error::other(format!("invalid author_id: {e}")))
             })?;
             // Verify author exists via AuthorResource::query (tenancy-aware) - existence already checked in validation but double.
-            let mut db = argentum_core::db::db(&cx);
             let author_exists = AuthorResource::query(&cx)
                 .filter(Author::fields().id().eq(author_id))
                 .first()
-                .exec(&mut db)
+                .exec(&mut *ex)
                 .await
                 .map_err(|e| -> topcoat::Error { e.into() })?
                 .is_some();
@@ -634,7 +565,7 @@ impl Resource for PostResource {
                 tags: tags,
                 author_id: author_id,
             })
-            .exec(&mut db)
+            .exec(&mut *ex)
             .await
             .map_err(|e| -> topcoat::Error { e.into() })?;
             Ok(())
@@ -643,25 +574,16 @@ impl Resource for PostResource {
 
     fn update_record(
         cx: &Cx,
-        id: String,
+        mut rec: Post,
         values: HashMap<String, String>,
+        ex: &mut dyn toasty::Executor,
     ) -> impl std::future::Future<Output = Result<()>> + Send
     where
         Self: Sized,
     {
         let cx = cx.clone();
         async move {
-            let uuid = id.parse::<uuid::Uuid>().map_err(|e| {
-                topcoat::Error::from(std::io::Error::other(format!("invalid id: {e}")))
-            })?;
-            let mut db = argentum_core::db::db(&cx);
-            let mut rec = Self::query(&cx)
-                .filter(Post::fields().id().eq(uuid))
-                .first()
-                .exec(&mut db)
-                .await
-                .map_err(|e| -> topcoat::Error { e.into() })?
-                .ok_or_else(topcoat::router::error::not_found)?;
+            // The handler's checked snapshot (GH #86) — no re-query.
             let title = match values.get("title") {
                 // Absent keys keep the stored value (GH #89).
                 Some(v) => v.trim().to_string(),
@@ -678,7 +600,7 @@ impl Resource for PostResource {
             let author_exists = AuthorResource::query(&cx)
                 .filter(Author::fields().id().eq(author_id))
                 .first()
-                .exec(&mut db)
+                .exec(&mut *ex)
                 .await
                 .map_err(|e| -> topcoat::Error { e.into() })?
                 .is_some();
@@ -702,34 +624,27 @@ impl Resource for PostResource {
                 image_path: image_path,
                 tags: tags
             })
-            .exec(&mut db)
+            .exec(&mut *ex)
             .await
             .map_err(|e| -> topcoat::Error { e.into() })?;
             Ok(())
         }
     }
 
-    fn delete_record(cx: &Cx, id: String) -> impl std::future::Future<Output = Result<()>> + Send
+    fn delete_record(
+        cx: &Cx,
+        rec: Post,
+        ex: &mut dyn toasty::Executor,
+    ) -> impl std::future::Future<Output = Result<()>> + Send
     where
         Self: Sized,
     {
         let cx = cx.clone();
         async move {
-            let uuid = id.parse::<uuid::Uuid>().map_err(|e| {
-                topcoat::Error::from(std::io::Error::other(format!("invalid id: {e}")))
-            })?;
-            let mut db = argentum_core::db::db(&cx);
-            let rec = Self::query(&cx)
-                .filter(Post::fields().id().eq(uuid))
-                .first()
-                .exec(&mut db)
-                .await
-                .map_err(|e| -> topcoat::Error { e.into() })?
-                .ok_or_else(topcoat::router::error::not_found)?;
             Self::query(&cx)
                 .filter(Post::fields().id().eq(rec.id))
                 .delete()
-                .exec(&mut db)
+                .exec(&mut *ex)
                 .await
                 .map_err(|e| -> topcoat::Error { e.into() })?;
             Ok(())
@@ -738,37 +653,20 @@ impl Resource for PostResource {
 
     fn bulk_delete_records(
         cx: &Cx,
-        ids: Vec<String>,
+        records: Vec<Post>,
+        ex: &mut dyn toasty::Executor,
     ) -> impl std::future::Future<Output = Result<()>> + Send
     where
         Self: Sized,
     {
         let cx = cx.clone();
         async move {
-            let mut db = argentum_core::db::db(&cx);
-            for id in &ids {
-                let uuid = id.parse::<uuid::Uuid>().map_err(|e| {
-                    topcoat::Error::from(std::io::Error::other(format!("invalid id: {e}")))
-                })?;
-                let rec = Self::query(&cx)
-                    .filter(Post::fields().id().eq(uuid))
-                    .first()
-                    .exec(&mut db)
-                    .await
-                    .map_err(|e| -> topcoat::Error { e.into() })?
-                    .ok_or_else(topcoat::router::error::not_found)?;
-                if !Self::can_delete(&cx, &rec) {
-                    return Err(topcoat::router::error::forbidden().into());
-                }
-            }
-            for id in ids {
-                let uuid = id.parse::<uuid::Uuid>().map_err(|e| {
-                    topcoat::Error::from(std::io::Error::other(format!("invalid id: {e}")))
-                })?;
+            // Framework-checked records (GH #84, #86) — delete inside the tx.
+            for rec in &records {
                 Self::query(&cx)
-                    .filter(Post::fields().id().eq(uuid))
+                    .filter(Post::fields().id().eq(rec.id))
                     .delete()
-                    .exec(&mut db)
+                    .exec(&mut *ex)
                     .await
                     .map_err(|e| -> topcoat::Error { e.into() })?;
             }

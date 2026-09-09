@@ -283,7 +283,8 @@ async fn update_record_keeps_absent_fields() {
     // Only email submitted: name must keep its stored value (GH #89).
     let mut values = HashMap::new();
     values.insert("email".to_string(), "kept@example.com".to_string());
-    UserResource::update_record(&cx, user.id.to_string(), values)
+    let mut ex = argentum_core::db::db(&cx);
+    UserResource::update_record(&cx, user.clone(), values, &mut ex)
         .await
         .unwrap();
     let mut db_check = db.clone();

@@ -222,6 +222,7 @@ async fn create_policy_deny() {
         async fn create_record(
             _cx: &topcoat::context::Cx,
             _values: std::collections::HashMap<String, String>,
+            _ex: &mut dyn toasty::Executor,
         ) -> topcoat::Result<()> {
             Ok(())
         }

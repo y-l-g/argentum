@@ -11,6 +11,13 @@ use topcoat::context::{Cx, app_context};
 ///
 /// Cloning the `Db` is cheap; Toasty statements need `&mut Db`, so callers do
 /// `let mut db = db(cx); ...exec(&mut db).await?`.
+///
+/// Pool discipline (GH #84): while a framework transaction holds its
+/// connection, no other handle may run statements — with a single-connection
+/// pool (notably `sqlite::memory:`) a second handle blocks forever. Mutation
+/// handlers therefore keep the tx strictly around check + write + commit and
+/// `drop(tx)` before any re-render (form option loaders open their own
+/// handle).
 #[inline]
 pub fn db(cx: &Cx) -> Db {
     app_context::<Db>(cx).clone()

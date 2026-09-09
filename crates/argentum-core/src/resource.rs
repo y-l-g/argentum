@@ -2744,9 +2744,12 @@ pub trait Resource: Sized + Send + Sync + 'static {
     ///
     /// Checked on the edit page (GET), the edit POST (which requires both
     /// `can_view` and `can_update`, GH #86), and per row in CSV export. The
-    /// list page currently checks only `can_view_any` — per-row `can_view` is
-    /// not applied there, so row-level impls must not rely on list filtering
-    /// until GH #86 is fully addressed.
+    /// list page deliberately checks only `can_view_any` (GH #86): `can_view`
+    /// is an in-memory Rust predicate that cannot run in SQL, and filtering
+    /// rows after cursor pagination would mislabel pages (holes, wrong
+    /// Next/Prev). Row-level visibility that must hold on the list belongs
+    /// in [`Self::query`] (the tenancy seam, ADR-0002), which every loader —
+    /// list, edit, delete, bulk, export — already funnels through.
     fn can_view(_cx: &Cx, _record: &Self::Model) -> bool {
         false
     }
@@ -2852,13 +2855,16 @@ pub trait Resource: Sized + Send + Sync + 'static {
     /// Create a new record from form values.
     ///
     /// The `Panel` create handler validates `required`/`email` inline and checks
-    /// `Policy::can_create` before calling this. The default implementation
-    /// returns an error; resources should override to perform the actual
-    /// `toasty::create!` (or `Insert`). No framework transaction is opened
-    /// today (GH #84) — impls needing atomicity must open their own tx.
+    /// `Policy::can_create` before calling this, inside a framework-owned
+    /// transaction (GH #84): `ex` is the open tx — run every statement
+    /// through it (`exec(&mut *ex)`) and never open a second handle, so the
+    /// write commits atomically with the handler's checks. The default
+    /// implementation returns an error; resources should override to perform
+    /// the actual `toasty::create!` (or `Insert`).
     fn create_record(
         _cx: &Cx,
         _values: HashMap<String, String>,
+        _ex: &mut dyn toasty::Executor,
     ) -> impl std::future::Future<Output = Result<()>> + Send
     where
         Self: Sized,
@@ -2872,12 +2878,21 @@ pub trait Resource: Sized + Send + Sync + 'static {
         }
     }
 
-    /// Update an existing record identified by `id` (the string form of its
-    /// primary key, as produced by `Table::id`) from form values.
+    /// Update the already-authorized `record` from form values (GH #86).
+    ///
+    /// The handler loads `record` through the tenancy-scoped query **inside
+    /// the framework transaction** and checks `can_view` + `can_update` on
+    /// that snapshot before calling this — use the passed record directly,
+    /// never re-query by id (re-loading outside the checked snapshot was the
+    /// TOCTOU hole). Run writes through `ex`; commit/rollback is the
+    /// handler's job. Residual (documented, not fixed): a concurrent
+    /// cross-transaction policy flip landing between this tx's snapshot and
+    /// its commit is backend-isolation territory, out of scope here.
     fn update_record(
         _cx: &Cx,
-        _id: String,
+        _record: Self::Model,
         _values: HashMap<String, String>,
+        _ex: &mut dyn toasty::Executor,
     ) -> impl std::future::Future<Output = Result<()>> + Send
     where
         Self: Sized,
@@ -2891,8 +2906,14 @@ pub trait Resource: Sized + Send + Sync + 'static {
         }
     }
 
-    /// Delete a record by its string id.
-    fn delete_record(_cx: &Cx, _id: String) -> impl std::future::Future<Output = Result<()>> + Send
+    /// Delete the already-authorized `record` (GH #84, #86): same checked-
+    /// snapshot contract as [`Self::update_record`] — no re-query, write
+    /// through `ex`.
+    fn delete_record(
+        _cx: &Cx,
+        _record: Self::Model,
+        _ex: &mut dyn toasty::Executor,
+    ) -> impl std::future::Future<Output = Result<()>> + Send
     where
         Self: Sized,
     {
@@ -2905,11 +2926,15 @@ pub trait Resource: Sized + Send + Sync + 'static {
         }
     }
 
-    /// Bulk-delete records by their string ids. Default is sequential per-row
-    /// `delete_record` with no atomicity (GH #84); override for efficiency if needed.
+    /// Bulk-delete the already-authorized `records` (GH #84): the handler
+    /// fetches through the tenancy-scoped `IN` query inside the framework
+    /// transaction and checks `can_delete` on every row before calling this.
+    /// Delete them through `ex` — any error rolls the whole batch back, so
+    /// mid-loop failures delete zero rows.
     fn bulk_delete_records(
         _cx: &Cx,
-        _ids: Vec<String>,
+        _records: Vec<Self::Model>,
+        _ex: &mut dyn toasty::Executor,
     ) -> impl std::future::Future<Output = Result<()>> + Send
     where
         Self: Sized,
