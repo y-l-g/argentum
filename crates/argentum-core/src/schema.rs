@@ -370,12 +370,13 @@ impl Select {
     /// only used for type inference; the loader calls `R::query(cx)` directly so tenancy is
     /// preserved. The second argument maps the related record to its display label.
     ///
-    /// Bounded (GH #91): the loader fetches at most `MAX_RELATIONSHIP_OPTIONS`
-    /// + 1 rows and fails when the related table is larger — a 10k-row
-    /// reference table costs bounded work per submit and surfaces
-    /// `could not load options, retry` instead of silently validating against
-    /// a truncated list. Suitable for small reference tables only; a
-    /// searchable/paginated dropdown with per-request memoization is future work.
+    /// Bounded (GH #91): the loader fetches at most one row past
+    /// `MAX_RELATIONSHIP_OPTIONS` and fails when the related table is
+    /// larger — a 10k-row reference table costs bounded work per submit and
+    /// surfaces `could not load options, retry` instead of silently
+    /// validating against a truncated list. Suitable for small reference
+    /// tables only; a searchable/paginated dropdown with per-request
+    /// memoization is future work.
     pub fn relationship<R>(
         mut self,
         _query: fn(&Cx) -> toasty::stmt::Query<toasty::stmt::List<R::Model>>,

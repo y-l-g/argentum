@@ -2210,22 +2210,20 @@ mod tests {
                         |d: &Dummy| d.name.clone(),
                     ))
             }
-            fn bulk_delete_records(
+            async fn bulk_delete_records(
                 _cx: &Cx,
                 records: Vec<Dummy>,
                 ex: &mut dyn toasty::Executor,
-            ) -> impl std::future::Future<Output = Result<()>> + Send {
-                async move {
-                    // Delete the first row, then blow up: without the
-                    // framework tx the first delete would stick.
-                    let first = records.into_iter().next().unwrap();
-                    Dummy::filter(Dummy::fields().id().eq(first.id))
-                        .delete()
-                        .exec(&mut *ex)
-                        .await
-                        .map_err(topcoat::Error::from)?;
-                    Err(std::io::Error::other("boom").into())
-                }
+            ) -> Result<()> {
+                // Delete the first row, then blow up: without the
+                // framework tx the first delete would stick.
+                let first = records.into_iter().next().unwrap();
+                Dummy::filter(Dummy::fields().id().eq(first.id))
+                    .delete()
+                    .exec(&mut *ex)
+                    .await
+                    .map_err(topcoat::Error::from)?;
+                Err(std::io::Error::other("boom").into())
             }
             fn hydrate_form_values(_record: &Dummy) -> HashMap<String, String> {
                 HashMap::new()
