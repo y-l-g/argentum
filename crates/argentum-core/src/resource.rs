@@ -1409,8 +1409,8 @@ impl<M> Table<M> {
     /// stream in ([`Table::render`] also uses it for the eager
     /// `defer(true)` demo path). Wrapped in the same `data-boundary` region
     /// as the real grid so the markup shape matches when the swap arrives.
-    /// Carries `aria-busy` while loading (GH #98); the surrounding chrome
-    /// (toolbar/filter/pager) intentionally streams in with the swap.
+    /// Carries `aria-busy` while loading plus toolbar/pager pulse placeholders
+    /// (GH #98) so the streamed chrome lands without a layout shift.
     pub async fn render_skeleton<'a>(&self, cx: &'a Cx) -> Result<BoxView<'a>>
     where
         M: toasty::schema::Model,
@@ -1434,6 +1434,9 @@ impl<M> Table<M> {
         let inner = view! {
             cx =>
             <div class="rounded-xl border border-border overflow-hidden" data-table-root="" aria-busy="true">
+                <div class="border-b border-border p-3" aria-hidden="true">
+                    <div class="animate-pulse rounded-md bg-foreground/10 h-9 w-64"></div>
+                </div>
                 table(
                     (head)
                     table_body(
@@ -1465,6 +1468,9 @@ impl<M> Table<M> {
                         }
                     )
                 )
+                <div class="border-t border-border p-3" aria-hidden="true">
+                    <div class="animate-pulse rounded-md bg-foreground/10 h-9 w-40"></div>
+                </div>
             </div>
         };
         Ok(if self.is_boundary {
@@ -3991,6 +3997,10 @@ mod tests {
             .render(&cx);
         assert!(html.contains("data-table-root"), "skeleton must share table root, got {html}");
         assert!(html.contains("aria-busy"), "skeleton must announce loading, got {html}");
+        assert!(
+            html.contains("aria-hidden"),
+            "skeleton must hold chrome placeholders, got {html}"
+        );
         // The streamed swap renders through a copy with the flag cleared.
         let swapped = deferred.without_skeleton();
         assert!(!swapped.is_defer());
