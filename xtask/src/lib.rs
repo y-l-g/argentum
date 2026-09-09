@@ -242,6 +242,38 @@ pub fn verify_sync() -> anyhow::Result<()> {
         )),
     }
 
+    // Orphan guard (GH #103): an upstream-removed component must not linger as
+    // a stale vendored file that still compiles when referenced. Flag any file
+    // in primitives/ that the registry does not own.
+    {
+        use std::collections::HashSet;
+        let mut expected_files: HashSet<String> = HashSet::new();
+        for name in &names {
+            if let Some(component) = registry.get(name) {
+                expected_files.insert(component.file_name().to_string());
+            }
+        }
+        expected_files.insert("mod.rs".to_string());
+        if let Ok(entries) = std::fs::read_dir(&dst_dir) {
+            let mut orphans: Vec<String> = Vec::new();
+            for entry in entries.flatten() {
+                let file_name = entry.file_name().to_string_lossy().to_string();
+                if file_name.starts_with('.') {
+                    continue;
+                }
+                if !expected_files.contains(&file_name) {
+                    orphans.push(dst_dir.join(&file_name).display().to_string());
+                }
+            }
+            orphans.sort();
+            for orphan in orphans {
+                failures.push(format!(
+                    "{orphan} is not in the registry manifest (orphaned vendored file); delete it or {HINT}"
+                ));
+            }
+        }
+    }
+
     if failures.is_empty() {
         println!(
             "verified: {} primitives match topcoat-ui-registry@{version} verbatim",
