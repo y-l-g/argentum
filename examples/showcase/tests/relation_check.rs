@@ -318,3 +318,41 @@ async fn posts_update_rechecks_author_existence() {
         resp.status()
     );
 }
+
+#[tokio::test]
+async fn hydrate_form_values_match_schema_fields() {
+    use argentum_core::Resource;
+    use showcase::app::{AuthorResource, PostResource};
+
+    let db = full_db().await;
+    let cx = topcoat::context::CxTestBuilder::new()
+        .app_context(db.clone())
+        .build();
+    let mut db_q = db.clone();
+    let author = Author::all()
+        .exec(&mut db_q)
+        .await
+        .unwrap()
+        .into_iter()
+        .next()
+        .unwrap();
+    for key in AuthorResource::hydrate_form_values(&author).keys() {
+        assert!(
+            AuthorResource::form(&cx).field_names().contains(key),
+            "hydrate key {key} is not an Author form field (GH #89)"
+        );
+    }
+    let post = Post::all()
+        .exec(&mut db_q)
+        .await
+        .unwrap()
+        .into_iter()
+        .next()
+        .unwrap();
+    for key in PostResource::hydrate_form_values(&post).keys() {
+        assert!(
+            PostResource::form(&cx).field_names().contains(key),
+            "hydrate key {key} is not a Post form field (GH #89)"
+        );
+    }
+}

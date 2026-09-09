@@ -295,3 +295,27 @@ async fn update_record_keeps_absent_fields() {
         fresh.name
     );
 }
+
+#[tokio::test]
+async fn hydrate_form_values_match_schema_fields() {
+    use argentum_core::Resource;
+    use showcase::app::UserResource;
+
+    let db = seeded_db().await;
+    let cx = topcoat::context::CxTestBuilder::new()
+        .app_context(db.clone())
+        .build();
+    let mut db_q = db.clone();
+    let users = User::all().exec(&mut db_q).await.unwrap();
+    let user = users.first().unwrap();
+    // Every hydrated key must be a declared form field (GH #89): a renamed
+    // lens without an updated string literal would render blank and break
+    // the unique unchanged-skip.
+    let fields = UserResource::form(&cx).field_names();
+    for key in UserResource::hydrate_form_values(user).keys() {
+        assert!(
+            fields.contains(key),
+            "hydrate key {key} is not a User form field"
+        );
+    }
+}
