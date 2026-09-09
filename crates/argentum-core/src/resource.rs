@@ -1410,15 +1410,31 @@ impl<M> Table<M> {
     }
 
     /// Generate CSV for the given page (header + rows, RFC4180 escaped).
+    ///
+    /// Formula cells are defused per OWASP (a leading `'` is prepended when
+    /// the cell starts with `=`, `+`, `-`, `@`, `|`, or `%`) so a stored
+    /// value like `=1+1` opens as text, not a live spreadsheet formula.
+    /// The full table is buffered in memory; callers with very large tables
+    /// should paginate or cap the export.
     pub fn to_csv(&self, page: &TablePage<M>) -> String
     where
         M: toasty::schema::Model,
     {
+        fn defuse_formula(s: &str) -> String {
+            let trimmed = s.trim_start_matches([' ', '\t']);
+            if let Some(first) = trimmed.chars().next()
+                && matches!(first, '=' | '+' | '-' | '@' | '|' | '%')
+            {
+                return format!("'{s}");
+            }
+            s.to_string()
+        }
         fn escape_csv(s: &str) -> String {
+            let s = defuse_formula(s);
             if s.contains(',') || s.contains('"') || s.contains('\n') || s.contains('\r') {
                 format!("\"{}\"", s.replace('"', "\"\""))
             } else {
-                s.to_string()
+                s
             }
         }
         let mut out = String::new();
@@ -3608,5 +3624,32 @@ mod tests {
             rows.is_empty(),
             "Alice shares puissance 80 but is Auto, must not match Moto: {rows:?}"
         );
+    }
+
+    #[test]
+    fn to_csv_defuses_formula_cells_per_owasp() {
+        let cx = CxTestBuilder::new().build();
+        let csv_table = Table::<User>::r#for(&cx)
+            .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()));
+        for payload in ["=1+1", "+1+1", "-1+1", "@SUM(1+1)", "|id", "%x", "  =cmd"] {
+            let rows = vec![User {
+                id: uuid::Uuid::nil(),
+                name: payload.to_string(),
+            }];
+            let page: TablePage<User> = rows.into();
+            let csv = csv_table.to_csv(&page);
+            let body = csv.lines().nth(1).unwrap_or("");
+            assert!(
+                body.starts_with('\''),
+                "formula payload {payload:?} must be defused with leading `'`, got {body:?}"
+            );
+        }
+        // Plain values stay untouched; RFC4180 quoting still applies.
+        let rows = vec![User {
+            id: uuid::Uuid::nil(),
+            name: "Ada, \"the\" first".to_string(),
+        }];
+        let csv = csv_table.to_csv(&rows.into());
+        assert!(csv.contains("\"Ada, \"\"the\"\" first\""), "quoting broke: {csv:?}");
     }
 }

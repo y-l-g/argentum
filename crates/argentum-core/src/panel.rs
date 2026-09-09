@@ -1314,7 +1314,10 @@ fn resource_bulk_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
     )))
 }
 
-/// CSV export — reuses `Resource::query` + `Table` filters/sort, streams `text/csv`.
+/// CSV export — reuses `Resource::query` + `Table` filters/sort, downloads `text/csv`.
+///
+/// Buffers the full filtered result in memory (not chunked streaming); formula
+/// cells are defused per OWASP in [`Table::to_csv`].
 fn resource_export<R: Resource>(cx: &Cx, _body: Body) -> RouteFuture<'_> {
     Box::pin(async move {
         if !R::can_view_any(cx) {
