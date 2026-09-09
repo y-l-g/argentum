@@ -1,9 +1,10 @@
-//! `Policy` — per-Resource authorization (CONTEXT.md).
+//! `Policy` — per-Resource authorization helpers (CONTEXT.md).
 //!
-//! Default-deny; checked in both page and shard/procedure handlers (ADR-0004).
-//! The `Policy` trait is associated with a `Resource`; `Resource::Policy`
-//! defaults to `DenyAll`. Showcase resources override to `AllowAll` to keep
-//! the demo usable while preserving default-deny for new resources.
+//! Default-deny; the enforced seam is `Resource::can_view_any` / `can_view` /
+//! `can_create` / `can_update` / `can_delete`, checked in both page and POST
+//! handlers (ADR-0004). This module's `Policy` trait mirrors those rules:
+//! showcase resources implement `can_*` directly to keep the demo usable
+//! while preserving default-deny for new resources.
 
 use topcoat::context::Cx;
 

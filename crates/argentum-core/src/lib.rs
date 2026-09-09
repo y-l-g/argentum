@@ -10,9 +10,8 @@ pub mod __macro {
     pub use toasty::stmt;
     pub use topcoat::context::Cx;
 }
-// The full toolkit surface lands in later phases. For now, expose a single
-// renderable component and the `Db` glue so the crate has vertical slices
-// through Topcoat and Toasty.
+// The toolkit surface: Panel, Resource, Table, Schema, Notification,
+// Policy, Tenancy, and the `Db` glue, plus a small `heading` demo component.
 pub mod cursor;
 pub mod db;
 pub mod notification;

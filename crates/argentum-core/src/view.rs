@@ -1,6 +1,4 @@
-//! A single renderable component, proving the core crate renders through
-//! Topcoat's `view!` pipeline. The real toolkit surface (Panel, Resource,
-//! Table, Schema, Action) lands in later phases.
+//! A small demo component rendering through Topcoat's `view!` pipeline.
 
 use topcoat::{Result, view::*};
 

@@ -2,21 +2,19 @@
 
 > **Filament for Rust** — a server-rendered admin toolkit on **Topcoat** (UI / reactivity) and **Toasty** (ORM).
 
-Status: **Phase 2 shipped** — three crates exist (`argentum-core`, `argentum-macros`, `argentum-ui`) plus a showcase example.
+Repo layout:
 
-Shipped:
+```
+argentum/
+  crates/argentum-core/    // Panel, Resource trait, Table/Schema types, navigation, policy, tenancy
+  crates/argentum-macros/  // #[derive(Resource)] (model/query only)
+  crates/argentum-ui/      // vendored topcoat-ui primitives + owned composites
+  examples/showcase/       // runnable admin: /admin/users + /admin/authors + /admin/posts
+  benchmarks/              // Phase-2 harness + axum-maud/leptos baselines (detached workspaces)
+  docs/adr/                // decisions; CONTEXT.md is the domain vocabulary
+```
 
-- The typed-lens vertical slice (ADR-0005), declarative `Panel` resource routes and navigation (ADR-0008), a real list view — search toolbar, sort links, cursor pagination, honest empty states (ADR-0009 shell) — and the `db(cx)`/`#[memoize]` glue.
-- **Single-resource CRUD** (spec #57, tickets #58–#62): `Table` as `Boundary` with `#[memoize]` dedup, `Schema` hydrates/dehydrates `Create`/`Update` via typed lenses + inline validation, `Action` via `#[procedure]` in transaction re-fetching via `Resource::query` and checking `Policy` (default-deny), `Notification` in `Shell` `Boundary` surviving `Table` swaps, showcase at `/admin/users` (create/edit/delete/bulk-delete, all policy-checked).
-- **Phase 2 — Relations & polish** (spec #63, tickets #64–#71, ADR-0011):
-  - `Post` with `BelongsTo author` (`TextColumn::computed("Author", |p| p.author.get()…)` after `include(author)` + `Select::for(author_id).relationship(AuthorResource::query, |a| a.name.clone())`), `HasMany comments` via `include`.
-  - `FileUpload`/`Repeater` + `Section`/`Grid`, `SelectFilter`/`TernaryFilter`/`DateFilter` via `FilterBuilder` + `TableState ?filters=`, in-memory `group_by` + `count` summarizer + `to_csv()`, CSV export via `GET /admin/{slug}/export` (`text/csv` + `Content-Disposition`).
-  - Tenancy `cx.with(Tenant)` + `tenant_id(cx)` (`x-tenant-id` header / `Cx` extensions) + per-tenant `Policy`, `Panel::brand(Brand{name,logo})` + `Panel::dark_mode(bool)` in `Shell`.
-  - `benchmarks/` Phase-2 budget (50 rows, 2 includes, `<40ms p50`).
-- **Post-Phase-2 polish (GH #73, #77, #78):** `FileUpload` forms emit `enctype="multipart/form-data"` and the POST parser stores the file filename as the `String` path (bytes not persisted in v1, no `value` on `type=file`); `Repeater` is a documented single-entry group with its label-keyed `required` error rendered inline; `VariantFilter` filters embedded-enum variants via prebuilt `is_variant()` predicates through `TableState ?filters=`.
-- **Table chrome honesty (GH #74):** bulk selection is a checkbox column with select-all (JS joins keys into the single `ids` transport, text field stays as fallback); every declared filter renders a typed control composed into the single `?filters=` param (free-text input stays as fallback); the dummy live-search `signal` + shard was removed so the `?q=` GET toolbar is the one search UI.
-
-Remaining `Page`/`Theme`/`ChartWidget`/`via` gaps tracked in GH issue #38. The sections below mix shipped design with the original spec; where they disagree, the **code and `docs/adr/` win**.
+Shipped state, phases, and what comes next live in one place: [§10 Roadmap](#10-roadmap). Where this file and the original spec disagree, the **code and `docs/adr/` win**.
 
 ---
 
@@ -26,13 +24,13 @@ Remaining `Page`/`Theme`/`ChartWidget`/`via` gaps tracked in GH issue #38. The s
 
 - A server-side monolith. HTML is rendered on the server with `view!` / `#[component]`. No SPA, no client build, no WASM bundle.
 - Type-safe: Toasty models → typed queries → typed tables and forms. Name a column that does not exist and it fails to compile.
-- Fast by default: concurrent rendering + per-request memoization + explicit `include` preloading + `boundary` diffing. No hidden N+1.
-- A Topcoat citizen: layouts, `href!`, `Cx`, `#[memoize]`, `topcoat-ui` (vendored), `$(...)` expressions — not a parallel framework.
+- Fast by default: concurrent rendering + per-request memoization + explicit `include` preloading + streamed regions. No hidden N+1.
+- A Topcoat citizen: layouts, `href!`, `Cx`, `#[memoize]`, `topcoat-ui`, `$(...)` expressions — not a parallel framework.
 
 **Is not:**
 
 - Not a Livewire port. No string `statePath`, no reflection DI, no `Macroable`, no Blade partials. Those patterns are PHP ergonomics; Rust has better ones.
-- Not driver-agnostic at v1. Postgres/SQLite first. DynamoDB and `via` many-to-many are explicitly SQL-only and out of scope for tables.
+- Not driver-agnostic at v1. The workspace exercises Toasty over **SQLite**; `via` many-to-many and DynamoDB-backed admins are explicitly out of scope for tables.
 - Not a client framework. `$(...)` and signals are a tiny JS vocabulary. Anything that needs the DB is a server render.
 
 ---
@@ -41,26 +39,19 @@ Remaining `Page`/`Theme`/`ChartWidget`/`via` gaps tracked in GH issue #38. The s
 
 These are invariants. Code that violates them is a bug.
 
-1. **Pure renders.** Pages, layouts, and components are side-effect free and deterministic. No `HashMap` iteration in a `boundary`, no `Utc::now()` inside one, no random ID per render. Required for concurrent rendering, boundary hashing, and streaming re-renders.
-2. **One truth for data.** Components query Toasty directly. No REST layer between UI and DB. `Db` lives in `app_context` and is cloned per request (`app_context::<Db>(cx).clone()` → `&mut db` for `exec`). See `demos/coffee-shop/src/models.rs` for the canonical glue.
-3. **Server inputs are untrusted.** Every `#[shard]`, `#[procedure]`, and signal value comes from the client — including values read on the server via `get()`/`read()`, which the client chooses like a shard argument. `require_admin(cx).await?` (or tenant/policy check) runs **inside** every shard/procedure — layout guards do not cover shard endpoints.
-4. **Explicit is fast.** `include` for relations, `#[index]` for filter columns, `#[memoize]` for shared loads, `boundary` around skeletons. No magic preloading, no implicit scans.
-5. **Composable `Cx`, not middleware.** Tenant, locale, auth are `cx.with(Tenant(id))` scoped values and `fn require_*(cx: &Cx)` helpers (`topcoat/docs/functions_not_middlewares.md`). No Tower layer for business logic.
+1. **Pure renders.** Pages, layouts, and components are side-effect free and deterministic. No `HashMap` iteration in a streamed region, no `Utc::now()` inside one, no random ID per render. Required for concurrent rendering and streaming re-renders.
+2. **One truth for data.** Components query Toasty directly. No REST layer between UI and DB. `Db` lives in `app_context` and is cloned per request (`argentum_core::db::db(cx).clone()` → `&mut db` for `exec`).
+3. **Server inputs are untrusted.** Every POST handler and signal value comes from the client — including values read on the server via `get()`/`read()`, which the client chooses like a shard argument. `can_*` checks run **inside** every handler — layout guards do not cover them.
+4. **Explicit is fast.** `include` for relations, `#[index]` for filter columns, `#[memoize]` for shared loads, streamed regions around skeletons. No magic preloading, no implicit scans.
+5. **Composable `Cx`, not middleware.** Tenant, locale, auth are `cx.with(Tenant(id))` scoped values and `fn require_*(cx: &Cx)` helpers. No Tower layer for business logic.
 
 ---
 
 ## 3. Architecture
 
-```
-argentum/
-  argentum-core/      // Panel, Resource trait, Table/Schema/Action types, navigation, policy hooks
-  argentum-macros/    // #[derive(Resource)] (grammar + macro crates)
-  argentum-ui/        // optional: vendored topcoat-ui wrappers (table chrome, dialog, skeleton) — copied via `topcoat ui add`
-```
+Only `argentum-core` + `argentum-macros` are hard dependencies. UI chrome lives in **`argentum-ui`** (ADR-0006/0007): its *primitives* are a verbatim mirror of `topcoat-ui-registry`, synced by `cargo xtask sync-topcoat-ui` and never hand-edited; its *composites* (Sidebar, Page, CodeBlock) are owned Argentum components. Apps depend on the crate.
 
-Only `argentum-core` + `argentum-macros` are hard dependencies. UI chrome lives in **`argentum-ui`** (ADR-0006/0007): its *primitives* are a verbatim mirror of `topcoat-ui-registry`, synced by `cargo xtask sync-topcoat-ui` and never hand-edited; its *composites* (Sidebar, Page, CodeBlock) are owned Argentum components. Apps depend on the crate — they do not run `topcoat ui add`.
-
-Topcoat stack assumptions (tracking `topcoat@main`): `view!` / `#[component]` (concurrent), `#[page]` / `#[layout]` / `module_router!` + `href!`/`rewrite`/`sitemaps`, `Cx` with `cx.with(...)` + `#[memoize]` (128-bit, no `Clone`/`Eq`), `cookie`/`session`, `asset!`, `tailwind`. Runtime (`signal`/`$(...)`/`#[shard]`/`#[procedure]`) is used as documented in `topcoat/docs/runtime.md` and `topcoat-runtime/macro/docs/shard.md`. Streaming SSR (`suspense`, topcoat PR #373 — `live!`/`emit!` not used by Argentum yet) is **adopted** — the resource list streams its rows behind a skeleton — while page-refetch/boundary-diff reactivity and Signals v2 remain **designs** (`SIGNALS.md`, `DESIGN.md`/`DESIGN-2.md`); Argentum must keep working on today's `#[shard]` and migrate without rewriting every resource (see §7).
+Topcoat stack assumptions (Topcoat 0.7 / Toasty 0.10, both tracking `main`, pins in `Cargo.lock` — bump deliberately with `cargo update -p topcoat` / `cargo update -p toasty`): `view!` / `#[component]` (concurrent), `#[page]` / `#[layout]` / `discover` + `href!`, `Cx` with `cx.with(...)` + `#[memoize]`, `cookie`/`session`, `asset!`, `tailwind`. `Panel::build` mounts the browser-runtime routes (`RouterBuilderRuntimeExt::runtime()`, required by `runtime::script`). Streaming SSR via `suspense` is **adopted** — the resource list streams its rows behind a skeleton — while boundary-diff reactivity and Signals v2 remain **designs**; Argentum keeps working on today's runtime (see §7).
 
 ---
 
@@ -79,29 +70,43 @@ Panel::new("admin")
     .build() // -> Router via discover + app_context
 ```
 
-`Panel` owns the `Router`, registers `Db` and declared resources in `app_context`, registers each resource list at `/{prefix}/{slug}`, and redirects the panel root to the first resource. An app registers the shell with one layout handler: `Panel::layout_shell(cx, slot).await`. Custom pages can add a typed `NavigationItem::from_href` through `Panel::navigation(..)`.
+`Panel` owns the `Router`, registers `Db` and declared resources in `app_context`, registers each resource list at `/{prefix}/{slug}`, and redirects the panel root to the first resource. An app registers the shell with one layout handler: `Panel::layout_shell(cx, slot).await`. Custom pages add a typed `NavigationItem::from_href` through `Panel::navigation(..)`. `.brand(..)` / `.dark_mode(bool)` are opt-in shell seams (header brand + `dark` class + theme toggle); the showcase router leaves them unset and the shell falls back to the `"Admin"` title.
 
 ### 4.2 `Resource`
 
-The mapping from a Toasty model to its admin UI. One resource = one model = a set of pages (list / create / edit / view). Heavily inspired by `filament/packages/panels/src/Resources/Resource.php` but typed.
+The mapping from a Toasty model to its admin UI. One resource = one model = a set of pages (list / create / edit). Heavily inspired by Filament's `Resource.php` but typed.
 
 ```rust
 pub trait Resource: Sized + Send + Sync + 'static {
     type Model: toasty::schema::Model + Send + Sync + 'static;
 
-    fn slug() -> String { /* Filament-style: UserResource -> users */ }
+    // Authorization — default-deny, checked in page *and* POST handlers.
+    fn can_view_any(_cx: &Cx) -> bool { false }
+    fn can_view(_cx: &Cx, _record: &Self::Model) -> bool { false }
+    fn can_create(_cx: &Cx) -> bool { false }
+    fn can_update(_cx: &Cx, _record: &Self::Model) -> bool { false }
+    fn can_delete(_cx: &Cx, _record: &Self::Model) -> bool { false }
+
+    fn slug() -> String { /* UserResource -> users, BlogPostResource -> blog-posts */ }
     fn navigation_label() -> String { /* plural model name */ }
-    fn query(cx: &Cx) -> toasty::stmt::Query<toasty::stmt::List<Self::Model>> {
+    fn query(_cx: &Cx) -> toasty::stmt::Query<toasty::stmt::List<Self::Model>> {
         toasty::stmt::Query::<toasty::stmt::List<Self::Model>>::all()
     }
-    fn table(cx: &Cx) -> Table<Self::Model>;
-    fn form(cx: &Cx) -> Schema;
+    fn table(_cx: &Cx) -> Table<Self::Model> { Table::new() } // default: empty, not renderable until columns + id
+    fn form(_cx: &Cx) -> Schema { Schema::empty() }
     fn pages() -> Pages<Self> { Pages::crud() }
     fn navigation() -> NavigationItem { NavigationItem::from_resource::<Self>() }
+
+    // Record operations driven by the create/edit/delete POST handlers.
+    fn create_record(_cx: &Cx, _values: HashMap<String, String>) -> impl Future<Output = Result<()>> + Send;
+    fn update_record(_cx: &Cx, _id: String, _values: HashMap<String, String>) -> impl Future<Output = Result<()>> + Send;
+    fn delete_record(_cx: &Cx, _id: String) -> impl Future<Output = Result<()>> + Send;
+    fn bulk_delete_records(_cx: &Cx, _ids: Vec<String>) -> impl Future<Output = Result<()>> + Send;
+    fn hydrate_form_values(_record: &Self::Model) -> HashMap<String, String>;
 }
 ```
 
-*Derive macro:*
+*Derive macro (model/query only):*
 
 ```rust
 #[derive(Resource)]
@@ -113,37 +118,38 @@ struct UserResource;
 struct ScopedUserResource;
 ```
 
-The derive implements `Resource` for the annotated type with the given `Model` and optional `query` override. It does **not** generate stringly-typed `field!("email")` — lenses are `User::fields().email()` (`toasty-macros/model/expand/fields.rs`).
+The derive implements `Resource` for the annotated type with the given `Model` and optional `query` override. It does **not** cover `table`/`form` — those are hand-written; lenses are `User::fields().email()`.
 
-`Panel::resource::<UserResource>()` registers the resource list at `/admin/users` (the slug is derived from the resource type: `BlogPostResource` becomes `/admin/blog-posts`) and derives the matching sidebar item. `Resource::query` is the single tenancy seam: `fn query(cx: &Cx) -> Query<List<User>> { Query::<List<User>>::all().filter(User::fields().tenant_id().eq(tenant_id(cx))) }` via `cx.with(Tenant(id))`. CRUD pages remain a target of `Pages`.
+`Panel::resource::<UserResource>()` registers the resource list at `/admin/users` (slug derived from the resource type) and derives the matching sidebar item. `Resource::query` is the single tenancy seam: `fn query(cx: &Cx) -> Query<List<User>> { Query::<List<User>>::all().filter(User::fields().tenant_id().eq(tenant_id(cx))) }` via `cx.with(Tenant(id))`.
 
-### 4.3 `Schema` (forms + infolists)
+### 4.3 `Schema` (forms)
 
-One primitive for both. Filament v4 unified `forms` into `schemas` (`packages/schemas/src/Schema.php`); Argentum does the same.
+Layout primitives plus typed fields bound via lenses — no string paths.
 
 ```rust
 Schema::new((
     Section::new("Account").schema((
-        TextInput::for(User::fields().email()).required().email(),
-        Select::for(User::fields().role()).options(Role::variants()),
+        TextInput::r#for(User::fields().email()).required().email().unique(),
+        Select::r#for(User::fields().role()).options(Role::variants()),
     )),
     Grid::new(2).schema((
-        TextInput::for(User::fields().name()).required(),
-        Toggle::for(User::fields().active()),
+        TextInput::r#for(User::fields().name()).required(),
+        FileUpload::r#for(Post::fields().image_path()).required(),
     )),
 ))
 ```
 
-- Every field takes a **typed lens** `FieldPath<Model, T>`, not a string. The lens knows `Nullable`, `Unique`, `Deferred`, and `#[column]` renames.
-- Layout primitives: `Section`, `Group`, `Grid(12)`, `Tabs`, `Wizard`, `Flex`, `Fieldset` — mirrors `filament/packages/schemas/src/Components/{Section,Grid,Tabs,Wizard}.php`.
-- State is the Toasty model itself (or a `Create`/`Update` projection). No `data.foo.bar` string path. Hydration is `model -> Schema`, dehydration is `Schema -> Update<'a>` / `Create` + validation.
-- Validation is **app-level** (`required`, `email`, `unique`, `exists`, `regex`) collected per-schema and returned inline. Toasty column constraints (`#[unique]`, type) are DB-level; toasty does not expose a unique-violation error predicate yet (see `EXTERNAL_GAPS.md`), so DB violations cannot map to field errors today — until then, uniqueness is checked app-side.
+- Every field takes a **typed lens** `FieldPath<Model, T>`, not a string. The lens knows `#[column]` renames.
+- Layout primitives: `Section`, `Group`, `Grid(12)`, `Tabs`, `Wizard` — plus display `Text`.
+- Fields: `TextInput` (`required`/`email`/`unique`), `Select` (`options`/`options_with_labels`/`relationship`), `FileUpload`, `Repeater`. There is no `Toggle`, `exists`, or `regex` builder — relationship existence is checked app-side in the record handlers.
+- `FileUpload` stores the client filename as the `String` path (bytes not persisted in v1, no `value` on `type=file`); forms containing one emit `enctype="multipart/form-data"`.
+- `Repeater` is a single-entry group; its label-keyed `required` error renders inline.
+- State is the Toasty model itself (or a `Create`/`Update` projection). Hydration is `model -> Schema`, dehydration is `Schema -> Update` / `Create` + validation.
+- Validation is **app-level** (`required`, `email`, `unique` pre-check). Toasty column constraints (`#[unique]`, type) are DB-level; toasty exposes no unique-violation error predicate yet (see `EXTERNAL_GAPS.md`), so DB violations cannot map to field errors today — uniqueness is checked app-side, which races under concurrent writes.
 
 ### 4.4 `Table`
 
-Composition, not a 30-trait God object (`filament/packages/tables/src/Table.php`). `Table<M>` is a value describing the list view; Argentum renders it.
-
-As shipped today (compiles — see `examples/showcase/src/app.rs` for the full resource):
+Composition, not a 30-trait God object. `Table<M>` is a value describing the list view; Argentum renders it. As shipped today (see `examples/showcase/src/app.rs`):
 
 ```rust
 Table::r#for(cx)
@@ -161,36 +167,31 @@ Table::r#for(cx)
     .paginate(2)                           // real cursor pagination (?after=/?before=)
 ```
 
-Columns/filters declare **how to query**, not just how to render: `searchable()` marks a column for portable `starts_with` search, `sortable()` requires an `order_by` mapping (toasty appends PK tie-breakers internally for deterministic cursors), and the URL is the one truth — `?q=`, `?sort=`, `?dir=`, `?after=`, `?before=` parsed once into `TableState`.
+Columns/filters declare **how to query**, not just how to render: `searchable()` marks a column for portable `starts_with` search, `sortable()` maps to `order_by` (toasty appends PK tie-breakers internally for deterministic cursors), and the URL is the one truth — `?q=`, `?sort=`, `?dir=`, `?after=`, `?before=`, `?filters=`, `?group_by=` parsed once into `TableState`.
 
-UI chrome: `Table` renders into `argentum-ui` (synced `topcoat-ui-registry`) `table` + `pagination` + `skeleton` primitives; the skeleton doubles as the `suspense` fallback while rows stream in (§7).
+- **Filters:** the `Filter` enum (`SelectFilter`/`TernaryFilter`/`DateFilter`/`VariantFilter`) over `IntoFilters` tuples. `Table::filter_expr` ANDs the active `?filters=` expressions into the loader. `VariantFilter` holds prebuilt `(label, Expr<bool>)` options (e.g. `is_variant()` predicates) for embedded-enum fields. Every declared filter renders a typed control composed into the single `?filters=` param (free-text input stays as fallback).
+- **Bulk selection** is a leading checkbox column with select-all whose JS joins keys into the single `ids` transport (text field stays as fallback).
+- **Grouping/export:** in-memory `group_by` + `count` summarizer + `Table::to_csv()` (RFC4180) via `GET /admin/{slug}/export` (`text/csv` + `Content-Disposition`), reusing `Resource::query` + filters/sort.
+- **Rendering:** `Table` is a boundary by default (`data-boundary="table"` wrapper) with an eager-render `defer` demo hook; the streamed list uses the skeleton as its `suspense` fallback, and failed loads render the branded `ErrorState` in-region.
 
-### 4.5 `Action`
+### 4.5 Deletes, notifications, policy
 
-Modal or inline operation backed by `#[procedure]`. Covers Filament's `Action/BulkAction/CreateAction/EditAction/DeleteAction` (`filament/packages/actions/src/Action.php`).
+There is no `Action` type. Deletes run through panel POST routes driving the `Resource` record fns:
 
-```rust
-Action::make("delete")
-    .requires_confirmation()
-    .authorize(|cx, record: &User| cx.can_delete(record))
-    .form(|f| f.schema((Placeholder::new("name", &record.name),)))
-    .action(|cx, record: User| async move {
-        record.delete().exec(&mut db(cx)).await?;
-        Ok(Notification::success("Deleted"))
-    })
-```
+- `POST {list}/{id}/delete` → `delete_record`, with confirmation UI and a per-row `can_delete` re-check inside the handler.
+- `POST {list}/bulk-delete` → `bulk_delete_records`, all-or-nothing: every id is re-fetched via `Resource::query` and policy-checked before anything is deleted.
+- Create/edit POSTs validate inline, check `can_create`/`can_update`, then call `create_record`/`update_record`.
 
-- Runs via `#[procedure]` endpoint, so same trust rule as shards: authorize inside the handler against the *passed* identity, plus DB transaction.
-- Built-ins: `CreateAction`, `EditAction`, `DeleteAction`, `BulkDelete`, `Export`. Each maps to a `Schema` (modal form) when needed.
+`Notification` (`success`/`error`/`info`) travels via `Set-Cookie` (`argentum_notification`) with a `?notification=` fallback and renders in a shell-level stack (`fixed top-4 right-4`) that survives table swaps. Policy is `Resource::can_*`, default-deny, enforced in both page and POST handlers; the standalone `Policy<R>` trait (`AllowAll`/`DenyAll`) exists as a helper.
 
 ---
 
 ## 5. Pages, routing, navigation
 
-- **Routes:** `Panel::resource::<UserResource>()` registers `GET /admin/users` and `Panel` redirects `GET /admin` to the first declared resource. Additional `#[page]` handlers are discovered normally. CRUD routes remain a target.
-- **Layouts:** An app's `#[layout("/admin")]` handler delegates to `Panel::layout_shell(cx, slot)`. The shell owns the complete document, sidebar, runtime scripts, and links to the app-provided `tailwind::stylesheet!()` and `fontsource_font!(.., host: Asset)` handles.
-- **Navigation:** `Panel::resource` derives one item per resource from its slug; `Panel::navigation(NavigationItem::from_href(..))` adds typed links for custom pages. Resource items use exact paths plus slash-boundary subpages for active state.
-- **Errors & redirects:** layouts receive the page as `slot: Slot<'_>` (a lazy `Child`); an error raised by the page propagates through the slot when the document resolves, and the router maps it onto its HTTP response (`error_boundary` around the slot can replace this with a branded error page). Tables propagate `?`; branded empty states are rendered by `Table`, and failed loads are caught in-region, rendering `argentum_ui::error_state` inside the streamed region (see `CONTEXT.md`, GH #79; topcoat's `error_boundary` remains the seam for children that partially stream before failing). Note: once the first content streamed, the status line is fixed — an error in a streamed region truncates the body (redirects degrade to `window.location.replace`), so streamed regions own their failure rendering.
+- **Routes** (all derived from the panel prefix + resource slug): `GET /admin/users` (list), `GET`+`POST /admin/users/create`, `GET`+`POST /admin/users/{id}/edit`, `POST /admin/users/{id}/delete`, `POST /admin/users/bulk-delete`, `GET /admin/users/export`. Additional `#[page]` handlers are discovered normally. `GET /admin` redirects to the first declared resource.
+- **Layouts:** an app's `#[layout("/admin")]` handler delegates to `Panel::layout_shell(cx, slot)`. The shell owns the complete document, sidebar, runtime scripts, and links to the app-provided `tailwind::stylesheet!()` and `fontsource_font!(.., host: Asset)` handles.
+- **Navigation:** `Panel::resource` derives one item per resource with prefix-aware URLs (`from_resource_with_prefix`; `from_resource` is the `"/admin"` shorthand). `Panel::navigation(NavigationItem::from_href(..))` adds typed links for custom pages. Resource items use exact paths plus slash-boundary subpages for active state.
+- **Errors & redirects:** layouts receive the page as `slot: Slot<'_>` (a lazy `Child`); a page error propagates through the slot when the document resolves, and the router maps it onto its HTTP response (`error_boundary` around the slot can replace this with a branded error page). Failed table loads are caught in-region and render `argentum_ui::error_state` inside the streamed region. Note: once the first content streamed, the status line is fixed — an error in a streamed region truncates the body (redirects degrade to `window.location.replace`), so streamed regions own their failure rendering.
 
 ---
 
@@ -201,199 +202,120 @@ Action::make("delete")
 ```rust
 fn db(cx: &Cx) -> Db { app_context::<Db>(cx).clone() }
 
-// in a component/shard/procedure:
+// in a page/POST handler:
 let mut db = db(cx);
 let rows = User::all().exec(&mut db).await?;
 ```
 
-`Db` is `Arc`-pooled (`toasty/src/db/pool.rs`). `exec` needs `&mut Db` — clone per request is cheap. Transactions: `let mut conn = db(cx).connection().await?; let mut tx = conn.transaction().await?;`.
+`Db` is `Arc`-pooled. `exec` needs `&mut Db` — clone per request is cheap.
 
 ### 6.2 How tables and searches query
 
-There is **no** `User::find().where(User::name.contains(&q)).all(cx.db())`. That API does not exist. The real API (`toasty/src/stmt/query.rs`, `docs/guide/filtering-with-expressions.md`):
+There is **no** `User::find().where(User::name.contains(&q)).all(cx.db())`. That API does not exist. The real shape:
 
 ```rust
 // exact:
 User::filter(User::fields().email().eq("alice@example.com"))
 // prefix (portable):
 User::filter(User::fields().name().starts_with(q.clone()))
-// substring (SQL only):
-User::filter(User::fields().name().like(format!("%{escaped}%")).escape('\\'))
-// case-insensitive (PG only: ilike; others need collation or app-side lower):
-User::filter(User::fields().name().ilike(format!("%{q}%")))
 ```
 
-- `starts_with` is the only portable string predicate. `like` is SQL-only, `ilike` is Postgres-only (`Capability::native_ilike`). `contains` on `String` does not exist (confusable with `Vec<String>::contains` for collections — `stmt/path.rs:495`).
-- `like` patterns must escape `%`/`_` from user input via `like_with_escape`.
-- Global search across `searchable()` columns is `Expr::or` over each column's predicate; split terms are `and`ed per term (mirrors `filament HasGlobalSearch.php`).
+- `starts_with` is the only portable string predicate. `like` is SQL-only (escape `%`/`_` from user input first), `ilike` is Postgres-only. `contains` on `String` does not exist.
+- Global search across `searchable()` columns is `Expr::or` over each column's predicate.
+- Toasty has no conditional-query builder yet, so loaders filter imperatively from `Resource::query` (`Table::filter_expr` ANDs the active filter expressions).
 
-### 6.3 Filters, sorting, pagination
+### 6.3 Sorting & pagination
 
-- **Dynamic filters:** Toasty has no `Condition::add_option` yet (`docs/dev/roadmap.md`). Build queries imperatively:
-  ```rust
-  let mut q = Resource::query(cx);
-  if let Some(term) = search { q = q.filter(col.like(...)); }
-  for f in active_filters { q = q.filter(f.to_expr()); }
-  ```
-  Argentum's `FilterBuilder` wraps this (`Expr::and_all`).
-- **Sorting:** `order_by(col.asc()/desc())`, tuples or chained calls. Spec's `Sort` must be mapped: `match sort { Sort::NameAsc => User::fields().name().asc(), ... }`.
-- **Pagination:** Cursor pagination, **requires** `order_by` (`toasty/docs/guide/sorting-limits-and-pagination.md`). `paginate(per_page)` returns `Page<M>` (upper bound, `has_next()` not `len`). Walk `while let Some(n)=page.next(&mut db).await?`. Recent fix appends PK tie-breaker for determinism (`#1142`) and preserves cursors through `include` (`#1152`). `limit`/`offset` exists but `offset` requires `limit` and is slow at large offset — prefer cursor.
+- **Sorting:** `order_by(col.asc()/desc())`, tuples or chained calls; each `sortable()` column maps to one.
+- **Pagination:** cursor pagination, **requires** `order_by`. `paginate(per_page)` returns a `Page<M>` (upper bound, `has_next()` not `len`); toasty appends the PK tie-breaker internally for determinism. `limit`/`offset` exists but `offset` requires `limit` and is slow at large offset — prefer cursor.
 
 ### 6.4 Relations & N+1
 
-- Use `Deferred<Vec<Post>>` / `Deferred<User>` and preload with **one round-trip**:
-  ```rust
-  User::all().include(User::fields().posts()).exec(&mut db).await?;
-  // then `user.posts.get().len()` — no await
-  ```
-  Eager `Vec<T>` is for tiny relations only — eager cycles are a compile-time schema-build error (`toasty-macros/model/schema/has_many.rs`). Spec's “all relations must be eager” is inverted.
-- `has_many(via = memberships.group)` (many-to-many via join model) is **SQL-only, read-only** (`docs/guide/many-to-many.md`). Out of scope for v1 tables; use the join model query and deduplicate when DynamoDB compatibility is desired.
-- Every `include` is `NestedMerge` + correlated subquery (`engine/lower/include.rs`). Shared prefix includes deduplicate.
-
-### 6.5 Aggregates & dashboards
-
-Toasty has `count()` but no `GROUP BY / HAVING / SUM / DISTINCT` yet (`roadmap #421/#425`). Dashboard cards use raw SQL helper:
+Use `Deferred<Vec<Post>>` / `Deferred<Author>` and preload with **one round-trip**:
 
 ```rust
-let rows: Vec<ValueRecord> = toasty::sql::query("SELECT status, COUNT(*) FROM orders GROUP BY status")
-    .exec(&mut db).await?;
+User::all().include(User::fields().posts()).exec(&mut db).await?;
+// then `user.posts.get().len()` — no await
 ```
 
-Hide behind `trait Aggregate` so tables don't leak raw SQL.
+Eager `Vec<T>` is for tiny relations only — eager cycles are a compile-time schema-build error. `has_many(via = …)` many-to-many is **SQL-only, read-only** — out of scope for v1 tables; use the join-model query when DynamoDB compatibility is desired. Computed columns (`TextColumn::computed`) and `Select::relationship` reuse `Resource::query` so tenancy is preserved; relation cells must handle the unloaded case (the showcase renders `"-"`/empty until `include`d).
 
-### 6.6 Schema & migrations
+### 6.5 Aggregates, schema & migrations
 
-`Db::builder().models(toasty::models!(crate::*)).connect(url).await?; db.push_schema().await` for POC. Prod uses `embed_migrations!()` (`toasty/src/migration/embed.rs`) + `history.toml` + `snapshots/*.toml` via `toasty-cli`. Async pool is `num_cpus*2`, health-sweep, `pre_ping` (`db/pool.rs`).
+Toasty has `count()` but no `GROUP BY / HAVING / SUM / DISTINCT` yet — dashboard grouping stays in-memory and raw SQL stays behind a narrow helper, never in table code. `Db::builder().models(toasty::models!(crate::*)).connect(url).await?; db.push_schema().await` for POC; prod uses `embed_migrations!()` + `history.toml` + `snapshots/*.toml` via `toasty-cli`.
 
 ---
 
 ## 7. Reactivity — today's API and the seam that survives
 
-Today on `main` (topcoat 0.7; `topcoat/docs/runtime.md`, `topcoat-runtime/macro/docs/shard.md`):
+Today on `main` (topcoat 0.7):
 
 ```rust
-let query = signal(cx, String::new); // page-owned; hoists <!--::topcoat::signal--> for client identity
+let query = signal(cx, String::new); // page-owned; hoists identity for the client
 <input :value=$(query.get()) @input=$(|e: Event| query.set(e.target.value))>
-results(query: $(query.get())) // #[shard] async fn results(cx:&Cx, query:String)->Result
 ```
 
-- `signal(cx, init)` is an ordinary Rust function (topcoat 0.7, PR #384 — the `signal` view-macro statement is gone). It returns an owned value that is cheap to clone, so runtime expressions clone the signals they capture. It must run inside a page/layout/component/shard body: hand-registered `PageFn`s wrap their body in `HoistView`, exactly what `#[page]` generates. Identity comes from the creating body plus the call site (topcoat #388), so a body that repeats (for loop) needs a `key` argument on the invocation.
-- Reads in `$(...)` re-run in JS with no server round-trip. Shard args are `$(...)` expressions; on change the shard POSTs to `/_topcoat/runtime/shards/<id>` (`runtime/src/shard.rs`) and swaps HTML. In-flight requests are aborted, same-tick changes coalesced. A re-render resumes shard-local signals from the client values (topcoat #388) instead of resetting them; treat those values as untrusted, like shard args.
-- A signal can also be read in plain Rust (topcoat #391): `get()`/`read()` are **tracked** — they emit a `<!--::topcoat::dep--> marker so a browser change re-runs the page via `POST /_topcoat/runtime/pages…`, or only the innermost shard enclosing the read. `get_untracked()`/`read_untracked()` read without that dependency; reads inside `$(...)` stay client-side and never track. Every server-read value is untrusted user input — validate it like a shard argument. `Panel::build` mounts these routes via `RouterBuilderRuntimeExt::runtime()`, which `runtime::script` requires.
-- Guards on page/layout **do not run** on shard requests — the shard must authorize itself.
+- `signal(cx, init)` is an ordinary Rust function returning an owned cheap-to-clone value. It must run inside a page/layout/component body (hand-registered `PageFn`s wrap their body in `HoistView`, exactly what `#[page]` generates). Identity comes from the creating body plus the call site, so a body that repeats (for loop) needs a `key`.
+- Reads in `$(...)` re-run in JS with no server round-trip. Reads in plain Rust via `get()`/`read()` are **tracked** — they emit a dependency marker so a browser change re-runs the page (or the innermost enclosing shard) via the runtime routes; `get_untracked()`/`read_untracked()` opt out. Every server-read value is untrusted user input.
+- Guards on page/layout **do not run** on shard requests — a shard must authorize itself. Argentum defines no shards or procedures of its own today: deletes/creates/edits are POST `PageFn` handlers, and the hand-registered pages adapt fallible async bodies with an internal view adapter mirroring `#[page]` (see `EXTERNAL_GAPS.md`).
+- **Adopted:** `suspense(fallback, child)` for streaming skeletons — first content ships the shell + skeleton, the loaded content swaps in via `<template data-topcoat-swap>` markers, no client library. (Upstream also ships `live!`/`emit!`; Argentum does not use them.) `resource_list` streams rows this way; `Table::render_skeleton` is the shared fallback.
+- **Designs, not mechanisms:** tracked server reads re-running the page and `boundary` diffing (shipping only changed regions). `Table::render_with_state` + `TableState::from_live_args` are the kept seam: a true keystroke-live shard waits on a slug-dispatch registry design (`#[shard]` inventory only discovers concrete fns, so a generic shard is undiscoverable). The previous dummy live-search shard was removed — live search today is the `?q=` GET toolbar.
 
-Design direction (`SIGNALS.md` #335, `DESIGN.md`/`DESIGN-2.md` #332, `DESIGN_DELTA.md`) keeps the same *contract* but changes the mechanism:
-
-- `q.get()` in plain Rust registers as a server dependency — landed in #391 as the tracked `get()`/`read()` above (the function form shipped in 0.7 with `signal(cx, …)` and `#[track_caller]` identity; the ambient `signal(||…)` form did **not** land, `cx` is required).
-- When that dependency changes, the client re-runs the page (or the shard subset) through the runtime routes above and swaps the result; `boundary` diff (`<!--topcoat-boundary id-->` shipping only changed regions, `X-Topcoat-State`/`X-Topcoat-Boundaries` headers) remains the design, not the mechanism.
-- **Adopted (topcoat PR #373):** `suspense(fallback, child)` for streaming skeletons: first content ships the shell + skeleton, the loaded content swaps in via `<template data-topcoat-swap>` markers — no client library. (Upstream also ships `live!`/`emit!`; Argentum does not use them yet.) `resource_list` streams rows this way; `Table::render_skeleton` is the shared fallback.
-
-**Argentum's contract (works on `main`, migrates without rewriting resources):**
-
-- Tables and slow cards are **streamed regions**. `resource_list` wraps the row grid in `suspense` (fallback: `Table::render_skeleton`); `Table::boundary(true)`/`defer(true)` remain as the eager-render demo hooks.
-- Filter/search/sort/page state are **signals owned by the page**. *How* they trigger a server render (shard args today, tracked server reads re-running the page or the shard subset since #391, `boundary` diff later) is an **internal detail** of `ArgentumTable`. Resources never hand-roll `#[shard]`.
-- All data loads that may be deferred are **`#[memoize]`d** (`topcoat-core/macro/docs/memoize.md`): `#[memoize(as_ref)] async fn load_rows(cx:&Cx, q:String, sort:Sort) -> Vec<Row>`. This makes streaming, concurrent rendering, and fan-out dedup free (`try_join!` of sibling components shares one future).
-
-Today's live-search shape (Phase 1 — the Topcoat mechanism; `resource_list`
-itself ships the `?q=` GET toolbar + streamed `suspense` table since GH #74
-removed the dummy shard input):
-
-```rust
-#[component]
-async fn users_page(cx: &Cx) -> Result {
-    let q = signal(cx, String::new);
-    view! {
-        <input :value=$(q.get()) @input=$(|e: Event| q.set(e.target.value))>
-        user_table(query: $(q.get())) // user_table is #[shard] internally, owned by Argentum
-    }
-}
-// Future — same call site, no hand-rolled shard (ArgentumTable hides the change):
-// view! { <input :value=$(q.get()) @input=$(|e| q.set(e.target.value))> suspense(fallback: skeleton, user_table(cx, &q.get())) }
-// (Since #391 the plain `q.get()` there would track a page dependency and re-run
-// the page; `boundary` diff stays the future migration.)
-```
+**Argentum's contract (works on `main`, migrates without rewriting resources):** tables and slow cards are **streamed regions**; filter/search/sort/page state is page-owned URL state; all deferred data loads are **`#[memoize]`d** so streaming, concurrent rendering, and fan-out dedup are free.
 
 ---
 
-## 8. Performance — what “fast” means
+## 8. Performance, security & testing
 
-Not “one shard per view.” Fast is:
+Fast is: **concurrent rendering** (siblings `try_join!`, no waterfalls, side-effect-free bodies), **memoization** (`#[memoize]` keyed by args — page re-renders rebuild views, not I/O), **preloading** (`include`: 50 rows + 2 relations = 3 operations, not 101), **streamed regions** (skeleton first, grid swaps in). Client changes coalesce and in-flight requests abort; explicit debounce/defer-filter controls are future work.
 
-- **Concurrent rendering** — sibling components, loop iterations, and nested depths `try_join!` together. No waterfalls; body must be side-effect free.
-- **Memoization** — `#[memoize]` keyed by args + `ContextRead` tracking (`core/src/memoize/cache.rs`, `context/tracking.rs`). The same `load_user(cx, id)` from page + layout + table runs once. This is also the streaming cost control: re-renders of the page re-execute view building but not memoized I/O.
-- **Preloading** — `include` over N+1 per-row `exec`. A list with 50 rows and 2 relations is 3 operations, not 101.
-- **Boundaries** — ship only the table grid when search changes, not the sidebar + layout + headers (`DESIGN.md` hashing rule: child boundaries replaced by identity before parent hash).
-- **Debounce + defer filters** — Filament's `searchDebounce(500ms)` / `deferFilters(true)` / `CanDeferLoading` placeholder apply. Argentum: `search.debounce_ms(300)` (client coalesce already + in-flight abort; add debounce for page refetch path) and `filters.defer(true)` (apply on button).
-- **Pagination** — cursor, not offset; determinism is toasty's (`normalize_cursor_order` appends the PK internally). Extreme links off.
+Budget: list render (50 rows, 2 includes) < 40ms p50 on local SQLite, TTFB dominated by the skeleton — rows arrive as a streaming swap. Harness: `benchmarks/` vs `axum-maud`/`leptos` stubs (`cargo run --manifest-path benchmarks/argentum/Cargo.toml -- --bench`, `./benchmarks/scripts/bench.sh`, `verify_parity.sh`).
 
-Budget v1: list render (25 rows, 2 includes, 1 count) < 40ms p50 on SQLite/Postgres local, TTFB dominated by the skeleton (first content), not the query — the rows arrive as a streaming swap.
+Security: `like` patterns escape `%`/`_`; never interpolate raw input into raw SQL. Every resource enforces `can_*` in page **and** POST handler (default deny). Tenancy applies only in `Resource::query` (`tenant_id(cx)` from `cx.with(Tenant(id))`, request extensions, or the `x-tenant-id` header). Cookies/sessions via Topcoat's `cookie`/`session` + origin-checked sessions.
+
+Testing: `CxTestBuilder` for unit renders, `Page` golden tests, per-resource policy tests, showcase integration tests (`examples/showcase/tests/`: admin, create/edit/delete/bulk, relations, filters, tenancy, file+repeater, group+export).
 
 ---
 
-## 9. Validation, errors & testing
+## 9. Validation & errors
 
-- Validate in `Schema` (field rules), then in `Procedure`/`Shard` handler, then DB constraints. Return inline field errors (not toast-only). DB `#[unique]` violations cannot map to inline errors yet — toasty exposes no unique-violation predicate (see `EXTERNAL_GAPS.md`); pre-check uniqueness app-side until it lands.
-- Router errors bubble via `Result` + `?` through lazy views into the router's error→status mapping (`topcoat-router/docs/error.md`); a layout can wrap its `Slot<'_>` in `error_boundary` to downcast and brand them. Redirects via `Err(redirect("/..."))` — before the first content they are `Location` responses; mid-stream they degrade to a `window.location.replace` script.
-- Forms: `Action` handlers are `#[procedure]`-backed; errors render in modal's `Schema` without losing signal state.
-- Testing: `CxTestBuilder` (`topcoat-core/src/context.rs`) for unit renders, `Page` golden tests, per-resource policy tests (`assert_can_list` / `assert_cannot_delete`). Bench via `benchmarks/` against `axum-maud`/`leptos`.
+Validate in `Schema` (field rules), then in the POST handler, then DB constraints. Return inline field errors (not toast-only). DB `#[unique]` violations cannot map to inline errors yet — toasty exposes no unique-violation predicate (see `EXTERNAL_GAPS.md`); uniqueness is pre-checked app-side until it lands. Router errors bubble via `Result` + `?` into the router's error→status mapping; a layout can wrap its `Slot<'_>` in `error_boundary` to brand them. Redirects via `Err(redirect("/..."))` — before first content they are `Location` responses; mid-stream they degrade to a `window.location.replace` script.
 
 ---
 
-## 10. Security
+## 10. Roadmap
 
-- **Input escaping:** `like` patterns escape `%`/`_` from user input. Never interpolate raw `query` into `sql::query`.
-- **Authorization:** Every resource defines `Policy` (`viewAny/view/create/update/delete`). Enforced in **both** page and shard/procedure. Default deny; `shouldSkipAuthorization` is opt-in and audited.
-- **Tenancy:** `Resource::query(cx)` is the only place tenancy is applied. For `#[belongs_to] tenant_id`, the query is `filter(tenant_id().eq(tenant_id(cx)))` where `tenant_id(cx)` comes from `cx.with(Tenant(id))`. No `withoutGlobalScope` footgun.
-- **Cookies/session:** `cookies(cx)` jar + `CookieStore<T>` (`topcoat/docs/cookie.md`, `session.md`) for remember-token, sliding expiration, origin-checked sessions (`layers::OriginPolicy`).
+### Shipped — Phase 1: single-resource CRUD (spec #57, tickets #58–#62, ADR-0010)
 
----
+`Table` with typed row keys, `searchable`/`sortable` columns, cursor pagination, `?q=` toolbar and streamed grid; `Schema` hydration via typed lenses + inline validation; create/edit pages; row + bulk delete (policy-checked, all-or-nothing bulk); `Notification` surviving table swaps; `can_*` default-deny policy; auth shell + sidebar + empty/error states. Showcase at `/admin/users` (see `examples/showcase/tests/{admin,create_check,edit_check,delete_check,bulk_check}.rs`).
 
-## 11. Roadmap
+### Shipped — Phase 2: relations & polish (spec #63, tickets #64–#71, ADR-0011/0012)
 
-Each phase is shippable and benchable (`benchmarks/` vs `axum-maud`/`leptos`). No phase rewrites the previous one's resources.
+`Post` with `BelongsTo author` + `HasMany comments` via `include` (one round-trip, `TextColumn::computed` + `Select::relationship` reusing `Resource::query`); `FileUpload`/`Repeater` in `Section`/`Grid`; `SelectFilter`/`TernaryFilter`/`DateFilter`/`VariantFilter` via `Filter` + `TableState ?filters=`; in-memory `group_by` + `count` + `to_csv()` with `GET /admin/{slug}/export`; tenancy (`Tenant` + per-tenant policy); `Panel::brand` + `Panel::dark_mode`; `benchmarks/` Phase-2 budget. Showcase at `/admin/posts` + `/admin/authors` (see `relation_check`, `filter_check`, `tenancy_check`, `file_repeater_check`, `group_export_check` tests).
 
-### Phase 0 — Bootstrap (1–2 weeks)
+### Shipped — post-Phase-2 polish (#73, #74, #77, #78, #79, #76)
 
-- Workspace `argentum-core` + `argentum-macros` (`grammar` + `macro`), `Panel` + `Resource` trait + `Pages`, `Schema` layout primitives, `Db` glue (`db(cx)` + `#[memoize]` helpers), `coffee-shop`-style demo app with in-memory `User` model, `Router` + `module_router!` + `href!` + `tailwind` + `asset!`.
-- CI: `cargo test` (sqlite), `topcoat fmt`, `clippy`. Bench harness stub.
+Multipart `FileUpload` (filename-as-path, no `value` on `type=file`), single-entry `Repeater` docs + inline required error, `VariantFilter`, honest table chrome (checkbox bulk column, typed filter widgets, dummy live-search shard removed in favor of the GET toolbar), in-region `ErrorState` for failed streamed loads, PK tie-breaker delegated to toasty.
 
-### Phase 1 — Single-resource CRUD (exit: usable admin) — **shipped via spec #57, tickets #58–#62**
+### Now
 
-- `Table` is a `Boundary` by default (`Table::boundary`/`defer`, skeleton while deferred) with `#[memoize]` dedup; columns `searchable`/`sortable`, cursor pagination (deterministic via toasty's normalized cursor order), filters (`SelectFilter`/`TernaryFilter`/`DateFilter` composed with `Expr::and_all`), search via the `?q=` toolbar and the streamed `suspense` grid; `Schema` hydrates/dehydrates `Create`/`Update` via typed lenses + inline validation (`required`/`email`/`unique` app-side, `TextInput` `for`/`id`/`required` star/error slot).
-- `Create`/`Edit` pages (procedure-backed `Create`/`Update` projections, inline errors, `Resource::query` tenancy seam, `?notification`/`Set-Cookie` flash) + `Action` (`Delete` `requires_confirmation` + `BulkDelete` per-row `Policy::delete` via `Resource::query`, all-or-nothing) + `Notification` (`fixed top-4 right-4`, `border-border bg-background shadow-sm`, `Shell` `Boundary` surviving `Table` swaps) + `Policy` (`viewAny`/`view`/`create`/`update`/`delete`, default-deny, page+procedure) + auth shell + sidebar + empty/error states.
-- Model: `User(id, name, email, role, active, created_at)` with `#[index]` on searchable columns.
-- Exit: `cargo run` at `/admin/users` with search/sort/paginate/create/edit/delete/bulk-delete, all policy-checked, no N+1 on list, `key: &row.id` on every `for` row. Showcase proves it end-to-end (see `examples/showcase/tests/{admin,create_check,edit_check,delete_check,bulk_check}.rs`).
+Streaming honesty follow-ups: slug-dispatch design for a real keystroke-live shard (`render_with_state` + `from_live_args` are the seam), dev lint for unmemoized deferred loads, prewarm hint for `defer`, per-region flush tradeoffs.
 
-### Phase 2 — Relations & polish — **shipped via spec #63, tickets #64–#71 (ADR-0011)**
+### Next
 
-- `Resource::query` stays the single tenancy seam: `PostResource::query` + `include(author)` + `include(comments)` (one round-trip, `NestedMerge`, no N+1), `TextColumn::computed` for `author.name`/`author.email`/`comments` count, `Select::for(author_id).relationship(AuthorResource::query, |a| a.name.clone())` with `required`/`exists` inline validation (tickets #64, #66).
-- More fields/filters: `FileUpload` (`image_path`) + `Repeater` (`tags`) in `Section`/`Grid` with validation (ticket #68), `SelectFilter`/`TernaryFilter`/`DateFilter` via `FilterBuilder` (`Expr::and_all`) + `TableState` `?filters=` for loader and render (ticket #67), in-memory `group_by(|p| p.status.clone())` + `count` summarizer + `Table::to_csv()` (RFC4180, `text/csv` + `attachment; filename="posts.csv"`) via `GET /admin/{slug}/export` reusing `Resource::query` + filters/sort (ticket #71 via `Panel` + `Table::group_by`).
-- Tenancy `cx.with(Tenant(id))` + `tenant_id(cx)` (`x-tenant-id` header / `Parts.extensions`) + `Resource::query` `filter(tenant_id().eq(...))` + per-tenant `Policy::canViewAny` (403) / `canView` (404 via query) (ticket #69).
-- `Panel::brand(Brand { name, logo })` + `Panel::dark_mode(bool)` declarative seam (`Shell` header, `theme.js` toggle via `cookie`/`localStorage`, `--sidebar-*` tokens per ADR-0009) (ticket #65).
-- `benchmarks/` Phase-2 harness: `cargo run --manifest-path benchmarks/argentum/Cargo.toml -- --bench` (50 rows, 2 includes, `#[memoize]` timing, `<40ms p50`) + `./benchmarks/scripts/bench.sh` oha matrix and `verify_parity.sh` (ticket #70).
-- No `via` many-to-many in tables for v1 (SQL-only, join-model query when DynamoDB needed); showcase at `/admin/posts` and `/admin/authors` proves the vertical slice end-to-end.
-
-### Phase 3 — Streaming & next runtime
-
-- **Streaming adopted** on topcoat PR #373: `suspense` regions with page-owned `signal`s (upstream's `live!`/`emit!` not used by Argentum yet). The resource list ships its shell + skeleton first and swaps the loaded grid in; a failed load is caught in-region and renders the `ErrorState` instead of truncating the body (GH #79). Table chrome is honest (GH #74): bulk selection is a leading checkbox column with select-all whose JS joins keys into the existing single-`ids` transport (text field stays as the no-JS fallback), and every declared filter renders a typed control (Select/Variant dropdown, Ternary All/True/False, Date) composed into the single `?filters=` param with the free-text input as fallback. The old `signal` + `table_shard` dummy was removed — it rendered an input that never filtered — so live search is the `?q=` GET toolbar; a true keystroke-live shard waits on a slug-dispatch registry design (`#[shard]` inventory only discovers concrete fns, so a generic shard is undiscoverable; `Table::render_with_state` + `TableState::from_live_args` are the kept seam). `#[shard]` stays opt-in for isolated heavy widgets. Add dev lint for unmemoized deferred loads.
-
-### Phase 4 — Widgets & ecosystem
-
-- Widgets (`StatsOverview`, `ChartWidget`), global search, `Infolist` entries, file/media, `topcoat-ui` themes, `embed_migrations!` history + `toasty-cli` standalone.
+Widgets (`StatsOverview`, chart), global search, infolist entries, file/media assets, themes beyond brand/dark-mode tokens, `embed_migrations!` history + `toasty-cli` standalone.
 
 **Out of scope for v1:** `via` many-to-many in tables, DynamoDB-backed admin, `GROUP BY` aggregates beyond `count` (raw-SQL shim only), WASM admin, SPA mode.
 
+(The old tracking issue #38 is closed; its remaining future slices are the Now/Next lists above. Only Renovate's `#82` is open — future slices need new issues.)
+
 ---
 
-## 12. Minimal example (Phase 2 — Relations & polish)
-
-The declarative Panel path is the shipped API. The complete runnable version,
-including the Tailwind build contract, typed lenses, full CRUD, and Phase-2
-relations, lives in `examples/showcase/src/app.rs`:
+## 11. Minimal example (mirrors `examples/showcase/src/app.rs`)
 
 ```rust
 #[layout("/admin")]
-async fn admin_layout(cx: &Cx, slot: Result) -> Result {
+async fn admin_layout(cx: &Cx, slot: Slot<'_>) -> Result<impl View> {
     Panel::layout_shell(cx, slot).await
 }
 
@@ -402,11 +324,9 @@ fn router(db: toasty::Db) -> topcoat::router::Router {
         .app_context(db)
         .assets(AssetBundle::load().expect("generated assets"))
         .shell_assets(tailwind::stylesheet!(), GEIST)
-        .brand(Brand::new("Acme").logo("/logo.svg"))
-        .dark_mode(true)
         .resource::<UserResource>()
         .resource::<AuthorResource>()
-        .resource::<PostResource>() // Post with author + comments, filters, group_by, export
+        .resource::<PostResource>()
         .build()
 }
 
@@ -423,8 +343,13 @@ impl Resource for PostResource {
             .id(|p: &Post| p.id.to_string())
             .columns((
                 TextColumn::r#for(Post::fields().title(), |p: &Post| p.title.clone()).searchable().sortable(),
-                TextColumn::computed("Author", |p: &Post| p.author.get().map(|a| a.name.clone()).unwrap_or_default()),
-                TextColumn::computed("Comments", |p: &Post| p.comments.get().len().to_string()),
+                // `include`d relations still guard the unloaded case:
+                TextColumn::computed("Author", |p: &Post| {
+                    if p.author.is_unloaded() { "-".to_string() } else { p.author.get().name.clone() }
+                }),
+                TextColumn::computed("Comments", |p: &Post| {
+                    if p.comments.is_unloaded() { "0".to_string() } else { p.comments.get().len().to_string() }
+                }),
             ))
             .filters((
                 SelectFilter::r#for(Post::fields().status(), vec!["draft".into(), "published".into()]),
@@ -434,7 +359,7 @@ impl Resource for PostResource {
             .group_by(|p: &Post| p.status.clone())
             .paginate(2)
     }
-    fn form(cx: &Cx) -> Schema {
+    fn form(_cx: &Cx) -> Schema {
         Schema::new((
             Section::new("Post Details").schema((
                 TextInput::r#for(Post::fields().title()).required(),
@@ -450,42 +375,21 @@ impl Resource for PostResource {
         ))
     }
 }
-
-// UserResource still shows the Phase-1 CRUD slice:
-impl Resource for UserResource {
-    type Model = User;
-    fn table(cx: &Cx) -> Table<User> {
-        Table::r#for(cx)
-            .id(|user: &User| user.id.to_string())
-            .columns((
-                TextColumn::r#for(User::fields().name(), |u: &User| u.name.clone()).searchable().sortable(),
-                TextColumn::r#for(User::fields().email(), |u: &User| u.email.clone()).searchable(),
-            ))
-            .paginate(2)
-    }
-    fn form(_cx: &Cx) -> Schema {
-        Schema::new((
-            TextInput::r#for(User::fields().name()).required(),
-            TextInput::r#for(User::fields().email()).required().email().unique(),
-        ))
-    }
-}
 ```
 
 ---
 
-## 13. Open questions (resolved later, not blocking Phase 0)
+## 12. Open questions
 
-- `signal` ownership: topcoat 0.7 chose `signal(cx, ||…)` — page-owned, `cx` required (#384); the ambient `signal(||…)` form did not land. Since #388 the signal is an owned cheap-to-clone value with stable identity (body plus call site) and shard re-renders resume client values. Since #391 plain-Rust `get()`/`read()` track a page/shard dependency (re-run via the runtime pages/shard routes), `get_untracked()`/`read_untracked()` opt out, and `$(...)` reads stay client-side. Argentum hides behind the `ArgentumTable` prop so call sites don't care.
-- Transport for signal refetch: page/shard re-runs POST through the runtime routes (#391 landed); `boundary` diff headers (`X-Topcoat-State` size limits at proxies) remain the design. Same seam.
-- Prewarm hint for `defer` (start memoized load during skeleton pass) and per-region flushing tradeoffs (`DESIGN-2.md: The trade`).
-- `Table` column `key:` stability inside `for row in rows` — enforce `key: &row.id`.
+- Transport for re-runs: runtime page/shard routes landed; `boundary` diff headers (proxy size limits) remain the design. Same seam.
+- Prewarm hint for `defer` (start memoized load during skeleton pass) and per-region flushing tradeoffs.
+- `Table` column `key:` stability inside `for row in rows` — enforce `key:` from the row key, never the loop index.
 
 ---
 
 ## References
 
-- Topcoat: `crates/topcoat/docs/getting_started.md`, `docs/context.md`, `docs/app_context.md`, `topcoat-core/macro/docs/memoize.md`, `topcoat-view/macro/docs/view.md`, `topcoat-view/macro/docs/component.md`, `topcoat/docs/runtime.md`, `topcoat-runtime/macro/docs/{shard,procedure,expr}.md`, `crates/topcoat-router/docs/{router,module_router,error,content/sitemap}.md`, `AGENTS.md`.
-- Designs: `SIGNALS.md` (#335), `DESIGN.md` + `DESIGN-2.md` + `DESIGN_DELTA.md` (ssr-proposal #332, ssr-proposal-2).
-- Toasty: `crates/toasty/docs/guide/{querying-records,filtering-with-expressions,sorting-limits-and-pagination,preloading-associations,schema-management}.md`, `docs/dev/roadmap.md`, `docs/dev/architecture/query-engine.md`, `examples/{quickstart-blog,forum-relationships,product-search}/*.rs`, `demos/coffee-shop/src/{app,models}.rs`.
-- Filament (spirit, not API): `filament/packages/panels/src/Resources/Resource.php`, `packages/schemas/src/{Schema,Components/Component}.php`, `packages/forms/src/Components/Field.php`, `packages/tables/src/{Table,Columns/Column}.php`, `packages/actions/src/Action.php`, `packages/support/src/Concerns/EvaluatesClosures.php`, `CLAUDE.md`.
+- This repo: `CONTEXT.md` (vocabulary), `docs/adr/` (decisions), `EXTERNAL_GAPS.md` (upstream workarounds), `benchmarks/README.md`, `examples/showcase/` (runnable truth).
+- Toasty guide: querying records, filtering with expressions, sorting/limits/pagination, preloading associations, schema management; `toasty-cli` for migrations.
+- Topcoat docs: `runtime`, `memoize`, `view`/`component`, `shard`/`procedure`/`expr`, router (`router`, `module_router`, `error`, sitemaps), cookie/session, `functions_not_middlewares`.
+- Filament PHP (spirit, not API): `panels/Resources/Resource.php`, `schemas/Schema.php`, `tables/Table.php`, `actions/Action.php`.

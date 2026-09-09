@@ -1,8 +1,8 @@
 # Argentum
 
-Admin toolkit for Rust — server-rendered on Topcoat, persisted with Toasty. Provides the CRUD core of Filament (Panel + Resource → Table + Schema + Action) with no Livewire port, single-panel/single-tenant in Phase 1, explicit preloading and cursor pagination, and a narrow reactivity seam that works on today's shard runtime; streaming SSR (suspense/live! regions, topcoat PR #373) ships the list shell first and swaps the loaded grid in, while page-refetch reactivity migrates to signals v2.
+Admin toolkit for Rust — server-rendered on Topcoat, persisted with Toasty. Provides the CRUD core of Filament (Panel + Resource → Table + Schema, deletes via Resource record fns) with no Livewire port, explicit preloading and cursor pagination, and a narrow reactivity seam: streamed `suspense` regions ship the list shell first and swap the loaded grid in, while boundary-diff reactivity remains a design.
 
-> **Shipped vs spec:** every term below is vocabulary-level truth. As of Phase 2 (Relations & polish, spec #63, tickets #64–#71, ADR-0011) plus post-Phase-2 polish (GH #73 FileUpload multipart/filename + single-entry Repeater docs, GH #77 VariantFilter, GH #78 Repeater inline error, GH #74 bulk checkbox column + typed filter widgets + dummy live-search shard removed) — **Panel** (with `Brand {name,logo}` + `DarkMode`, `Router`/`Db`/`Shell` + `Resource` routes), **Resource** (`query` tenancy seam + `include` + `TextColumn::computed`/`Select::relationship`), **Table** (`Boundary` + `#[memoize]` + `#[shard]` → `defer`/`boundary`, `searchable`/`sortable`, cursor pagination, `SelectFilter`/`TernaryFilter`/`DateFilter`/`VariantFilter` via `FilterBuilder` + `TableState ?filters=` (typed widgets + free-text fallback) + `group_by`/`count` + `to_csv`, bulk checkbox column with select-all over the single-`ids` transport), **Schema** (`Section`/`Group`/`Grid`/`Tabs`/`Wizard` + `TextInput`/`Select`/`FileUpload` (`multipart` filename as `String` path, no `value`)/`Repeater` (single-entry group, label-keyed `required` inline) + `required`/`email`/`unique` + `relationship`), **Action**, **Policy** (per-tenant `viewAny`/`view`/`create`/`update`/`delete`), **Notification**, **Boundary**, **Navigation**, **Query**, **Tenancy** (`Tenant` via `Cx::with` + `tenant_id(cx)`), **Filter**, **Field** ship in `argentum-core` with showcase at `/admin/users` + `/admin/authors` + `/admin/posts` (list with `author.name` via `include` + `Select` relationship, search/sort/paginate/create/edit/delete/bulk-delete, filters/grouping/export, all policy-checked, notification, boundary, tenancy, brand/dark_mode, `benchmarks/` Phase-2 budget 50 rows 2 includes `<40ms p50`). **Page, Theme/Token beyond brand/dark_mode, ChartWidget/StatsOverview, via many-to-many, GROUP BY aggregates** remain design targets tracked by #38.
+> **Shipped vs spec:** every term below is vocabulary-level truth. As of Phase 2 (Relations & polish, spec #63, tickets #64–#71, ADR-0011/0012) plus post-Phase-2 polish (multipart `FileUpload`, single-entry `Repeater`, `VariantFilter`, honest bulk/filter chrome, in-region `ErrorState`) — **Panel** (with opt-in `Brand` + `DarkMode`, `Router`/`Db`/`Shell` + `Resource` routes), **Resource** (`query` tenancy seam + `include` + `TextColumn::computed`/`Select::relationship`), **Table** (`data-boundary` wrapper + `#[memoize]` + streamed `suspense` grid, `searchable`/`sortable`, cursor pagination, `SelectFilter`/`TernaryFilter`/`DateFilter`/`VariantFilter` + `?filters=`, `group_by`/`count` + `to_csv` export, checkbox bulk column), **Schema** (`Section`/`Group`/`Grid`/`Tabs`/`Wizard` + `TextInput`/`Select`/`FileUpload`/`Repeater` + `required`/`email`/`unique` + `relationship`), **deletes** (per-row + bulk via `Resource` record fns, policy-checked), **Policy** (`can_*`, default-deny), **Notification**, **Navigation**, **Query**, **Tenancy** (`Tenant` via `Cx::with` + `tenant_id(cx)`), **Filter**, **Field** ship in `argentum-core` with showcase at `/admin/users` + `/admin/authors` + `/admin/posts` (search/sort/paginate/create/edit/delete/bulk-delete, filters/grouping/export, all policy-checked, notification, tenancy, `benchmarks/` Phase-2 budget 50 rows 2 includes `<40ms p50`). **Page, Theme/Token beyond brand/dark_mode, ChartWidget/StatsOverview, via many-to-many, GROUP BY aggregates** remain future work (tracking issue #38 is closed; see README §10).
 
 ## Language
 
@@ -17,7 +17,7 @@ A type that maps one Toasty Model to its admin UI. Defines the base query, the t
 _Avoid_: Model, Entity, Collection, AdminModel, CRUD
 
 ### Schema
-The unified layout primitive for forms and infolists. A composition of layout blocks (Section, Group, Grid, Tabs, Wizard) and typed fields (TextInput, Select, Toggle) bound via field lenses to a Model.
+The unified layout primitive for forms and infolists. A composition of layout blocks (Section, Group, Grid, Tabs, Wizard) and typed fields (TextInput, Select, FileUpload, Repeater) bound via field lenses to a Model.
 
 _Avoid_: Form, Infolist, Fieldset (as top-level term), statePath
 
@@ -32,7 +32,7 @@ A typed projection of a Model field (or a computed value) displayed in a Table r
 _Avoid_: Field (in table context), Cell, Attribute
 
 ### Action
-A user-invoked operation, optionally with a modal Schema. Runs via a procedure endpoint, inside a transaction, with authorization checked against the passed record inside the handler.
+A user-invoked delete/create/edit operation driven by a `Resource` record fn (`delete_record` / `bulk_delete_records` / `create_record` / `update_record`) through a POST handler, inside a transaction, with authorization checked against the passed record inside the handler.
 
 _Avoid_: Command, Mutation, Operation, Modal
 
@@ -42,7 +42,7 @@ The base filtered query for a Resource. Returned by Resource::query(cx) and used
 _Avoid_: Scope, EloquentQuery, Builder (as domain term)
 
 ### Policy
-The per-Resource authorization rules (viewAny, view, create, update, delete). Default-deny; checked in both page and shard/procedure handlers.
+The per-Resource authorization rules (viewAny, view, create, update, delete). Default-deny; checked in both page and POST handlers.
 
 _Avoid_: Guard, Permission, Gate, Ability
 
@@ -51,28 +51,23 @@ An entry in the Panel sidebar. Derived by default from a Resource, overridable f
 
 _Avoid_: MenuItem, NavLink, SidebarEntry
 
-### Column
-A typed projection of a Model field (or computed value) displayed in a Table row. Declares rendering and whether it is searchable or sortable, mapping to a Toasty field lens and order_by.
-
-_Avoid_: Field (in table context), Cell, Attribute
-
 ### Filter
-A predicate contributed to a Table's query. A typed wrapper around a Toasty Expr<bool> produced from a UI control (SelectFilter, TernaryFilter), composed with AND.
+A predicate contributed to a Table's query. A typed wrapper around a Toasty Expr<bool> produced from a UI control (SelectFilter, TernaryFilter, DateFilter, VariantFilter), composed with AND.
 
 _Avoid_: Scope, Constraint, Where
 
 ### Field
-A typed input bound to a Model lens inside a Schema. Knows its nullability, uniqueness, and column name, and hydrates from the Model into Create/Update projections.
+A typed input bound to a Model lens inside a Schema. Bound via its field lens and column name; nullability/uniqueness defaults from Toasty metadata are future work (see EXTERNAL_GAPS.md). Hydrates from the Model into Create/Update projections.
 
 _Avoid_: Input, Control, Widget (in form context), statePath
 
 ### Streamed region
-A `suspense`/`live!` region of the page whose content swaps in after the first render (topcoat PR #373). The resource list streams its grid: skeleton first (`Table::render_skeleton`), loaded rows swap in without a client library. `Table::boundary(true)`/`defer(true)` remain as the eager-render demo hooks.
+A `suspense` region of the page whose content swaps in after the first render. The resource list streams its grid: skeleton first (`Table::render_skeleton`), loaded rows swap in without a client library. `Table::boundary(true)`/`defer(true)` remain as the eager-render demo hooks; boundary-diff reactivity is future work.
 
 _Avoid_: Shard (as domain term), Region, Island, Boundary (pre-#373 topcoat component, removed upstream)
 
 ### Notification
-A transient user-visible message (status + title, ~4s) produced by an Action's result, rendered in a top-level boundary owned by the Panel layout so it survives Table boundary swaps.
+A transient user-visible message (status + title, ~4s) produced by a record operation's result, rendered in a shell-level stack owned by the Panel layout so it survives table swaps.
 
 _Avoid_: Toast, Flash, Alert (as domain term)
 

@@ -305,8 +305,8 @@ impl Panel {
         for route in routes {
             builder = builder.route(route);
         }
-        // Filament's panel root is a Dashboard; until dashboards exist
-        // (GH #38), the prefix serves a redirect to the first resource's
+        // Filament's panel root is a Dashboard; until dashboards exist,
+        // the prefix serves a redirect to the first resource's
         // list so the mount point is never a dead URL.
         if let Some(target) = root_target {
             builder = builder
@@ -655,8 +655,8 @@ fn resource_list<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
 
         // First content: the skeleton grid (same markup the eager
         // `defer(true)` path renders), while the rows load below. The load
-        // catches its own errors: post-stream the status line is fixed
-        // (README §4.5), so a failed load must render the branded ErrorState
+        // catches its own errors: post-stream the status line is fixed,
+        // so a failed load must render the branded ErrorState
         // inside the region instead of truncating the body. Pre-stream
         // failures (e.g. the skeleton itself) still propagate and map onto
         // the response status. (For children that partially stream before
