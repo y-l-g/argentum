@@ -888,8 +888,10 @@ impl<M> Table<M> {
     /// links built from the executed page's cursors — never fake page
     /// numbers. Also implies a deterministic PK ordering when the table
     /// declares no sortable column (see [`Self::order_bys_for_state`]).
+    ///
+    /// A zero page size is a programmer error: it fails loudly at render/load
+    /// time with a descriptive error (GH #96), never a bare panic.
     pub fn paginate(mut self, per_page: usize) -> Self {
-        assert!(per_page > 0, "pagination page size must be > 0");
         self.page_size = Some(per_page);
         self
     }
@@ -1028,20 +1030,23 @@ impl<M> Table<M> {
     ///
     /// # Panics
     ///
-    /// Panics if `M` is not a root model: without a primary key there is no
-    /// deterministic order, and silent omission would surface as a toasty
-    /// "requires an ORDER BY" error under cursor pagination.
+    /// Never panics: a non-root model has no primary key, so this returns
+    /// empty (and debug-asserts) instead of panicking per request (GH #96) —
+    /// the engine then reports its descriptive "requires an ORDER BY" error
+    /// at load.
     fn pk_order_bys() -> Vec<OrderByExpr>
     where
         M: toasty::schema::Model,
     {
         let app_model = M::schema();
-        let root = app_model.as_root().unwrap_or_else(|| {
-            panic!(
+        let Some(root) = app_model.as_root() else {
+            debug_assert!(
+                false,
                 "pk_order_bys: {} is not a root model; deterministic pagination needs its primary key",
                 std::any::type_name::<M>()
-            )
-        });
+            );
+            return Vec::new();
+        };
         root.primary_key
             .fields
             .iter()
@@ -1128,6 +1133,12 @@ impl<M> Table<M> {
     where
         M: toasty::schema::Model + Send + Sync + 'static,
     {
+        if self.page_size == Some(0) {
+            return Err(std::io::Error::other(
+                "Table::render: paginate requires per_page > 0 (GH #96)",
+            )
+            .into());
+        }
         if self.columns.is_empty() {
             return Err(std::io::Error::other(
                 "Table::render: no columns declared — declare columns via Table::columns(..)",
@@ -3127,6 +3138,33 @@ mod tests {
         assert!(
             no_key.render(&cx, page.clone()).await.is_err(),
             "render without row key must error"
+        );
+    }
+
+    #[tokio::test]
+    async fn paginate_zero_is_a_render_error_not_a_panic() {
+        let cx = CxTestBuilder::new().build();
+        let rows = vec![User {
+            id: uuid::Uuid::nil(),
+            name: "Ada".to_string(),
+        }];
+        // Zero page size is a programmer error (GH #96): a descriptive error
+        // the streamed list renders in-region, never a per-request panic.
+        let zero = Table::<User>::r#for(&cx)
+            .id(|u| u.id.to_string())
+            .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()))
+            .paginate(0);
+        let page: TablePage<User> = rows.into();
+        let err = match zero
+            .render_with_state(&cx, page, &TableState::default(), "/admin/users")
+            .await
+        {
+            Ok(_) => panic!("paginate(0) must error"),
+            Err(err) => err,
+        };
+        assert!(
+            err.to_string().contains("per_page > 0"),
+            "error must name the contract, got {err}"
         );
     }
 

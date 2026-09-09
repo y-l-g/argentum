@@ -775,6 +775,12 @@ async fn load_table_page<R: Resource>(
     table: &Table<R::Model>,
     state: &TableState,
 ) -> Result<TablePage<R::Model>> {
+    if table.page_size() == Some(0) {
+        return Err(std::io::Error::other(
+            "Table::load: paginate requires per_page > 0 (GH #96)",
+        )
+        .into());
+    }
     let mut query = R::query(cx);
     if let Some(term) = &state.search
         && let Some(expr) = table.search_expr(term)
