@@ -2006,6 +2006,29 @@ impl<M> Table<M> {
         } else {
             "Clear filters"
         };
+        // Void window (GH #98): a cursor that lands past the last row (e.g.
+        // rows deleted under pagination) leaves an empty page with no pager —
+        // link back to the first page instead of a dead end. State is
+        // preserved, only the cursor is dropped.
+        let first_page_url =
+            (state.after.is_some() || state.before.is_some()).then(|| {
+                let dir = state
+                    .sort
+                    .as_ref()
+                    .map(|s| if s.descending { "desc" } else { "asc" });
+                let filters = state.filters_param();
+                let group = self.effective_group_name(state);
+                build_url(
+                    path,
+                    &[
+                        ("q", state.search.as_deref()),
+                        ("sort", state.sort.as_ref().map(|s| s.column.as_str())),
+                        ("dir", dir),
+                        ("filters", filters.as_deref()),
+                        ("group_by", group.as_deref()),
+                    ],
+                )
+            });
         Ok(view! {
             cx =>
             table_body(
@@ -2018,6 +2041,11 @@ impl<M> Table<M> {
                             if let Some(url) = clear_url {
                                 <a href=(url) class="text-sm text-primary hover:underline">
                                     (clear_label)
+                                </a>
+                            }
+                            if let Some(url) = first_page_url {
+                                <a href=(url) class="text-sm text-primary hover:underline">
+                                    "Back to first page"
                                 </a>
                             }
                         </div>
@@ -4269,6 +4297,62 @@ mod tests {
         assert!(
             !html.contains("group_by"),
             "unknown group_by must drop from links, got {html}"
+        );
+    }
+
+    #[tokio::test]
+    async fn void_window_links_back_to_first_page() {
+        // GH #98: a cursor past the last row (rows deleted under pagination)
+        // must offer navigation, never a pager-less dead end.
+        let cx = CxTestBuilder::new().build();
+        let tbl = Table::<User>::r#for(&cx)
+            .id(|u| u.id.to_string())
+            .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()).sortable())
+            .paginate(1);
+        let void_page = TablePage {
+            rows: Vec::new(),
+            next_cursor: None,
+            prev_cursor: None,
+        };
+        let state = TableState {
+            after: Some("abc".to_string()),
+            sort: Some(Sort {
+                column: "name".to_string(),
+                descending: false,
+            }),
+            ..TableState::default()
+        };
+        let html = tbl
+            .render_with_state(&cx, void_page, &state, "/admin/users")
+            .await
+            .unwrap()
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
+        assert!(
+            html.contains("Back to first page"),
+            "void window must link home, got {html}"
+        );
+
+        // A genuinely empty first page stays pager-less (its empty-state
+        // already offers Clear links).
+        let empty_first = TablePage {
+            rows: Vec::new(),
+            next_cursor: None,
+            prev_cursor: None,
+        };
+        let html = tbl
+            .render_with_state(&cx, empty_first, &TableState::default(), "/admin/users")
+            .await
+            .unwrap()
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
+        assert!(
+            !html.contains("Back to first page"),
+            "empty first page must stay pager-less, got {html}"
         );
     }
 
