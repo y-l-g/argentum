@@ -753,10 +753,17 @@ pub type RowKey<M> = Arc<dyn Fn(&M) -> String + Send + Sync>;
 /// instead of panicking at render.
 pub type GroupKey<M> = Arc<dyn Fn(&M) -> String + Send + Sync>;
 
+/// A named grouping a `Table` can render: `name` is the `?group_by=` value
+/// the table accepts, `key` projects a row to its group label (GH #92).
+pub struct GroupDef<M> {
+    name: String,
+    key: GroupKey<M>,
+}
+
 pub struct Table<M> {
     columns: Vec<Column<M>>,
     filters: Vec<Filter<M>>,
-    group_by: Option<GroupKey<M>>,
+    group_by: Option<GroupDef<M>>,
     row_key: Option<RowKey<M>>,
     page_size: Option<usize>,
     search_ui: Option<bool>,
@@ -875,10 +882,39 @@ impl<M> Table<M> {
         }
     }
 
-    /// Group rows in-memory by a key (count summarizer). No GROUP BY SQL.
-    pub fn group_by(mut self, key: impl Fn(&M) -> String + Send + Sync + 'static) -> Self {
-        self.group_by = Some(Arc::new(key));
+    /// Group rows in-memory by a named key (count summarizer). No GROUP BY SQL.
+    ///
+    /// `name` declares the `?group_by=` value this table accepts
+    /// (e.g. `"status"`); any other value renders no group headers and is
+    /// dropped from pager/sort/filter links (GH #92) instead of silently
+    /// grouping by the single declared key. Counts are page-local.
+    pub fn group_by(
+        mut self,
+        name: impl Into<String>,
+        key: impl Fn(&M) -> String + Send + Sync + 'static,
+    ) -> Self {
+        self.group_by = Some(GroupDef {
+            name: name.into(),
+            key: Arc::new(key),
+        });
         self
+    }
+
+    /// The declared grouping iff `state.group_by` names it (GH #92).
+    fn effective_group_key(&self, state: &TableState) -> Option<GroupKey<M>> {
+        match (&self.group_by, &state.group_by) {
+            (Some(def), Some(want)) if def.name == *want => Some(def.key.clone()),
+            _ => None,
+        }
+    }
+
+    /// The `?group_by=` value to echo in pager/sort/filter links: only the
+    /// declared name, never an unknown value (GH #92).
+    fn effective_group_name(&self, state: &TableState) -> Option<String> {
+        match (&self.group_by, &state.group_by) {
+            (Some(def), Some(want)) if def.name == *want => Some(def.name.clone()),
+            _ => None,
+        }
     }
 
     /// Enable real cursor pagination with the given page size.
@@ -1260,12 +1296,13 @@ impl<M> Table<M> {
             });
         }
 
-        // Grouping (in-memory, count summarizer) — when `?group_by=` is present and table has a group key.
+        // Grouping (in-memory, count summarizer) — only when `?group_by=`
+        // names the declared group; unknown values render nothing (GH #92).
         // Rendered after skeleton/empty so defer shows skeleton and empty shows
         // the honest empty state even when `?group_by=` is set (GH #75).
         // Counts are page-local (GH #92): label them as such so page 1 never
         // reads as a table total.
-        if let (Some(group_fn), Some(_)) = (&self.group_by, &state.group_by) {
+        if let Some(group_fn) = self.effective_group_key(state) {
             use std::collections::BTreeMap;
             let mut groups: BTreeMap<String, usize> = BTreeMap::new();
             for row in &page.rows {
@@ -1563,7 +1600,9 @@ impl<M> Table<M> {
             .as_ref()
             .map(|s| if s.descending { "desc" } else { "asc" });
         let filters_hidden = state.filters_param();
-        let group_hidden = state.group_by.clone();
+        // Echo only the declared group name (GH #92): unknown `?group_by=`
+        // values are dropped from links instead of round-tripping.
+        let group_hidden = self.effective_group_name(state);
         let clear_url = state
             .sort
             .as_ref()
@@ -1574,7 +1613,7 @@ impl<M> Table<M> {
                         ("sort", Some(s.column.as_str())),
                         ("dir", Some(if s.descending { "desc" } else { "asc" })),
                         ("filters", filters_hidden.as_deref()),
-                        ("group_by", state.group_by.as_deref()),
+                        ("group_by", group_hidden.as_deref()),
                     ],
                 )
             })
@@ -1584,14 +1623,13 @@ impl<M> Table<M> {
                         path,
                         &[
                             ("filters", Some(f.as_str())),
-                            ("group_by", state.group_by.as_deref()),
+                            ("group_by", group_hidden.as_deref()),
                         ],
                     )
                 })
             })
             .or_else(|| {
-                state
-                    .group_by
+                group_hidden
                     .as_deref()
                     .map(|g| build_url(path, &[("group_by", Some(g))]))
             });
@@ -1663,7 +1701,7 @@ impl<M> Table<M> {
             .as_ref()
             .map(|s| if s.descending { "desc" } else { "asc" });
         let q_hidden = state.search.clone();
-        let group_hidden = state.group_by.clone();
+        let group_hidden = self.effective_group_name(state);
         let clear_url = if !state.filters.is_empty() {
             Some(build_url(
                 path,
@@ -1671,7 +1709,7 @@ impl<M> Table<M> {
                     ("q", state.search.as_deref()),
                     ("sort", state.sort.as_ref().map(|s| s.column.as_str())),
                     ("dir", dir_hidden),
-                    ("group_by", state.group_by.as_deref()),
+                    ("group_by", group_hidden.as_deref()),
                 ],
             ))
         } else {
@@ -1935,12 +1973,13 @@ impl<M> Table<M> {
             .as_ref()
             .map(|s| if s.descending { "desc" } else { "asc" });
         let filters_param = state.filters_param();
+        let group_name = self.effective_group_name(state);
         let preserve: Vec<(&str, Option<&str>)> = vec![
             ("q", state.search.as_deref()),
             ("sort", state.sort.as_ref().map(|s| s.column.as_str())),
             ("dir", dir),
             ("filters", filters_param.as_deref()),
-            ("group_by", state.group_by.as_deref()),
+            ("group_by", group_name.as_deref()),
         ];
         let href = |param: &str, cursor: &str| {
             let mut params = Vec::with_capacity(preserve.len() + 1);
@@ -2021,6 +2060,7 @@ impl<M> Table<M> {
                     ),
                     _ => ("none", "\u{2195}", false),
                 };
+                let group_name = self.effective_group_name(state);
                 let href = build_url(
                     path,
                     &[
@@ -2028,7 +2068,7 @@ impl<M> Table<M> {
                         ("sort", Some(col.name())),
                         ("dir", Some(if next_desc { "desc" } else { "asc" })),
                         ("filters", state.filters_param().as_deref()),
-                        ("group_by", state.group_by.as_deref()),
+                        ("group_by", group_name.as_deref()),
                     ],
                 );
                 let aria_label = format!(
@@ -3986,7 +4026,7 @@ mod tests {
         let grouped = Table::<User>::r#for(&cx)
             .id(|u| u.id.to_string())
             .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()).sortable())
-            .group_by(|u| u.name.clone())
+            .group_by("status", |u| u.name.clone())
             .paginate(1);
         let state = TableState {
             group_by: Some("status".to_string()),
@@ -4017,6 +4057,52 @@ mod tests {
         assert!(
             html.contains("group_by") && html.contains("after=abc"),
             "pager must preserve group_by, got {html}"
+        );
+    }
+
+    #[tokio::test]
+    async fn group_by_unknown_value_renders_no_headers_and_drops_param() {
+        // GH #92: `?group_by=` must name the declared group — any other
+        // value renders no headers and vanishes from pager links instead of
+        // silently grouping by the single declared key.
+        let cx = CxTestBuilder::new().build();
+        let grouped = Table::<User>::r#for(&cx)
+            .id(|u| u.id.to_string())
+            .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()).sortable())
+            .group_by("status", |u| u.name.clone())
+            .paginate(1);
+        let state = TableState {
+            group_by: Some("email".to_string()),
+            sort: Some(Sort {
+                column: "name".to_string(),
+                descending: false,
+            }),
+            ..TableState::default()
+        };
+        let rows = vec![User {
+            id: uuid::Uuid::nil(),
+            name: "Ada".to_string(),
+        }];
+        let page = TablePage {
+            rows,
+            next_cursor: Some("abc".to_string()),
+            prev_cursor: None,
+        };
+        let html = grouped
+            .render_with_state(&cx, page, &state, "/admin/users")
+            .await
+            .unwrap()
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
+        assert!(
+            !html.contains("on this page"),
+            "unknown group_by must render no headers, got {html}"
+        );
+        assert!(
+            !html.contains("group_by"),
+            "unknown group_by must drop from links, got {html}"
         );
     }
 

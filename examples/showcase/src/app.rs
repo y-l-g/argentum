@@ -522,7 +522,7 @@ impl Resource for PostResource {
                 TernaryFilter::r#for(Post::fields().featured()),
                 DateFilter::r#for(Post::fields().created_at()),
             ))
-            .group_by(|p: &Post| p.status.clone())
+            .group_by("status", |p: &Post| p.status.clone())
             .paginate(2)
     }
 
