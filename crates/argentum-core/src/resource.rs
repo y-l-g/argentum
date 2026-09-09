@@ -482,7 +482,9 @@ where
     ///
     /// No field lens — so it cannot be searchable or sortable (it maps to no
     /// query predicate) — but any cell projection compiles: booleans,
-    /// timestamps, joined values.
+    /// timestamps, joined values. Calling `.searchable()` / `.sortable()` on
+    /// a computed column panics (GH #101): a lying sort link / search promise
+    /// is worse than a loud build error.
     pub fn computed(
         label: impl Into<String>,
         project: impl Fn(&M) -> String + Send + Sync + 'static,
@@ -509,11 +511,21 @@ where
     }
 
     pub fn searchable(mut self) -> Self {
+        assert!(
+            self.path.is_some(),
+            "searchable() on computed column '{}': computed columns map to no query predicate",
+            self.label
+        );
         self.searchable = true;
         self
     }
 
     pub fn sortable(mut self) -> Self {
+        assert!(
+            self.path.is_some(),
+            "sortable() on computed column '{}': computed columns map to no query predicate",
+            self.label
+        );
         self.sortable = true;
         self
     }
@@ -3651,5 +3663,25 @@ mod tests {
         }];
         let csv = csv_table.to_csv(&rows.into());
         assert!(csv.contains("\"Ada, \"\"the\"\" first\""), "quoting broke: {csv:?}");
+    }
+
+    #[test]
+    #[should_panic(expected = "searchable() on computed column")]
+    fn computed_searchable_panics_loudly() {
+        let _ = TextColumn::computed("Status", |u: &User| u.name.clone()).searchable();
+    }
+
+    #[test]
+    #[should_panic(expected = "sortable() on computed column")]
+    fn computed_sortable_panics_loudly() {
+        let _ = TextColumn::computed("Status", |u: &User| u.name.clone()).sortable();
+    }
+
+    #[test]
+    fn computed_columns_declare_no_predicate_chrome_agreement() {
+        let col = TextColumn::computed("Status", |u: &User| u.name.clone());
+        assert!(!col.is_searchable() && !col.is_sortable());
+        assert!(col.to_search_expr("x").is_none());
+        assert!(col.to_order_by(false).is_none());
     }
 }
