@@ -297,3 +297,34 @@ async fn create_post_without_csrf_is_forbidden() {
         .await;
     assert_eq!(resp.status(), 403, "missing CSRF must be 403");
 }
+
+#[tokio::test]
+async fn create_post_with_unknown_keys_is_bad_request() {
+    // GH #89 allow-list: role/tenant_id smuggling is a 400 at the framework
+    // layer, never silently ignored.
+    let db = seeded_db().await;
+    let router = router(db.clone());
+    let csrf = uuid::Uuid::new_v4().to_string();
+    let resp = router
+        .handle(
+            Request::builder()
+                .uri("/admin/users/create")
+                .method(Method::POST)
+                .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .header(COOKIE, format!("argentum_csrf={csrf}"))
+                .body(Body::from(format!(
+                    "name=Sneaky&email=sneaky%40example.com&role=admin&tenant_id=victim&csrf_token={csrf}"
+                )))
+                .unwrap(),
+        )
+        .await;
+    assert_eq!(
+        resp.status(),
+        400,
+        "unknown POST keys must be 400, got {}",
+        resp.status()
+    );
+    let mut db_check = db.clone();
+    let count = User::all().exec(&mut db_check).await.unwrap().len();
+    assert_eq!(count, 3, "smuggled POST must not create");
+}

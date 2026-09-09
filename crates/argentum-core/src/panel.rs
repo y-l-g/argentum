@@ -1217,6 +1217,33 @@ fn resource_create<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
     })))
 }
 
+/// Reject POST keys no declared Schema input owns (GH #89 mass-assignment
+/// allow-list). `csrf_token` is a handler key, not a field, so it is filtered
+/// before the check; absent keys are fine (present-keys-only updates), unknown
+/// keys are a 400 — silently ignoring `role`/`tenant_id` smuggling is what the
+/// old code did, and a generic record fn iterating `values` would promote them
+/// to client-controlled writes.
+fn reject_unknown_form_keys(
+    schema: &crate::schema::Schema,
+    values: &HashMap<String, String>,
+) -> Result<(), topcoat::Error> {
+    let filtered: HashMap<String, String> = values
+        .iter()
+        .filter(|(k, _)| k.as_str() != crate::csrf::FIELD_NAME)
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
+    let unknown = schema.unknown_keys(&filtered);
+    if unknown.is_empty() {
+        Ok(())
+    } else {
+        Err(topcoat::router::error::bad_request(format!(
+            "unknown field(s): {}",
+            unknown.join(", ")
+        ))
+        .into())
+    }
+}
+
 /// Create page POST.
 /// App-side uniqueness check over the form's `unique()`-marked text inputs.
 ///
@@ -1281,6 +1308,7 @@ fn resource_create_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
         let values = parse_form_values(cx, body).await?;
         crate::csrf::verify(cx, &values)?;
         let schema = R::form(cx);
+        reject_unknown_form_keys(&schema, &values)?;
         let mut errors = schema.validate_async(cx, &values).await;
         // App-side unique check over every `unique()`-marked input — the only
         // error layer until toasty exposes a unique-violation predicate
@@ -1371,6 +1399,7 @@ fn resource_edit_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
         let values = parse_form_values(cx, body).await?;
         crate::csrf::verify(cx, &values)?;
         let schema = R::form(cx);
+        reject_unknown_form_keys(&schema, &values)?;
         let mut errors = schema.validate_async(cx, &values).await;
         // Unique check excludes this record's own unchanged values.
         let current = R::hydrate_form_values(&record);
@@ -2627,6 +2656,45 @@ mod tests {
         let errors =
             check_unique::<SubscriberResource>(&cx, &schema, &empty, &HashMap::new()).await;
         assert!(errors.is_empty(), "empty must be skipped, got {errors:?}");
+    }
+
+    #[test]
+    fn reject_unknown_form_keys_allows_declared_plus_csrf() {
+        use crate::schema::{Schema, TextInput};
+
+        #[derive(Debug, toasty::Model)]
+        struct Member {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            name: String,
+        }
+        let schema = Schema::new(TextInput::r#for(Member::fields().name()));
+
+        // Declared keys + csrf_token pass.
+        let values = HashMap::from([
+            ("name".to_string(), "Ada".to_string()),
+            (
+                crate::csrf::FIELD_NAME.to_string(),
+                "some-token".to_string(),
+            ),
+        ]);
+        assert!(reject_unknown_form_keys(&schema, &values).is_ok());
+
+        // Absent keys are fine (present-keys-only updates, GH #89).
+        let values = HashMap::from([(
+            crate::csrf::FIELD_NAME.to_string(),
+            "some-token".to_string(),
+        )]);
+        assert!(reject_unknown_form_keys(&schema, &values).is_ok());
+
+        // role/tenant_id smuggling is a 400.
+        let values = HashMap::from([
+            ("name".to_string(), "Ada".to_string()),
+            ("role".to_string(), "admin".to_string()),
+            ("tenant_id".to_string(), "victim".to_string()),
+        ]);
+        assert!(reject_unknown_form_keys(&schema, &values).is_err());
     }
 
     #[test]

@@ -1415,7 +1415,8 @@ impl Schema {
 
     /// Keys in `values` that no declared input owns, sorted (GH #89).
     ///
-    /// Framework-level allow-list seam: record handlers already whitelist via
+    /// Framework-level allow-list seam, enforced by the create/edit POST
+    /// handlers (unknown keys → 400): record handlers already whitelist via
     /// per-field `.get(..)`, but a generic impl iterating `values` would
     /// silently promote `role`/`tenant_id`/handler keys (`csrf_token`,
     /// `confirm`, `ids`) to client-controlled writes. Callers should reject
