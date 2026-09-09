@@ -57,6 +57,38 @@ impl Parse for ResourceArgs {
     }
 }
 
+/// Reject anything that is not a unit struct (GH #103).
+fn check_unit_struct(input: &DeriveInput) -> syn::Result<()> {
+    if matches!(&input.data, syn::Data::Struct(data) if matches!(data.fields, syn::Fields::Unit))
+    {
+        Ok(())
+    } else {
+        Err(syn::Error::new_spanned(
+            &input.ident,
+            "#[derive(Resource)] only supports unit structs",
+        ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn check(src: &str) -> bool {
+        let input: DeriveInput = syn::parse_str(src).expect("test input must parse");
+        check_unit_struct(&input).is_ok()
+    }
+
+    #[test]
+    fn unit_structs_pass_fieldful_structs_and_enums_fail() {
+        assert!(check("struct Foo;"));
+        assert!(check("struct Foo<T>;"));
+        assert!(!check("struct Foo { x: u8 }"));
+        assert!(!check("struct Foo(u8);"));
+        assert!(!check("enum Foo { A, B }"));
+        assert!(!check("union Foo { x: u8 }"));
+    }
+}
 /// Derive `Resource` for a unit struct.
 ///
 /// Expects `#[resource(model = Type)]` where `Type` is the Toasty `Model`.
@@ -83,6 +115,13 @@ pub fn resource(input: TokenStream) -> TokenStream {
     let ident = &input.ident;
     let generics = &input.generics;
 
+    // The derive implements `Resource` with no per-instance state, so only
+    // unit structs are meaningful (GH #103): anything else silently yields an
+    // impl that ignores the shape.
+    if let Err(e) = check_unit_struct(&input) {
+        return e.to_compile_error().into();
+    }
+
     // Find #[resource(...)] attribute
     let attr = input.attrs.iter().find(|a| a.path().is_ident("resource"));
     let Some(attr) = attr else {
@@ -101,15 +140,25 @@ pub fn resource(input: TokenStream) -> TokenStream {
 
     // Resolve the path to `argentum-core` in the consumer crate. `proc-macro-crate`
     // handles `package = "argentum-core"` renames and `as alias` (GH #52).
-    let krate = {
-        let found = proc_macro_crate::crate_name("argentum-core")
-            .expect("argentum-core is present in Cargo.toml");
-        let name = match found {
-            proc_macro_crate::FoundCrate::Itself => "argentum_core".to_string(),
-            proc_macro_crate::FoundCrate::Name(n) => n,
-        };
-        let ident = syn::Ident::new(&name.replace('-', "_"), proc_macro2::Span::call_site());
-        quote! { ::#ident }
+    // A missing dependency is a spanned `compile_error!`, not a proc-macro
+    // panic (GH #103).
+    let krate = match proc_macro_crate::crate_name("argentum-core") {
+        Ok(found) => {
+            let name = match found {
+                proc_macro_crate::FoundCrate::Itself => "argentum_core".to_string(),
+                proc_macro_crate::FoundCrate::Name(n) => n,
+            };
+            let ident = syn::Ident::new(&name.replace('-', "_"), proc_macro2::Span::call_site());
+            quote! { ::#ident }
+        }
+        Err(_) => {
+            return syn::Error::new_spanned(
+                ident,
+                "argentum-core must be a dependency to #[derive(Resource)]",
+            )
+            .to_compile_error()
+            .into();
+        }
     };
 
     let expanded = match &args.query {
