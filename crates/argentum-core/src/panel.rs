@@ -1124,6 +1124,13 @@ fn resource_create<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
 ///
 /// `current` holds the record's own hydrated values on edit: a field whose
 /// submitted value is unchanged belongs to this record and is skipped.
+///
+/// Known limits (GH #88, see EXTERNAL_GAPS unique entry): races with concurrent
+/// inserts (only a driver predicate closes it); the check is tenant-scoped via
+/// `R::query` while DB `#[unique]` is global, so cross-tenant duplicates 500;
+/// empty values are skipped (pair `unique()` with `required()` or normalize
+/// `""` vs `NULL` in the record fn); `unique()` exists on `TextInput` only,
+/// composite uniques are not covered.
 async fn check_unique<R: Resource>(
     cx: &Cx,
     schema: &crate::schema::Schema,
@@ -2065,6 +2072,14 @@ mod tests {
             Some(&vec!["Email has already been taken".to_string()]),
             "changed-to-duplicate must be flagged, got {errors:?}"
         );
+
+        // Empty values are skipped (GH #88): pair unique() with required() or
+        // normalize "" vs NULL, or optional empty duplicates 500 at the driver.
+        let mut empty = HashMap::new();
+        empty.insert("email".to_string(), "   ".to_string());
+        let errors =
+            check_unique::<SubscriberResource>(&cx, &schema, &empty, &HashMap::new()).await;
+        assert!(errors.is_empty(), "empty must be skipped, got {errors:?}");
     }
 
     #[test]

@@ -68,7 +68,7 @@ impl IntoExpr<T> for stmt::Value { … }          // or: trait Model { fn parse_
 
 **Today:** toasty exposes no unique-violation error kind. `toasty-core/src/error/` has `is_record_not_found`, `is_condition_failed`, … but no `is_unique_violation`; `#[unique]` only creates the DB index and duplicates surface as an unclassified driver error. The app layer is therefore the only duplicate guard: `check_unique` queries the field path via `TextInput::eq_filter` (public facade) and maps a hit to `"<Label> has already been taken"`. Driver-level violations that slip past the check (concurrent writes) propagate as errors — never string-match driver error messages.
 
-**Why fragile:** the app-side check races with concurrent inserts (TOCTOU); only a driver-level predicate closes it.
+**Why fragile:** the app-side check races with concurrent inserts (TOCTOU); only a driver-level predicate closes it. It is also tenant-scoped via `R::query` while DB `#[unique]` is global (cross-tenant duplicates 500, GH #88); empty values are skipped so optional `unique()` fields storing `""` can still 500; composite uniques and non-`TextInput` fields are not covered (`unique()` is `TextInput`-only).
 
 **Clean upstream API:** `Error::is_unique_violation()` (or `ErrorKind::UniqueViolation { constraint }`) surfaced by the SQL drivers.
 
