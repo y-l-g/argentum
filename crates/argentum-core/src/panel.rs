@@ -1561,7 +1561,7 @@ fn resource_export<R: Resource>(cx: &Cx, _body: Body) -> RouteFuture<'_> {
         let filename = format!("{}.csv", R::slug());
         let res = http::Response::builder()
             .status(200)
-            .header(http::header::CONTENT_TYPE, "text/csv")
+            .header(http::header::CONTENT_TYPE, "text/csv; charset=utf-8")
             .header(
                 http::header::CONTENT_DISPOSITION,
                 format!("attachment; filename=\"{}\"", filename),

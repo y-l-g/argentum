@@ -85,6 +85,11 @@ async fn posts_export_streams_csv_with_content_disposition() {
         "content-type should be text/csv, got {}",
         content_type
     );
+    assert!(
+        content_type.contains("charset=utf-8"),
+        "content-type should declare utf-8 for non-ASCII cells (GH #94), got {}",
+        content_type
+    );
     let disposition = resp
         .headers()
         .get(http::header::CONTENT_DISPOSITION)
