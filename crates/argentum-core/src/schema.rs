@@ -692,6 +692,21 @@ where
         toasty_core::stmt::Type::Bytes => {
             toasty_core::stmt::Value::Bytes(id.as_bytes().to_vec())
         }
+        // Temporal PKs parse from their canonical string forms, in lockstep
+        // with the cursor codec (GH #95). Zoned/decimal/net PKs and composite
+        // keys still have no URL representation.
+        toasty_core::stmt::Type::Timestamp => {
+            toasty_core::stmt::Value::Timestamp(id.parse().ok()?)
+        }
+        toasty_core::stmt::Type::Date => {
+            toasty_core::stmt::Value::Date(id.parse().ok()?)
+        }
+        toasty_core::stmt::Type::Time => {
+            toasty_core::stmt::Value::Time(id.parse().ok()?)
+        }
+        toasty_core::stmt::Type::DateTime => {
+            toasty_core::stmt::Value::DateTime(id.parse().ok()?)
+        }
         _ => return None,
     };
     Some((fid, value))
@@ -2447,5 +2462,38 @@ mod tests {
         two.chain(&toasty_core::stmt::Path::field(DummyUser::id(), 1));
         let result = std::panic::catch_unwind(|| require_single_segment(&two, "lens"));
         assert!(result.is_err(), "traversal lens must panic, not misbind");
+    }
+
+    #[derive(Debug, Clone, toasty::Model)]
+    struct TemporalPk {
+        #[key]
+        at: jiff::Timestamp,
+        name: String,
+    }
+
+    #[tokio::test]
+    async fn temporal_pks_parse_from_url_ids() {
+        // Parse level: canonical forms resolve, garbage does not (GH #95).
+        assert!(pk_eq_expr::<TemporalPk>("2024-01-15T09:30:00Z").is_some());
+        assert!(pk_eq_expr::<TemporalPk>("not-a-time").is_none());
+        // Round-trip through sqlite: the parsed value filters the row.
+        let mut db = toasty::Db::builder()
+            .models(toasty::models!(TemporalPk))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        toasty::create!(TemporalPk {
+            at: "2024-01-15T09:30:00Z".parse::<jiff::Timestamp>().unwrap(),
+            name: "Ada".to_string(),
+        })
+        .exec(&mut db)
+        .await
+        .unwrap();
+        let mut db2 = db.clone();
+        let expr = pk_eq_expr::<TemporalPk>("2024-01-15T09:30:00Z").unwrap();
+        let rows = TemporalPk::filter(expr).exec(&mut db2).await.unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].name, "Ada");
     }
 }
