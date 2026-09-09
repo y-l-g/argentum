@@ -1478,6 +1478,10 @@ fn resource_export<R: Resource>(cx: &Cx, _body: Body) -> RouteFuture<'_> {
         }
         let mut db = db(cx);
         let rows: Vec<R::Model> = query.exec(&mut db).await.map_err(topcoat::Error::from)?;
+        // Export must not exceed row visibility (GH #86): drop rows the
+        // caller may not view. (The list page still checks only `can_view_any`
+        // — page-local per-row filtering would mislabel pagination.)
+        let rows: Vec<R::Model> = rows.into_iter().filter(|r| R::can_view(cx, r)).collect();
         // Build TablePage without pagination for CSV (all rows)
         let page: TablePage<R::Model> = rows.into();
         let csv = table.to_csv(&page);
@@ -2007,6 +2011,88 @@ mod tests {
         assert!(
             !html.contains("/delete"),
             "read-only list must not render delete actions, got {html}"
+        );
+    }
+
+    #[tokio::test]
+    async fn export_drops_rows_failing_can_view() {
+        use crate::resource::Resource;
+        use http_body_util::BodyExt;
+        use std::collections::HashMap;
+
+        #[derive(Debug, toasty::Model)]
+        struct Dummy {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            name: String,
+        }
+        struct RowPolicyResource;
+        impl Resource for RowPolicyResource {
+            type Model = Dummy;
+            fn slug() -> String {
+                "dummies".to_string()
+            }
+            fn can_view_any(_cx: &Cx) -> bool {
+                true
+            }
+            fn can_view(_cx: &Cx, record: &Dummy) -> bool {
+                record.name != "denied"
+            }
+            fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
+                crate::resource::Table::r#for(cx)
+                    .id(|d: &Dummy| d.id.to_string())
+                    .columns(crate::resource::TextColumn::r#for(
+                        Dummy::fields().name(),
+                        |d: &Dummy| d.name.clone(),
+                    ))
+            }
+            fn hydrate_form_values(_record: &Dummy) -> HashMap<String, String> {
+                HashMap::new()
+            }
+        }
+
+        let mut db = Db::builder()
+            .models(toasty::models!(Dummy))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        for name in ["allowed", "denied"] {
+            toasty::create!(Dummy {
+                name: name.to_string(),
+            })
+            .exec(&mut db)
+            .await
+            .unwrap();
+        }
+        let router = Panel::new("admin")
+            .app_context(db)
+            .resource::<RowPolicyResource>()
+            .build();
+        let resp = router
+            .handle(
+                http::Request::builder()
+                    .uri("/admin/dummies/export")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await;
+        assert!(resp.status().is_success());
+        let body = resp
+            .into_body()
+            .collect()
+            .await
+            .unwrap()
+            .to_bytes();
+        let csv = String::from_utf8_lossy(&body);
+        assert!(
+            csv.contains("allowed"),
+            "export must keep viewable rows, got {csv}"
+        );
+        assert!(
+            !csv.contains("denied"),
+            "export must not exceed row visibility (GH #86), got {csv}"
         );
     }
 
