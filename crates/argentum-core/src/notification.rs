@@ -100,7 +100,7 @@ pub fn set_notification(cx: &Cx, notification: Notification) {
     let value = notification.encode();
     let cookie = Cookie::build((COOKIE_NAME, value))
         .path("/")
-        .http_only(false)
+        .http_only(true)
         .same_site(topcoat::cookie::SameSite::Lax)
         .build();
     cookies(cx).add(cookie);
@@ -144,6 +144,7 @@ fn html_escape(s: &str) -> String {
         .replace('<', "&lt;")
         .replace('>', "&gt;")
         .replace('"', "&quot;")
+        .replace('\'', "&#x27;")
 }
 
 #[cfg(test)]
@@ -199,5 +200,25 @@ mod tests {
         // not immediate get). In this test jar still has original cookie, so we check that
         // decode works; actual removal is via Set-Cookie header, not immediate.
         // Just ensure first take succeeded.
+    }
+
+    #[test]
+    fn render_notification_honors_status_and_escapes() {
+        for (status, marker) in [
+            (NotificationStatus::Success, "border-border"),
+            (NotificationStatus::Error, "border-destructive"),
+        ] {
+            let n = Notification {
+                status: status.clone(),
+                title: "<script>alert('x')</script>".to_string(),
+            };
+            let enc = n.encode();
+            let cx = cx_with_cookie(Some(&enc));
+            let html = render_notification(&cx).expect("must render");
+            assert!(html.contains(marker), "status {status:?} must map to {marker}, got {html}");
+            assert!(!html.contains("<script>"), "title must be escaped, got {html}");
+            assert!(html.contains("&lt;script&gt;"), "missing escaped title, got {html}");
+            assert!(html.contains("&#x27;"), "single quote must be escaped, got {html}");
+        }
     }
 }

@@ -477,10 +477,19 @@ impl Panel {
             take_notification(cx).or_else(|| notification_from_query(cx))
         {
             let title = notification.title.clone();
+            // Honor status (GH #97): error renders destructive, others default.
+            // Matches `notification::render_notification` so the shell and the
+            // helper never diverge again.
+            let card_class = match notification.status {
+                crate::notification::NotificationStatus::Error => {
+                    "rounded-xl border border-destructive bg-background shadow-sm p-4"
+                }
+                _ => "rounded-xl border border-border bg-background shadow-sm p-4",
+            };
             view! {
                 cx =>
                 <div
-                    class="rounded-xl border border-border bg-background shadow-sm p-4"
+                    class=(card_class)
                 >
                     <p class="text-sm font-medium text-foreground">(title)</p>
                 </div>
