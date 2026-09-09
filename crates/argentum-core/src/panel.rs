@@ -684,10 +684,15 @@ fn resource_list<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
         // delete form posts to `{list url}/{id}/delete` and the bulk bar to
         // `{list url}/bulk-delete`, both derived from the panel declaration
         // (not the request path) so the URLs are right wherever the table
-        // renders.
-        table = table
-            .with_delete(list_url(cx, &R::slug()))
-            .with_bulk_delete(true);
+        // renders. Read-only resources opt out via `Resource::deletable`
+        // (GH #96) instead of rendering buttons that always 403.
+        table = if R::deletable() {
+            table
+                .with_delete(list_url(cx, &R::slug()))
+                .with_bulk_delete(true)
+        } else {
+            table
+        };
         let title = R::navigation_label();
 
         // First content: the skeleton grid (same markup the eager
@@ -1923,6 +1928,86 @@ mod tests {
             )
             .await;
         assert_eq!(no_token.status(), http::StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn read_only_resource_hides_delete_chrome() {
+        use crate::resource::Resource;
+        use http_body_util::BodyExt;
+        use std::collections::HashMap;
+
+        #[derive(Debug, toasty::Model)]
+        struct Dummy {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            name: String,
+        }
+        struct ReadOnlyResource;
+        impl Resource for ReadOnlyResource {
+            type Model = Dummy;
+            fn slug() -> String {
+                "dummies".to_string()
+            }
+            fn deletable() -> bool {
+                false
+            }
+            fn can_view_any(_cx: &Cx) -> bool {
+                true
+            }
+            fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
+                crate::resource::Table::r#for(cx)
+                    .id(|d: &Dummy| d.id.to_string())
+                    .columns(crate::resource::TextColumn::r#for(
+                        Dummy::fields().name(),
+                        |d: &Dummy| d.name.clone(),
+                    ))
+            }
+            fn hydrate_form_values(_record: &Dummy) -> HashMap<String, String> {
+                HashMap::new()
+            }
+        }
+
+        let mut db = Db::builder()
+            .models(toasty::models!(Dummy))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        toasty::create!(Dummy {
+            name: "Ada".to_string(),
+        })
+        .exec(&mut db)
+        .await
+        .unwrap();
+        let router = Panel::new("admin")
+            .app_context(db)
+            .resource::<ReadOnlyResource>()
+            .build();
+        let resp = router
+            .handle(
+                http::Request::builder()
+                    .uri("/admin/dummies")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await;
+        assert!(resp.status().is_success());
+        let body = resp
+            .into_body()
+            .collect()
+            .await
+            .unwrap()
+            .to_bytes();
+        let html = String::from_utf8_lossy(&body);
+        assert!(
+            !html.contains("data-bulk-form") && !html.contains("Bulk Delete"),
+            "read-only list must not render bulk chrome, got {html}"
+        );
+        assert!(
+            !html.contains("/delete"),
+            "read-only list must not render delete actions, got {html}"
+        );
     }
 
     #[tokio::test]

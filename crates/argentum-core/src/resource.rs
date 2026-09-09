@@ -2591,6 +2591,16 @@ pub trait Resource: Sized + Send + Sync + 'static {
         false
     }
 
+    /// Whether this resource exposes row and bulk delete chrome (GH #96).
+    ///
+    /// The default renders Delete buttons and the bulk bar; server policy
+    /// (`can_delete`) still denies regardless. Read-only resources should
+    /// override to `false` so users never reach a 403 after a confirmation
+    /// round-trip.
+    fn deletable() -> bool {
+        true
+    }
+
     /// The URL slug for this resource's pages, e.g. `"users"` mounts the list
     /// at `{panel prefix}/users`.
     ///
