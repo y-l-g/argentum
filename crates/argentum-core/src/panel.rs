@@ -46,17 +46,23 @@ pub struct Brand {
 }
 
 impl Brand {
-    /// Create a brand with the given name.
+    /// Create a brand with the given name (GH #102: surrounding whitespace is
+    /// trimmed so `" Acme "` cannot break the `flex h-16` header).
     pub fn new(name: impl Into<String>) -> Self {
         Self {
-            name: name.into(),
+            name: name.into().trim().to_string(),
             logo: None,
         }
     }
 
-    /// Attach a logo URL.
+    /// Attach a logo URL (GH #102: blank values are ignored so an empty
+    /// `logo("")` falls back to the name-only render instead of a
+    /// broken-image icon).
     pub fn logo(mut self, logo: impl Into<String>) -> Self {
-        self.logo = Some(logo.into());
+        let logo = logo.into().trim().to_string();
+        if !logo.is_empty() {
+            self.logo = Some(logo);
+        }
         self
     }
 }
@@ -374,7 +380,7 @@ impl Panel {
             Ok(view! {
                 cx =>
                 <div class="flex items-center gap-2 font-semibold text-foreground">
-                    <img src=(logo_url) alt=(alt) class="h-6 w-6 rounded">
+                    <img src=(logo_url) alt=(alt) width="24" height="24" class="h-6 w-6 rounded">
                     (name)
                 </div>
             }
@@ -1506,6 +1512,18 @@ mod tests {
         assert_eq!(Panel::new("admin/").prefix(), "/admin");
         assert_eq!(Panel::new("/admin/").prefix(), "/admin");
         assert_eq!(Panel::new("").prefix(), "/admin");
+    }
+
+    #[test]
+    fn brand_trims_name_and_ignores_blank_logo() {
+        assert_eq!(Brand::new("  Acme  ").name, "Acme");
+        assert_eq!(Brand::new("Acme").logo, None);
+        assert_eq!(
+            Brand::new("Acme").logo("  /logo.svg  ").logo.as_deref(),
+            Some("/logo.svg")
+        );
+        // Blank logos fall back to the name-only render (GH #102).
+        assert_eq!(Brand::new("Acme").logo("   ").logo, None);
     }
 
     #[test]
