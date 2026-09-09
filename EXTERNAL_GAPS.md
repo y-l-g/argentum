@@ -126,7 +126,7 @@ impl IntoExpr<T> for stmt::Value { … }          // or: trait Model { fn parse_
 
 **Why fragile:** the loop pattern works and nothing breaks — but the rule is discoverable only by trial, and a future refactor toward pre-built view lists (`Vec<BoxView>`) has no documented support either way.
 
-**Clean upstream API (any one):** `impl FromIterator<BoxView<'a>> for Child<'a>`, a `fragment!` helper, or a `view.md` note stating the intended pattern is a `for` loop inside one `view!` with `key:` on component calls.
+**Clean upstream API (any one):** `impl FromIterator<BoxView<'a>> for Child<'a>`, a `fragment!` helper, or a `view.md` note stating the intended pattern is a `for` loop inside one `view!` with `key:` on component calls. (Upstream #392 already documents the companion rule: reorderable lists need stable `id`s so the morph follows items — ticket #104 tracks adopting that for table rows.)
 
 **Argentum plan:** keep loop + `key:`; adopt whichever upstream shape lands and delete this entry.
 

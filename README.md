@@ -51,7 +51,7 @@ These are invariants. Code that violates them is a bug.
 
 Only `argentum-core` + `argentum-macros` are hard dependencies. UI chrome lives in **`argentum-ui`** (ADR-0006/0007): its *primitives* are a verbatim mirror of `topcoat-ui-registry`, synced by `cargo xtask sync-topcoat-ui` and never hand-edited; its *composites* (Sidebar, Page, CodeBlock) are owned Argentum components. Apps depend on the crate.
 
-Topcoat stack assumptions (Topcoat 0.7 / Toasty 0.10, both tracking `main`, pins in `Cargo.lock` — bump deliberately with `cargo update -p topcoat` / `cargo update -p toasty`): `view!` / `#[component]` (concurrent), `#[page]` / `#[layout]` / `discover` + `href!`, `Cx` with `cx.with(...)` + `#[memoize]`, `cookie`/`session`, `asset!`, `tailwind`. `Panel::build` mounts the browser-runtime routes (`RouterBuilderRuntimeExt::runtime()`, required by `runtime::script`). Streaming SSR via `suspense` is **adopted** — the resource list streams its rows behind a skeleton — while boundary-diff reactivity and Signals v2 remain **designs**; Argentum keeps working on today's runtime (see §7).
+Topcoat stack assumptions (Topcoat 0.8 / Toasty 0.10, both tracking `main`, pins in `Cargo.lock` — bump deliberately with `cargo update -p topcoat` / `cargo update -p toasty`): `view!` / `#[component]` (concurrent), `#[page]` / `#[layout]` / `discover` + `href!`, `Cx` with `cx.with(...)` + `#[memoize]`, `cookie`/`session`, `asset!`, `tailwind`. `Panel::build` mounts the browser-runtime routes (`RouterBuilderRuntimeExt::runtime()`, required by `runtime::script`). Streaming SSR via `suspense` is **adopted** — the resource list streams its rows behind a skeleton — and rerun morphing is **adopted** (Topcoat #392: shard/page re-runs morph in place, focus survives); `Signal<T>` shard params landed (Topcoat #393) while the keystroke-live table shard itself remains a **ticket** (#104); Argentum keeps working on today's runtime (see §7). `TowerRoute::any` has no Argentum use (we mount no tower services).
 
 ---
 
@@ -248,7 +248,7 @@ Toasty has `count()` but no `GROUP BY / HAVING / SUM / DISTINCT` yet — dashboa
 
 ## 7. Reactivity — today's API and the seam that survives
 
-Today on `main` (topcoat 0.7):
+Today on `main` (topcoat 0.8):
 
 ```rust
 let query = signal(cx, String::new); // page-owned; hoists identity for the client
@@ -256,10 +256,11 @@ let query = signal(cx, String::new); // page-owned; hoists identity for the clie
 ```
 
 - `signal(cx, init)` is an ordinary Rust function returning an owned cheap-to-clone value. It must run inside a page/layout/component body (hand-registered `PageFn`s wrap their body in `HoistView`, exactly what `#[page]` generates). Identity comes from the creating body plus the call site, so a body that repeats (for loop) needs a `key`.
-- Reads in `$(...)` re-run in JS with no server round-trip. Reads in plain Rust via `get()`/`read()` are **tracked** — they emit a dependency marker so a browser change re-runs the page (or the innermost enclosing shard) via the runtime routes; `get_untracked()`/`read_untracked()` opt out. Every server-read value is untrusted user input.
+- Reads in `$(...)` re-run in JS with no server round-trip. Reads in plain Rust via `get()`/`read()` are **tracked** — they emit a dependency marker so a browser change re-runs the page (or the innermost enclosing shard) via the runtime routes, and the result is **morphed** into place (Topcoat #392): elements that still exist update in place so focus, scroll position, and what the user is typing survive; give reorderable list items a stable `id` so the morph follows each item. `get_untracked()`/`read_untracked()` opt out. Every server-read value is untrusted user input.
+- A shard can also take a signal from its caller through a parameter typed `Signal<T>`, passed as `$(signal)` (Topcoat #393). The handle does not change when its value does, so whether a change re-renders the shard depends on how the shard body reads it — the seam for passing table state without forcing re-renders (see #104).
 - Guards on page/layout **do not run** on shard requests — a shard must authorize itself. Argentum defines no shards or procedures of its own today: deletes/creates/edits are POST `PageFn` handlers, and the hand-registered pages adapt fallible async bodies with an internal view adapter mirroring `#[page]` (see `EXTERNAL_GAPS.md`).
 - **Adopted:** `suspense(fallback, child)` for streaming skeletons — first content ships the shell + skeleton, the loaded content swaps in via `<template data-topcoat-swap>` markers, no client library. (Upstream also ships `live!`/`emit!`; Argentum does not use them.) `resource_list` streams rows this way; `Table::render_skeleton` is the shared fallback.
-- **Designs, not mechanisms:** tracked server reads re-running the page and `boundary` diffing (shipping only changed regions). `Table::render_with_state` + `TableState::from_live_args` are the kept seam: a true keystroke-live shard waits on a slug-dispatch registry design (`#[shard]` inventory only discovers concrete fns, so a generic shard is undiscoverable). The previous dummy live-search shard was removed — live search today is the `?q=` GET toolbar.
+- **Designs, not mechanisms:** the keystroke-live table shard itself (ticket #104: concrete per-resource `#[shard]` fns — inventory only discovers concrete fns, so a generic shard is undiscoverable — taking `Signal<T>` params per #393, with morph `id`s per #392). `Table::render_with_state` + `TableState::from_live_args` are the kept seam. The previous dummy live-search shard was removed — live search today is the `?q=` GET toolbar, kept as the no-JS fallback.
 
 **Argentum's contract (works on `main`, migrates without rewriting resources):** tables and slow cards are **streamed regions**; filter/search/sort/page state is page-owned URL state; all deferred data loads are **`#[memoize]`d** so streaming, concurrent rendering, and fan-out dedup are free.
 
@@ -299,7 +300,7 @@ Multipart `FileUpload` (filename-as-path, no `value` on `type=file`), single-ent
 
 ### Now
 
-Streaming honesty follow-ups: slug-dispatch design for a real keystroke-live shard (`render_with_state` + `from_live_args` are the seam), dev lint for unmemoized deferred loads, prewarm hint for `defer`, per-region flush tradeoffs.
+Keystroke-live table shard (ticket #104, unblocked by Topcoat #393 `Signal<T>` params + #392 morph): concrete per-resource shards over the `render_with_state` + `from_live_args` seam, with stable morph `id`s on reorderable rows. Plus: dev lint for unmemoized deferred loads, prewarm hint for `defer`, per-region flush tradeoffs.
 
 ### Next
 
@@ -307,7 +308,7 @@ Widgets (`StatsOverview`, chart), global search, infolist entries, file/media as
 
 **Out of scope for v1:** `via` many-to-many in tables, DynamoDB-backed admin, `GROUP BY` aggregates beyond `count` (raw-SQL shim only), WASM admin, SPA mode.
 
-(The old tracking issue #38 is closed; its remaining future slices are the Now/Next lists above. Only Renovate's `#82` is open — future slices need new issues.)
+(The old tracking issue #38 is closed; its remaining future slices are the Now/Next lists above. Open work is tracked per-topic in #84–#104 plus Renovate's `#82`.)
 
 ---
 
@@ -381,7 +382,7 @@ impl Resource for PostResource {
 
 ## 12. Open questions
 
-- Transport for re-runs: runtime page/shard routes landed; `boundary` diff headers (proxy size limits) remain the design. Same seam.
+- Transport for re-runs: runtime page/shard routes landed and results morph in place (#392 — focus/scroll/typing survive, stable `id`s pin reorderable items). Shard `Signal<T>` params landed (#393); the live table shard itself is ticket #104. Same seam.
 - Prewarm hint for `defer` (start memoized load during skeleton pass) and per-region flushing tradeoffs.
 - `Table` column `key:` stability inside `for row in rows` — enforce `key:` from the row key, never the loop index.
 
