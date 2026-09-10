@@ -69,25 +69,6 @@ fn check_unit_struct(input: &DeriveInput) -> syn::Result<()> {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn check(src: &str) -> bool {
-        let input: DeriveInput = syn::parse_str(src).expect("test input must parse");
-        check_unit_struct(&input).is_ok()
-    }
-
-    #[test]
-    fn unit_structs_pass_fieldful_structs_and_enums_fail() {
-        assert!(check("struct Foo;"));
-        assert!(check("struct Foo<T>;"));
-        assert!(!check("struct Foo { x: u8 }"));
-        assert!(!check("struct Foo(u8);"));
-        assert!(!check("enum Foo { A, B }"));
-        assert!(!check("union Foo { x: u8 }"));
-    }
-}
 /// Derive `Resource` for a unit struct.
 ///
 /// Expects `#[resource(model = Type)]` where `Type` is the Toasty `Model`.
@@ -179,4 +160,24 @@ pub fn resource(input: TokenStream) -> TokenStream {
         },
     };
     TokenStream::from(expanded)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn check(src: &str) -> bool {
+        let input: DeriveInput = syn::parse_str(src).expect("test input must parse");
+        check_unit_struct(&input).is_ok()
+    }
+
+    #[test]
+    fn unit_structs_pass_fieldful_structs_and_enums_fail() {
+        assert!(check("struct Foo;"));
+        assert!(check("struct Foo<T>;"));
+        assert!(!check("struct Foo { x: u8 }"));
+        assert!(!check("struct Foo(u8);"));
+        assert!(!check("enum Foo { A, B }"));
+        assert!(!check("union Foo { x: u8 }"));
+    }
 }

@@ -91,72 +91,62 @@ impl Resource for UserResource {
         map
     }
 
-    fn create_record(
+    async fn create_record(
         _cx: &Cx,
         values: HashMap<String, String>,
         ex: &mut dyn toasty::Executor,
-    ) -> impl std::future::Future<Output = Result<()>> + Send
-    where
-        Self: Sized,
-    {
-        async move {
-            let name = values
-                .get("name")
-                .cloned()
-                .unwrap_or_default()
-                .trim()
-                .to_string();
-            let email = values
-                .get("email")
-                .cloned()
-                .unwrap_or_default()
-                .trim()
-                .to_string();
-            toasty::create!(User {
-                name: name,
-                email: email,
-                role: "member",
-                active: true,
-                created_at: jiff::Timestamp::now(),
-            })
-            .exec(&mut *ex)
-            .await
-            .map_err(|e| -> topcoat::Error { e.into() })?;
-            Ok(())
-        }
+    ) -> Result<()> {
+        let name = values
+            .get("name")
+            .cloned()
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        let email = values
+            .get("email")
+            .cloned()
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        toasty::create!(User {
+            name: name,
+            email: email,
+            role: "member",
+            active: true,
+            created_at: jiff::Timestamp::now(),
+        })
+        .exec(&mut *ex)
+        .await
+        .map_err(|e| -> topcoat::Error { e.into() })?;
+        Ok(())
     }
 
-    fn update_record(
+    async fn update_record(
         _cx: &Cx,
         mut record: User,
         values: HashMap<String, String>,
         ex: &mut dyn toasty::Executor,
-    ) -> impl std::future::Future<Output = Result<()>> + Send
-    where
-        Self: Sized,
-    {
-        async move {
-            // The handler's checked snapshot (GH #86): `record` was loaded
-            // inside the framework tx and policy-checked — no re-query.
-            let name = match values.get("name") {
-                // Absent keys keep the stored value (GH #89): an omitted
-                // optional field must not silently blank the record.
-                Some(v) => v.trim().to_string(),
-                None => record.name.clone(),
-            };
-            let email = match values.get("email") {
-                Some(v) => v.trim().to_string(),
-                None => record.email.clone(),
-            };
-            toasty::update!(record {
-                name: name,
-                email: email,
-            })
-            .exec(&mut *ex)
-            .await
-            .map_err(|e| -> topcoat::Error { e.into() })?;
-            Ok(())
-        }
+    ) -> Result<()> {
+        // The handler's checked snapshot (GH #86): `record` was loaded
+        // inside the framework tx and policy-checked — no re-query.
+        let name = match values.get("name") {
+            // Absent keys keep the stored value (GH #89): an omitted
+            // optional field must not silently blank the record.
+            Some(v) => v.trim().to_string(),
+            None => record.name.clone(),
+        };
+        let email = match values.get("email") {
+            Some(v) => v.trim().to_string(),
+            None => record.email.clone(),
+        };
+        toasty::update!(record {
+            name: name,
+            email: email,
+        })
+        .exec(&mut *ex)
+        .await
+        .map_err(|e| -> topcoat::Error { e.into() })?;
+        Ok(())
     }
 
     fn delete_record(
@@ -312,35 +302,30 @@ impl Resource for AuthorResource {
         }
     }
 
-    fn update_record(
+    async fn update_record(
         _cx: &Cx,
         mut rec: Author,
         values: HashMap<String, String>,
         ex: &mut dyn toasty::Executor,
-    ) -> impl std::future::Future<Output = Result<()>> + Send
-    where
-        Self: Sized,
-    {
-        async move {
-            // The handler's checked snapshot (GH #86) — no re-query.
-            let name = match values.get("name") {
-                // Absent keys keep the stored value (GH #89).
-                Some(v) => v.trim().to_string(),
-                None => rec.name.clone(),
-            };
-            let email = match values.get("email") {
-                Some(v) => v.trim().to_string(),
-                None => rec.email.clone(),
-            };
-            toasty::update!(rec {
-                name: name,
-                email: email
-            })
-            .exec(&mut *ex)
-            .await
-            .map_err(|e| -> topcoat::Error { e.into() })?;
-            Ok(())
-        }
+    ) -> Result<()> {
+        // The handler's checked snapshot (GH #86) — no re-query.
+        let name = match values.get("name") {
+            // Absent keys keep the stored value (GH #89).
+            Some(v) => v.trim().to_string(),
+            None => rec.name.clone(),
+        };
+        let email = match values.get("email") {
+            Some(v) => v.trim().to_string(),
+            None => rec.email.clone(),
+        };
+        toasty::update!(rec {
+            name: name,
+            email: email
+        })
+        .exec(&mut *ex)
+        .await
+        .map_err(|e| -> topcoat::Error { e.into() })?;
+        Ok(())
     }
 
     fn delete_record(

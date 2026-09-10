@@ -2166,13 +2166,13 @@ mod tests {
             fn hydrate_form_values(_record: &Dummy) -> HashMap<String, String> {
                 HashMap::new()
             }
-            fn update_record(
+            async fn update_record(
                 _cx: &Cx,
                 _record: Dummy,
                 _values: HashMap<String, String>,
                 _ex: &mut dyn toasty::Executor,
-            ) -> impl std::future::Future<Output = Result<()>> + Send {
-                async move { Ok(()) }
+            ) -> Result<()> {
+                Ok(())
             }
         }
 
@@ -2278,12 +2278,12 @@ mod tests {
                         |d: &Dummy| d.name.clone(),
                     ))
             }
-            fn bulk_delete_records(
+            async fn bulk_delete_records(
                 _cx: &Cx,
                 _records: Vec<Dummy>,
                 _ex: &mut dyn toasty::Executor,
-            ) -> impl std::future::Future<Output = Result<()>> + Send {
-                async move { Ok(()) }
+            ) -> Result<()> {
+                Ok(())
             }
             fn hydrate_form_values(_record: &Dummy) -> HashMap<String, String> {
                 HashMap::new()
@@ -2960,12 +2960,12 @@ mod tests {
             fn form(_cx: &Cx) -> crate::schema::Schema {
                 crate::schema::Schema::empty()
             }
-            fn create_record(
+            async fn create_record(
                 _cx: &Cx,
                 _values: HashMap<String, String>,
                 _ex: &mut dyn toasty::Executor,
-            ) -> impl std::future::Future<Output = Result<()>> + Send {
-                async move { Ok(()) }
+            ) -> Result<()> {
+                Ok(())
             }
             fn hydrate_form_values(_record: &Dummy) -> HashMap<String, String> {
                 HashMap::new()
