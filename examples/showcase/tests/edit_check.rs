@@ -3,12 +3,13 @@ use showcase::{app::router_for_tests as router, models::User};
 use toasty::Db;
 
 mod common;
-use common::{assert_hydrate_keys_are_form_fields, body_string, get, post_form, seeded_db};
+use common::{TestClient, assert_hydrate_keys_are_form_fields, body_string, seeded_db};
 
 #[tokio::test]
 async fn edit_page_hydrates_and_updates() {
     let db = seeded_db().await;
     let router = router(db.clone());
+    let client = TestClient::new(&router);
 
     // Get a user id
     let mut db_q = db.clone();
@@ -18,7 +19,7 @@ async fn edit_page_hydrates_and_updates() {
     let edit_url = format!("/admin/users/{}/edit", id);
 
     // GET edit should be 200 with hydrated values
-    let resp = get(&router, &edit_url).await;
+    let resp = client.get(&edit_url).await;
     assert!(
         resp.status().is_success(),
         "GET edit should be 200, got {}",
@@ -43,13 +44,10 @@ async fn edit_page_hydrates_and_updates() {
 
     // Invalid POST should re-render with errors and not mutate
     let csrf = uuid::Uuid::new_v4().to_string();
-    let resp = post_form(
-        &router,
-        &edit_url,
-        &csrf,
-        format!("name=&email=bad&csrf_token={csrf}"),
-    )
-    .await;
+    let resp = client
+        .csrf(&csrf)
+        .post_form(&edit_url, format!("name=&email=bad&csrf_token={csrf}"))
+        .await;
     assert!(
         resp.status().is_success(),
         "invalid POST should re-render 200, got {}",
@@ -67,13 +65,13 @@ async fn edit_page_hydrates_and_updates() {
     assert_eq!(fresh.name, user.name, "should not mutate on invalid");
 
     // Valid POST should update and redirect with notification
-    let resp = post_form(
-        &router,
-        &edit_url,
-        &csrf,
-        format!("name=Updated%20Name&email=updated%40example.com&csrf_token={csrf}",),
-    )
-    .await;
+    let resp = client
+        .csrf(&csrf)
+        .post_form(
+            &edit_url,
+            format!("name=Updated%20Name&email=updated%40example.com&csrf_token={csrf}",),
+        )
+        .await;
     assert!(
         resp.status().is_redirection(),
         "valid POST should redirect, got {}",
@@ -91,7 +89,7 @@ async fn edit_page_hydrates_and_updates() {
         loc
     );
     // Follow redirect and check notification
-    let resp2 = get(&router, loc).await;
+    let resp2 = client.get(loc).await;
     let html2 = body_string(resp2).await;
     assert!(
         html2.contains("fixed top-4 right-4"),
@@ -108,8 +106,9 @@ async fn edit_page_hydrates_and_updates() {
 async fn edit_404_for_unknown_or_wrong_tenant() {
     let db = seeded_db().await;
     let router = router(db.clone());
+    let client = TestClient::new(&router);
     let fake_id = uuid::Uuid::new_v4().to_string();
-    let resp = get(&router, &format!("/admin/users/{}/edit", fake_id)).await;
+    let resp = client.get(&format!("/admin/users/{}/edit", fake_id)).await;
     assert_eq!(
         resp.status(),
         404,
@@ -179,11 +178,12 @@ async fn edit_policy_deny() {
         .app_context(db.clone())
         .resource::<DenyUpdateResource>()
         .build();
+    let client = TestClient::new(&router);
     let slug = DenyUpdateResource::slug();
     let edit_url = format!("/admin/{}/{}/edit", slug, rec.id);
 
     // GET should be 403
-    let resp = get(&router, &edit_url).await;
+    let resp = client.get(&edit_url).await;
     assert_eq!(
         resp.status(),
         403,
@@ -193,13 +193,10 @@ async fn edit_policy_deny() {
 
     // POST should also be 403
     let csrf = uuid::Uuid::new_v4().to_string();
-    let resp = post_form(
-        &router,
-        &edit_url,
-        &csrf,
-        format!("name=y&csrf_token={csrf}"),
-    )
-    .await;
+    let resp = client
+        .csrf(&csrf)
+        .post_form(&edit_url, format!("name=y&csrf_token={csrf}"))
+        .await;
     assert_eq!(
         resp.status(),
         403,

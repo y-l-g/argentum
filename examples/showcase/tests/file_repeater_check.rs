@@ -4,13 +4,14 @@ use showcase::{
 };
 
 mod common;
-use common::{body_string, full_db, get, get_tenant, post_form_tenant, post_multipart_tenant};
+use common::{TestClient, body_string, full_db};
 
 #[tokio::test]
 async fn posts_create_shows_fileupload_and_repeater() {
     let db = full_db().await;
     let router = router(db);
-    let resp = get_tenant(&router, "/admin/posts/create", DEMO_TENANT).await;
+    let client = TestClient::new(&router);
+    let resp = client.tenant(DEMO_TENANT).get("/admin/posts/create").await;
     assert!(resp.status().is_success());
     let html = body_string(resp).await;
     // FileUpload should be an input type="file" with for/id linking and Tokens
@@ -58,22 +59,23 @@ async fn posts_create_shows_fileupload_and_repeater() {
 async fn posts_create_invalid_fileupload_repeater_shows_errors() {
     let db = full_db().await;
     let router = router(db.clone());
+    let client = TestClient::new(&router);
     let csrf = uuid::Uuid::new_v4().to_string();
     let mut db2 = db.clone();
     let authors = Author::all().exec(&mut db2).await.unwrap();
     let first = &authors[0];
     // Missing image_path and tags (both required)
-    let resp = post_form_tenant(
-        &router,
-        "/admin/posts/create",
-        DEMO_TENANT,
-        &csrf,
-        format!(
-            "title=Test&author_id={}&image_path=&tags=&csrf_token={csrf}",
-            first.id
-        ),
-    )
-    .await;
+    let resp = client
+        .tenant(DEMO_TENANT)
+        .csrf(&csrf)
+        .post_form(
+            "/admin/posts/create",
+            format!(
+                "title=Test&author_id={}&image_path=&tags=&csrf_token={csrf}",
+                first.id
+            ),
+        )
+        .await;
     let status = resp.status();
     let html = body_string(resp).await;
     assert!(
@@ -97,21 +99,16 @@ async fn posts_create_invalid_fileupload_repeater_shows_errors() {
 async fn posts_create_valid_fileupload_repeater_creates() {
     let db = full_db().await;
     let router = router(db.clone());
+    let client = TestClient::new(&router);
     let csrf = uuid::Uuid::new_v4().to_string();
     let mut db2 = db.clone();
     let authors = Author::all().exec(&mut db2).await.unwrap();
     let first = &authors[0];
     let before = Post::all().exec(&mut db2).await.unwrap().len();
-    let resp = post_form_tenant(
-        &router,
-        "/admin/posts/create",
-        DEMO_TENANT,
-        &csrf,
-        format!(
+    let resp = client.tenant(DEMO_TENANT).csrf(&csrf).post_form("/admin/posts/create", format!(
             "title=Valid+With+Files&author_id={}&image_path=/tmp/valid.jpg&tags=valid,tags&csrf_token={csrf}",
             first.id
-        ),
-    )
+        ))
     .await;
     assert!(
         resp.status().is_redirection(),
@@ -136,7 +133,8 @@ async fn posts_create_valid_fileupload_repeater_creates() {
 async fn posts_create_form_is_multipart() {
     let db = full_db().await;
     let router = router(db);
-    let resp = get_tenant(&router, "/admin/posts/create", DEMO_TENANT).await;
+    let client = TestClient::new(&router);
+    let resp = client.tenant(DEMO_TENANT).get("/admin/posts/create").await;
     assert!(resp.status().is_success());
     let html = body_string(resp).await;
     assert!(
@@ -155,7 +153,8 @@ async fn posts_create_form_is_multipart() {
 async fn users_create_form_stays_urlencoded() {
     let db = full_db().await;
     let router = router(db);
-    let resp = get(&router, "/admin/users/create").await;
+    let client = TestClient::new(&router);
+    let resp = client.get("/admin/users/create").await;
     assert!(resp.status().is_success());
     let html = body_string(resp).await;
     assert!(
@@ -169,6 +168,7 @@ async fn users_create_form_stays_urlencoded() {
 async fn posts_create_multipart_file_stores_filename() {
     let db = full_db().await;
     let router = router(db.clone());
+    let client = TestClient::new(&router);
     let csrf = uuid::Uuid::new_v4().to_string();
     let mut db2 = db.clone();
     let authors = Author::all().exec(&mut db2).await.unwrap();
@@ -185,15 +185,11 @@ async fn posts_create_multipart_file_stores_filename() {
         id = first.id
     );
     let before = Post::all().exec(&mut db2).await.unwrap().len();
-    let resp = post_multipart_tenant(
-        &router,
-        "/admin/posts/create",
-        DEMO_TENANT,
-        &csrf,
-        boundary,
-        body,
-    )
-    .await;
+    let resp = client
+        .tenant(DEMO_TENANT)
+        .csrf(&csrf)
+        .post_multipart("/admin/posts/create", boundary, body)
+        .await;
     assert!(
         resp.status().is_redirection(),
         "multipart valid should redirect, got {}",
@@ -219,6 +215,7 @@ async fn posts_edit_untouched_file_keeps_stored_path() {
     // means "keep" — it must not blank the stored path or trip required.
     let db = full_db().await;
     let router = router(db.clone());
+    let client = TestClient::new(&router);
     let mut db_q = db.clone();
     let post = Post::filter(
         showcase::models::Post::fields()
@@ -233,17 +230,17 @@ async fn posts_edit_untouched_file_keeps_stored_path() {
     assert_eq!(post.image_path, "/images/hello.jpg");
     let authors = Author::all().exec(&mut db_q).await.unwrap();
     let csrf = uuid::Uuid::new_v4().to_string();
-    let resp = post_form_tenant(
-        &router,
-        &format!("/admin/posts/{}/edit", post.id),
-        DEMO_TENANT,
-        &csrf,
-        format!(
-            "title=Renamed&author_id={}&image_path=&tags=rust&csrf_token={csrf}",
-            authors[0].id
-        ),
-    )
-    .await;
+    let resp = client
+        .tenant(DEMO_TENANT)
+        .csrf(&csrf)
+        .post_form(
+            &format!("/admin/posts/{}/edit", post.id),
+            format!(
+                "title=Renamed&author_id={}&image_path=&tags=rust&csrf_token={csrf}",
+                authors[0].id
+            ),
+        )
+        .await;
     assert!(
         resp.status().is_redirection(),
         "untouched-file edit must redirect, got {}",
@@ -272,6 +269,7 @@ async fn posts_edit_explicit_clear_flag_skips_preservation() {
     // keep), with the stored path untouched.
     let db = full_db().await;
     let router = router(db.clone());
+    let client = TestClient::new(&router);
     let mut db_q = db.clone();
     let post = Post::filter(
         showcase::models::Post::fields()
@@ -285,16 +283,10 @@ async fn posts_edit_explicit_clear_flag_skips_preservation() {
     .expect("seeded post");
     let authors = Author::all().exec(&mut db_q).await.unwrap();
     let csrf = uuid::Uuid::new_v4().to_string();
-    let resp = post_form_tenant(
-        &router,
-        &format!("/admin/posts/{}/edit", post.id),
-        DEMO_TENANT,
-        &csrf,
-        format!(
+    let resp = client.tenant(DEMO_TENANT).csrf(&csrf).post_form(&format!("/admin/posts/{}/edit", post.id), format!(
             "title=Kept&author_id={}&image_path=&tags=rust&clear_image_path=1&csrf_token={csrf}",
             authors[0].id
-        ),
-    )
+        ))
     .await;
     assert!(
         resp.status().is_success(),
@@ -328,6 +320,7 @@ async fn multipart_body_limit_matches_urlencoded_cap() {
     // urlencoded (Topcoat's 2 MiB default would 413 uploads we accept).
     let db = full_db().await;
     let router = router(db.clone());
+    let client = TestClient::new(&router);
     let mut db_q = db.clone();
     let authors = Author::all().exec(&mut db_q).await.unwrap();
     let csrf = uuid::Uuid::new_v4().to_string();
@@ -345,15 +338,11 @@ async fn multipart_body_limit_matches_urlencoded_cap() {
         id = authors[0].id,
         blob = big_ok,
     );
-    let resp = post_multipart_tenant(
-        &router,
-        "/admin/posts/create",
-        DEMO_TENANT,
-        &csrf,
-        boundary,
-        body,
-    )
-    .await;
+    let resp = client
+        .tenant(DEMO_TENANT)
+        .csrf(&csrf)
+        .post_multipart("/admin/posts/create", boundary, body)
+        .await;
     assert!(
         resp.status().is_redirection(),
         "3 MiB multipart must pass the 10 MiB cap, got {}",
@@ -368,15 +357,11 @@ async fn multipart_body_limit_matches_urlencoded_cap() {
         b = boundary,
         blob = big_no,
     );
-    let resp = post_multipart_tenant(
-        &router,
-        "/admin/posts/create",
-        DEMO_TENANT,
-        &csrf,
-        boundary,
-        body,
-    )
-    .await;
+    let resp = client
+        .tenant(DEMO_TENANT)
+        .csrf(&csrf)
+        .post_multipart("/admin/posts/create", boundary, body)
+        .await;
     assert_eq!(resp.status(), 413, "11 MiB multipart must be rejected");
 }
 
@@ -385,7 +370,8 @@ async fn posts_author_select_is_searchable() {
     // GH #91: the relationship select carries the client-side filter hook.
     let db = full_db().await;
     let router = router(db);
-    let resp = get_tenant(&router, "/admin/posts/create", DEMO_TENANT).await;
+    let client = TestClient::new(&router);
+    let resp = client.tenant(DEMO_TENANT).get("/admin/posts/create").await;
     assert!(resp.status().is_success());
     let html = body_string(resp).await;
     assert!(

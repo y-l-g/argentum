@@ -5,15 +5,14 @@ use showcase::{
 };
 
 mod common;
-use common::{
-    assert_hydrate_keys_are_form_fields, body_string, full_db, get_tenant, post_form_tenant,
-};
+use common::{TestClient, assert_hydrate_keys_are_form_fields, body_string, full_db};
 
 #[tokio::test]
 async fn posts_list_shows_author_name() {
     let db = full_db().await;
     let router = router(db.clone());
-    let resp = get_tenant(&router, "/admin/posts", DEMO_TENANT).await;
+    let client = TestClient::new(&router);
+    let resp = client.tenant(DEMO_TENANT).get("/admin/posts").await;
     assert!(resp.status().is_success(), "status {}", resp.status());
     let html = body_string(resp).await;
     assert!(html.contains("Hello Toasty"), "missing post title {}", html);
@@ -24,7 +23,8 @@ async fn posts_list_shows_author_name() {
 async fn posts_create_shows_select_with_author_options() {
     let db = full_db().await;
     let router = router(db);
-    let resp = get_tenant(&router, "/admin/posts/create", DEMO_TENANT).await;
+    let client = TestClient::new(&router);
+    let resp = client.tenant(DEMO_TENANT).get("/admin/posts/create").await;
     assert!(resp.status().is_success(), "status {}", resp.status());
     let html = body_string(resp).await;
     assert!(html.contains("<select"), "missing select {}", html);
@@ -39,15 +39,16 @@ async fn posts_create_shows_select_with_author_options() {
 async fn posts_create_empty_author_shows_required_error() {
     let db = full_db().await;
     let router = router(db.clone());
+    let client = TestClient::new(&router);
     let csrf = uuid::Uuid::new_v4().to_string();
-    let resp = post_form_tenant(
-        &router,
-        "/admin/posts/create",
-        DEMO_TENANT,
-        &csrf,
-        format!("title=Test+Post&author_id=&image_path=/tmp/a.jpg&tags=a&csrf_token={csrf}",),
-    )
-    .await;
+    let resp = client
+        .tenant(DEMO_TENANT)
+        .csrf(&csrf)
+        .post_form(
+            "/admin/posts/create",
+            format!("title=Test+Post&author_id=&image_path=/tmp/a.jpg&tags=a&csrf_token={csrf}",),
+        )
+        .await;
     let status = resp.status();
     let html = body_string(resp).await;
     assert!(
@@ -71,19 +72,20 @@ async fn posts_create_empty_author_shows_required_error() {
 async fn posts_create_invalid_author_shows_invalid_error() {
     let db = full_db().await;
     let router = router(db.clone());
+    let client = TestClient::new(&router);
     let csrf = uuid::Uuid::new_v4().to_string();
     let fake_id = uuid::Uuid::new_v4();
-    let resp = post_form_tenant(
-        &router,
-        "/admin/posts/create",
-        DEMO_TENANT,
-        &csrf,
-        format!(
-            "title=Test+Post&author_id={}&image_path=/tmp/a.jpg&tags=a&csrf_token={csrf}",
-            fake_id
-        ),
-    )
-    .await;
+    let resp = client
+        .tenant(DEMO_TENANT)
+        .csrf(&csrf)
+        .post_form(
+            "/admin/posts/create",
+            format!(
+                "title=Test+Post&author_id={}&image_path=/tmp/a.jpg&tags=a&csrf_token={csrf}",
+                fake_id
+            ),
+        )
+        .await;
     let status = resp.status();
     let html = body_string(resp).await;
     assert!(status.is_success(), "invalid should be 200 {}", html);
@@ -101,22 +103,23 @@ async fn posts_create_invalid_author_shows_invalid_error() {
 async fn posts_create_valid_redirects_and_creates() {
     let db = full_db().await;
     let router = router(db.clone());
+    let client = TestClient::new(&router);
     let csrf = uuid::Uuid::new_v4().to_string();
     let mut db2 = db.clone();
     let authors = Author::all().exec(&mut db2).await.unwrap();
     let first = &authors[0];
     let before = Post::all().exec(&mut db2).await.unwrap().len();
-    let resp = post_form_tenant(
-        &router,
-        "/admin/posts/create",
-        DEMO_TENANT,
-        &csrf,
-        format!(
-            "title=New+Post&author_id={}&image_path=/tmp/new.jpg&tags=new&csrf_token={csrf}",
-            first.id
-        ),
-    )
-    .await;
+    let resp = client
+        .tenant(DEMO_TENANT)
+        .csrf(&csrf)
+        .post_form(
+            "/admin/posts/create",
+            format!(
+                "title=New+Post&author_id={}&image_path=/tmp/new.jpg&tags=new&csrf_token={csrf}",
+                first.id
+            ),
+        )
+        .await;
     assert!(
         resp.status().is_redirection(),
         "valid should redirect, got {} ",
@@ -139,22 +142,23 @@ async fn posts_create_valid_redirects_and_creates() {
 async fn posts_edit_hydrates_author() {
     let db = full_db().await;
     let router = router(db.clone());
+    let client = TestClient::new(&router);
     let csrf = uuid::Uuid::new_v4().to_string();
     let mut db2 = db.clone();
     let authors = Author::all().exec(&mut db2).await.unwrap();
     let first = &authors[0];
     // create a post via valid route to ensure edit hydrates
-    let _ = post_form_tenant(
-        &router,
-        "/admin/posts/create",
-        DEMO_TENANT,
-        &csrf,
-        format!(
-            "title=EditMe&author_id={}&image_path=/tmp/edit.jpg&tags=edit&csrf_token={csrf}",
-            first.id
-        ),
-    )
-    .await;
+    let _ = client
+        .tenant(DEMO_TENANT)
+        .csrf(&csrf)
+        .post_form(
+            "/admin/posts/create",
+            format!(
+                "title=EditMe&author_id={}&image_path=/tmp/edit.jpg&tags=edit&csrf_token={csrf}",
+                first.id
+            ),
+        )
+        .await;
     let mut db2 = db.clone();
     let post = Post::filter(Post::fields().title().eq("EditMe".to_string()))
         .first()
@@ -163,7 +167,7 @@ async fn posts_edit_hydrates_author() {
         .unwrap()
         .unwrap();
     let edit_url = format!("/admin/posts/{}/edit", post.id);
-    let resp = get_tenant(&router, &edit_url, DEMO_TENANT).await;
+    let resp = client.tenant(DEMO_TENANT).get(&edit_url).await;
     assert!(resp.status().is_success());
     let html = body_string(resp).await;
     assert!(html.contains("EditMe"), "edit should show title {}", html);
@@ -178,7 +182,8 @@ async fn posts_edit_hydrates_author() {
 async fn posts_list_shows_comments_count_via_include() {
     let db = full_db().await;
     let router = router(db.clone());
-    let resp = get_tenant(&router, "/admin/posts", DEMO_TENANT).await;
+    let client = TestClient::new(&router);
+    let resp = client.tenant(DEMO_TENANT).get("/admin/posts").await;
     assert!(resp.status().is_success());
     let html = body_string(resp).await;
     // Table should have Comments header and counts 1 and 0 (one query, no N+1)
@@ -202,6 +207,7 @@ async fn posts_list_shows_comments_count_via_include() {
 async fn posts_update_rechecks_author_existence() {
     let db = full_db().await;
     let router = router(db.clone());
+    let client = TestClient::new(&router);
     let csrf = uuid::Uuid::new_v4().to_string();
     let mut db_q = db.clone();
     let authors = Author::all().exec(&mut db_q).await.unwrap();
@@ -210,17 +216,17 @@ async fn posts_update_rechecks_author_existence() {
     let post = &posts[0];
     let edit_url = format!("/admin/posts/{}/edit", post.id);
     // Valid same-author update still redirects (symmetric double-check, GH #91).
-    let resp = post_form_tenant(
-        &router,
-        &edit_url,
-        DEMO_TENANT,
-        &csrf,
-        format!(
-            "title=Updated+Title&author_id={}&image_path=/tmp/u.jpg&tags=u&csrf_token={csrf}",
-            first.id
-        ),
-    )
-    .await;
+    let resp = client
+        .tenant(DEMO_TENANT)
+        .csrf(&csrf)
+        .post_form(
+            &edit_url,
+            format!(
+                "title=Updated+Title&author_id={}&image_path=/tmp/u.jpg&tags=u&csrf_token={csrf}",
+                first.id
+            ),
+        )
+        .await;
     assert!(
         resp.status().is_redirection(),
         "valid update should redirect, got {}",
@@ -228,14 +234,14 @@ async fn posts_update_rechecks_author_existence() {
     );
     // Bogus author is rejected, not silently written (validate_async invalid).
     let fake = uuid::Uuid::new_v4();
-    let resp = post_form_tenant(
-        &router,
-        &edit_url,
-        DEMO_TENANT,
-        &csrf,
-        format!("title=Bad&author_id={fake}&image_path=/tmp/u.jpg&tags=u&csrf_token={csrf}"),
-    )
-    .await;
+    let resp = client
+        .tenant(DEMO_TENANT)
+        .csrf(&csrf)
+        .post_form(
+            &edit_url,
+            format!("title=Bad&author_id={fake}&image_path=/tmp/u.jpg&tags=u&csrf_token={csrf}"),
+        )
+        .await;
     assert!(
         !resp.status().is_redirection(),
         "bogus author update must not redirect, got {}",

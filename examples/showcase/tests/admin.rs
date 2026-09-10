@@ -3,14 +3,15 @@ use topcoat::view::ViewExt;
 use showcase::app::router_for_tests as router;
 
 mod common;
-use common::{body_string, get, seeded_db};
+use common::{TestClient, body_string, seeded_db};
 
 #[tokio::test]
 async fn admin_resource_list_page_serve_seeded_users() {
     let db = seeded_db().await;
     let router = router(db);
+    let client = TestClient::new(&router);
 
-    let response = get(&router, "/admin/users").await;
+    let response = client.get("/admin/users").await;
 
     assert!(
         response.status().is_success(),
@@ -58,7 +59,8 @@ async fn admin_resource_list_page_serve_seeded_users() {
 async fn admin_unknown_route_is_not_found() {
     let db = seeded_db().await;
     let router = router(db);
-    let response = get(&router, "/admin/unknown").await;
+    let client = TestClient::new(&router);
+    let response = client.get("/admin/unknown").await;
     assert_eq!(response.status(), 404);
 }
 
@@ -66,7 +68,8 @@ async fn admin_unknown_route_is_not_found() {
 async fn admin_root_redirects_to_first_resource() {
     let db = seeded_db().await;
     let router = router(db);
-    let response = get(&router, "/admin").await;
+    let client = TestClient::new(&router);
+    let response = client.get("/admin").await;
 
     assert_eq!(response.status(), http::StatusCode::TEMPORARY_REDIRECT);
     assert_eq!(
@@ -79,7 +82,8 @@ async fn admin_root_redirects_to_first_resource() {
 async fn showcase_index_lists_features() {
     let db = seeded_db().await;
     let router = router(db);
-    let response = get(&router, "/admin/showcase").await;
+    let client = TestClient::new(&router);
+    let response = client.get("/admin/showcase").await;
     assert!(
         response.status().is_success(),
         "showcase index status {}",
@@ -111,7 +115,8 @@ async fn showcase_index_lists_features() {
 async fn showcase_ui_renders_card_and_button_with_tokens() {
     let db = seeded_db().await;
     let router = router(db);
-    let response = get(&router, "/admin/showcase/ui").await;
+    let client = TestClient::new(&router);
+    let response = client.get("/admin/showcase/ui").await;
     assert!(
         response.status().is_success(),
         "ui showcase status {}",
@@ -141,7 +146,8 @@ async fn showcase_ui_renders_card_and_button_with_tokens() {
 async fn showcase_dialog_renders_notification_and_dialog_with_tokens() {
     let db = seeded_db().await;
     let router = router(db);
-    let response = get(&router, "/admin/showcase/dialog").await;
+    let client = TestClient::new(&router);
+    let response = client.get("/admin/showcase/dialog").await;
     assert!(
         response.status().is_success(),
         "dialog showcase status {}",
@@ -183,7 +189,8 @@ async fn showcase_dialog_renders_notification_and_dialog_with_tokens() {
 async fn showcase_schema_renders_variants() {
     let db = seeded_db().await;
     let router = router(db);
-    let response = get(&router, "/admin/showcase/schema").await;
+    let client = TestClient::new(&router);
+    let response = client.get("/admin/showcase/schema").await;
     assert!(
         response.status().is_success(),
         "schema showcase status {}",
@@ -235,7 +242,8 @@ async fn showcase_schema_renders_variants() {
 async fn showcase_resource_renders_derives_and_navigation() {
     let db = seeded_db().await;
     let router = router(db);
-    let response = get(&router, "/admin/showcase/resource").await;
+    let client = TestClient::new(&router);
+    let response = client.get("/admin/showcase/resource").await;
     assert!(
         response.status().is_success(),
         "resource showcase status {}",
@@ -273,7 +281,8 @@ async fn showcase_resource_renders_derives_and_navigation() {
 async fn showcase_panel_renders_normalization() {
     let db = seeded_db().await;
     let router = router(db);
-    let response = get(&router, "/admin/showcase/panel").await;
+    let client = TestClient::new(&router);
+    let response = client.get("/admin/showcase/panel").await;
     assert!(
         response.status().is_success(),
         "panel showcase status {}",
@@ -294,7 +303,8 @@ async fn showcase_panel_renders_normalization() {
 async fn showcase_db_renders_memoized_loader() {
     let db = seeded_db().await;
     let router = router(db);
-    let response = get(&router, "/admin/showcase/db").await;
+    let client = TestClient::new(&router);
+    let response = client.get("/admin/showcase/db").await;
     assert!(
         response.status().is_success(),
         "db showcase status {}",
@@ -316,7 +326,8 @@ async fn showcase_db_renders_memoized_loader() {
 async fn showcase_table_renders_variants() {
     let db = seeded_db().await;
     let router = router(db);
-    let response = get(&router, "/admin/showcase/table").await;
+    let client = TestClient::new(&router);
+    let response = client.get("/admin/showcase/table").await;
     assert!(
         response.status().is_success(),
         "table showcase status {}",
@@ -375,7 +386,8 @@ async fn admin_table_via_resource_has_searchable_sortable() {
 async fn admin_list_renders_search_box_and_sort_links() {
     let db = seeded_db().await;
     let router = router(db);
-    let response = get(&router, "/admin/users").await;
+    let client = TestClient::new(&router);
+    let response = client.get("/admin/users").await;
     assert!(
         response.status().is_success(),
         "status {}",
@@ -405,7 +417,7 @@ async fn admin_list_renders_search_box_and_sort_links() {
 
     // Sorted ascending: the same link toggles to descending and the column
     // declares aria-sort="ascending".
-    let response = get(&router, "/admin/users?sort=name&dir=asc").await;
+    let response = client.get("/admin/users?sort=name&dir=asc").await;
     assert!(
         response.status().is_success(),
         "sorted status {}",
@@ -422,7 +434,7 @@ async fn admin_list_renders_search_box_and_sort_links() {
     );
 
     // Sorted descending: direction is declared and the link toggles back.
-    let response = get(&router, "/admin/users?sort=name&dir=desc").await;
+    let response = client.get("/admin/users?sort=name&dir=desc").await;
     assert!(
         response.status().is_success(),
         "desc status {}",
@@ -443,7 +455,8 @@ async fn admin_list_renders_search_box_and_sort_links() {
 async fn admin_list_pagination_walks_cursor_links() {
     let db = seeded_db().await;
     let router = router(db);
-    let response = get(&router, "/admin/users").await;
+    let client = TestClient::new(&router);
+    let response = client.get("/admin/users").await;
     let page1 = body_string(response).await;
 
     // Page 1 (name asc, 2 per page): Ada + Alan, not Grace; a real Next link.
@@ -456,7 +469,7 @@ async fn admin_list_pagination_walks_cursor_links() {
     let next_href = find_href_with(&page1, "after=")
         .unwrap_or_else(|| panic!("page1 missing Next (after=) link: {page1}"));
 
-    let response = get(&router, &next_href).await;
+    let response = client.get(&next_href).await;
     assert!(
         response.status().is_success(),
         "page2 status {}",
@@ -478,7 +491,7 @@ async fn admin_list_pagination_walks_cursor_links() {
 
     // Following Previous returns to the first page.
     let prev_href = find_href_with(&page2, "before=").unwrap();
-    let response = get(&router, &prev_href).await;
+    let response = client.get(&prev_href).await;
     assert!(
         response.status().is_success(),
         "page1-again status {}",
@@ -510,7 +523,8 @@ fn find_href_with(html: &str, needle: &str) -> Option<String> {
 async fn admin_list_empty_search_shows_no_results_with_clear() {
     let db = seeded_db().await;
     let router = router(db);
-    let response = get(&router, "/admin/users?q=zzz-none").await;
+    let client = TestClient::new(&router);
+    let response = client.get("/admin/users?q=zzz-none").await;
     assert!(
         response.status().is_success(),
         "status {}",
@@ -539,7 +553,8 @@ async fn admin_list_empty_search_shows_no_results_with_clear() {
 async fn admin_list_filters_via_q_param() {
     let db = seeded_db().await;
     let router = router(db);
-    let response = get(&router, "/admin/users?q=Ada").await;
+    let client = TestClient::new(&router);
+    let response = client.get("/admin/users?q=Ada").await;
     assert!(
         response.status().is_success(),
         "filtered status {}",
@@ -607,7 +622,8 @@ async fn users_list_renders_live_search_host_with_get_fallback() {
     // GET toolbar stays as the no-JS fallback.
     let db = seeded_db().await;
     let router = router(db);
-    let resp = get(&router, "/admin/users").await;
+    let client = TestClient::new(&router);
+    let resp = client.get("/admin/users").await;
     assert!(resp.status().is_success());
     let html = body_string(resp).await;
     assert!(

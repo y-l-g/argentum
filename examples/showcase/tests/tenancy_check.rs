@@ -4,14 +4,15 @@ use showcase::{
 };
 
 mod common;
-use common::{body_string, full_db, get, get_tenant, post_form, post_form_tenant, tenanted_db};
+use common::{TestClient, body_string, full_db, tenanted_db};
 
 #[tokio::test]
 async fn posts_list_is_scoped_by_tenant_via_resource_query() {
     let (db, t1, t2) = tenanted_db().await;
     let router = router(db.clone());
+    let client = TestClient::new(&router);
 
-    let resp_t1 = get_tenant(&router, "/admin/posts", t1).await;
+    let resp_t1 = client.tenant(t1).get("/admin/posts").await;
     assert!(resp_t1.status().is_success());
     let html = body_string(resp_t1).await;
     assert!(html.contains("T1 Post"), "t1 should see T1 Post {}", html);
@@ -21,7 +22,7 @@ async fn posts_list_is_scoped_by_tenant_via_resource_query() {
         html
     );
 
-    let resp_t2 = get_tenant(&router, "/admin/posts", t2).await;
+    let resp_t2 = client.tenant(t2).get("/admin/posts").await;
     assert!(resp_t2.status().is_success());
     let html = body_string(resp_t2).await;
     assert!(html.contains("T2 Post"), "t2 should see T2 Post {}", html);
@@ -36,6 +37,7 @@ async fn posts_list_is_scoped_by_tenant_via_resource_query() {
 async fn edit_with_wrong_tenant_yields_404_via_resource_query() {
     let (db, t1, t2) = tenanted_db().await;
     let router = router(db.clone());
+    let client = TestClient::new(&router);
     // Find T1 post id
     let mut db2 = db.clone();
     let t1_post = Post::filter(Post::fields().tenant_id().eq(t1))
@@ -46,7 +48,7 @@ async fn edit_with_wrong_tenant_yields_404_via_resource_query() {
         .unwrap();
     let edit_url = format!("/admin/posts/{}/edit", t1_post.id);
     // Try to edit with t2 tenant -> should be 404 (not found via query)
-    let resp = get_tenant(&router, &edit_url, t2).await;
+    let resp = client.tenant(t2).get(&edit_url).await;
     assert_eq!(
         resp.status(),
         404,
@@ -59,8 +61,9 @@ async fn edit_with_wrong_tenant_yields_404_via_resource_query() {
 async fn per_tenant_policy_deny_yields_403() {
     let (db, _, _) = tenanted_db().await;
     let router = router(db);
+    let client = TestClient::new(&router);
     let blocked = uuid::Uuid::from_u128(9999);
-    let resp = get_tenant(&router, "/admin/posts", blocked).await;
+    let resp = client.tenant(blocked).get("/admin/posts").await;
     assert_eq!(
         resp.status(),
         403,
@@ -98,9 +101,10 @@ async fn tenantless_requests_to_gated_resources_fail_closed() {
     // without a tenant instead of leaking rows or minting nil orphans.
     let db = full_db().await;
     let router = router(db.clone());
+    let client = TestClient::new(&router);
 
     // List without tenant → 403 (not unscoped rows).
-    let resp = get(&router, "/admin/posts").await;
+    let resp = client.get("/admin/posts").await;
     assert_eq!(resp.status(), 403, "tenantless list must fail closed");
 
     // Create without tenant → 403 and no row (not a nil-tenant orphan).
@@ -112,16 +116,16 @@ async fn tenantless_requests_to_gated_resources_fail_closed() {
         .await
         .unwrap()
         .len();
-    let resp = post_form(
-        &router,
-        "/admin/posts/create",
-        &csrf,
-        format!(
-            "title=Orphan&author_id={}&image_path=/tmp/o.jpg&tags=o&csrf_token={csrf}",
-            authors[0].id
-        ),
-    )
-    .await;
+    let resp = client
+        .csrf(&csrf)
+        .post_form(
+            "/admin/posts/create",
+            format!(
+                "title=Orphan&author_id={}&image_path=/tmp/o.jpg&tags=o&csrf_token={csrf}",
+                authors[0].id
+            ),
+        )
+        .await;
     assert_eq!(resp.status(), 403, "tenantless create must fail closed");
     let after = showcase::models::Post::all()
         .exec(&mut db_q)
@@ -149,21 +153,22 @@ async fn header_create_assigns_header_tenant() {
     // GH #87: creates land in the request tenant, never nil.
     let db = full_db().await;
     let router = router(db.clone());
+    let client = TestClient::new(&router);
     let tenant = showcase::models::DEMO_TENANT;
     let csrf = uuid::Uuid::new_v4().to_string();
     let mut db_q = db.clone();
     let authors = Author::all().exec(&mut db_q).await.unwrap();
-    let resp = post_form_tenant(
-        &router,
-        "/admin/posts/create",
-        tenant,
-        &csrf,
-        format!(
-            "title=Tenanted&author_id={}&image_path=/tmp/t.jpg&tags=t&csrf_token={csrf}",
-            authors[0].id
-        ),
-    )
-    .await;
+    let resp = client
+        .tenant(tenant)
+        .csrf(&csrf)
+        .post_form(
+            "/admin/posts/create",
+            format!(
+                "title=Tenanted&author_id={}&image_path=/tmp/t.jpg&tags=t&csrf_token={csrf}",
+                authors[0].id
+            ),
+        )
+        .await;
     assert!(
         resp.status().is_redirection(),
         "header-authed create must redirect, got {}",

@@ -1,18 +1,17 @@
 use showcase::{app::router_for_tests as router, models::DEMO_TENANT};
 
 mod common;
-use common::{body_string, full_db, get_tenant};
+use common::{TestClient, body_string, full_db};
 
 #[tokio::test]
 async fn posts_filter_widgets_render_typed_controls() {
     let db = full_db().await;
     let router = router(db);
-    let resp = get_tenant(
-        &router,
-        "/admin/posts?filters=status:published",
-        DEMO_TENANT,
-    )
-    .await;
+    let client = TestClient::new(&router);
+    let resp = client
+        .tenant(DEMO_TENANT)
+        .get("/admin/posts?filters=status:published")
+        .await;
     assert!(resp.status().is_success());
     let html = body_string(resp).await;
     // One typed control per declared filter, composed by filters.js into the
@@ -57,13 +56,12 @@ async fn posts_filter_widgets_render_typed_controls() {
 async fn posts_filter_select_status_published() {
     let db = full_db().await;
     let router = router(db);
+    let client = TestClient::new(&router);
     // filter status:published should show only Hello Toasty (published)
-    let resp = get_tenant(
-        &router,
-        "/admin/posts?filters=status:published",
-        DEMO_TENANT,
-    )
-    .await;
+    let resp = client
+        .tenant(DEMO_TENANT)
+        .get("/admin/posts?filters=status:published")
+        .await;
     assert!(resp.status().is_success());
     let html = body_string(resp).await;
     assert!(
@@ -82,8 +80,12 @@ async fn posts_filter_select_status_published() {
 async fn posts_filter_ternary_featured_true() {
     let db = full_db().await;
     let router = router(db);
+    let client = TestClient::new(&router);
     // featured:true should show only Hello Toasty (featured true)
-    let resp = get_tenant(&router, "/admin/posts?filters=featured:true", DEMO_TENANT).await;
+    let resp = client
+        .tenant(DEMO_TENANT)
+        .get("/admin/posts?filters=featured:true")
+        .await;
     assert!(resp.status().is_success());
     let html = body_string(resp).await;
     assert!(
@@ -102,7 +104,11 @@ async fn posts_filter_ternary_featured_true() {
 async fn posts_filter_ternary_featured_false() {
     let db = full_db().await;
     let router = router(db);
-    let resp = get_tenant(&router, "/admin/posts?filters=featured:false", DEMO_TENANT).await;
+    let client = TestClient::new(&router);
+    let resp = client
+        .tenant(DEMO_TENANT)
+        .get("/admin/posts?filters=featured:false")
+        .await;
     assert!(resp.status().is_success());
     let html = body_string(resp).await;
     assert!(
@@ -121,13 +127,12 @@ async fn posts_filter_ternary_featured_false() {
 async fn posts_filter_date_created_at() {
     let db = full_db().await;
     let router = router(db);
+    let client = TestClient::new(&router);
     // filter by exact timestamp of Hello Toasty
-    let resp = get_tenant(
-        &router,
-        "/admin/posts?filters=created_at:2024-01-15T09:30:00Z",
-        DEMO_TENANT,
-    )
-    .await;
+    let resp = client
+        .tenant(DEMO_TENANT)
+        .get("/admin/posts?filters=created_at:2024-01-15T09:30:00Z")
+        .await;
     assert!(resp.status().is_success());
     let html = body_string(resp).await;
     assert!(
@@ -146,13 +151,12 @@ async fn posts_filter_date_created_at() {
 async fn posts_filter_composes_and() {
     let db = full_db().await;
     let router = router(db);
+    let client = TestClient::new(&router);
     // status:published and featured:true should still show Hello Toasty (both true)
-    let resp = get_tenant(
-        &router,
-        "/admin/posts?filters=status:published,featured:true",
-        DEMO_TENANT,
-    )
-    .await;
+    let resp = client
+        .tenant(DEMO_TENANT)
+        .get("/admin/posts?filters=status:published,featured:true")
+        .await;
     assert!(resp.status().is_success());
     let html = body_string(resp).await;
     assert!(
@@ -161,12 +165,10 @@ async fn posts_filter_composes_and() {
         html
     );
     // status:draft and featured:true should show none (draft is not featured)
-    let resp = get_tenant(
-        &router,
-        "/admin/posts?filters=status:draft,featured:true",
-        DEMO_TENANT,
-    )
-    .await;
+    let resp = client
+        .tenant(DEMO_TENANT)
+        .get("/admin/posts?filters=status:draft,featured:true")
+        .await;
     let html = body_string(resp).await;
     assert!(
         !html.contains("Hello Toasty") && !html.contains("Second Post"),
@@ -238,13 +240,12 @@ async fn typo_filter_warns_on_list_but_refuses_export() {
     // closed on export (400) instead of silently over-sharing.
     let db = full_db().await;
     let router = router(db);
+    let client = TestClient::new(&router);
 
-    let resp = get_tenant(
-        &router,
-        "/admin/posts?filters=stauts:published",
-        DEMO_TENANT,
-    )
-    .await;
+    let resp = client
+        .tenant(DEMO_TENANT)
+        .get("/admin/posts?filters=stauts:published")
+        .await;
     assert!(resp.status().is_success(), "typo filter keeps 200");
     let html = body_string(resp).await;
     assert!(
@@ -252,12 +253,10 @@ async fn typo_filter_warns_on_list_but_refuses_export() {
         "typo filter must warn, got {html}"
     );
 
-    let resp = get_tenant(
-        &router,
-        "/admin/posts/export?filters=stauts:published",
-        DEMO_TENANT,
-    )
-    .await;
+    let resp = client
+        .tenant(DEMO_TENANT)
+        .get("/admin/posts/export?filters=stauts:published")
+        .await;
     assert_eq!(
         resp.status(),
         400,
@@ -266,12 +265,10 @@ async fn typo_filter_warns_on_list_but_refuses_export() {
     );
 
     // Rejected values (capital P) behave the same.
-    let resp = get_tenant(
-        &router,
-        "/admin/posts/export?filters=status:Published",
-        DEMO_TENANT,
-    )
-    .await;
+    let resp = client
+        .tenant(DEMO_TENANT)
+        .get("/admin/posts/export?filters=status:Published")
+        .await;
     assert_eq!(
         resp.status(),
         400,
@@ -280,12 +277,10 @@ async fn typo_filter_warns_on_list_but_refuses_export() {
     );
 
     // Valid filters still export fine.
-    let resp = get_tenant(
-        &router,
-        "/admin/posts/export?filters=status:published",
-        DEMO_TENANT,
-    )
-    .await;
+    let resp = client
+        .tenant(DEMO_TENANT)
+        .get("/admin/posts/export?filters=status:published")
+        .await;
     assert!(resp.status().is_success(), "valid export must stay 200");
 }
 
@@ -294,7 +289,8 @@ async fn posts_list_renders_live_search_host() {
     // GH #104: posts table opts into the live shard (tenant header required).
     let db = full_db().await;
     let router = router(db);
-    let resp = get_tenant(&router, "/admin/posts", DEMO_TENANT).await;
+    let client = TestClient::new(&router);
+    let resp = client.tenant(DEMO_TENANT).get("/admin/posts").await;
     assert!(resp.status().is_success());
     let html = body_string(resp).await;
     assert!(

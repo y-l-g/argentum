@@ -3,12 +3,13 @@ use showcase::{app::router_for_tests as router, models::User};
 use toasty::Db;
 
 mod common;
-use common::{body_string, get, post_form, seeded_db};
+use common::{TestClient, body_string, seeded_db};
 
 #[tokio::test]
 async fn delete_requires_confirmation_and_deletes() {
     let db = seeded_db().await;
     let router = router(db.clone());
+    let client = TestClient::new(&router);
     let mut db_q = db.clone();
     let users = User::all().exec(&mut db_q).await.unwrap();
     let user = users.first().unwrap();
@@ -17,7 +18,7 @@ async fn delete_requires_confirmation_and_deletes() {
     let csrf = uuid::Uuid::new_v4().to_string();
 
     // Check that list page contains Delete button
-    let resp = get(&router, "/admin/users").await;
+    let resp = client.get("/admin/users").await;
     let html = body_string(resp).await;
     assert!(
         html.contains("Delete"),
@@ -30,7 +31,10 @@ async fn delete_requires_confirmation_and_deletes() {
     );
 
     // POST without confirm should re-render confirmation (200 with Confirm)
-    let resp = post_form(&router, &delete_url, &csrf, format!("csrf_token={csrf}")).await;
+    let resp = client
+        .csrf(&csrf)
+        .post_form(&delete_url, format!("csrf_token={csrf}"))
+        .await;
     assert!(
         resp.status().is_success(),
         "POST without confirm should be 200 confirmation, got {}",
@@ -44,13 +48,10 @@ async fn delete_requires_confirmation_and_deletes() {
     );
 
     // POST with confirm should delete and redirect with notification
-    let resp = post_form(
-        &router,
-        &delete_url,
-        &csrf,
-        format!("confirm=1&csrf_token={csrf}"),
-    )
-    .await;
+    let resp = client
+        .csrf(&csrf)
+        .post_form(&delete_url, format!("confirm=1&csrf_token={csrf}"))
+        .await;
     assert!(
         resp.status().is_redirection(),
         "confirmed delete should redirect, got {}",
@@ -80,7 +81,7 @@ async fn delete_requires_confirmation_and_deletes() {
     assert!(gone.is_none(), "deleted user should be gone");
 
     // Follow redirect and check notification
-    let resp2 = get(&router, loc).await;
+    let resp2 = client.get(loc).await;
     let html2 = body_string(resp2).await;
     assert!(
         html2.contains("fixed top-4 right-4"),
@@ -93,15 +94,16 @@ async fn delete_requires_confirmation_and_deletes() {
 async fn delete_404_for_missing_or_wrong_tenant() {
     let db = seeded_db().await;
     let router = router(db.clone());
+    let client = TestClient::new(&router);
     let fake_id = uuid::Uuid::new_v4().to_string();
     let csrf = uuid::Uuid::new_v4().to_string();
-    let resp = post_form(
-        &router,
-        &format!("/admin/users/{}/delete", fake_id),
-        &csrf,
-        format!("confirm=1&csrf_token={csrf}"),
-    )
-    .await;
+    let resp = client
+        .csrf(&csrf)
+        .post_form(
+            &format!("/admin/users/{}/delete", fake_id),
+            format!("confirm=1&csrf_token={csrf}"),
+        )
+        .await;
     assert_eq!(
         resp.status(),
         404,
@@ -163,16 +165,14 @@ async fn delete_policy_deny() {
         .app_context(db.clone())
         .resource::<DenyDeleteResource>()
         .build();
+    let client = TestClient::new(&router);
     let slug = DenyDeleteResource::slug();
     let delete_url = format!("/admin/{}/{}/delete", slug, rec.id);
     let csrf = uuid::Uuid::new_v4().to_string();
-    let resp = post_form(
-        &router,
-        &delete_url,
-        &csrf,
-        format!("confirm=1&csrf_token={csrf}"),
-    )
-    .await;
+    let resp = client
+        .csrf(&csrf)
+        .post_form(&delete_url, format!("confirm=1&csrf_token={csrf}"))
+        .await;
     assert_eq!(
         resp.status(),
         403,

@@ -1,11 +1,12 @@
 //! Shared fixtures and request scaffolding for the showcase integration
-//! tests (GH #111). Every test crate includes this module via `mod common;`
-//! and uses a subset of it, so `dead_code` is expected here and allowed once
-//! instead of leaking per-crate warnings.
+//! tests (GH #111, #128). Every test crate includes this module via
+//! `mod common;` and uses a subset of it, so `dead_code` is expected here and
+//! allowed once instead of leaking per-crate warnings.
 
 #![allow(dead_code)]
 
 use argentum_core::Resource;
+use argentum_core::Tenant;
 use http::header::{CONTENT_TYPE, COOKIE};
 use http_body_util::BodyExt;
 use showcase::models::{seed, seed_phase2};
@@ -105,97 +106,131 @@ pub async fn tenanted_db() -> (Db, uuid::Uuid, uuid::Uuid) {
     (db, t1, t2)
 }
 
-/// GET `uri`.
-pub async fn get(router: &Router, uri: &str) -> http::Response<Body> {
-    router
-        .handle(
-            http::Request::builder()
-                .uri(uri)
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
+/// One request client for every showcase suite (GH #128).
+///
+/// Replaces the ad-hoc free-function helpers: every request is built here, so
+/// a suite attaches cookies, a tenant, or (later) a session in one place.
+/// Builder methods clone the client, leaving the base reusable:
+/// `client.tenant(t).csrf(&token).post_form(uri, body)`.
+#[derive(Clone)]
+pub struct TestClient<'a> {
+    router: &'a Router,
+    cookies: Vec<(String, String)>,
+    tenant: Option<uuid::Uuid>,
 }
 
-/// GET `uri` carrying the `x-tenant-id` header.
-pub async fn get_tenant(router: &Router, uri: &str, tenant: uuid::Uuid) -> http::Response<Body> {
-    router
-        .handle(
-            http::Request::builder()
-                .uri(uri)
-                .header("x-tenant-id", tenant.to_string())
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
+impl<'a> TestClient<'a> {
+    /// A client with no cookies and no tenant.
+    pub fn new(router: &'a Router) -> Self {
+        Self {
+            router,
+            cookies: Vec::new(),
+            tenant: None,
+        }
+    }
+
+    /// Attach a cookie to every request this client sends.
+    pub fn cookie(&self, name: &str, value: &str) -> Self {
+        let mut client = self.clone();
+        client.cookies.push((name.to_string(), value.to_string()));
+        client
+    }
+
+    /// Attach every `(name, value)` pair, e.g. the cookies a response set.
+    pub fn cookies(&self, cookies: &[(String, String)]) -> Self {
+        let mut client = self.clone();
+        client.cookies.extend(
+            cookies
+                .iter()
+                .map(|(name, value)| (name.clone(), value.clone())),
+        );
+        client
+    }
+
+    /// Attach the CSRF cookie the form's `csrf_token` field must match.
+    pub fn csrf(&self, token: &str) -> Self {
+        self.cookie(argentum_core::csrf::COOKIE_NAME, token)
+    }
+
+    /// Carry a tenant into the request: as a `Tenant` request extension and,
+    /// until the auth migration lands (GH #131), as the legacy `x-tenant-id`
+    /// header. Both sources resolve through `tenant_id(cx)`.
+    pub fn tenant(&self, tenant: uuid::Uuid) -> Self {
+        let mut client = self.clone();
+        client.tenant = Some(tenant);
+        client
+    }
+
+    /// GET `uri`.
+    pub async fn get(&self, uri: &str) -> http::Response<Body> {
+        self.router
+            .handle(self.request(http::Method::GET, uri))
+            .await
+    }
+
+    /// POST an urlencoded form.
+    pub async fn post_form(&self, uri: &str, body: String) -> http::Response<Body> {
+        let mut request = self.request(http::Method::POST, uri);
+        request.headers_mut().insert(
+            CONTENT_TYPE,
+            http::HeaderValue::from_static("application/x-www-form-urlencoded"),
+        );
+        *request.body_mut() = Body::from(body);
+        self.router.handle(request).await
+    }
+
+    /// POST a multipart body (file uploads).
+    pub async fn post_multipart(
+        &self,
+        uri: &str,
+        boundary: &str,
+        body: String,
+    ) -> http::Response<Body> {
+        let mut request = self.request(http::Method::POST, uri);
+        request.headers_mut().insert(
+            CONTENT_TYPE,
+            format!("multipart/form-data; boundary={boundary}")
+                .parse()
+                .expect("multipart content type"),
+        );
+        *request.body_mut() = Body::from(body);
+        self.router.handle(request).await
+    }
+
+    /// Build a request carrying this client's cookies and tenant.
+    fn request(&self, method: http::Method, uri: &str) -> http::Request<Body> {
+        let mut builder = http::Request::builder().method(method).uri(uri);
+        if !self.cookies.is_empty() {
+            let jar = self
+                .cookies
+                .iter()
+                .map(|(name, value)| format!("{name}={value}"))
+                .collect::<Vec<_>>()
+                .join("; ");
+            builder = builder.header(COOKIE, jar);
+        }
+        if let Some(tenant) = self.tenant {
+            builder = builder.header("x-tenant-id", tenant.to_string());
+        }
+        let (mut parts, body) = builder.body(Body::empty()).unwrap().into_parts();
+        if let Some(tenant) = self.tenant {
+            parts.extensions.insert(Tenant(tenant));
+        }
+        http::Request::from_parts(parts, body)
+    }
 }
 
-/// POST an urlencoded form authenticated with the CSRF cookie + token.
-pub async fn post_form(
-    router: &Router,
-    uri: &str,
-    csrf: &str,
-    body: String,
-) -> http::Response<Body> {
-    router
-        .handle(
-            http::Request::builder()
-                .uri(uri)
-                .method(http::Method::POST)
-                .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
-                .header(COOKIE, format!("argentum_csrf={csrf}"))
-                .body(Body::from(body))
-                .unwrap(),
-        )
-        .await
-}
-
-/// POST an urlencoded form carrying the `x-tenant-id` header.
-pub async fn post_form_tenant(
-    router: &Router,
-    uri: &str,
-    tenant: uuid::Uuid,
-    csrf: &str,
-    body: String,
-) -> http::Response<Body> {
-    router
-        .handle(
-            http::Request::builder()
-                .uri(uri)
-                .method(http::Method::POST)
-                .header("x-tenant-id", tenant.to_string())
-                .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
-                .header(COOKIE, format!("argentum_csrf={csrf}"))
-                .body(Body::from(body))
-                .unwrap(),
-        )
-        .await
-}
-
-/// POST a multipart body carrying the `x-tenant-id` header (file uploads).
-pub async fn post_multipart_tenant(
-    router: &Router,
-    uri: &str,
-    tenant: uuid::Uuid,
-    csrf: &str,
-    boundary: &str,
-    body: String,
-) -> http::Response<Body> {
-    router
-        .handle(
-            http::Request::builder()
-                .uri(uri)
-                .method(http::Method::POST)
-                .header(
-                    CONTENT_TYPE,
-                    format!("multipart/form-data; boundary={boundary}"),
-                )
-                .header(COOKIE, format!("argentum_csrf={csrf}"))
-                .header("x-tenant-id", tenant.to_string())
-                .body(Body::from(body))
-                .unwrap(),
-        )
-        .await
+/// The `(name, value)` pairs a response's `Set-Cookie` headers carry.
+pub fn response_cookies(response: &http::Response<Body>) -> Vec<(String, String)> {
+    response
+        .headers()
+        .get_all(http::header::SET_COOKIE)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .filter_map(|value| value.split(';').next())
+        .filter_map(|pair| pair.split_once('='))
+        .map(|(name, value)| (name.trim().to_string(), value.trim().to_string()))
+        .collect()
 }
 
 /// Collect a response body as a lossy UTF-8 string.

@@ -1,21 +1,22 @@
 use http::{
     Method, Request,
-    header::{CONTENT_TYPE, COOKIE, LOCATION, SET_COOKIE},
+    header::{CONTENT_TYPE, LOCATION, SET_COOKIE},
 };
 use showcase::{app::router_for_tests as router, models::User};
 use toasty::Db;
 use topcoat::router::Body;
 
 mod common;
-use common::{body_string, get, post_form, seeded_db};
+use common::{TestClient, body_string, response_cookies, seeded_db};
 
 #[tokio::test]
 async fn manual_create_check() {
     let db = seeded_db().await;
     let router = router(db.clone());
+    let client = TestClient::new(&router);
 
     // Test GET /admin/users/create returns 200 with form HTML
-    let resp = get(&router, "/admin/users/create").await;
+    let resp = client.get("/admin/users/create").await;
     println!("GET /admin/users/create status: {}", resp.status());
     assert!(resp.status().is_success(), "GET create should be 200");
     let html = body_string(resp).await;
@@ -38,13 +39,13 @@ async fn manual_create_check() {
 
     // Test POST empty name
     let csrf = uuid::Uuid::new_v4().to_string();
-    let resp = post_form(
-        &router,
-        "/admin/users/create",
-        &csrf,
-        format!("name=&email=not-an-email&csrf_token={csrf}"),
-    )
-    .await;
+    let resp = client
+        .csrf(&csrf)
+        .post_form(
+            "/admin/users/create",
+            format!("name=&email=not-an-email&csrf_token={csrf}"),
+        )
+        .await;
     let status = resp.status();
     println!("POST empty name status: {}", status);
     let html = body_string(resp).await;
@@ -68,13 +69,13 @@ async fn manual_create_check() {
     assert_eq!(count, 3, "DB should still have 3 after invalid");
 
     // Test POST valid
-    let resp = post_form(
-        &router,
-        "/admin/users/create",
-        &csrf,
-        format!("name=New%20User&email=new%40example.com&csrf_token={csrf}"),
-    )
-    .await;
+    let resp = client
+        .csrf(&csrf)
+        .post_form(
+            "/admin/users/create",
+            format!("name=New%20User&email=new%40example.com&csrf_token={csrf}"),
+        )
+        .await;
     println!("POST valid status: {}", resp.status());
     assert!(
         resp.status().is_redirection(),
@@ -108,17 +109,9 @@ async fn manual_create_check() {
         "should set notification via cookie or query param, got loc {} cookie {}",
         loc, cookie
     );
-    // Follow redirect (use Location URL which may contain ?notification)
-    let mut req = Request::builder()
-        .uri(loc.clone())
-        .body(Body::empty())
-        .unwrap();
-    if !cookie.is_empty() {
-        let cookie_val = cookie.split(';').next().unwrap();
-        req.headers_mut()
-            .insert(COOKIE, cookie_val.parse().unwrap());
-    }
-    let resp2 = router.handle(req).await;
+    // Follow redirect (use Location URL which may contain ?notification),
+    // carrying whatever cookies the POST set.
+    let resp2 = client.cookies(&response_cookies(&resp)).get(&loc).await;
     assert!(
         resp2.status().is_success(),
         "GET list after create should be 200"
@@ -202,22 +195,20 @@ async fn create_policy_deny() {
         .app_context(db.clone())
         .resource::<DenyCreateResource>()
         .build();
+    let client = TestClient::new(&router);
 
     let slug = DenyCreateResource::slug();
     let create_url = format!("/admin/{}/create", slug);
     // GET create should be 403
-    let resp = get(&router, &create_url).await;
+    let resp = client.get(&create_url).await;
     assert_eq!(resp.status(), 403, "GET create should be 403 when denied");
 
     // POST should also be 403 and not create
     let csrf = uuid::Uuid::new_v4().to_string();
-    let resp = post_form(
-        &router,
-        &create_url,
-        &csrf,
-        format!("name=test&csrf_token={csrf}"),
-    )
-    .await;
+    let resp = client
+        .csrf(&csrf)
+        .post_form(&create_url, format!("name=test&csrf_token={csrf}"))
+        .await;
     assert_eq!(
         resp.status(),
         403,
@@ -234,6 +225,7 @@ async fn create_policy_deny() {
 async fn create_post_without_csrf_is_forbidden() {
     let db = seeded_db().await;
     let router = router(db);
+    // Raw request on purpose: asserting the protocol-level 403 without CSRF.
     let resp = router
         .handle(
             Request::builder()
@@ -253,15 +245,11 @@ async fn create_post_with_unknown_keys_is_bad_request() {
     // layer, never silently ignored.
     let db = seeded_db().await;
     let router = router(db.clone());
+    let client = TestClient::new(&router);
     let csrf = uuid::Uuid::new_v4().to_string();
-    let resp = post_form(
-        &router,
-        "/admin/users/create",
-        &csrf,
-        format!(
+    let resp = client.csrf(&csrf).post_form("/admin/users/create", format!(
             "name=Sneaky&email=sneaky%40example.com&role=admin&tenant_id=victim&csrf_token={csrf}"
-        ),
-    )
+        ))
     .await;
     assert_eq!(
         resp.status(),
