@@ -1305,7 +1305,10 @@ impl<M> Table<M> {
                 Some(
                     view! {
                         cx =>
-                        <div class="border-b border-destructive/30 bg-muted px-4 py-2 text-sm" role="alert">
+                        <div
+                            class="border-b border-destructive/30 bg-muted px-4 py-2 text-sm"
+                            role="alert"
+                        >
                             (text)
                             " "
                             <a href=(clear) class="underline">"Clear filters"</a>
@@ -1347,7 +1350,10 @@ impl<M> Table<M> {
                 .await?;
             let inner = view! {
                 cx =>
-                <div class="rounded-xl border border-border overflow-hidden" data-table-root="">
+                <div
+                    class="rounded-xl border border-border overflow-hidden"
+                    data-table-root=""
+                >
                     if show_search {
                         (search_bar.expect("search bar built when enabled"))
                     }
@@ -1397,7 +1403,10 @@ impl<M> Table<M> {
         // empty unless `?group_by=` named the declared group.
         let inner = view! {
             cx =>
-            <div class="rounded-xl border border-border overflow-hidden" data-table-root="">
+            <div
+                class="rounded-xl border border-border overflow-hidden"
+                data-table-root=""
+            >
                 if show_search {
                     (search_bar.expect("search bar built when enabled"))
                 }
@@ -1440,9 +1449,17 @@ impl<M> Table<M> {
                                     table_cell(
                                         <form
                                             method="post"
-                                            action=(format!("{}/{}/delete", prefix, encode_path_segment(&key_for_action)))
+                                            action=(format!(
+                                                "{}/{}/delete",
+                                                prefix,
+                                                encode_path_segment(&key_for_action),
+                                            ))
                                         >
-                                            <input type="hidden" name="csrf_token" value=(csrf_for_row)>
+                                            <input
+                                                type="hidden"
+                                                name="csrf_token"
+                                                value=(csrf_for_row)
+                                            >
                                             button(
                                                 variant: ButtonVariant::Ghost,
                                                 size: ButtonSize::Md,
@@ -1497,7 +1514,11 @@ impl<M> Table<M> {
         let with_bulk = self.bulk_enabled();
         let inner = view! {
             cx =>
-            <div class="rounded-xl border border-border overflow-hidden" data-table-root="" aria-busy="true">
+            <div
+                class="rounded-xl border border-border overflow-hidden"
+                data-table-root=""
+                aria-busy="true"
+            >
                 <div class="border-b border-border p-3" aria-hidden="true">
                     <div class="animate-pulse rounded-md bg-foreground/10 h-9 w-64"></div>
                 </div>
@@ -1731,9 +1752,7 @@ impl<M> Table<M> {
                     aria-label="Live prefix search table"
                     class="w-64"
                 >
-                <noscript>
-                    (fallback)
-                </noscript>
+                <noscript>(fallback)</noscript>
             </div>
         }
         .boxed())
@@ -1844,7 +1863,9 @@ impl<M> Table<M> {
                     controls.push(
                         view! {
                             cx =>
-                            <label class="flex items-center gap-2 text-sm text-muted-foreground">
+                            <label
+                                class="flex items-center gap-2 text-sm text-muted-foreground"
+                            >
                                 (label)
                                 <select
                                     data-filter-name=(name)
@@ -1853,9 +1874,13 @@ impl<M> Table<M> {
                                 >
                                     for opt in opts {
                                         if opt.is_empty() {
-                                            <option value="" selected=(current_c.is_empty())>"All"</option>
+                                            <option value="" selected=(current_c.is_empty())>
+                                                "All"
+                                            </option>
                                         } else {
-                                            <option value=(opt.clone()) selected=(current_c == opt)>(opt)</option>
+                                            <option value=(opt.clone()) selected=(current_c == opt)>
+                                                (opt)
+                                            </option>
                                         }
                                     }
                                 </select>
@@ -1872,16 +1897,24 @@ impl<M> Table<M> {
                     controls.push(
                         view! {
                             cx =>
-                            <label class="flex items-center gap-2 text-sm text-muted-foreground">
+                            <label
+                                class="flex items-center gap-2 text-sm text-muted-foreground"
+                            >
                                 (label)
                                 <select
                                     data-filter-name=(name)
                                     aria-label=(aria)
                                     class="flex h-9 rounded-md border border-border bg-background px-3 py-1 text-sm shadow-xs"
                                 >
-                                    <option value="" selected=(current_c.is_empty())>"All"</option>
-                                    <option value="true" selected=(current_c == "true")>"True"</option>
-                                    <option value="false" selected=(current_c == "false")>"False"</option>
+                                    <option value="" selected=(current_c.is_empty())>
+                                        "All"
+                                    </option>
+                                    <option value="true" selected=(current_c == "true")>
+                                        "True"
+                                    </option>
+                                    <option value="false" selected=(current_c == "false")>
+                                        "False"
+                                    </option>
                                 </select>
                             </label>
                         }
@@ -1897,7 +1930,9 @@ impl<M> Table<M> {
                     controls.push(
                         view! {
                             cx =>
-                            <label class="flex items-center gap-2 text-sm text-muted-foreground">
+                            <label
+                                class="flex items-center gap-2 text-sm text-muted-foreground"
+                            >
                                 (label)
                                 <input
                                     type="date"
@@ -1920,16 +1955,22 @@ impl<M> Table<M> {
                     controls.push(
                         view! {
                             cx =>
-                            <label class="flex items-center gap-2 text-sm text-muted-foreground">
+                            <label
+                                class="flex items-center gap-2 text-sm text-muted-foreground"
+                            >
                                 (label)
                                 <select
                                     data-filter-name=(name)
                                     aria-label=(aria)
                                     class="flex h-9 rounded-md border border-border bg-background px-3 py-1 text-sm shadow-xs"
                                 >
-                                    <option value="" selected=(current_c.is_empty())>"All"</option>
+                                    <option value="" selected=(current_c.is_empty())>
+                                        "All"
+                                    </option>
                                     for opt in keys {
-                                        <option value=(opt.clone()) selected=(current_c == opt)>(opt)</option>
+                                        <option value=(opt.clone()) selected=(current_c == opt)>
+                                            (opt)
+                                        </option>
                                     }
                                 </select>
                             </label>

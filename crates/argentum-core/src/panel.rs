@@ -399,7 +399,13 @@ impl Panel {
             Ok(view! {
                 cx =>
                 <div class="flex items-center gap-2 font-semibold text-foreground">
-                    <img src=(logo_url) alt=(alt) width="24" height="24" class="h-6 w-6 rounded">
+                    <img
+                        src=(logo_url)
+                        alt=(alt)
+                        width="24"
+                        height="24"
+                        class="h-6 w-6 rounded"
+                    >
                     (name)
                 </div>
             }
@@ -507,17 +513,16 @@ impl Panel {
             };
             view! {
                 cx =>
-                <div
-                    class=(card_class)
-                    data-notification=""
-                >
+                <div class=(card_class) data-notification="">
                     <p class="text-sm font-medium text-foreground">(title)</p>
                     <button
                         type="button"
                         class="text-xs text-muted-foreground underline"
                         aria-label="Dismiss notification"
                         data-notification-close=""
-                    >"Dismiss"</button>
+                    >
+                        "Dismiss"
+                    </button>
                 </div>
             }
             .boxed()
@@ -1285,7 +1290,12 @@ async fn render_form_page<'a, R: Resource>(
         argentum_ui::page(
             argentum_ui::page_header(argentum_ui::page_title((title.clone())))
             argentum_ui::page_content(
-                <form method="post" action=(action) enctype=(enctype) class="flex flex-col gap-4">
+                <form
+                    method="post"
+                    action=(action)
+                    enctype=(enctype)
+                    class="flex flex-col gap-4"
+                >
                     <input type="hidden" name="csrf_token" value=(csrf)>
                     (form_html)
                     <div class="flex gap-2">
