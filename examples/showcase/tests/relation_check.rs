@@ -187,17 +187,9 @@ async fn posts_list_shows_comments_count_via_include() {
         "missing Comments header {}",
         html
     );
-    // Hello Toasty has 1 comment, Second Post has 0
-    assert!(
-        html.contains(">1<") || html.contains("1"),
-        "missing comment count 1 {}",
-        html
-    );
-    assert!(
-        html.contains(">0<") || html.contains("0"),
-        "missing comment count 0 {}",
-        html
-    );
+    // Hello Toasty has 1 comment, Second Post has 0 (cell content only)
+    assert!(html.contains(">1<"), "missing comment count 1 {}", html);
+    assert!(html.contains(">0<"), "missing comment count 0 {}", html);
     // GH #101: loaded relations must never render the unloaded marker.
     assert!(
         !html.contains("(unloaded)"),

@@ -41,12 +41,8 @@ async fn posts_group_by_status_shows_counts() {
         "missing group header {}",
         html
     );
-    // Each group should show count (1) for our seeded data (one published, one draft) – appears as "(1)"
-    assert!(
-        html.contains("(1)") || html.contains("1"),
-        "missing count {}",
-        html
-    );
+    // Each group shows a page-local count: "published (1 on this page)".
+    assert!(html.contains("(1 on this page)"), "missing count {}", html);
 }
 
 #[tokio::test]

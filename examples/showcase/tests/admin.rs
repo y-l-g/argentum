@@ -41,10 +41,7 @@ async fn admin_resource_list_page_serve_seeded_users() {
     // List page content — page 1 of the cursor-paginated list (name asc,
     // 2 per page) shows Ada + Alan; Grace lives on page 2, exercised by
     // admin_list_pagination_walks_cursor_links.
-    assert!(
-        html.contains("<h1>Users</h1>") || html.contains("Users"),
-        "missing heading in {html}"
-    );
+    assert!(html.contains("Users</h1>"), "missing heading in {html}");
     assert!(html.contains("Ada Lovelace"), "missing Ada in {html}");
     assert!(html.contains("Alan Turing"), "missing Alan in {html}");
     assert!(
