@@ -176,6 +176,7 @@ async fn edit_policy_deny() {
     .unwrap();
     let router = argentum_core::Panel::new("admin")
         .app_context(db.clone())
+        .auth(argentum_core::Auth::disabled())
         .resource::<DenyUpdateResource>()
         .build();
     let client = TestClient::new(&router);

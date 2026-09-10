@@ -17,7 +17,11 @@ use topcoat::router::{Body, Router};
 /// `Db` with the phase-1 users seed applied.
 pub async fn seeded_db() -> Db {
     let mut db = Db::builder()
-        .models(toasty::models!(showcase::models::User))
+        .models(toasty::models!(
+            showcase::models::User,
+            argentum_core::auth::AdminUser,
+            argentum_core::auth::AuthSession
+        ))
         .connect("sqlite::memory:")
         .await
         .expect("connect");
@@ -26,14 +30,17 @@ pub async fn seeded_db() -> Db {
     db
 }
 
-/// `Db` with both seed phases (users, authors, posts, comments).
+/// `Db` with both seed phases (users, authors, posts, comments) and the
+/// shipped auth models.
 pub async fn full_db() -> Db {
     let mut db = Db::builder()
         .models(toasty::models!(
             showcase::models::User,
             showcase::models::Author,
             showcase::models::Post,
-            showcase::models::Comment
+            showcase::models::Comment,
+            argentum_core::auth::AdminUser,
+            argentum_core::auth::AuthSession
         ))
         .connect("sqlite::memory:")
         .await
@@ -53,7 +60,9 @@ pub async fn tenanted_db() -> (Db, uuid::Uuid, uuid::Uuid) {
             showcase::models::User,
             showcase::models::Author,
             showcase::models::Post,
-            showcase::models::Comment
+            showcase::models::Comment,
+            argentum_core::auth::AdminUser,
+            argentum_core::auth::AuthSession
         ))
         .connect("sqlite::memory:")
         .await
@@ -129,10 +138,14 @@ impl<'a> TestClient<'a> {
         }
     }
 
-    /// Attach a cookie to every request this client sends.
+    /// Attach a cookie to every request this client sends. A later value for
+    /// the same name replaces the earlier one, like a browser jar.
     pub fn cookie(&self, name: &str, value: &str) -> Self {
         let mut client = self.clone();
-        client.cookies.push((name.to_string(), value.to_string()));
+        match client.cookies.iter_mut().find(|(kept, _)| kept == name) {
+            Some(existing) => existing.1 = value.to_string(),
+            None => client.cookies.push((name.to_string(), value.to_string())),
+        }
         client
     }
 
@@ -220,6 +233,10 @@ impl<'a> TestClient<'a> {
     }
 }
 
+/// The session cookie name Topcoat's default token store writes (`__Host-`
+/// prefix plus the `session` name, per its hardened cookie contract).
+pub const SESSION_COOKIE: &str = "__Host-session";
+
 /// The `(name, value)` pairs a response's `Set-Cookie` headers carry.
 pub fn response_cookies(response: &http::Response<Body>) -> Vec<(String, String)> {
     response
@@ -231,6 +248,82 @@ pub fn response_cookies(response: &http::Response<Body>) -> Vec<(String, String)
         .filter_map(|pair| pair.split_once('='))
         .map(|(name, value)| (name.trim().to_string(), value.trim().to_string()))
         .collect()
+}
+
+/// The full `Set-Cookie` header for `name`, so tests can assert attributes.
+pub fn set_cookie_header(response: &http::Response<Body>, name: &str) -> Option<String> {
+    response
+        .headers()
+        .get_all(http::header::SET_COOKIE)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .find(|value| value.starts_with(&format!("{name}=")))
+        .map(str::to_string)
+}
+
+/// Log in through `{prefix}/login` like a browser: fetch the page, reuse its
+/// CSRF pair, post the credentials, and keep every cookie the exchange set.
+pub async fn login<'a>(router: &'a Router, email: &str, password: &str) -> TestClient<'a> {
+    login_next(router, email, password, "").await.0
+}
+
+/// [`login`] with an explicit `next` destination. Returns the client (CSRF +
+/// session cookies) and the login POST response, so callers can assert on the
+/// redirect and the `Set-Cookie` headers.
+pub async fn login_next<'a>(
+    router: &'a Router,
+    email: &str,
+    password: &str,
+    next: &str,
+) -> (TestClient<'a>, http::Response<Body>) {
+    let page = TestClient::new(router).get("/admin/login").await;
+    let cookies = response_cookies(&page);
+    let html = body_string(page).await;
+    let csrf = input_value(&html, "csrf_token")
+        .unwrap_or_else(|| panic!("login page must embed a csrf_token input: {html}"));
+    let body = form_body(&[
+        ("email", email),
+        ("password", password),
+        ("next", next),
+        ("csrf_token", &csrf),
+    ]);
+    let response = TestClient::new(router)
+        .cookies(&cookies)
+        .post_form("/admin/login", body)
+        .await;
+    let session = response_cookies(&response);
+    (
+        TestClient::new(router).cookies(&cookies).cookies(&session),
+        response,
+    )
+}
+
+/// URL-encode `(key, value)` pairs into an urlencoded form body.
+pub fn form_body(pairs: &[(&str, &str)]) -> String {
+    let mut serializer = form_urlencoded::Serializer::new(String::new());
+    for (key, value) in pairs {
+        serializer.append_pair(key, value);
+    }
+    serializer.finish()
+}
+
+/// The `value` attribute of the named `<input>` in rendered HTML, in either
+/// attribute order.
+pub fn input_value(html: &str, name: &str) -> Option<String> {
+    let name_attr = format!("name=\"{name}\"");
+    for tag in html.split('<').skip(1) {
+        if !tag.contains(&name_attr) {
+            continue;
+        }
+        let attrs = &tag[..tag.find('>')?];
+        if let Some(start) = attrs.find("value=\"") {
+            let rest = &attrs[start + "value=\"".len()..];
+            if let Some(end) = rest.find('"') {
+                return Some(rest[..end].to_string());
+            }
+        }
+    }
+    None
 }
 
 /// Collect a response body as a lossy UTF-8 string.

@@ -216,6 +216,7 @@ async fn bulk_delete_partial_deny_aborts() {
     .unwrap();
     let router = argentum_core::Panel::new("admin")
         .app_context(db.clone())
+        .auth(argentum_core::Auth::disabled())
         .resource::<PartialDenyResource>()
         .build();
     let client = TestClient::new(&router);
@@ -285,6 +286,7 @@ async fn view_any_deny_blocks_list() {
     db.push_schema().await.unwrap();
     let router = argentum_core::Panel::new("admin")
         .app_context(db.clone())
+        .auth(argentum_core::Auth::disabled())
         .resource::<DenyViewAnyResource>()
         .build();
     let client = TestClient::new(&router);

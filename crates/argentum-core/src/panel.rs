@@ -94,6 +94,10 @@ pub struct Panel {
     root_target: Option<String>,
     slugs: Vec<String>,
     search_handlers: HashMap<String, SearchFn>,
+    #[cfg(feature = "auth")]
+    login_hint: Option<String>,
+    #[cfg(feature = "auth")]
+    auth: crate::auth::Auth,
 }
 
 /// The application-owned assets used by [`Panel::layout_shell`].
@@ -120,7 +124,12 @@ struct RootRedirect(String);
 /// table renders away from its own list route — instead of sniffing the
 /// request path (GH #75 item 6).
 #[derive(Debug, Clone)]
-struct PanelPrefix(String);
+pub(crate) struct PanelPrefix(pub(crate) String);
+
+/// Demo/deployment hint rendered under the login form (auth feature).
+#[cfg(feature = "auth")]
+#[derive(Debug, Clone)]
+pub(crate) struct LoginHint(pub(crate) String);
 
 impl Panel {
     /// Create a `Panel` mounted at `prefix` (e.g. `"admin"` → `"/admin"`).
@@ -145,6 +154,10 @@ impl Panel {
             root_target: None,
             slugs: Vec::new(),
             search_handlers: HashMap::new(),
+            #[cfg(feature = "auth")]
+            login_hint: None,
+            #[cfg(feature = "auth")]
+            auth: crate::auth::Auth::default(),
         }
     }
 
@@ -283,6 +296,26 @@ impl Panel {
         self
     }
 
+    /// Configure authentication (ADR-0013).
+    ///
+    /// The default is the shipped [`Auth::password`](crate::auth::Auth::password)
+    /// over [`AdminUser`](crate::auth::AdminUser); swap in an app-owned
+    /// authenticator with `Panel::auth(Auth::custom(..))`, or opt a public
+    /// demo out explicitly with `Panel::auth(Auth::disabled())`.
+    #[cfg(feature = "auth")]
+    pub fn auth(mut self, auth: impl Into<crate::auth::Auth>) -> Self {
+        self.auth = auth.into();
+        self
+    }
+
+    /// A muted line rendered under the login form, for demo credentials or
+    /// deployment hints (e.g. `"Demo: admin@example.com / password"`).
+    #[cfg(feature = "auth")]
+    pub fn login_hint(mut self, hint: impl Into<String>) -> Self {
+        self.login_hint = Some(hint.into());
+        self
+    }
+
     /// Build the [`Router`], discovering all `#[page]` / `#[layout]` / `#[shard]`
     /// items linked into the binary, mounting the browser-runtime routes
     /// (`RouterBuilderRuntimeExt::runtime`, required by `runtime::script`),
@@ -309,8 +342,14 @@ impl Panel {
             root_target,
             slugs: _,
             search_handlers,
+            #[cfg(feature = "auth")]
+            login_hint,
+            #[cfg(feature = "auth")]
+            auth,
         } = self;
         let db = db.expect("Panel::build requires a Db via app_context");
+        #[cfg(feature = "auth")]
+        crate::auth::assert_models_registered(&db, &auth);
         let mut builder = Router::builder()
             .discover()
             .runtime()
@@ -320,6 +359,33 @@ impl Panel {
             // 413 uploads the framework otherwise accepts.
             .layer(topcoat::router::BodyLimit::max(MAX_FORM_BYTES))
             .app_context(db);
+        // Auth (ADR-0013): sessions plus the resolving gate under the panel
+        // and runtime prefixes, and the login/logout routes. Disabled skips
+        // all three but still installs the `Auth` value for the shell.
+        #[cfg(feature = "auth")]
+        {
+            if !auth.is_disabled() {
+                builder = crate::auth::install(builder, &prefix);
+                let login_path = route_path(&format!("{prefix}/login"));
+                let logout_path = route_path(&format!("{prefix}/logout"));
+                builder = builder
+                    .route(RouteFn::new(
+                        http::Method::GET,
+                        login_path.clone(),
+                        crate::auth::login_page,
+                    ))
+                    .route(RouteFn::new(
+                        http::Method::POST,
+                        login_path,
+                        crate::auth::login_post,
+                    ))
+                    .route(RouteFn::new(
+                        http::Method::POST,
+                        logout_path,
+                        crate::auth::logout_post,
+                    ));
+            }
+        }
         if !search_handlers.is_empty() {
             builder = builder.app_context(SearchRegistry(search_handlers));
         }
@@ -360,6 +426,13 @@ impl Panel {
                     panel_root_redirect,
                 ));
         }
+        #[cfg(feature = "auth")]
+        {
+            builder = builder.app_context(auth);
+            if let Some(hint) = login_hint {
+                builder = builder.app_context(LoginHint(hint));
+            }
+        }
         builder.build()
     }
 
@@ -387,7 +460,7 @@ impl Panel {
         .boxed())
     }
 
-    async fn render_brand(cx: &Cx) -> Result<BoxView<'_>> {
+    pub(crate) async fn render_brand(cx: &Cx) -> Result<BoxView<'_>> {
         use topcoat::context::try_app_context;
         let (name, logo) = if let Some(brand) = try_app_context::<Brand>(cx) {
             (brand.name.clone(), brand.logo.clone())
@@ -498,6 +571,46 @@ impl Panel {
         let sidebar_theme_toggle = Self::theme_toggle(cx).await?;
         let mobile_theme_toggle = Self::theme_toggle(cx).await?;
         let header_theme_toggle = Self::theme_toggle(cx).await?;
+        // Signed-in identity + logout control, present only with a session
+        // (ADR-0013). `ensure_token` runs before any streaming starts so the
+        // logout form always carries a matching CSRF pair.
+        #[cfg(feature = "auth")]
+        let account_view: BoxView<'_> = match crate::auth::current_user(cx) {
+            Some(user) => {
+                let csrf = crate::csrf::ensure_token(cx);
+                let logout = format!(
+                    "{}/logout",
+                    topcoat::context::try_app_context::<PanelPrefix>(cx)
+                        .map(|prefix| prefix.0.as_str())
+                        .unwrap_or("/admin")
+                );
+                view! {
+                    cx =>
+                    <div class="flex items-center gap-2">
+                        <span class="text-sm text-muted-foreground">
+                            (user.display_name)
+                        </span>
+                        <form method="post" action=(logout)>
+                            <input
+                                type="hidden"
+                                name=(crate::csrf::FIELD_NAME)
+                                value=(csrf)
+                            >
+                            <button
+                                type="submit"
+                                class="text-sm text-muted-foreground underline"
+                            >
+                                "Sign out"
+                            </button>
+                        </form>
+                    </div>
+                }
+                .boxed()
+            }
+            None => view! { cx => <span></span> }.boxed(),
+        };
+        #[cfg(not(feature = "auth"))]
+        let account_view: BoxView<'_> = view! { cx => <span></span> }.boxed();
         let notification_view: BoxView<'_> = if let Some(notification) =
             take_notification(cx).or_else(|| notification_from_query(cx))
         {
@@ -590,6 +703,7 @@ impl Panel {
                         sidebar_trigger(attrs: attributes! { class="-ml-1" })
                         <div class="font-semibold text-foreground">(header_title)</div>
                         <div class="ml-auto flex items-center gap-2">
+                            (account_view)
                             (header_theme_toggle)
                         </div>
                     </header>
@@ -634,6 +748,22 @@ impl Panel {
                 }]
             });
         let shell = Self::render_shell(cx, &nav_items, &current, slot, None).await?;
+        let brand_title = try_app_context::<Brand>(cx)
+            .map(|b| b.name.clone())
+            .unwrap_or_else(|| "Admin".to_string());
+        Self::render_document(cx, brand_title, shell).await
+    }
+
+    /// The complete HTML document around a rendered body: assets, dark-mode
+    /// class, and title. [`Self::layout_shell`] frames the panel shell with
+    /// it; the standalone login page (ADR-0013) uses the same document so
+    /// brand and dark mode carry over.
+    pub(crate) async fn render_document<'a>(
+        cx: &'a Cx,
+        title: String,
+        body: BoxView<'a>,
+    ) -> Result<BoxView<'a>> {
+        use topcoat::context::try_app_context;
         let head: BoxView<'_> = match try_app_context::<ShellAssets>(cx).copied() {
             Some(ShellAssets { stylesheet, font }) => view! {
                 cx =>
@@ -659,9 +789,6 @@ impl Panel {
             }
             .boxed(),
         };
-        let brand_title = try_app_context::<Brand>(cx)
-            .map(|b| b.name.clone())
-            .unwrap_or_else(|| "Admin".to_string());
         let html_class =
             try_app_context::<DarkMode>(cx).and_then(|dm| if dm.0 { Some("dark") } else { None });
         Ok(view! {
@@ -669,18 +796,19 @@ impl Panel {
             <!DOCTYPE html>
             <html class=(html_class)>
                 <head>
-                    <title>(brand_title)</title>
+                    <title>(title)</title>
                     (head)
                 </head>
-                <body>(shell)</body>
+                <body>(body)</body>
             </html>
-        })
+        }
+        .boxed())
     }
 }
 
 /// Parse a panel route path, panicking on malformed input — the paths are
 /// built from the panel prefix and the resource slug, both validated earlier.
-fn route_path(path: &str) -> topcoat::router::PathBuf {
+pub(crate) fn route_path(path: &str) -> topcoat::router::PathBuf {
     Path::from_str(path)
         .expect("panel route paths are well-formed")
         .to_owned()
@@ -1074,7 +1202,10 @@ async fn load_table_page<R: Resource>(
 /// `FileUpload` storage contract) — so a 2 GB "upload" never materializes.
 /// Text parts store their content. Unknown content types fall back to
 /// urlencoded so existing tests/clients keep working.
-async fn parse_form_values(cx: &Cx, body: Body) -> Result<HashMap<String, String>, topcoat::Error> {
+pub(crate) async fn parse_form_values(
+    cx: &Cx,
+    body: Body,
+) -> Result<HashMap<String, String>, topcoat::Error> {
     let content_type =
         topcoat::context::try_request_context::<http::request::Parts>(cx).and_then(|parts| {
             parts
@@ -2039,6 +2170,7 @@ mod tests {
         let router = Panel::new("admin")
             .app_context(db)
             .resource::<DummyResource>()
+            .auth(crate::Auth::disabled())
             .build();
 
         // The list page denies by default (default-deny policy → 403). A
@@ -2214,6 +2346,7 @@ mod tests {
         let router = Panel::new("admin")
             .app_context(db)
             .resource::<ViewDeniedResource>()
+            .auth(crate::Auth::disabled())
             .build();
         let url = format!("/admin/dummies/{}/edit", row.id);
         // GET already required both; POST must match (GH #86).
@@ -2333,6 +2466,7 @@ mod tests {
         let router = Panel::new("admin")
             .app_context(db)
             .resource::<UpperKeyResource>()
+            .auth(crate::Auth::disabled())
             .build();
         // Canonical lowercase id succeeds despite uppercase Table::id.
         let token = uuid::Uuid::new_v4().to_string();
@@ -2469,6 +2603,7 @@ mod tests {
         let router = Panel::new("admin")
             .app_context(db.clone())
             .resource::<FlakyBulkResource>()
+            .auth(crate::Auth::disabled())
             .build();
         let token = uuid::Uuid::new_v4().to_string();
         let resp = router
@@ -2559,6 +2694,7 @@ mod tests {
         let router = Panel::new("admin")
             .app_context(db.clone())
             .resource::<LiveResource>()
+            .auth(crate::Auth::disabled())
             .build();
 
         // List page carries the live host + GET fallback.
@@ -2744,6 +2880,7 @@ mod tests {
         let router = Panel::new("admin")
             .app_context(db)
             .resource::<ReadOnlyResource>()
+            .auth(crate::Auth::disabled())
             .build();
         let resp = router
             .handle(
@@ -2821,6 +2958,7 @@ mod tests {
         let router = Panel::new("admin")
             .app_context(db)
             .resource::<RowPolicyResource>()
+            .auth(crate::Auth::disabled())
             .build();
         let resp = router
             .handle(
@@ -2926,6 +3064,7 @@ mod tests {
         let router = Panel::new("admin")
             .app_context(db)
             .resource::<GatedResource>()
+            .auth(crate::Auth::disabled())
             .build();
         // No tenant anywhere → 403, not unscoped rows (GH #87).
         let resp = router
@@ -3022,6 +3161,7 @@ mod tests {
         let router = Panel::new("admin")
             .app_context(db)
             .resource::<NotifyingResource>()
+            .auth(crate::Auth::disabled())
             .build();
         let token = uuid::Uuid::new_v4().to_string();
         let resp = router
@@ -3791,6 +3931,7 @@ mod tests {
         let router = Panel::new("admin")
             .app_context(db)
             .resource::<PairResource>()
+            .auth(crate::Auth::disabled())
             .build();
         let resp = router
             .handle(
@@ -3855,6 +3996,7 @@ mod tests {
         let router = Panel::new("admin")
             .app_context(db)
             .resource::<SubscriberResource>()
+            .auth(crate::Auth::disabled())
             .build();
 
         // A tampered `?after=` cursor fails to decode inside the streamed

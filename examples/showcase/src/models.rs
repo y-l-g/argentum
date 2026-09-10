@@ -1,6 +1,8 @@
 use jiff::Timestamp;
 use toasty::{Db, Deferred};
 
+use argentum_core::auth::{AdminUser, hash_password};
+
 /// User shown in the admin list — the realistic spec model (US16, GH #13):
 /// role/active/created_at plus `#[index]` on the searchable `name` column.
 /// `email` keeps only `#[unique]` — a unique constraint already implies an
@@ -106,12 +108,45 @@ pub async fn seed(db: &mut Db) -> toasty::Result<()> {
     ])
     .exec(db)
     .await?;
+    create_admin(
+        db,
+        DEMO_ADMIN_EMAIL,
+        "Demo Admin",
+        DEMO_ADMIN_PASSWORD,
+        Some(DEMO_TENANT),
+    )
+    .await?;
     Ok(())
 }
 
 /// The tenant owning all showcase seed rows (GH #87): seeds never mint
-/// nil-tenant orphans, and gated-resource tests send this as `x-tenant-id`.
+/// nil-tenant orphans, and the demo admin owns it.
 pub const DEMO_TENANT: uuid::Uuid = uuid::Uuid::from_u128(100);
+
+/// Demo administrator credentials, shown on the login page and in the README.
+pub const DEMO_ADMIN_EMAIL: &str = "admin@example.com";
+pub const DEMO_ADMIN_PASSWORD: &str = "password";
+
+/// Create an active admin (or another app user) with an Argon2id-hashed
+/// password. Used by the showcase seed and the tenancy test fixtures.
+pub async fn create_admin(
+    db: &mut Db,
+    email: &str,
+    display_name: &str,
+    password: &str,
+    tenant_id: Option<uuid::Uuid>,
+) -> toasty::Result<AdminUser> {
+    toasty::create!(AdminUser {
+        email: email.to_string(),
+        password_hash: hash_password(password).expect("hash a demo password"),
+        display_name: display_name.to_string(),
+        active: true,
+        tenant_id,
+        created_at: Timestamp::now(),
+    })
+    .exec(db)
+    .await
+}
 
 /// Seed Phase 2 relation data (Authors + Posts + Comments) — call only when DB was built with all models.
 pub async fn seed_phase2(db: &mut Db) -> toasty::Result<()> {

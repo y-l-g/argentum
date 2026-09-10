@@ -12,6 +12,8 @@ pub mod __macro {
 }
 // The toolkit surface: Panel, Resource, Table, Schema, Notification, Policy,
 // Tenancy, CSRF, and the `Db` glue.
+#[cfg(feature = "auth")]
+pub mod auth;
 pub mod csrf;
 pub mod cursor;
 pub mod db;
@@ -23,6 +25,8 @@ pub mod schema;
 pub mod tenancy;
 
 pub use argentum_macros::Resource;
+#[cfg(feature = "auth")]
+pub use auth::{Auth, Authenticator, CurrentUser, PasswordAuth};
 pub use notification::{Notification, NotificationStatus};
 pub use panel::{Brand, DarkMode, Panel};
 pub use policy::{AllowAll, DenyAll, Policy};

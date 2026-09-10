@@ -277,6 +277,7 @@ async fn admin_layout(cx: &Cx, slot: Slot<'_>) -> Result<impl View> {
 fn router(db: Db) -> Router {
     Panel::new("admin")
         .app_context(db)
+        .auth(argentum_core::Auth::disabled())
         .resource::<AuthorResource>()
         .resource::<PostResource>()
         .build()

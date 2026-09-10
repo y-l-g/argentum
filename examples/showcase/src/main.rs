@@ -12,7 +12,9 @@ async fn main() {
             showcase::models::User,
             showcase::models::Author,
             showcase::models::Post,
-            showcase::models::Comment
+            showcase::models::Comment,
+            argentum_core::auth::AdminUser,
+            argentum_core::auth::AuthSession
         ))
         .connect("sqlite::memory:")
         .await

@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use argentum_core::{
-    DateFilter, FileUpload, Grid, NavigationItem, Panel, Repeater, Resource, Schema, Section,
-    Select, SelectFilter, Table, TernaryFilter, TextColumn, TextInput, tenant_id,
+    Brand, DateFilter, FileUpload, Grid, NavigationItem, Panel, Repeater, Resource, Schema,
+    Section, Select, SelectFilter, Table, TernaryFilter, TextColumn, TextInput, tenant_id,
 };
 use toasty::Db;
 use topcoat::{
@@ -707,6 +707,12 @@ pub fn router_for_tests(db: Db) -> Router {
 fn build_router(db: Db, bundle: Option<AssetBundle>) -> Router {
     let panel = Panel::new("admin")
         .app_context(db)
+        .brand(Brand::new("Showcase"))
+        .login_hint(format!(
+            "Demo credentials: {} / {}",
+            crate::models::DEMO_ADMIN_EMAIL,
+            crate::models::DEMO_ADMIN_PASSWORD
+        ))
         .resource::<UserResource>()
         .resource::<AuthorResource>()
         .resource::<PostResource>()
