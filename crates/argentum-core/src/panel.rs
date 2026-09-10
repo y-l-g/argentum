@@ -1822,6 +1822,17 @@ const MAX_BULK_IDS: usize = 400;
 /// `String` without end.
 const MAX_EXPORT_ROWS: usize = 10_000;
 
+/// Reject an export whose filtered query returned one row past the cap
+/// (GH #94). Extracted from the handler so the 413 mapping is testable at the
+/// boundary without materializing 10k rows in a test database.
+fn enforce_export_cap<T>(rows: Vec<T>) -> Result<Vec<T>, topcoat::Error> {
+    if rows.len() > MAX_EXPORT_ROWS {
+        Err(topcoat::router::error::content_too_large().into())
+    } else {
+        Ok(rows)
+    }
+}
+
 /// `?bom=1` opts into a UTF-8 BOM prefix on the CSV body for Excel (GH #94).
 fn export_wants_bom(cx: &Cx) -> bool {
     let Some(parts) = topcoat::context::try_request_context::<http::request::Parts>(cx) else {
@@ -1905,9 +1916,7 @@ fn resource_export<R: Resource>(cx: &Cx, _body: Body) -> RouteFuture<'_> {
         query = query.limit(MAX_EXPORT_ROWS + 1);
         let mut db = db(cx);
         let rows: Vec<R::Model> = query.exec(&mut db).await.map_err(topcoat::Error::from)?;
-        if rows.len() > MAX_EXPORT_ROWS {
-            return Err(topcoat::router::error::content_too_large().into());
-        }
+        let rows = enforce_export_cap(rows)?;
         // Export must not exceed row visibility (GH #86): drop rows the
         // caller may not view. (The list page still checks only `can_view_any`
         // — page-local per-row filtering would mislabel pagination.)
@@ -2008,15 +2017,6 @@ mod tests {
             .into_parts();
         let cx = CxTestBuilder::new().request_context(parts).build();
         assert_eq!(list_url(&cx, "users"), "/admin/users");
-    }
-
-    #[tokio::test]
-    async fn panel_builds_router_with_db() {
-        let db = Db::builder().connect("sqlite::memory:").await.unwrap();
-        let router = Panel::new("admin").app_context(db).build();
-        // Router built without panic — the real serving test lives in the
-        // admin example's integration test.
-        drop(router);
     }
 
     #[tokio::test]
@@ -2860,8 +2860,21 @@ mod tests {
         assert!(!export_wants_bom(&cx_for("/admin/users/export")));
         assert!(!export_wants_bom(&cx_for("/admin/users/export?bom=0")));
         assert!(!export_wants_bom(&cx_for("/admin/users/export?BOM=1")));
-        // MAX_EXPORT_ROWS bounds the export (GH #94).
-        assert_eq!(MAX_EXPORT_ROWS, 10_000);
+    }
+
+    #[test]
+    fn export_cap_maps_one_row_past_the_limit_to_413() {
+        // GH #94: the cap branch must produce a content-too-large error, not
+        // just a constant that happens to equal 10_000. Exercised at the
+        // boundary.
+        let under_cap = enforce_export_cap(vec![0u8; MAX_EXPORT_ROWS]).unwrap();
+        assert_eq!(under_cap.len(), MAX_EXPORT_ROWS);
+        let err = enforce_export_cap(vec![0u8; MAX_EXPORT_ROWS + 1]).unwrap_err();
+        assert!(
+            err.downcast_ref::<topcoat::router::error::ContentTooLargeError>()
+                .is_some(),
+            "cap must map to content-too-large (413), got {err}"
+        );
     }
 
     #[tokio::test]
