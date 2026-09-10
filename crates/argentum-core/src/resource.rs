@@ -2653,12 +2653,25 @@ fn encode_path_segment(value: &str) -> String {
     encode_query_value(value)
 }
 
+/// FNV-1a (32-bit): stable across runs and Rust versions, no dependency.
+/// Used only to disambiguate DOM ids, never for anything security-relevant.
+fn fnv1a_32(s: &str) -> u32 {
+    let mut hash: u32 = 0x811c_9dc5;
+    for byte in s.bytes() {
+        hash ^= u32::from(byte);
+        hash = hash.wrapping_mul(0x0100_0193);
+    }
+    hash
+}
+
 /// Stable DOM id for a table row (GH #104): Topcoat's morph (#392) follows
 /// elements by `id` across reruns, so reorderable row content needs one in
 /// addition to the keyed-diff `key:`. Derived from the row key (stable for
-/// the record, unlike a loop index), sanitized to an HTML-safe token.
+/// the record, unlike a loop index), sanitized to an HTML-safe token plus a
+/// short hash: distinct keys (`Ada Lovelace`, `Ada-Lovelace`) can sanitize to
+/// the same token, and duplicate DOM ids would make the morph follow one row.
 fn row_dom_id(key: &str) -> String {
-    let mut out = String::with_capacity(key.len() + 4);
+    let mut out = String::with_capacity(key.len() + 14);
     out.push_str("row-");
     for c in key.chars() {
         if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | ':' | '.') {
@@ -2667,6 +2680,7 @@ fn row_dom_id(key: &str) -> String {
             out.push('-');
         }
     }
+    out.push_str(&format!("-{:08x}", fnv1a_32(key)));
     out
 }
 
@@ -4441,11 +4455,18 @@ mod tests {
         // key (record-stable), never a loop index, sanitized to tokens.
         assert_eq!(
             row_dom_id("550e8400-e29b-41d4-a716-446655440000"),
-            "row-550e8400-e29b-41d4-a716-446655440000"
+            row_dom_id("550e8400-e29b-41d4-a716-446655440000"),
+            "ids must be stable per key"
         );
-        assert_eq!(row_dom_id("a+b@c.com"), "row-a-b-c.com");
-        assert_eq!(row_dom_id("Ada Lovelace"), "row-Ada-Lovelace");
-        assert_eq!(row_dom_id("a/b?c"), "row-a-b-c");
+        let uuid_id = row_dom_id("550e8400-e29b-41d4-a716-446655440000");
+        assert!(uuid_id.starts_with("row-550e8400-e29b-41d4-a716-446655440000-"));
+        assert!(
+            uuid_id.is_ascii(),
+            "id stays an ASCII token, got {uuid_id:?}"
+        );
+        // Keys that sanitize to the same token must not collide.
+        assert_ne!(row_dom_id("Ada Lovelace"), row_dom_id("Ada-Lovelace"));
+        assert_ne!(row_dom_id("a/b?c"), row_dom_id("a-b-c"));
     }
 
     #[tokio::test]
@@ -4477,11 +4498,11 @@ mod tests {
         };
         let first = render(rows.clone()).await;
         assert!(
-            first.contains("id=\"row-00000000-0000-0000-0000-000000000000\""),
+            first.contains("id=\"row-00000000-0000-0000-0000-000000000000-"),
             "missing morph id for first row, got {first}"
         );
         assert!(
-            first.contains("id=\"row-ffffffff-ffff-ffff-ffff-ffffffffffff\""),
+            first.contains("id=\"row-ffffffff-ffff-ffff-ffff-ffffffffffff-"),
             "missing morph id for second row, got {first}"
         );
         let second = render(rows).await;
