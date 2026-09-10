@@ -300,6 +300,10 @@ Validate in `Schema` (field rules), then in the POST handler, then DB constraint
 
 Multipart `FileUpload` (filename-as-path, no `value` on `type=file`), single-entry `Repeater` docs + inline required error, `VariantFilter`, honest table chrome (checkbox bulk column, typed filter widgets, dummy live-search shard removed in favor of the GET toolbar), in-region `ErrorState` for failed streamed loads, PK tie-breaker delegated to toasty, keystroke-live table search behind `Table::live_search` on the `render_with_state` + `from_live_args` seam with stable morph `id`s on reorderable rows.
 
+### In flight
+
+Authentication — panel gate, server-side sessions, one override seam: spec #127, tickets #128–#132, ADR-0013.
+
 ### Now
 
 Dev lint for unmemoized deferred loads, prewarm hint for `defer`, per-region flush tradeoffs.
