@@ -1,4 +1,6 @@
 [toolchain]
-# Track stable rustc, matching tokio-rs/topcoat. Toasty pins 1.97.1 as a floor;
-# stable today satisfies it and keeps up as the topcoat/toasty git deps advance.
+# Track stable rustc, matching tokio-rs/topcoat. Topcoat 0.8 declares
+# rust-version = 1.98 and Toasty 0.10 declares 1.95, so the workspace MSRV is
+# the higher floor: 1.98. Stable today satisfies it and keeps up as the
+# topcoat/toasty git deps advance.
 channel = "stable"
