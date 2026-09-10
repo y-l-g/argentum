@@ -772,6 +772,7 @@ pub struct Table<M> {
     defer_initial: bool,
     delete_prefix: Option<String>,
     bulk_delete: bool,
+    live_search: bool,
     _marker: PhantomData<M>,
 }
 
@@ -789,6 +790,7 @@ impl<M> std::fmt::Debug for Table<M> {
             .field("defer_initial", &self.defer_initial)
             .field("delete_prefix", &self.delete_prefix)
             .field("bulk_delete", &self.bulk_delete)
+            .field("live_search", &self.live_search)
             .finish()
     }
 }
@@ -821,6 +823,7 @@ impl<M> Table<M> {
             defer_initial: false,
             delete_prefix: None,
             bulk_delete: false,
+            live_search: false,
             _marker: PhantomData,
         }
     }
@@ -974,6 +977,21 @@ impl<M> Table<M> {
     /// page does not have.
     pub fn search(mut self, enabled: bool) -> Self {
         self.search_ui = Some(enabled);
+        self
+    }
+
+    /// Keystroke-live search via the `table_search` shard (GH #104).
+    ///
+    /// When enabled, the toolbar renders a signal-backed input that
+    /// re-renders the grid on every keystroke (morphing in place, so focus
+    /// and typing survive) instead of a GET submit. The `?q=` GET form stays
+    /// inside `<noscript>` as the no-JS fallback. Opt-in per resource; the
+    /// shard authorizes itself (`can_view_any` + tenancy via
+    /// `Resource::query`) and every arg is validated like the GET path.
+    /// Note: Topcoat coalesces same-tick keystrokes and aborts in-flight
+    /// reruns (latest wins) but does no time-based debounce.
+    pub fn live_search(mut self, enabled: bool) -> Self {
+        self.live_search = enabled;
         self
     }
 
@@ -1663,9 +1681,9 @@ impl<M> Table<M> {
             .unwrap_or_else(|| self.columns.iter().any(|c| c.is_searchable()))
     }
 
-    /// The GET search toolbar: submits `?q=` back to the current path,
-    /// preserving the active sort and resetting pagination (a new search is a
-    /// new result set). Renders a Clear link while a search is active.
+    /// The search toolbar (GET form); live tables instead render the host
+    /// input eagerly and the shard invocation in the streamed region (see
+    /// [`Self::render_live_search_bar`] / [`Self::render_live_invocation`]).
     async fn render_search_bar<'a>(
         &self,
         cx: &'a Cx,
@@ -1757,6 +1775,96 @@ impl<M> Table<M> {
                     </a>
                 }
             </form>
+        }
+        .boxed())
+    }
+
+    /// Whether this table renders the keystroke-live search host (GH #104).
+    pub(crate) fn is_live_search(&self) -> bool {
+        self.live_search
+    }
+
+    /// Eager live-search input for live tables (GH #104): the signal-backed
+    /// input plus the GET form as `<noscript>` fallback. Rendered eagerly
+    /// above the streamed region; the shard invocation that fills the grid
+    /// lives in the streamed region ([`Self::render_live_invocation`]) so the
+    /// grid can only ever render once per response.
+    pub(crate) async fn render_live_search_bar<'a>(
+        &self,
+        cx: &'a Cx,
+        state: &TableState,
+        path: &str,
+        q: topcoat::runtime::Signal<String>,
+    ) -> Result<BoxView<'a>> {
+        use topcoat::runtime::Event;
+
+        let fallback = self.render_search_bar(cx, state, path).await?;
+        Ok(view! {
+            cx =>
+            <div
+                class="flex flex-wrap items-center gap-2 border-b border-border p-3"
+                data-live-search=""
+            >
+                <input
+                    :value=$(q.get())
+                    @input=$(|e: Event| q.set(e.target.value))
+                    type="search"
+                    placeholder="Prefix search…"
+                    aria-label="Live prefix search table"
+                    class="w-64"
+                >
+                <noscript>
+                    (fallback)
+                </noscript>
+            </div>
+        }
+        .boxed())
+    }
+
+    /// The `table_search` shard invocation filling a live table's streamed
+    /// region (GH #104). Static snapshots (path, filters, sort, cursors)
+    /// travel as constants; only `q` re-renders. Unchanged queries keep the
+    /// page cursor so the inline output matches the current page; the first
+    /// keystroke starts a fresh result set.
+    pub(crate) async fn render_live_invocation<'a>(
+        &self,
+        cx: &'a Cx,
+        state: &TableState,
+        path: &str,
+        q: topcoat::runtime::Signal<String>,
+    ) -> Result<BoxView<'a>> {
+        use crate::panel::table_search;
+
+        let live_path = path.to_string();
+        let initial_q = state.search.clone().unwrap_or_default();
+        let live_after = state.after.clone().unwrap_or_default();
+        let live_before = state.before.clone().unwrap_or_default();
+        let live_filters = state.filters_param().unwrap_or_default();
+        let live_sort = state
+            .sort
+            .as_ref()
+            .map(|s| s.column.clone())
+            .unwrap_or_default();
+        let live_dir = state
+            .sort
+            .as_ref()
+            .map(|s| if s.descending { "desc" } else { "asc" })
+            .unwrap_or("asc")
+            .to_string();
+        let live_group = self.effective_group_name(state).unwrap_or_default();
+        Ok(view! {
+            cx =>
+            table_search(
+                path: $(live_path.clone()),
+                q: $(q.get()),
+                q_initial: $(initial_q.clone()),
+                after: $(live_after.clone()),
+                before: $(live_before.clone()),
+                filters: $(live_filters.clone()),
+                sort: $(live_sort.clone()),
+                dir: $(live_dir.clone()),
+                group_by: $(live_group.clone())
+            )
         }
         .boxed())
     }
@@ -3649,7 +3757,121 @@ mod tests {
             .await
             .unwrap()
             .render(&cx);
-        assert_eq!(html_render, html_state);
+        assert_eq!(
+            normalize_attrs(&html_render),
+            normalize_attrs(&html_state),
+            "same table must render the same markup (attribute order excluded, GH #104)"
+        );
+    }
+
+    /// Sort attributes within each tag for HTML comparison (GH #104):
+    /// Topcoat's `Attributes` is a `HashMap`, so spread-merged attributes
+    /// (e.g. `<tr>` class + row id) render in nondeterministic order.
+    /// Attribute order is semantically irrelevant in HTML.
+    fn normalize_attrs(html: &str) -> String {
+        fn tag_end(s: &str) -> Option<usize> {
+            let mut in_single = false;
+            let mut in_double = false;
+            for (i, c) in s.char_indices() {
+                match c {
+                    '\'' if !in_double => in_single = !in_single,
+                    '"' if !in_single => in_double = !in_double,
+                    '>' if !in_single && !in_double => return Some(i),
+                    _ => {}
+                }
+            }
+            None
+        }
+        let mut out = String::with_capacity(html.len());
+        let mut rest = html;
+        while let Some(lt) = rest.find('<') {
+            out.push_str(&rest[..=lt]);
+            rest = &rest[lt + 1..];
+            // Pass comments through untouched (their payload is opaque).
+            if let Some(comment) = rest.strip_prefix("!--") {
+                let end = comment.find("-->").map(|i| i + 3).unwrap_or(comment.len());
+                out.push_str(&rest[..3 + end]);
+                rest = &rest[3 + end..];
+                continue;
+            }
+            let Some(gt) = tag_end(rest) else {
+                out.push_str(rest);
+                break;
+            };
+            let (tag, tail) = rest.split_at(gt);
+            out.push_str(&sort_tag_attrs(tag));
+            out.push('>');
+            rest = &tail[1..];
+        }
+        out.push_str(rest);
+        out
+    }
+
+    /// Sort one tag's `name="value"` pairs by name, keeping the tag head.
+    fn sort_tag_attrs(tag: &str) -> String {
+        let mut parts = Vec::new();
+        let mut rest = tag.trim_start();
+        // Tag head (name, `/` for close tags) passes through first.
+        let head_len = rest
+            .find(|c: char| c.is_whitespace())
+            .unwrap_or(rest.len());
+        let (head, mut tail) = rest.split_at(head_len);
+        parts.push(head.to_string());
+        tail = tail.trim_start();
+        while !tail.is_empty() {
+            // Attribute name runs to `=` or whitespace (boolean attr).
+            let name_len = tail
+                .find(|c: char| c == '=' || c.is_whitespace())
+                .unwrap_or(tail.len());
+            let (name, after) = tail.split_at(name_len);
+            let after = after.trim_start();
+            if let Some(value) = after.strip_prefix('=') {
+                let value = value.trim_start();
+                let (val, len) = if let Some(q) = value.chars().next() {
+                    if q == '"' || q == '\'' {
+                        let end = value[1..]
+                            .find(q)
+                            .map(|i| i + 2)
+                            .unwrap_or(value.len());
+                        (value[..end].to_string(), end)
+                    } else {
+                        let end = value
+                            .find(|c: char| c.is_whitespace())
+                            .unwrap_or(value.len());
+                        (value[..end].to_string(), end)
+                    }
+                } else {
+                    (String::new(), 0)
+                };
+                parts.push(format!("{name}={val}"));
+                tail = value[len..].trim_start();
+            } else {
+                parts.push(name.to_string());
+                tail = after;
+            }
+        }
+        let (head, mut attrs) = (parts.remove(0), parts);
+        attrs.sort();
+        if attrs.is_empty() {
+            head
+        } else {
+            format!("{head} {}", attrs.join(" "))
+        }
+    }
+
+    #[test]
+    fn normalize_attrs_ignores_attribute_order() {
+        // GH #104: Topcoat's HashMap-backed Attributes render spread-merged
+        // attributes in nondeterministic order; comparison must not care.
+        assert_eq!(
+            normalize_attrs(r#"<tr class="a" id="b">x</tr>"#),
+            normalize_attrs(r#"<tr id="b" class="a">x</tr>"#)
+        );
+        assert_eq!(
+            normalize_attrs(r#"<input disabled type="x" value="a>b">"#),
+            r#"<input disabled type="x" value="a>b">"#.to_string()
+        );
+        assert!(normalize_attrs("<!--c--><p>plain</p>") == "<!--c--><p>plain</p>");
     }
 
     #[tokio::test]

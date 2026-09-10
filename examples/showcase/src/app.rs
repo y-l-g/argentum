@@ -68,6 +68,9 @@ impl Resource for UserResource {
                 }),
             ))
             .paginate(2)
+            // Keystroke-live search shard (GH #104); authors/posts keep the
+            // GET toolbar until the pattern beds in.
+            .live_search(true)
     }
 
     fn form(_cx: &Cx) -> Schema {

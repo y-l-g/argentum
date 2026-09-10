@@ -104,6 +104,18 @@ impl IntoExpr<T> for stmt::Value { … }          // or: trait Model { fn parse_
 
 ---
 
+## Topcoat — `Attributes` render order is nondeterministic
+
+**Where:** any element mixing literal attributes with an `(attrs)` spread, e.g. Argentum's `<tr class=… (attrs)>` row ids (`crates/argentum-core/src/resource.rs:row_dom_id`, GH #104).
+
+**Today:** `topcoat-view`'s `Attributes` is a `HashMap`, so spread-merged attributes render in a different order per construction. Exact-string HTML assertions on such markup flake; Argentum normalizes attribute order in its render-parity test (`normalize_attrs`).
+
+**Clean upstream API:** insertion-ordered attributes (IndexMap or Vec-backed) so renders are byte-stable.
+
+**Argentum plan:** keep `normalize_attrs` in tests; delete this entry when renders stabilize. Morph matching is id-based and unaffected.
+
+---
+
 ## Topcoat — hand-registered fallible async pages (`ThenView` is internal)
 
 **Where:** the single `use topcoat::view::internal::ThenView;` in `crates/argentum-core/src/panel.rs:10`; `Box::pin(HoistView::new(ThenView::new(async move { .. })))` in the seven resource handlers (`resource_list`/`resource_create`/`resource_create_post`/`resource_edit`/`resource_edit_post`/`resource_delete`/`resource_bulk_delete`) and the nested `lazy_rows` suspense child.

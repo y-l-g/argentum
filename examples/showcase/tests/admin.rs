@@ -767,3 +767,33 @@ async fn admin_form_via_resource_renders_text_inputs() {
         "Resource::form should have at least 2 fields (name, email) in {html}"
     );
 }
+
+#[tokio::test]
+async fn users_list_renders_live_search_host_with_get_fallback() {
+    // GH #104: the users table opts into the keystroke-live shard; the ?q=
+    // GET toolbar stays as the no-JS fallback.
+    use http::Request;
+    let db = seeded_db().await;
+    let router = router(db);
+    let resp = router
+        .handle(
+            Request::builder()
+                .uri("/admin/users")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+    assert!(resp.status().is_success());
+    let body = resp.into_body().collect().await.unwrap().to_bytes();
+    let html = String::from_utf8_lossy(&body);
+    assert!(
+        html.contains("data-live-search"),
+        "users list must render the live host, got {html}"
+    );
+    assert!(
+        html.contains("<noscript>"),
+        "live list must keep the GET fallback, got {html}"
+    );
+    // Seeded rows still stream in beneath the host.
+    assert!(html.contains("Ada Lovelace"), "missing Ada in {html}");
+}

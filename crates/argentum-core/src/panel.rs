@@ -5,6 +5,9 @@
 //! routes — ADR-0008). See `CONTEXT.md`.
 
 use std::collections::HashMap;
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::Arc;
 
 use toasty::Db;
 use topcoat::view::internal::ThenView;
@@ -21,6 +24,7 @@ use topcoat::{
     },
     view::{BoxView, Child, HoistView, View, ViewExt, attributes, suspense, view},
 };
+use topcoat::runtime::shard;
 
 use crate::db::db;
 use crate::notification::{Notification, set_notification, take_notification};
@@ -89,6 +93,7 @@ pub struct Panel {
     routes: Vec<RouteFn>,
     root_target: Option<String>,
     slugs: Vec<String>,
+    search_handlers: HashMap<String, SearchFn>,
 }
 
 /// The application-owned assets used by [`Panel::layout_shell`].
@@ -139,6 +144,7 @@ impl Panel {
             routes: Vec::new(),
             root_target: None,
             slugs: Vec::new(),
+            search_handlers: HashMap::new(),
         }
     }
 
@@ -241,6 +247,11 @@ impl Panel {
             route_path(&export_url),
             resource_export::<R>,
         ));
+        // Live-search handler (GH #104): the slug-dispatched `#[shard]` below
+        // cannot be generic (inventory only discovers concrete fns), so each
+        // resource monomorphizes its grid loader here, keyed by list path.
+        self.search_handlers
+            .insert(url.clone(), search_handler_for::<R>());
         if self.root_target.is_none() {
             self.root_target = Some(url);
         }
@@ -297,6 +308,7 @@ impl Panel {
             routes,
             root_target,
             slugs: _,
+            search_handlers,
         } = self;
         let db = db.expect("Panel::build requires a Db via app_context");
         let mut builder = Router::builder()
@@ -304,6 +316,9 @@ impl Panel {
             .runtime()
             .cookies()
             .app_context(db);
+        if !search_handlers.is_empty() {
+            builder = builder.app_context(SearchRegistry(search_handlers));
+        }
         // The mount prefix travels with the Router so generic handlers derive
         // resource URLs from the declaration instead of sniffing the request
         // path (GH #75 item 6 / B4).
@@ -687,6 +702,105 @@ fn enforce_tenant<R: Resource>(cx: &Cx) -> Result<(), topcoat::Error> {
 /// region that swaps in the skeleton → table without any client-side fetching
 /// (GH #98: the skeleton is thead + placeholders only, so chrome pops in with
 /// the swap by design).
+/// A monomorphized live-search grid loader, one per declared resource.
+///
+/// `#[shard]` inventory only discovers concrete fns (GH #104), so the single
+/// concrete [`table_search`] shard dispatches through this registry instead
+/// of going generic. Built by [`Panel::resource`], keyed by list path.
+type SearchFn = Arc<
+    dyn for<'a> Fn(
+            &'a Cx,
+            TableState,
+            String,
+        ) -> Pin<Box<dyn Future<Output = Result<BoxView<'a>>> + Send + 'a>>
+        + Send
+        + Sync,
+>;
+
+/// Live-search handlers installed on the app context by [`Panel::build`].
+#[derive(Clone, Default)]
+pub struct SearchRegistry(pub HashMap<String, SearchFn>);
+
+/// Monomorphize `R`'s grid loader into a [`SearchFn`]: tenancy + policy gate,
+/// then the same load + render the streamed list uses.
+fn search_handler_for<R: Resource>() -> SearchFn {
+    Arc::new(
+        |cx: &Cx, state: TableState, path: String| -> Pin<Box<dyn Future<Output = Result<BoxView<'_>>> + Send + '_>> {
+            Box::pin(async move {
+                enforce_tenant::<R>(cx)?;
+                if !R::can_view_any(cx) {
+                    return Err(forbidden().into());
+                }
+                // The swapped region is everything EXCEPT the search toolbar:
+                // the live host (input + this invocation) already owns that
+                // slot on the page, and re-rendering it per keystroke would
+                // nest invocations and duplicate inputs. Forcing the GET form
+                // off also keeps signals out of the swap payload.
+                let mut table = R::table(cx).without_skeleton().search(false);
+                table = if R::deletable() {
+                    table
+                        .with_delete(list_url(cx, &R::slug()))
+                        .with_bulk_delete(true)
+                } else {
+                    table
+                };
+                let page = load_table_page::<R>(cx, &table, &state).await?;
+                table.render_with_state(cx, page, &state, &path).await
+            })
+        },
+    )
+}
+
+/// Keystroke-live table search (GH #104): re-renders one resource's grid as
+/// the query signal changes, morphing in place per Topcoat #392 (focus,
+/// scroll, and typing survive; rows carry stable `id`s from #104 prep).
+///
+/// The swapped region is the grid without the search toolbar (the live host
+/// owns that slot, so swaps never nest invocations or duplicate inputs).
+///
+/// Every arg is untrusted shard input: `path` must name a registered list
+/// (allow-list, never a raw route), `q` is trimmed + clamped, and the rest
+/// re-enter through [`TableState::from_live_args`] like the GET path.
+/// Authorization mirrors the list page (`requires_tenant` + `can_view_any`,
+/// row scoping via `Resource::query`); shard POSTs carry no CSRF token, and
+/// none is needed for this read-only rerun. The `?q=` GET toolbar stays as
+/// the no-JS fallback.
+#[shard]
+pub(crate) async fn table_search(
+    cx: &Cx,
+    path: String,
+    q: String,
+    q_initial: String,
+    after: String,
+    before: String,
+    filters: String,
+    sort: String,
+    dir: String,
+    group_by: String,
+) -> Result<impl View> {
+    let Some(entry) = topcoat::context::try_app_context::<SearchRegistry>(cx)
+        .and_then(|reg| reg.0.get(&path).cloned())
+    else {
+        return Err(topcoat::router::error::not_found().into());
+    };
+    let q: String = q.trim().chars().take(128).collect();
+    let mut state = TableState::from_live_args(&q, &filters, &sort, &dir, &group_by);
+    // Cursor continuity (GH #104): on the initial render `q` still equals the
+    // page's query, so the invocation output must match the current page —
+    // keep its cursors. The first keystroke diverges and starts a fresh
+    // result set instead of paging a stale window into a new query.
+    let qi: String = q_initial.trim().chars().take(128).collect();
+    if q == qi {
+        if !after.trim().is_empty() {
+            state.after = Some(after.trim().to_string());
+        }
+        if !before.trim().is_empty() {
+            state.before = Some(before.trim().to_string());
+        }
+    }
+    Ok(entry(cx, state, path).await?)
+}
+
 fn resource_list<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
     Box::pin(HoistView::new(ThenView::new(async move {
         enforce_tenant::<R>(cx)?;
@@ -712,6 +826,10 @@ fn resource_list<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
             table
         };
         let title = R::navigation_label();
+        let list_path = list_url(cx, &R::slug());
+        if table.is_live_search() {
+            return Ok(resource_list_live::<R>(cx, table, state, title, list_path));
+        }
 
         // First content: the skeleton grid (same markup the eager
         // `defer(true)` path renders), while the rows load below. The load
@@ -721,14 +839,6 @@ fn resource_list<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
         // failures (e.g. the skeleton itself) still propagate and map onto
         // the response status. (For children that partially stream before
         // failing, topcoat's `error_boundary` is the replace-in-place seam.)
-        //
-        // Live search is the `?q=` GET toolbar inside the table (GH #74): the
-        // previous `signal` + `table_shard` dummy rendered an input that never
-        // filtered rows, so it was removed. A real keystroke-live shard needs
-        // per-resource endpoints, but `#[shard]` inventory only discovers
-        // concrete fns — a generic shard is undiscoverable — so it waits on a
-        // slug-dispatch registry design. `render_with_state` +
-        // `from_live_args` are the kept seam for it.
         let skeleton = table.render_skeleton(cx).await?;
         // The swap payload must be rows even when the declared table sets
         // `.defer(true)` (GH #98 trap: render() would return a second skeleton).
@@ -764,6 +874,69 @@ fn resource_list<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
                 argentum_ui::page_header(argentum_ui::page_title((title.clone())))
                 argentum_ui::page_content(
                     <div class="flex flex-col gap-4">
+                        suspense(fallback: skeleton, (lazy_rows.boxed()))
+                    </div>
+                )
+            )
+        }
+        .boxed())
+    })))
+}
+
+/// Live list page for `Table::live_search` tables (GH #104): the search
+/// input renders eagerly above the streamed region while the `table_search`
+/// shard invocation fills the grid below — one grid per response, so rows
+/// can never duplicate. Keystrokes re-render only the invocation output,
+/// morphing in place with focus surviving.
+fn resource_list_live<R: Resource>(
+    cx: &Cx,
+    table: Table<R::Model>,
+    state: TableState,
+    title: String,
+    list_path: String,
+) -> BoxView<'_> {
+    Box::pin(HoistView::new(ThenView::new(async move {
+        use topcoat::runtime::signal;
+
+        let q = signal(cx, || state.search.clone().unwrap_or_default());
+        let host = table
+            .render_live_search_bar(cx, &state, &list_path, q.clone())
+            .await?;
+        let skeleton = table.render_skeleton(cx).await?;
+        // The swap payload must be rows even when the declared table sets
+        // `.defer(true)` (GH #98 trap).
+        let table = table.without_skeleton();
+        let lazy_rows = ThenView::new(async move {
+            let grid = table
+                .render_live_invocation(cx, &state, &list_path, q)
+                .await;
+            match grid {
+                Ok(view) => Ok(view),
+                Err(error) => {
+                    tracing::error!(resource = R::slug(), error = %error, "table load failed");
+                    let retry = state.retry_url(&list_path);
+                    let action = view! { cx => <a href=(retry)>"Retry"</a> }.boxed();
+                    Ok(view! {
+                        cx =>
+                        argentum_ui::error_state(
+                            title: format!("Couldn't load {}", R::navigation_label()),
+                            detail: "Something went wrong while loading the records.",
+                            action: Some(action.into()),
+                            attrs: attributes! { role="alert" }
+                        )
+                    }
+                    .boxed())
+                }
+            }
+        });
+
+        Ok(view! {
+            cx =>
+            argentum_ui::page(
+                argentum_ui::page_header(argentum_ui::page_title((title.clone())))
+                argentum_ui::page_content(
+                    <div class="flex flex-col gap-4">
+                        (host)
                         suspense(fallback: skeleton, (lazy_rows.boxed()))
                     </div>
                 )
@@ -2279,6 +2452,217 @@ mod tests {
             2,
             "rollback must leave zero rows deleted, got {}",
             2 - rows.len()
+        );
+    }
+
+    #[tokio::test]
+    async fn live_search_host_and_shard_dispatch() {
+        // GH #104: opt-in tables render the signal host (page bodies are
+        // hoisted, so signals work there); the slug-dispatched shard serves
+        // the grid and 404s unknown paths.
+        use crate::resource::Resource;
+        use http_body_util::BodyExt;
+        use std::collections::HashMap;
+
+        #[derive(Debug, toasty::Model)]
+        struct Dummy {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            name: String,
+        }
+        struct LiveResource;
+        impl Resource for LiveResource {
+            type Model = Dummy;
+            fn slug() -> String {
+                "dummies".to_string()
+            }
+            fn can_view_any(_cx: &Cx) -> bool {
+                true
+            }
+            fn can_view(_cx: &Cx, _record: &Dummy) -> bool {
+                true
+            }
+            fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
+                crate::resource::Table::r#for(cx)
+                    .id(|d: &Dummy| d.id.to_string())
+                    .columns(crate::resource::TextColumn::r#for(
+                        Dummy::fields().name(),
+                        |d: &Dummy| d.name.clone(),
+                    ).searchable())
+                    .paginate(1)
+                    .live_search(true)
+            }
+            fn hydrate_form_values(_record: &Dummy) -> HashMap<String, String> {
+                HashMap::new()
+            }
+        }
+
+        let mut db = Db::builder()
+            .models(toasty::models!(Dummy))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        toasty::create!(Dummy {
+            name: "Ada".to_string(),
+        })
+        .exec(&mut db)
+        .await
+        .unwrap();
+        let router = Panel::new("admin")
+            .app_context(db.clone())
+            .resource::<LiveResource>()
+            .build();
+
+        // List page carries the live host + GET fallback.
+        let resp = router
+            .handle(
+                http::Request::builder()
+                    .uri("/admin/dummies")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await;
+        assert!(resp.status().is_success());
+        let body = resp
+            .into_body()
+            .collect()
+            .await
+            .unwrap()
+            .to_bytes();
+        let html = String::from_utf8_lossy(&body);
+        assert!(
+            html.contains("data-live-search"),
+            "opt-in table must render the shard host, got {html}"
+        );
+        assert!(
+            html.contains("<noscript>"),
+            "live table must keep the GET fallback, got {html}"
+        );
+
+        // Shard dispatch: unknown path fails, registered path renders rows.
+        let (parts, ()) = http::Request::builder()
+            .uri("/admin/dummies")
+            .body(())
+            .unwrap()
+            .into_parts();
+        let cx = topcoat::context::CxTestBuilder::new()
+            .request_context(parts)
+            .app_context(db)
+            .app_context(SearchRegistry(HashMap::from([(
+                "/admin/dummies".to_string(),
+                search_handler_for::<LiveResource>(),
+            )])))
+            .build();
+        assert!(
+            table_search::handler(
+                &cx,
+                &cx,
+                "/admin/nope".to_string(),
+                "Ada".to_string(),
+                String::new(),
+                String::new(),
+                String::new(),
+                String::new(),
+                String::new(),
+                "asc".to_string(),
+                String::new(),
+            )
+            .await
+            .is_err(),
+            "unknown shard path must fail"
+        );
+        let grid = table_search::handler(
+            &cx,
+            &cx,
+            "/admin/dummies".to_string(),
+            "Ada".to_string(),
+            String::new(),
+            String::new(),
+            String::new(),
+            String::new(),
+            String::new(),
+            "asc".to_string(),
+            String::new(),
+        )
+        .await
+        .expect("registered path must render");
+        let grid_html = grid.single().await.unwrap().render(&cx);
+        assert!(
+            grid_html.contains("Ada"),
+            "live shard must render matching rows, got {grid_html}"
+        );
+
+        // Cursor continuity (GH #104): an unchanged query keeps the page
+        // cursor, so the inline output matches the current page instead of
+        // leaking page-1 rows into page 2.
+        let paged = crate::resource::Table::<Dummy>::r#for(&cx)
+            .id(|d: &Dummy| d.id.to_string())
+            .columns(crate::resource::TextColumn::r#for(
+                Dummy::fields().name(),
+                |d: &Dummy| d.name.clone(),
+            ))
+            .paginate(1);
+        for name in ["Bob", "Cara"] {
+            toasty::create!(Dummy {
+                name: name.to_string(),
+            })
+            .exec(&mut crate::db::db(&cx))
+            .await
+            .unwrap();
+        }
+        let page1 = load_table_page::<LiveResource>(
+            &cx,
+            &paged,
+            &crate::resource::TableState::default(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(page1.rows.len(), 1);
+        let first_name = page1.rows[0].name.clone();
+        let cursor = page1.next_cursor.clone().expect("page 1 must have a cursor");
+        // Same query as the page (empty == empty): cursor honored.
+        let grid = table_search::handler(
+            &cx,
+            &cx,
+            "/admin/dummies".to_string(),
+            String::new(),
+            String::new(),
+            cursor.clone(),
+            String::new(),
+            String::new(),
+            String::new(),
+            "asc".to_string(),
+            String::new(),
+        )
+        .await
+        .expect("cursor continuity must render");
+        let grid_html = grid.single().await.unwrap().render(&cx);
+        assert!(
+            !grid_html.contains(&first_name),
+            "continued page must not repeat page-1 rows, got {grid_html}"
+        );
+        // Fresh keystroke with a stale cursor: cursor dropped, new search.
+        let grid = table_search::handler(
+            &cx,
+            &cx,
+            "/admin/dummies".to_string(),
+            "Bob".to_string(),
+            String::new(),
+            cursor,
+            String::new(),
+            String::new(),
+            String::new(),
+            "asc".to_string(),
+            String::new(),
+        )
+        .await
+        .expect("fresh search must render");
+        let grid_html = grid.single().await.unwrap().render(&cx);
+        assert!(
+            grid_html.contains("Bob"),
+            "fresh search must match new query, got {grid_html}"
         );
     }
 
