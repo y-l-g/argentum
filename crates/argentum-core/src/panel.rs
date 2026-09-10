@@ -1269,15 +1269,18 @@ fn notification_from_query(cx: &Cx) -> Option<Notification> {
     None
 }
 
-async fn render_create_page<'a, R: Resource>(
+/// Shared create/edit page shell (GH #73 multipart enctype, CSRF hidden
+/// input, inline error slot). Title and submit label are the only deltas.
+async fn render_form_page<'a, R: Resource>(
     cx: &'a Cx,
+    title: String,
+    submit_label: &'static str,
     values: &HashMap<String, String>,
     errors: &HashMap<String, Vec<String>>,
 ) -> Result<BoxView<'a>> {
     let schema = R::form(cx);
     let form_html = schema.render_with(cx, values, errors).await?;
     let action = topcoat::router::request::uri(cx).path().to_string();
-    let title = format!("Create {}", R::navigation_label());
     // Browsers only send `<input type="file">` content as multipart (GH #73).
     let enctype: Option<String> = schema
         .has_file_upload()
@@ -1295,50 +1298,7 @@ async fn render_create_page<'a, R: Resource>(
                         argentum_ui::button(
                             variant: argentum_ui::ButtonVariant::Primary,
                             attrs: attributes! { r#type="submit" },
-                            "Create"
-                        )
-                        <a
-                            href=(list_url(cx, &R::slug()))
-                            class="inline-flex items-center justify-center rounded-md border border-border bg-background px-4 py-2 text-sm"
-                        >
-                            "Cancel"
-                        </a>
-                    </div>
-                </form>
-            )
-        )
-    }
-    .boxed())
-}
-
-async fn render_edit_page<'a, R: Resource>(
-    cx: &'a Cx,
-    _id: &str,
-    values: &HashMap<String, String>,
-    errors: &HashMap<String, Vec<String>>,
-) -> Result<BoxView<'a>> {
-    let schema = R::form(cx);
-    let form_html = schema.render_with(cx, values, errors).await?;
-    let action = topcoat::router::request::uri(cx).path().to_string();
-    let title = format!("Edit {}", R::navigation_label());
-    // Browsers only send `<input type="file">` content as multipart (GH #73).
-    let enctype: Option<String> = schema
-        .has_file_upload()
-        .then(|| "multipart/form-data".to_string());
-    let csrf = crate::csrf::current_token(cx);
-    Ok(view! {
-        cx =>
-        argentum_ui::page(
-            argentum_ui::page_header(argentum_ui::page_title((title.clone())))
-            argentum_ui::page_content(
-                <form method="post" action=(action) enctype=(enctype) class="flex flex-col gap-4">
-                    <input type="hidden" name="csrf_token" value=(csrf)>
-                    (form_html)
-                    <div class="flex gap-2">
-                        argentum_ui::button(
-                            variant: argentum_ui::ButtonVariant::Primary,
-                            attrs: attributes! { r#type="submit" },
-                            "Save"
+                            (submit_label)
                         )
                         <a
                             href=(list_url(cx, &R::slug()))
@@ -1362,7 +1322,14 @@ fn resource_create<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
             return Err(forbidden().into());
         }
         crate::csrf::ensure_token(cx);
-        let html = render_create_page::<R>(cx, &HashMap::new(), &HashMap::new()).await?;
+        let html = render_form_page::<R>(
+            cx,
+            format!("Create {}", R::navigation_label()),
+            "Create",
+            &HashMap::new(),
+            &HashMap::new(),
+        )
+        .await?;
         Ok(html)
     })))
 }
@@ -1490,7 +1457,14 @@ fn resource_create_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
             // reloads relationship options on its own handle, which would
             // block on the pool while the tx holds it.
             drop(tx);
-            let html = render_create_page::<R>(cx, &values, &errors).await?;
+            let html = render_form_page::<R>(
+                cx,
+                format!("Create {}", R::navigation_label()),
+                "Create",
+                &values,
+                &errors,
+            )
+            .await?;
             return Ok(html);
         }
         // Attempt creation via Resource hook, inside the tx.
@@ -1569,7 +1543,14 @@ fn resource_edit<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
         }
         crate::csrf::ensure_token(cx);
         let values = R::hydrate_form_values(&record);
-        let html = render_edit_page::<R>(cx, &id, &values, &HashMap::new()).await?;
+        let html = render_form_page::<R>(
+            cx,
+            format!("Edit {}", R::navigation_label()),
+            "Save",
+            &values,
+            &HashMap::new(),
+        )
+        .await?;
         Ok(html)
     })))
 }
@@ -1640,7 +1621,14 @@ fn resource_edit_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
         if !errors.is_empty() {
             // Drop the tx before rendering (GH #84): see create POST.
             drop(tx);
-            let html = render_edit_page::<R>(cx, &id, &values, &errors).await?;
+            let html = render_form_page::<R>(
+                cx,
+                format!("Edit {}", R::navigation_label()),
+                "Save",
+                &values,
+                &errors,
+            )
+            .await?;
             return Ok(html);
         }
         match R::update_record(cx, record, values.clone(), &mut tx).await {
@@ -3874,13 +3862,19 @@ mod tests {
                 .unwrap()
                 .into_parts();
             let cx = CxTestBuilder::new().request_context(parts).build();
-            render_create_page::<R>(&cx, &HashMap::new(), &HashMap::new())
-                .await
-                .unwrap()
-                .single()
-                .await
-                .unwrap()
-                .render(&cx)
+            render_form_page::<R>(
+                &cx,
+                format!("Create {}", R::navigation_label()),
+                "Create",
+                &HashMap::new(),
+                &HashMap::new(),
+            )
+            .await
+            .unwrap()
+            .single()
+            .await
+            .unwrap()
+            .render(&cx)
         }
 
         let with = html_for::<WithFile>("/admin/docs/create").await;
