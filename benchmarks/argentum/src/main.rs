@@ -247,10 +247,11 @@ async fn run_bench(iterations: usize) {
     println!("iterations: {iterations} (memoized), 20 (uncached)");
     println!("memoized (cache hit) — p50: {p50:.2}ms p90: {p90:.2}ms p99: {p99:.2}ms min: {min:.2}ms max: {max:.2}ms");
     println!("uncached (1 query with 2 includes) — p50: {uncached_p50:.2}ms");
-    println!("budget: <40ms p50 (Phase 2, 50 rows, 2 includes, filters+group_by)");
+    println!("budget: <40ms p50 (Phase 2, 50 rows, 2 includes)");
     // The budget gates the COLD path (GH #103): fresh Cx per iteration, no
     // memoize hits — the memoized figure is reporting only. FAIL exits
-    // nonzero so CI can gate on it.
+    // nonzero so a local/on-demand run can gate on it; the default CI
+    // bench-check job compiles the harness and checks lockstep pins only.
     let mut failed = false;
     if p50 < 40.0 {
         println!("PASS: p50 {p50:.2}ms < 40ms (memoized, informational)");

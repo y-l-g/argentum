@@ -31,10 +31,12 @@ so the harness never interferes with `cargo test` / `clippy`.
 
 ```sh
 # Bench the Argentum list (50 rows, 2 includes) without starting a server:
-cargo run -p storefront-argentum -- --bench --iterations 100
+cargo run --manifest-path benchmarks/argentum/Cargo.toml -- --bench --iterations 100
 
 # The budget (<40ms p50) gates the COLD path (fresh Cx per iteration);
-# FAIL exits nonzero so CI can gate on it (GH #103).
+# FAIL exits nonzero so the budget can gate a local or on-demand run (GH #103).
+# CI's bench-check job compiles the harness with --locked and enforces the
+# lockstep pins; it does not run the benchmark itself.
 
 # Full matrix vs baselines (requires `oha`):
 ./benchmarks/scripts/bench.sh
@@ -44,8 +46,8 @@ cargo run -p storefront-argentum -- --bench --iterations 100
 ./benchmarks/scripts/verify_parity.sh
 ```
 
-`cargo run -p storefront-argentum` (no flag) still starts the Topcoat server
-at `http://localhost:3000/` for manual inspection.
+`cargo run --manifest-path benchmarks/argentum/Cargo.toml` (no flag) still
+starts the Topcoat server at `http://localhost:3000/` for manual inspection.
 
 ## What "fast" means (Phase 2)
 
@@ -55,14 +57,15 @@ at `http://localhost:3000/` for manual inspection.
 * **Preloading** — `include` for `author` + `comments` (3 operations, not 101).
 * **Boundaries** — `Table` is a `Boundary` (`data-boundary="table"`); search/filter/page
   swaps only the grid, not the shell.
-* **Pagination** — cursor pagination with PK tie-breaker (`< 40 ms p50` for 50 rows).
+* **Pagination** — cursor pagination (Toasty appends the PK tie-breaker internally).
 
 Budget v1 (Phase 1): list (25 rows, 2 includes, 1 count) `< 40 ms p50`.
-Budget v2 (Phase 2): list (50 rows, 2 includes, filters + group_by) `< 40 ms p50`.
+Budget v2 (Phase 2): list (50 rows, 2 includes) `< 40 ms p50` on the cold path.
 
-Results are reported per commit in `benchmarks/results/` (gitignored) and in CI
-as a comment on the PR. The harness is intentionally detached so `cargo test
---workspace` stays fast.
+Results are written per run under `benchmarks/results/` (gitignored). CI's
+bench-check job compiles the harness with `--locked` and verifies its
+topcoat/toasty revs match the workspace lock; it does not run the benchmark.
+The harness is intentionally detached so `cargo test --workspace` stays fast.
 
 ## Parity
 
