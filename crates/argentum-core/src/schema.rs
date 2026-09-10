@@ -1548,15 +1548,9 @@ impl Schema {
     /// `enctype="multipart/form-data"` only on forms that need it (GH #73).
     pub fn has_file_upload(&self) -> bool {
         fn walk(nodes: &[Node]) -> bool {
-            nodes.iter().any(|node| match node {
-                Node::FileUpload(_) => true,
-                Node::Repeater(r) => r.children.as_ref().is_some_and(|s| walk(&s.nodes)),
-                Node::Section(s) => s.children.as_ref().is_some_and(|s| walk(&s.nodes)),
-                Node::Group(g) => g.children.as_ref().is_some_and(|s| walk(&s.nodes)),
-                Node::Grid(g) => g.children.as_ref().is_some_and(|s| walk(&s.nodes)),
-                Node::Tabs(t) => t.children.as_ref().is_some_and(|s| walk(&s.nodes)),
-                Node::Wizard(w) => w.children.as_ref().is_some_and(|s| walk(&s.nodes)),
-                _ => false,
+            nodes.iter().any(|node| {
+                matches!(node, Node::FileUpload(_))
+                    || node.children().is_some_and(|c| walk(&c.nodes))
             })
         }
         walk(&self.nodes)
@@ -1608,57 +1602,29 @@ impl Schema {
             errors: &mut HashMap<String, Vec<String>>,
         ) {
             for node in nodes {
-                match node {
-                    Node::Repeater(r) => {
-                        if r.required {
-                            let inner_names = r
-                                .children
-                                .as_ref()
-                                .map(|s| s.field_names())
-                                .unwrap_or_default();
-                            let all_empty = if inner_names.is_empty() {
-                                true
-                            } else {
-                                inner_names.iter().all(|n| {
-                                    values.get(n).map(|v| v.trim().is_empty()).unwrap_or(true)
-                                })
-                            };
-                            if all_empty {
-                                errors
-                                    .entry(r.label.clone())
-                                    .or_insert_with(|| vec![format!("{} is required", r.label)]);
-                            }
-                        }
-                        if let Some(child) = &r.children {
-                            walk(&child.nodes, values, errors);
-                        }
+                if let Node::Repeater(r) = node
+                    && r.required
+                {
+                    let inner_names = r
+                        .children
+                        .as_ref()
+                        .map(|s| s.field_names())
+                        .unwrap_or_default();
+                    let all_empty = if inner_names.is_empty() {
+                        true
+                    } else {
+                        inner_names
+                            .iter()
+                            .all(|n| values.get(n).map(|v| v.trim().is_empty()).unwrap_or(true))
+                    };
+                    if all_empty {
+                        errors
+                            .entry(r.label.clone())
+                            .or_insert_with(|| vec![format!("{} is required", r.label)]);
                     }
-                    Node::Section(s) => {
-                        if let Some(child) = &s.children {
-                            walk(&child.nodes, values, errors);
-                        }
-                    }
-                    Node::Group(g) => {
-                        if let Some(child) = &g.children {
-                            walk(&child.nodes, values, errors);
-                        }
-                    }
-                    Node::Grid(g) => {
-                        if let Some(child) = &g.children {
-                            walk(&child.nodes, values, errors);
-                        }
-                    }
-                    Node::Tabs(t) => {
-                        if let Some(child) = &t.children {
-                            walk(&child.nodes, values, errors);
-                        }
-                    }
-                    Node::Wizard(w) => {
-                        if let Some(child) = &w.children {
-                            walk(&child.nodes, values, errors);
-                        }
-                    }
-                    _ => {}
+                }
+                if let Some(child) = node.children() {
+                    walk(&child.nodes, values, errors);
                 }
             }
         }
@@ -1695,213 +1661,65 @@ impl Schema {
     }
 }
 
+impl Node {
+    /// Nested schema for container nodes; `None` for leaf fields.
+    fn children(&self) -> Option<&Schema> {
+        match self {
+            Node::Repeater(r) => r.children.as_ref(),
+            Node::Section(s) => s.children.as_ref(),
+            Node::Group(g) => g.children.as_ref(),
+            Node::Grid(g) => g.children.as_ref(),
+            Node::Tabs(t) => t.children.as_ref(),
+            Node::Wizard(w) => w.children.as_ref(),
+            Node::TextInput(_) | Node::Select(_) | Node::FileUpload(_) | Node::Text(_) => None,
+        }
+    }
+}
+
 fn collect_field_names(node: &Node, out: &mut Vec<String>) {
     match node {
         Node::TextInput(f) => out.push(f.field_name().to_string()),
         Node::Select(f) => out.push(f.field_name().to_string()),
         Node::FileUpload(f) => out.push(f.field_name().to_string()),
-        Node::Repeater(r) => {
-            if let Some(schema) = &r.children {
-                for n in &schema.nodes {
-                    collect_field_names(n, out);
-                }
-            }
+        _ => {}
+    }
+    if let Some(children) = node.children() {
+        for n in &children.nodes {
+            collect_field_names(n, out);
         }
-        Node::Tabs(t) => {
-            if let Some(schema) = &t.children {
-                for n in &schema.nodes {
-                    collect_field_names(n, out);
-                }
-            }
-        }
-        Node::Wizard(w) => {
-            if let Some(schema) = &w.children {
-                for n in &schema.nodes {
-                    collect_field_names(n, out);
-                }
-            }
-        }
-        Node::Section(s) => {
-            if let Some(schema) = &s.children {
-                for n in &schema.nodes {
-                    collect_field_names(n, out);
-                }
-            }
-        }
-        Node::Group(g) => {
-            if let Some(schema) = &g.children {
-                for n in &schema.nodes {
-                    collect_field_names(n, out);
-                }
-            }
-        }
-        Node::Grid(g) => {
-            if let Some(schema) = &g.children {
-                for n in &schema.nodes {
-                    collect_field_names(n, out);
-                }
-            }
-        }
-        Node::Text(_) => {}
     }
 }
 
 fn collect_inputs(node: &Node, map: &mut HashMap<String, TextInput>) {
-    match node {
-        Node::TextInput(f) => {
-            map.insert(f.field_name().to_string(), (**f).clone());
+    if let Node::TextInput(f) = node {
+        map.insert(f.field_name().to_string(), (**f).clone());
+    }
+    if let Some(children) = node.children() {
+        for n in &children.nodes {
+            collect_inputs(n, map);
         }
-        Node::Select(_) => {}
-        Node::FileUpload(_) => {}
-        Node::Repeater(r) => {
-            if let Some(schema) = &r.children {
-                for n in &schema.nodes {
-                    collect_inputs(n, map);
-                }
-            }
-        }
-        Node::Tabs(t) => {
-            if let Some(schema) = &t.children {
-                for n in &schema.nodes {
-                    collect_inputs(n, map);
-                }
-            }
-        }
-        Node::Wizard(w) => {
-            if let Some(schema) = &w.children {
-                for n in &schema.nodes {
-                    collect_inputs(n, map);
-                }
-            }
-        }
-        Node::Section(s) => {
-            if let Some(schema) = &s.children {
-                for n in &schema.nodes {
-                    collect_inputs(n, map);
-                }
-            }
-        }
-        Node::Group(g) => {
-            if let Some(schema) = &g.children {
-                for n in &schema.nodes {
-                    collect_inputs(n, map);
-                }
-            }
-        }
-        Node::Grid(g) => {
-            if let Some(schema) = &g.children {
-                for n in &schema.nodes {
-                    collect_inputs(n, map);
-                }
-            }
-        }
-        Node::Text(_) => {}
     }
 }
 
 fn collect_selects(node: &Node, map: &mut HashMap<String, Select>) {
-    match node {
-        Node::Select(f) => {
-            map.insert(f.field_name().to_string(), (**f).clone());
+    if let Node::Select(f) = node {
+        map.insert(f.field_name().to_string(), (**f).clone());
+    }
+    if let Some(children) = node.children() {
+        for n in &children.nodes {
+            collect_selects(n, map);
         }
-        Node::TextInput(_) => {}
-        Node::FileUpload(_) => {}
-        Node::Repeater(r) => {
-            if let Some(schema) = &r.children {
-                for n in &schema.nodes {
-                    collect_selects(n, map);
-                }
-            }
-        }
-        Node::Tabs(t) => {
-            if let Some(schema) = &t.children {
-                for n in &schema.nodes {
-                    collect_selects(n, map);
-                }
-            }
-        }
-        Node::Wizard(w) => {
-            if let Some(schema) = &w.children {
-                for n in &schema.nodes {
-                    collect_selects(n, map);
-                }
-            }
-        }
-        Node::Section(s) => {
-            if let Some(schema) = &s.children {
-                for n in &schema.nodes {
-                    collect_selects(n, map);
-                }
-            }
-        }
-        Node::Group(g) => {
-            if let Some(schema) = &g.children {
-                for n in &schema.nodes {
-                    collect_selects(n, map);
-                }
-            }
-        }
-        Node::Grid(g) => {
-            if let Some(schema) = &g.children {
-                for n in &schema.nodes {
-                    collect_selects(n, map);
-                }
-            }
-        }
-        Node::Text(_) => {}
     }
 }
 
 fn collect_file_uploads(node: &Node, map: &mut HashMap<String, FileUpload>) {
-    match node {
-        Node::FileUpload(f) => {
-            map.insert(f.field_name().to_string(), (**f).clone());
+    if let Node::FileUpload(f) = node {
+        map.insert(f.field_name().to_string(), (**f).clone());
+    }
+    if let Some(children) = node.children() {
+        for n in &children.nodes {
+            collect_file_uploads(n, map);
         }
-        Node::TextInput(_) => {}
-        Node::Select(_) => {}
-        Node::Repeater(r) => {
-            if let Some(schema) = &r.children {
-                for n in &schema.nodes {
-                    collect_file_uploads(n, map);
-                }
-            }
-        }
-        Node::Tabs(t) => {
-            if let Some(schema) = &t.children {
-                for n in &schema.nodes {
-                    collect_file_uploads(n, map);
-                }
-            }
-        }
-        Node::Wizard(w) => {
-            if let Some(schema) = &w.children {
-                for n in &schema.nodes {
-                    collect_file_uploads(n, map);
-                }
-            }
-        }
-        Node::Section(s) => {
-            if let Some(schema) = &s.children {
-                for n in &schema.nodes {
-                    collect_file_uploads(n, map);
-                }
-            }
-        }
-        Node::Group(g) => {
-            if let Some(schema) = &g.children {
-                for n in &schema.nodes {
-                    collect_file_uploads(n, map);
-                }
-            }
-        }
-        Node::Grid(g) => {
-            if let Some(schema) = &g.children {
-                for n in &schema.nodes {
-                    collect_file_uploads(n, map);
-                }
-            }
-        }
-        Node::Text(_) => {}
     }
 }
 
