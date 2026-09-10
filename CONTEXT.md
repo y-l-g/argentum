@@ -2,14 +2,29 @@
 
 Admin toolkit for Rust — server-rendered on Topcoat, persisted with Toasty. Provides the CRUD core of Filament (Panel + Resource → Table + Schema, deletes via Resource record fns) with no Livewire port, explicit preloading and cursor pagination, and a narrow reactivity seam: streamed `suspense` regions ship the list shell first and swap the loaded grid in, while reruns morph in place (focus survives) and tables opting into `Table::live_search` re-render their grid keystroke-live through the slug-dispatched `table_search` shard (ticket #104).
 
-> **Shipped vs spec:** every term below is vocabulary-level truth. As of Phase 2 (Relations & polish, spec #63, tickets #64–#71, ADR-0011/0012) plus post-Phase-2 polish (multipart `FileUpload`, single-entry `Repeater`, `VariantFilter`, honest bulk/filter chrome, in-region `ErrorState`) — **Panel** (with opt-in `Brand` + `DarkMode`, `Router`/`Db`/`Shell` + `Resource` routes), **Resource** (`query` tenancy seam + `include` + `TextColumn::computed`/`Select::relationship`), **Table** (`data-boundary` wrapper + streamed `suspense` grid, `searchable`/`sortable`, cursor pagination, `SelectFilter`/`TernaryFilter`/`DateFilter`/`VariantFilter` + `?filters=`, `group_by`/`count` + `to_csv` export, checkbox bulk column), **Schema** (`Section`/`Group`/`Grid`/`Tabs`/`Wizard` + `TextInput`/`Select`/`FileUpload`/`Repeater` + `required`/`email`/`unique` + `relationship`), **deletes** (per-row + bulk via `Resource` record fns, policy-checked), **Policy** (`can_*`, default-deny), **Notification**, **Navigation**, **Query**, **Tenancy** (`Tenant` via `Cx::with` + `tenant_id(cx)`), **Filter**, **Field** ship in `argentum-core` with showcase at `/admin/users` + `/admin/authors` + `/admin/posts` (search/sort/paginate/create/edit/delete/bulk-delete, filters/grouping/export, all policy-checked, notification, tenancy, `benchmarks/` Phase-2 budget 50 rows 2 includes `<40ms p50`). **custom Panel pages, Theme/Token beyond brand/dark_mode, ChartWidget/StatsOverview, via many-to-many, GROUP BY aggregates** remain future work (tracking issue #38 is closed; see README §10).
+> **Shipped vs spec:** every term below is vocabulary-level truth. As of Phase 2 (Relations & polish, spec #63, tickets #64–#71, ADR-0011/0012), post-Phase-2 polish (multipart `FileUpload`, single-entry `Repeater`, `VariantFilter`, honest bulk/filter chrome, in-region `ErrorState`), and authentication (spec #127, tickets #128–#132, ADR-0013) — **Panel** (with opt-in `Brand` + `DarkMode`, `Router`/`Db`/`Shell` + `Resource` routes, default-on auth gate), **Resource** (`query` tenancy seam + `include` + `TextColumn::computed`/`Select::relationship`), **Table** (`data-boundary` wrapper + streamed `suspense` grid, `searchable`/`sortable`, cursor pagination, `SelectFilter`/`TernaryFilter`/`DateFilter`/`VariantFilter` + `?filters=`, `group_by`/`count` + `to_csv` export, checkbox bulk column), **Schema** (`Section`/`Group`/`Grid`/`Tabs`/`Wizard` + `TextInput`/`Select`/`FileUpload`/`Repeater` + `required`/`email`/`unique` + `relationship`), **deletes** (per-row + bulk via `Resource` record fns, policy-checked), **Policy** (`can_*`, default-deny), **Notification**, **Navigation**, **Query**, **Tenancy** (`Tenant` via `Cx::with` + `tenant_id(cx)`, fed by the logged-in user), **Authentication** (shipped `AdminUser`/`AuthSession`, `PasswordAuth`, `Authenticator` override, `CurrentUser`), **Filter**, **Field** ship in `argentum-core` with showcase at `/admin/users` + `/admin/authors` + `/admin/posts` (search/sort/paginate/create/edit/delete/bulk-delete, filters/grouping/export, all policy-checked, notification, tenancy, signed-in shell, `benchmarks/` Phase-2 budget 50 rows 2 includes `<40ms p50`). **custom Panel pages, Theme/Token beyond brand/dark_mode, ChartWidget/StatsOverview, via many-to-many, GROUP BY aggregates** remain future work (tracking issue #38 is closed; see README §10).
 
 ## Language
 
 ### Panel
-The admin application. Owns the Router, the Db in app_context, the layout Shell, and its declared Resources. Declaring a Panel with Resources yields resource routes and navigation; an app's layout delegates to `Panel::layout_shell` for the Shell with no manual document HTML.
+The admin application. Owns the Router, the Db in app_context, the layout Shell, its declared Resources, and the default-on authentication gate (ADR-0013). Declaring a Panel with Resources yields resource routes and navigation; an app's layout delegates to `Panel::layout_shell` for the Shell with no manual document HTML.
 
 _Avoid_: Admin, Dashboard, App, Site
+
+### Authenticator
+The one authentication seam (ADR-0013). An object-safe trait resolving credentials into the erased `CurrentUser` and a live session back to it; `PasswordAuth` is the shipped default over `AdminUser`, `Panel::auth(Auth::custom(..))` swaps in an app implementation over its own user table, and `Auth::disabled()` is the explicit, greppable opt-out. Sessions stay framework-owned (`AuthSession`) whichever implementation is in use.
+
+_Avoid_: Provider, Guard, LoginManager, AuthDriver
+
+### CurrentUser
+The erased identity resolution places in request `Cx`: `{ id, login, display_name, tenant_id, can_access_panel }`. Pages, shards, and app code read it only through `current_user(cx)` / `require_authenticated(cx)`; the concrete user model never leaks past the `Authenticator`. The optional `tenant_id` becomes the request `Tenant`.
+
+_Avoid_: AuthUser, Principal, Account, SessionUser
+
+### Session
+A server-side `AuthSession` row keyed by the SHA-256 hash of a client token carried in a hardened cookie (`__Host-`, HttpOnly, Secure, SameSite=Lax). Seven-day fixed lifetime, rotated on login, deleted on logout, revocable per user; the raw token is never stored.
+
+_Avoid_: Token (the client half), SessionStore, Login, Cookie
 
 ### Resource
 A type that maps one Toasty Model to its admin UI. Defines the base query, the table, the form (and infolist stub), its pages, navigation entry, and policy. One Model → one Resource.

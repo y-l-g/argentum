@@ -6,7 +6,7 @@ Repo layout:
 
 ```
 argentum/
-  crates/argentum-core/    // Panel, Resource trait, Table/Schema types, navigation, policy, tenancy
+  crates/argentum-core/    // Panel, Resource trait, Table/Schema types, navigation, policy, tenancy, auth
   crates/argentum-macros/  // #[derive(Resource)] (model/query only)
   crates/argentum-ui/      // vendored topcoat-ui primitives + owned composites
   examples/showcase/       // runnable admin: /admin/users + /admin/authors + /admin/posts
@@ -186,11 +186,23 @@ There is no `Action` type. Deletes run through panel POST routes driving the `Re
 
 `Notification` (`success`/`error`/`info`) travels via `Set-Cookie` (`argentum_notification`) with a `?notification=` fallback and renders in a shell-level stack (`fixed top-4 right-4`) that survives table swaps. Policy is `Resource::can_*`, default-deny, enforced in both page and POST handlers; the standalone `Policy<R>` trait (`AllowAll`/`DenyAll`) exists as a helper.
 
+### 4.6 Authentication
+
+`Panel` is gated by default and fails closed (ADR-0013, spec #127): an unauthenticated panel page redirects to `{prefix}/login` with a validated same-origin `next`, runtime endpoints answer 401, and a user without `can_access_panel` answers 403.
+
+- **Zero-config default.** Register the shipped models (`toasty::models!(…, argentum_core::auth::AdminUser, argentum_core::auth::AuthSession)`), seed an `AdminUser` (`argentum_core::auth::hash_password("…")` stores Argon2id PHC strings), and log in through `GET`/`POST /admin/login`; `POST {prefix}/logout` revokes. Sessions are server-side `AuthSession` rows keyed by token hash, seven-day fixed lifetime, rotated on login, revocable per user with `auth::revoke_sessions_for_user(cx, id)`.
+- **One override seam.** An app with its own user table implements `Authenticator` (`verify` + `find_by_id`) and passes `Panel::auth(Auth::custom(MyAuth))`; it still registers `AuthSession`, which owns session storage. Resolution yields one erased `CurrentUser { id, login, display_name, tenant_id, can_access_panel }` in request `Cx`; read it with `current_user(cx)` / `require_authenticated(cx)`.
+- **Explicit opt-out.** `Panel::auth(Auth::disabled())` serves the panel without a gate — greppable, never implicit.
+- **Tenancy from the login.** The user's optional `tenant_id` is injected as `Tenant` into the request, so `/admin/authors` and `/admin/posts` scope to the logged-in admin; the `x-tenant-id` header is never trusted (GH #131). A server-set `Tenant` request extension overrides deliberately.
+- **Login page.** `Panel::login_hint("Demo: admin@example.com / password")` renders a muted line under the shipped form for demos; brand and dark mode carry over from the panel.
+
+The showcase proves the default (`examples/showcase/tests/auth_check.rs`); `crates/argentum-core/tests/auth_override.rs` proves the custom model path end to end.
+
 ---
 
 ## 5. Pages, routing, navigation
 
-- **Routes** (all derived from the panel prefix + resource slug): `GET /admin/users` (list), `GET`+`POST /admin/users/create`, `GET`+`POST /admin/users/{id}/edit`, `POST /admin/users/{id}/delete`, `POST /admin/users/bulk-delete`, `GET /admin/users/export`. Additional `#[page]` handlers are discovered normally. `GET /admin` redirects to the first declared resource.
+- **Routes** (all derived from the panel prefix + resource slug): `GET /admin/users` (list), `GET`+`POST /admin/users/create`, `GET`+`POST /admin/users/{id}/edit`, `POST /admin/users/{id}/delete`, `POST /admin/users/bulk-delete`, `GET /admin/users/export`. Auth mounts `GET`+`POST {prefix}/login` and `POST {prefix}/logout` (ADR-0013). Additional `#[page]` handlers are discovered normally. `GET /admin` redirects to the first declared resource.
 - **Layouts:** an app's `#[layout("/admin")]` handler delegates to `Panel::layout_shell(cx, slot)`. The shell owns the complete document, sidebar, runtime scripts, and links to the app-provided `tailwind::stylesheet!()` and `fontsource_font!(.., host: Asset)` handles.
 - **Navigation:** `Panel::resource` derives one item per resource with prefix-aware URLs (`from_resource_with_prefix`; `from_resource` is the `"/admin"` shorthand). `Panel::navigation(NavigationItem::from_href(..))` adds typed links for custom pages. Resource items use exact paths plus slash-boundary subpages for active state.
 - **Errors & redirects:** layouts receive the page as `slot: Slot<'_>` (a lazy `Child`); a page error propagates through the slot when the document resolves, and the router maps it onto its HTTP response (`error_boundary` around the slot can replace this with a branded error page). Failed table loads are caught in-region and render `argentum_ui::error_state` inside the streamed region. Note: once the first content streamed, the status line is fixed — an error in a streamed region truncates the body (redirects degrade to `window.location.replace`), so streamed regions own their failure rendering.
@@ -274,9 +286,9 @@ Fast is: **concurrent rendering** (siblings `try_join!`, no waterfalls, side-eff
 
 Budget: list render (50 rows, 2 includes) < 40ms p50 on local SQLite, TTFB dominated by the skeleton — rows arrive as a streaming swap. Harness: `benchmarks/` vs `axum-maud`/`leptos` stubs (`cargo run --manifest-path benchmarks/argentum/Cargo.toml -- --bench`, `./benchmarks/scripts/bench.sh`, `verify_parity.sh`).
 
-Security: `like` patterns escape `%`/`_`; never interpolate raw input into raw SQL. Every mutation runs in a framework-owned transaction (GH #84): handlers open the tx, load + policy-check records on that snapshot, and pass the checked records into the `Resource` record fns — no silent re-loads (GH #86 TOCTOU). Every resource enforces `can_*` in page **and** POST handler (default deny); edit GET and POST both require `can_view` + `can_update`, export drops rows failing per-row `can_view`, while the list checks only `can_view_any` by design (GH #86: in-memory predicates can't paginate honestly — list-level row scoping belongs in `Resource::query`). Tenancy applies only in `Resource::query` (`tenant_id(cx)` from `cx.with(Tenant(id))`, request extensions, or the `x-tenant-id` test/showcase header, GH #87). All POSTs require a double-submit `csrf_token` (GH #99); `confirm=1` is a UX step, not a boundary. Cookies/sessions via Topcoat's `cookie`/`session` + origin-checked sessions.
+Security: `like` patterns escape `%`/`_`; never interpolate raw input into raw SQL. Every mutation runs in a framework-owned transaction (GH #84): handlers open the tx, load + policy-check records on that snapshot, and pass the checked records into the `Resource` record fns — no silent re-loads (GH #86 TOCTOU). Every resource enforces `can_*` in page **and** POST handler (default deny); edit GET and POST both require `can_view` + `can_update`, export drops rows failing per-row `can_view`, while the list checks only `can_view_any` by design (GH #86: in-memory predicates can't paginate honestly — list-level row scoping belongs in `Resource::query`). Tenancy applies only in `Resource::query` (`tenant_id(cx)` from the logged-in user's `Tenant`, or a server-set request extension; no header, GH #131). The panel is gated by default (ADR-0013): the auth layer resolves the session into `Cx`, pages redirect, runtime endpoints answer 401, passwords verify Argon2id with a dummy hash for unknown emails, and login failures render one generic message; handlers call `require_authenticated` as defense in depth. All POSTs require a double-submit `csrf_token` (GH #99); `confirm=1` is a UX step, not a boundary. Cookies/sessions via Topcoat's `cookie`/`session` + origin-checked sessions.
 
-Testing: `CxTestBuilder` for unit renders, per-resource policy tests, showcase integration tests (`examples/showcase/tests/`: admin, create/edit/delete/bulk, relations, filters, tenancy, file+repeater, group+export).
+Testing: `CxTestBuilder` for unit renders, per-resource policy tests, showcase integration tests (`examples/showcase/tests/`: admin, create/edit/delete/bulk, relations, filters, tenancy, file+repeater, group+export, auth).
 
 ---
 
@@ -300,9 +312,9 @@ Validate in `Schema` (field rules), then in the POST handler, then DB constraint
 
 Multipart `FileUpload` (filename-as-path, no `value` on `type=file`), single-entry `Repeater` docs + inline required error, `VariantFilter`, honest table chrome (checkbox bulk column, typed filter widgets, dummy live-search shard removed in favor of the GET toolbar), in-region `ErrorState` for failed streamed loads, PK tie-breaker delegated to toasty, keystroke-live table search behind `Table::live_search` on the `render_with_state` + `from_live_args` seam with stable morph `id`s on reorderable rows.
 
-### In flight
+### Shipped — authentication (spec #127, tickets #128–#132, ADR-0013)
 
-Authentication — panel gate, server-side sessions, one override seam: spec #127, tickets #128–#132, ADR-0013.
+Default-on panel gate: shipped `AdminUser` + `AuthSession` models, Argon2id `PasswordAuth` with one generic failure, server-side seven-day sessions (rotated on login, revoked on logout, revocable per user), standalone login page with brand/dark mode + `login_hint`, the `Authenticator` override seam proven end to end (`crates/argentum-core/tests/auth_override.rs`), and the logged-in user's tenant replacing the `x-tenant-id` header. Showcase proof: `examples/showcase/tests/auth_check.rs`.
 
 ### Now
 
