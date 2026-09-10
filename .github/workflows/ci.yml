@@ -25,7 +25,7 @@ jobs:
       - uses: actions/checkout@v7
       - run: rustup update stable && rustup default stable
       - uses: Swatinem/rust-cache@v2
-      - run: cargo test --workspace
+      - run: cargo test --workspace --locked
 
   clippy:
     name: clippy
@@ -34,7 +34,7 @@ jobs:
       - uses: actions/checkout@v7
       - run: rustup update stable && rustup default stable
       - uses: Swatinem/rust-cache@v2
-      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
   fmt:
     name: fmt
@@ -65,3 +65,33 @@ jobs:
         run: |
           topcoat fmt
           git diff --exit-code
+
+  bench-check:
+    name: bench-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: rustup update stable && rustup default stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          # The bench workspace is detached (see workspace `exclude`), so it
+          # has its own target dir and lockfile.
+          workspaces: benchmarks/argentum
+      # Compile the harness locked: it rotted once (#103) and nothing else in
+      # CI would notice, because `cargo test --workspace` never sees it.
+      - name: Check detached bench workspace (locked)
+        run: cargo check --locked --manifest-path benchmarks/argentum/Cargo.toml
+      # Pin policy (Cargo.toml comment / ADR-0003): the bench must measure the
+      # same upstream revs the workspace ships, so the two lockfiles stay in
+      # lockstep through every `cargo update -p topcoat|toasty`.
+      - name: Lockstep pin check (workspace vs bench)
+        run: |
+          for crate in topcoat toasty; do
+            root=$(grep -A 2 "^name = \"$crate\"$" Cargo.lock | grep -o '#[0-9a-f]\{40\}' | head -1)
+            bench=$(grep -A 2 "^name = \"$crate\"$" benchmarks/argentum/Cargo.lock | grep -o '#[0-9a-f]\{40\}' | head -1)
+            if [ -z "$root" ] || [ "$root" != "$bench" ]; then
+              echo "::error::$crate rev drift: workspace=$root bench=$bench"
+              exit 1
+            fi
+            echo "$crate: $root (in sync)"
+          done
