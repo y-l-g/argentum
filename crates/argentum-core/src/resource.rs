@@ -1852,18 +1852,18 @@ impl<M> Table<M> {
             .unwrap_or("asc")
             .to_string();
         let live_group = self.effective_group_name(state).unwrap_or_default();
+        // Snapshots travel as one encoded bundle (GH #104): it keeps the
+        // shard arity small and lets future state fields ride free.
+        let live_rest =
+            encode_live_rest(&initial_q, &live_filters, &live_sort, &live_dir, &live_group);
         Ok(view! {
             cx =>
             table_search(
                 path: $(live_path.clone()),
                 q: $(q.get()),
-                q_initial: $(initial_q.clone()),
                 after: $(live_after.clone()),
                 before: $(live_before.clone()),
-                filters: $(live_filters.clone()),
-                sort: $(live_sort.clone()),
-                dir: $(live_dir.clone()),
-                group_by: $(live_group.clone())
+                rest: $(live_rest.clone())
             )
         }
         .boxed())
@@ -2679,6 +2679,47 @@ fn row_dom_id(key: &str) -> String {
     out
 }
 
+/// Encode live-search snapshot args into one bundle string (GH #104):
+/// filters/sort/dir/group_by snapshots travel as a single shard arg so the
+/// wire arity stays small. Decoded by [`decode_live_rest`] with the same
+/// urlencoding the list toolbar speaks (delimiters round-trip).
+pub(crate) fn encode_live_rest(
+    q_initial: &str,
+    filters: &str,
+    sort: &str,
+    dir: &str,
+    group_by: &str,
+) -> String {
+    let mut ser = form_urlencoded::Serializer::new(String::new());
+    ser.append_pair("q", q_initial);
+    ser.append_pair("filters", filters);
+    ser.append_pair("sort", sort);
+    ser.append_pair("dir", dir);
+    ser.append_pair("group_by", group_by);
+    ser.finish()
+}
+
+/// Decode an [`encode_live_rest`] bundle. Unknown keys are ignored; missing
+/// keys decode as empty (matching [`TableState::from_live_args`] blanks).
+pub(crate) fn decode_live_rest(rest: &str) -> (String, String, String, String, String) {
+    let mut q_initial = String::new();
+    let mut filters = String::new();
+    let mut sort = String::new();
+    let mut dir = String::new();
+    let mut group_by = String::new();
+    for (k, v) in form_urlencoded::parse(rest.as_bytes()) {
+        match &*k {
+            "q" => q_initial = v.into_owned(),
+            "filters" => filters = v.into_owned(),
+            "sort" => sort = v.into_owned(),
+            "dir" => dir = v.into_owned(),
+            "group_by" => group_by = v.into_owned(),
+            _ => {}
+        }
+    }
+    (q_initial, filters, sort, dir, group_by)
+}
+
 /// Build `path?k=v&…` from ordered optional parameters, skipping `None`.
 pub(crate) fn build_url(path: &str, params: &[(&str, Option<&str>)]) -> String {
     let query = params
@@ -2718,6 +2759,12 @@ pub struct NavigationItem {
     pub label: String,
     pub url: String,
     pub href_check: Option<HrefCheck>,
+    /// Sort key for the sidebar (GH #102): items render in stable `order`
+    /// order, so declaration order breaks ties. Resources declare in
+    /// `Panel::resource` order (all default `0`); custom items interleave
+    /// via [`.sorted()`](Self::sorted) — e.g. `.sorted(-1)` pins above the
+    /// resources.
+    pub order: i32,
 }
 
 impl Clone for NavigationItem {
@@ -2726,6 +2773,7 @@ impl Clone for NavigationItem {
             label: self.label.clone(),
             url: self.url.clone(),
             href_check: self.href_check.clone(),
+            order: self.order,
         }
     }
 }
@@ -2736,6 +2784,7 @@ impl std::fmt::Debug for NavigationItem {
             .field("label", &self.label)
             .field("url", &self.url)
             .field("href_check", &self.href_check.is_some())
+            .field("order", &self.order)
             .finish()
     }
 }
@@ -2766,6 +2815,7 @@ impl NavigationItem {
             label: R::navigation_label(),
             url: format!("{base}/{}", R::slug()),
             href_check: None,
+            order: 0,
         }
     }
 
@@ -2809,6 +2859,7 @@ impl NavigationItem {
             label: label.into(),
             url: url_string,
             href_check: Some(check),
+            order: 0,
         }
     }
 
@@ -2819,6 +2870,13 @@ impl NavigationItem {
     /// `from_resource_with_prefix` or `Panel::nav_item`.
     pub fn from_resource<R: Resource>() -> Self {
         Self::from_resource_with_prefix::<R>("/admin")
+    }
+
+    /// Pin this item's sidebar position (GH #102): lower `order` renders
+    /// first, ties keep declaration order.
+    pub fn sorted(mut self, order: i32) -> Self {
+        self.order = order;
+        self
     }
 
     /// Whether this item is current for the request in `cx`.
@@ -3282,11 +3340,13 @@ mod tests {
             label: "Users".to_string(),
             url: "/admin/users".to_string(),
             href_check: None,
+            order: 0,
         };
         let showcase = NavigationItem {
             label: "Showcase".to_string(),
             url: "/admin/showcase".to_string(),
             href_check: None,
+            order: 0,
         };
         // exact
         assert!(users.is_current_path("/admin/users"));
@@ -3309,6 +3369,7 @@ mod tests {
             label: "Showcase".to_string(),
             url: "/admin/showcase".to_string(),
             href_check: None,
+            order: 0,
         };
         let (parts, ()) = http::Request::builder()
             .uri("/admin/showcase/table")
@@ -3810,7 +3871,7 @@ mod tests {
     /// Sort one tag's `name="value"` pairs by name, keeping the tag head.
     fn sort_tag_attrs(tag: &str) -> String {
         let mut parts = Vec::new();
-        let mut rest = tag.trim_start();
+        let rest = tag.trim_start();
         // Tag head (name, `/` for close tags) passes through first.
         let head_len = rest
             .find(|c: char| c.is_whitespace())
@@ -4447,6 +4508,30 @@ mod tests {
         // Legacy plain values still parse.
         let legacy = parse_filters_param("status:published, featured:true");
         assert_eq!(legacy.get("status").map(String::as_str), Some("published"));
+    }
+
+    #[test]
+    fn live_rest_bundle_round_trips_delimiters() {
+        // GH #104: snapshot args (incl. `% : ,` filter delimiters) survive
+        // the shard wire format.
+        let rest = encode_live_rest("Ada", "status:a,b", "name", "desc", "status");
+        let (q, filters, sort, dir, group_by) = decode_live_rest(&rest);
+        assert_eq!(q, "Ada");
+        assert_eq!(filters, "status:a,b");
+        assert_eq!(sort, "name");
+        assert_eq!(dir, "desc");
+        assert_eq!(group_by, "status");
+        let empty = decode_live_rest("");
+        assert_eq!(
+            empty,
+            (
+                "".to_string(),
+                "".to_string(),
+                "".to_string(),
+                "".to_string(),
+                "".to_string()
+            )
+        );
     }
 
     fn status_table(cx: &Cx) -> Table<Task> {

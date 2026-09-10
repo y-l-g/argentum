@@ -425,12 +425,14 @@ impl Panel {
         cx: &'a Cx,
         nav_items: &[NavigationItem],
         current_path: &str,
-    ) -> Result<BoxView<'a>> {
-        use argentum_ui::{
+    ) -> Result<BoxView<'a>> {        use argentum_ui::{
             sidebar_group, sidebar_group_content, sidebar_group_label, sidebar_menu,
             sidebar_menu_button, sidebar_menu_item,
         };
-        let nav_items = nav_items.to_vec();
+        let mut nav_items = nav_items.to_vec();
+        // Stable order (GH #102): explicit `order` first, declaration order
+        // breaking ties — custom items interleave via `.sorted()`.
+        nav_items.sort_by_key(|item| item.order);
         let current_path = current_path.to_string();
 
         Ok(view! {
@@ -628,6 +630,7 @@ impl Panel {
                     label: "Dashboard".to_string(),
                     url: "/admin".to_string(),
                     href_check: None,
+                    order: 0,
                 }]
             });
         let shell = Self::render_shell(cx, &nav_items, &current, slot, None).await?;
@@ -774,13 +777,9 @@ pub(crate) async fn table_search(
     cx: &Cx,
     path: String,
     q: String,
-    q_initial: String,
     after: String,
     before: String,
-    filters: String,
-    sort: String,
-    dir: String,
-    group_by: String,
+    rest: String,
 ) -> Result<impl View> {
     let Some(entry) = topcoat::context::try_app_context::<SearchRegistry>(cx)
         .and_then(|reg| reg.0.get(&path).cloned())
@@ -788,6 +787,8 @@ pub(crate) async fn table_search(
         return Err(topcoat::router::error::not_found().into());
     };
     let q: String = q.trim().chars().take(128).collect();
+    // Snapshots arrive as one encoded bundle (see render_live_invocation).
+    let (q_initial, filters, sort, dir, group_by) = crate::resource::decode_live_rest(&rest);
     let mut state = TableState::from_live_args(&q, &filters, &sort, &dir, &group_by);
     // Cursor continuity (GH #104): on the initial render `q` still equals the
     // page's query, so the invocation output must match the current page —
@@ -802,7 +803,7 @@ pub(crate) async fn table_search(
             state.before = Some(before.trim().to_string());
         }
     }
-    Ok(entry(cx, state, path).await?)
+    entry(cx, state, path).await
 }
 
 fn resource_list<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
@@ -2564,10 +2565,6 @@ mod tests {
                 String::new(),
                 String::new(),
                 String::new(),
-                String::new(),
-                String::new(),
-                "asc".to_string(),
-                String::new(),
             )
             .await
             .is_err(),
@@ -2580,10 +2577,6 @@ mod tests {
             "Ada".to_string(),
             String::new(),
             String::new(),
-            String::new(),
-            String::new(),
-            String::new(),
-            "asc".to_string(),
             String::new(),
         )
         .await
@@ -2628,12 +2621,8 @@ mod tests {
             &cx,
             "/admin/dummies".to_string(),
             String::new(),
-            String::new(),
             cursor.clone(),
             String::new(),
-            String::new(),
-            String::new(),
-            "asc".to_string(),
             String::new(),
         )
         .await
@@ -2649,12 +2638,8 @@ mod tests {
             &cx,
             "/admin/dummies".to_string(),
             "Bob".to_string(),
-            String::new(),
             cursor,
             String::new(),
-            String::new(),
-            String::new(),
-            "asc".to_string(),
             String::new(),
         )
         .await
@@ -3042,6 +3027,7 @@ mod tests {
                 label: "Users".to_string(),
                 url: "/admin/users".to_string(),
                 href_check: None,
+                order: 0,
             }])
             .build();
         let cx_ref = &cx;
@@ -3093,6 +3079,7 @@ mod tests {
             label: "Users".to_string(),
             url: "/admin/users".to_string(),
             href_check: None,
+            order: 0,
         }];
         let cx_ref = &cx;
         let slot = view! { cx_ref => "hello" }.boxed().into();
@@ -3148,6 +3135,7 @@ mod tests {
             label: "Users".to_string(),
             url: "/admin/users".to_string(),
             href_check: None,
+            order: 0,
         }];
         let cx_ref = &cx;
         let slot = view! { cx_ref => "hello" }.boxed().into();
@@ -3169,6 +3157,52 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn sidebar_orders_custom_items_by_sort_key() {
+        // GH #102: `.sorted(-1)` interleaves a custom item above the
+        // resources; ties keep declaration order.
+        use crate::resource::NavigationItem;
+        use topcoat::context::CxTestBuilder;
+        use topcoat::view::view;
+
+        let (parts, ()) = http::Request::builder()
+            .uri("/admin/users")
+            .body(())
+            .unwrap()
+            .into_parts();
+        let cx = CxTestBuilder::new().request_context(parts).build();
+        let nav_items = vec![
+            NavigationItem {
+                label: "Users".to_string(),
+                url: "/admin/users".to_string(),
+                href_check: None,
+                order: 0,
+            },
+            NavigationItem {
+                label: "Showcase".to_string(),
+                url: "/admin/showcase".to_string(),
+                href_check: None,
+                order: 0,
+            }
+            .sorted(-1),
+        ];
+        let cx_ref = &cx;
+        let slot = view! { cx_ref => "hello" }.boxed().into();
+        let html = Panel::render_shell(&cx, &nav_items, "/admin/users", slot, None)
+            .await
+            .unwrap()
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
+        let showcase_at = html.find("Showcase").expect("custom item renders");
+        let users_at = html.find("Users").expect("resource item renders");
+        assert!(
+            showcase_at < users_at,
+            "sorted(-1) custom item must precede resources, got {html}"
+        );
+    }
+
+    #[tokio::test]
     async fn panel_shell_renders_sidebar_with_active_and_tokens() {
         use crate::resource::NavigationItem;
         use topcoat::context::CxTestBuilder;
@@ -3181,11 +3215,13 @@ mod tests {
                 label: "Users".to_string(),
                 url: "/admin/users".to_string(),
                 href_check: None,
+                order: 0,
             },
             NavigationItem {
                 label: "Showcase".to_string(),
                 url: "/admin/showcase".to_string(),
                 href_check: None,
+                order: 0,
             },
         ];
         let slot = view! { cx_ref => "hello" }.boxed().into();
@@ -3600,7 +3636,6 @@ mod tests {
         // GH #95: a composite-PK resource is a programming error the URL
         // scheme cannot serve — 500 with a message, never per-id 404s.
         use crate::resource::Resource;
-        use http_body_util::BodyExt;
         use std::collections::HashMap;
 
         #[derive(Debug, Clone, toasty::Model)]
@@ -3639,7 +3674,7 @@ mod tests {
             }
         }
 
-        let mut db = Db::builder()
+        let db = Db::builder()
             .models(toasty::models!(Pair))
             .connect("sqlite::memory:")
             .await
