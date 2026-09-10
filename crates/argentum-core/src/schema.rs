@@ -217,11 +217,6 @@ impl TextInput {
         labels >= 2 && tld_len >= 2
     }
 
-    #[allow(dead_code)]
-    async fn render(&self, cx: &Cx) -> Result<impl View> {
-        self.render_with(cx, None, &[]).await
-    }
-
     pub(crate) async fn render_with<'a>(
         &self,
         cx: &'a Cx,
@@ -873,11 +868,6 @@ impl Section {
         self
     }
 
-    #[allow(dead_code)]
-    async fn render(&self, cx: &Cx) -> Result<impl View> {
-        self.render_with(cx, &HashMap::new(), &HashMap::new()).await
-    }
-
     pub(crate) async fn render_with<'a>(
         &self,
         cx: &'a Cx,
@@ -932,11 +922,6 @@ impl Group {
         self
     }
 
-    #[allow(dead_code)]
-    async fn render(&self, cx: &Cx) -> Result<impl View> {
-        self.render_with(cx, &HashMap::new(), &HashMap::new()).await
-    }
-
     pub(crate) async fn render_with<'a>(
         &self,
         cx: &'a Cx,
@@ -970,11 +955,6 @@ impl Grid {
     pub fn schema(mut self, children: impl IntoSchema) -> Self {
         self.children = Some(children.into_schema());
         self
-    }
-
-    #[allow(dead_code)]
-    async fn render(&self, cx: &Cx) -> Result<impl View> {
-        self.render_with(cx, &HashMap::new(), &HashMap::new()).await
     }
 
     pub(crate) async fn render_with<'a>(
@@ -1205,26 +1185,25 @@ impl Repeater {
     }
 }
 
-/// Tabs — layout primitive for tabbed content (in-memory for v1, no JS).
-///
-/// Static `div` grouping for v1 (GH #73): looks like tabs, behaves as stacked
-/// sections until tab JS lands. Documented, not a placeholder bug.
+/// Shared no-JS chrome for the `Tabs` / `Wizard` grouping containers (GH #73):
+/// both render as a bordered column until their step/tab scripts land, so the
+/// markup lives in one place and the public types stay distinct seams.
 #[derive(Debug)]
-pub struct Tabs {
+struct Container {
     children: Option<Schema>,
 }
 
-impl Tabs {
-    pub fn new() -> Self {
+impl Container {
+    fn new() -> Self {
         Self { children: None }
     }
 
-    pub fn schema(mut self, children: impl IntoSchema) -> Self {
+    fn schema(mut self, children: impl IntoSchema) -> Self {
         self.children = Some(children.into_schema());
         self
     }
 
-    pub(crate) async fn render_with<'a>(
+    async fn render_with<'a>(
         &self,
         cx: &'a Cx,
         values: &HashMap<String, String>,
@@ -1246,6 +1225,32 @@ impl Tabs {
             }
             .boxed())
         }
+    }
+}
+
+/// Tabs — layout primitive for tabbed content (in-memory for v1, no JS).
+///
+/// Static `div` grouping for v1 (GH #73): looks like tabs, behaves as stacked
+/// sections until tab JS lands. Documented, not a placeholder bug.
+#[derive(Debug)]
+pub struct Tabs(Container);
+
+impl Tabs {
+    pub fn new() -> Self {
+        Self(Container::new())
+    }
+
+    pub fn schema(self, children: impl IntoSchema) -> Self {
+        Self(self.0.schema(children))
+    }
+
+    pub(crate) async fn render_with<'a>(
+        &self,
+        cx: &'a Cx,
+        values: &HashMap<String, String>,
+        errors: &HashMap<String, Vec<String>>,
+    ) -> Result<BoxView<'a>> {
+        self.0.render_with(cx, values, errors).await
     }
 }
 
@@ -1260,18 +1265,15 @@ impl Default for Tabs {
 /// Static `div` grouping for v1 (GH #73): looks like steps, behaves as stacked
 /// sections until step JS lands. Documented, not a placeholder bug.
 #[derive(Debug)]
-pub struct Wizard {
-    children: Option<Schema>,
-}
+pub struct Wizard(Container);
 
 impl Wizard {
     pub fn new() -> Self {
-        Self { children: None }
+        Self(Container::new())
     }
 
-    pub fn schema(mut self, children: impl IntoSchema) -> Self {
-        self.children = Some(children.into_schema());
-        self
+    pub fn schema(self, children: impl IntoSchema) -> Self {
+        Self(self.0.schema(children))
     }
 
     pub(crate) async fn render_with<'a>(
@@ -1280,22 +1282,7 @@ impl Wizard {
         values: &HashMap<String, String>,
         errors: &HashMap<String, Vec<String>>,
     ) -> Result<BoxView<'a>> {
-        if let Some(schema) = &self.children {
-            let child_view = schema.render_with(cx, values, errors).await?;
-            Ok(view! {
-                cx =>
-                <div class="flex flex-col gap-4 border border-border rounded-md p-4">
-                    (child_view)
-                </div>
-            }
-            .boxed())
-        } else {
-            Ok(view! {
-                cx =>
-                <div class="flex flex-col gap-4 border border-border rounded-md p-4"></div>
-            }
-            .boxed())
-        }
+        self.0.render_with(cx, values, errors).await
     }
 }
 
@@ -1324,11 +1311,6 @@ enum Node {
 }
 
 impl Node {
-    #[allow(dead_code)]
-    async fn render(&self, cx: &Cx) -> Result<impl View> {
-        self.render_with(cx, &HashMap::new(), &HashMap::new()).await
-    }
-
     async fn render_with<'a>(
         &self,
         cx: &'a Cx,
@@ -1668,8 +1650,8 @@ impl Node {
             Node::Section(s) => s.children.as_ref(),
             Node::Group(g) => g.children.as_ref(),
             Node::Grid(g) => g.children.as_ref(),
-            Node::Tabs(t) => t.children.as_ref(),
-            Node::Wizard(w) => w.children.as_ref(),
+            Node::Tabs(t) => t.0.children.as_ref(),
+            Node::Wizard(w) => w.0.children.as_ref(),
             Node::TextInput(_) | Node::Select(_) | Node::FileUpload(_) | Node::Text(_) => None,
         }
     }
@@ -1896,15 +1878,13 @@ mod tests {
         );
         assert!(html.contains("shadow-xs"), "missing shadow-xs in {html}");
         assert!(
-            html.contains("name=\"name\"")
-                || html.contains("name=\"Name\"")
-                || html.contains("name"),
+            html.contains("name=\"name\""),
             "missing name attr in {html}"
         );
         assert!(html.contains("<input"), "missing input in {html}");
         assert!(html.contains("<label"), "missing label in {html}");
         assert!(
-            html.contains("for=\"name\"") || html.contains("for="),
+            html.contains("for=\"name\""),
             "missing for/id linking in {html}"
         );
         assert!(
@@ -1912,10 +1892,7 @@ mod tests {
             "missing reserved error slot in {html}"
         );
         // label derived from lens: DummyUser::fields().name() → "name" → "Name"
-        assert!(
-            html.contains("Name") || html.contains("name"),
-            "missing label in {html}"
-        );
+        assert!(html.contains(">Name"), "missing label in {html}");
     }
 
     #[test]
@@ -2218,6 +2195,37 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn tabs_and_wizard_render_children_in_one_container() {
+        let cx = cx();
+        let cases = [
+            (
+                Schema::new(Tabs::new().schema(Text::new("tabbed"))),
+                "tabbed",
+            ),
+            (
+                Schema::new(Wizard::new().schema(Text::new("stepped"))),
+                "stepped",
+            ),
+        ];
+        for (schema, child) in cases {
+            let html = schema
+                .render(&cx)
+                .await
+                .unwrap()
+                .single()
+                .await
+                .unwrap()
+                .render(&cx);
+            assert!(html.contains(child), "missing {child} in {html}");
+            assert_eq!(
+                html.matches("border border-border rounded-md p-4").count(),
+                1,
+                "expected one shared container wrapper in {html}"
+            );
+        }
+    }
+
+    #[tokio::test]
     async fn nested_grid_inside_section() {
         let cx = cx();
         let schema = Schema::new(
@@ -2280,7 +2288,7 @@ mod tests {
             .unwrap()
             .render(&cx);
         assert!(
-            html.is_empty() || !html.contains("border-border"),
+            html.trim().is_empty(),
             "empty schema should render nothing, got {html}"
         );
     }
