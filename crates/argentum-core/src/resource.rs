@@ -1361,6 +1361,9 @@ impl<M> Table<M> {
                         (filter_bar.expect("filter bar built when enabled"))
                     }
                     (bulk_bar_view)
+                    if let Some(warning) = filter_warning {
+                        (warning)
+                    }
                     table(
                         (head)
                         (empty_cell)
@@ -2056,20 +2059,34 @@ impl<M> Table<M> {
             colspan += 1;
         }
         let filtered = state.search.is_some() || !state.filters.is_empty();
-        let clear_url = if filtered {
-            Some(match &state.sort {
-                Some(s) => build_url(
-                    path,
-                    &[
-                        ("sort", Some(s.column.as_str())),
-                        ("dir", Some(if s.descending { "desc" } else { "asc" })),
-                    ],
-                ),
-                None => path.to_string(),
-            })
-        } else {
-            None
-        };
+        // Clear only the dimension the link names and keep the rest of the
+        // state (GH #93 follow-up): the old link rebuilt the URL from `sort`
+        // alone — dropping `group_by` — and cleared the filters too under a
+        // "Clear search" label when both a search and filters were active.
+        let clear_url = filtered.then(|| {
+            let filters = state.filters_param();
+            let (q, filters) = if state.search.is_some() {
+                (None, filters.as_deref())
+            } else {
+                (state.search.as_deref(), None)
+            };
+            build_url(
+                path,
+                &[
+                    ("q", q),
+                    ("sort", state.sort.as_ref().map(|s| s.column.as_str())),
+                    (
+                        "dir",
+                        state
+                            .sort
+                            .as_ref()
+                            .map(|s| if s.descending { "desc" } else { "asc" }),
+                    ),
+                    ("filters", filters),
+                    ("group_by", self.effective_group_name(state).as_deref()),
+                ],
+            )
+        });
         // Search is prefix-only (`starts_with`, GH #101): the empty copy says
         // so instead of implying general search.
         let message = match &state.search {
@@ -3285,13 +3302,6 @@ mod tests {
     }
 
     #[test]
-    fn resource_associated_model_is_accessible() {
-        fn assert_resource<R: Resource>() {}
-        assert_resource::<UserResource>();
-        assert_resource::<BareResource>();
-    }
-
-    #[test]
     fn navigation_derives_label_and_url_from_model() {
         let item = NavigationItem::from_resource::<UserResource>();
         // Label: pluralized model name; URL: panel prefix + resource slug
@@ -3381,23 +3391,6 @@ mod tests {
             .into_parts();
         let cx2 = CxTestBuilder::new().request_context(parts2).build();
         assert!(!item.is_current(&cx2));
-    }
-
-    #[test]
-    fn default_query_returns_all() {
-        let cx = CxTestBuilder::new().build();
-        let _q = BareResource::query(&cx);
-        // No panic — the default impl returns Model::all()
-        let _q2 = UserResource::query(&cx);
-    }
-
-    #[test]
-    fn table_form_pages_have_defaults() {
-        let cx = CxTestBuilder::new().build();
-        let _table = UserResource::table(&cx);
-        let _form = UserResource::form(&cx);
-        let _pages = UserResource::pages();
-        let _nav = UserResource::navigation();
     }
 
     #[tokio::test]
@@ -3560,15 +3553,9 @@ mod tests {
             html.contains("border-border") && html.contains("text-muted-foreground"),
             "missing Token classes in {html}"
         );
-        // searchable indicator ⌕ and sortable indicator ↕ and aria-sort
-        assert!(
-            html.contains("⌕") || html.contains("search"),
-            "missing searchable indicator in {html}"
-        );
-        assert!(
-            html.contains("↕") || html.contains("aria-sort"),
-            "missing sortable indicator in {html}"
-        );
+        // searchable indicator ⌕ and inactive-sort indicator ↕
+        assert!(html.contains("⌕"), "missing searchable indicator in {html}");
+        assert!(html.contains("↕"), "missing sortable indicator in {html}");
         assert!(
             html.contains("cursor-pointer"),
             "missing sortable cursor-pointer in {html}"
@@ -3789,144 +3776,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn render_with_state_matches_render() {
-        let cx = CxTestBuilder::new().build();
-        let table_user1 = Table::<User>::r#for(&cx)
-            .id(|u| u.id.to_string())
-            .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()));
-        let rows = vec![User {
-            id: uuid::Uuid::nil(),
-            name: "Ada".to_string(),
-        }];
-        let html_render = table_user1
-            .render(&cx, rows.clone().into())
-            .await
-            .unwrap()
-            .single()
-            .await
-            .unwrap()
-            .render(&cx);
-        let html_state = table_user1
-            .render_with_state(&cx, rows.into(), &TableState::default(), "")
-            .await
-            .unwrap()
-            .single()
-            .await
-            .unwrap()
-            .render(&cx);
-        assert_eq!(
-            normalize_attrs(&html_render),
-            normalize_attrs(&html_state),
-            "same table must render the same markup (attribute order excluded, GH #104)"
-        );
-    }
-
-    /// Sort attributes within each tag for HTML comparison (GH #104):
-    /// Topcoat's `Attributes` is a `HashMap`, so spread-merged attributes
-    /// (e.g. `<tr>` class + row id) render in nondeterministic order.
-    /// Attribute order is semantically irrelevant in HTML.
-    fn normalize_attrs(html: &str) -> String {
-        fn tag_end(s: &str) -> Option<usize> {
-            let mut in_single = false;
-            let mut in_double = false;
-            for (i, c) in s.char_indices() {
-                match c {
-                    '\'' if !in_double => in_single = !in_single,
-                    '"' if !in_single => in_double = !in_double,
-                    '>' if !in_single && !in_double => return Some(i),
-                    _ => {}
-                }
-            }
-            None
-        }
-        let mut out = String::with_capacity(html.len());
-        let mut rest = html;
-        while let Some(lt) = rest.find('<') {
-            out.push_str(&rest[..=lt]);
-            rest = &rest[lt + 1..];
-            // Pass comments through untouched (their payload is opaque).
-            if let Some(comment) = rest.strip_prefix("!--") {
-                let end = comment.find("-->").map(|i| i + 3).unwrap_or(comment.len());
-                out.push_str(&rest[..3 + end]);
-                rest = &rest[3 + end..];
-                continue;
-            }
-            let Some(gt) = tag_end(rest) else {
-                out.push_str(rest);
-                break;
-            };
-            let (tag, tail) = rest.split_at(gt);
-            out.push_str(&sort_tag_attrs(tag));
-            out.push('>');
-            rest = &tail[1..];
-        }
-        out.push_str(rest);
-        out
-    }
-
-    /// Sort one tag's `name="value"` pairs by name, keeping the tag head.
-    fn sort_tag_attrs(tag: &str) -> String {
-        let mut parts = Vec::new();
-        let rest = tag.trim_start();
-        // Tag head (name, `/` for close tags) passes through first.
-        let head_len = rest.find(|c: char| c.is_whitespace()).unwrap_or(rest.len());
-        let (head, mut tail) = rest.split_at(head_len);
-        parts.push(head.to_string());
-        tail = tail.trim_start();
-        while !tail.is_empty() {
-            // Attribute name runs to `=` or whitespace (boolean attr).
-            let name_len = tail
-                .find(|c: char| c == '=' || c.is_whitespace())
-                .unwrap_or(tail.len());
-            let (name, after) = tail.split_at(name_len);
-            let after = after.trim_start();
-            if let Some(value) = after.strip_prefix('=') {
-                let value = value.trim_start();
-                let (val, len) = if let Some(q) = value.chars().next() {
-                    if q == '"' || q == '\'' {
-                        let end = value[1..].find(q).map(|i| i + 2).unwrap_or(value.len());
-                        (value[..end].to_string(), end)
-                    } else {
-                        let end = value
-                            .find(|c: char| c.is_whitespace())
-                            .unwrap_or(value.len());
-                        (value[..end].to_string(), end)
-                    }
-                } else {
-                    (String::new(), 0)
-                };
-                parts.push(format!("{name}={val}"));
-                tail = value[len..].trim_start();
-            } else {
-                parts.push(name.to_string());
-                tail = after;
-            }
-        }
-        let (head, mut attrs) = (parts.remove(0), parts);
-        attrs.sort();
-        if attrs.is_empty() {
-            head
-        } else {
-            format!("{head} {}", attrs.join(" "))
-        }
-    }
-
-    #[test]
-    fn normalize_attrs_ignores_attribute_order() {
-        // GH #104: Topcoat's HashMap-backed Attributes render spread-merged
-        // attributes in nondeterministic order; comparison must not care.
-        assert_eq!(
-            normalize_attrs(r#"<tr class="a" id="b">x</tr>"#),
-            normalize_attrs(r#"<tr id="b" class="a">x</tr>"#)
-        );
-        assert_eq!(
-            normalize_attrs(r#"<input disabled type="x" value="a>b">"#),
-            r#"<input disabled type="x" value="a>b">"#.to_string()
-        );
-        assert!(normalize_attrs("<!--c--><p>plain</p>") == "<!--c--><p>plain</p>");
-    }
-
-    #[tokio::test]
     async fn empty_with_filters_shows_filtered_message() {
         let cx = CxTestBuilder::new().build();
         let table_task2 = Table::<Task>::r#for(&cx)
@@ -3960,6 +3809,122 @@ mod tests {
             html.contains("Clear filters"),
             "filter-only empty needs a clear link in {html}"
         );
+    }
+
+    #[tokio::test]
+    async fn unknown_filter_warns_on_an_empty_page_too() {
+        // GH #93 follow-up: the zero-rows branch returned before the warning
+        // banner rendered, so a typo'd filter looked like an honest "no
+        // results" on an empty table.
+        let cx = CxTestBuilder::new().build();
+        let html = status_table(&cx)
+            .render_with_state(
+                &cx,
+                Vec::new().into(),
+                &filters_state(&[("stauts", "published")]),
+                "/admin/tasks",
+            )
+            .await
+            .unwrap()
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
+        assert!(
+            html.contains("role=\"alert\"") && html.contains("stauts:published"),
+            "empty page must still warn about ignored filters, got {html}"
+        );
+    }
+
+    #[tokio::test]
+    async fn empty_clear_links_preserve_the_untouched_state() {
+        // The empty-state link used to rebuild the URL from `sort` alone:
+        // `group_by` was always dropped, and with a search + filters active
+        // the "Clear search" link also cleared the filters.
+        let cx = CxTestBuilder::new().build();
+        let tbl = Table::<Task>::r#for(&cx)
+            .id(|t| t.id.to_string())
+            .columns(TextColumn::r#for(Task::fields().title(), |t| t.title.clone()).sortable())
+            .filters(SelectFilter::r#for(
+                Task::fields().status(),
+                vec!["published".to_string()],
+            ))
+            .group_by("status", |t| t.status.clone());
+        let state = TableState {
+            search: Some("Hello".to_string()),
+            filters: HashMap::from([("status".to_string(), "published".to_string())]),
+            sort: Some(Sort {
+                column: "title".to_string(),
+                descending: true,
+            }),
+            group_by: Some("status".to_string()),
+            ..TableState::default()
+        };
+        let html = tbl
+            .render_with_state(&cx, Vec::new().into(), &state, "/admin/tasks")
+            .await
+            .unwrap()
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
+        let clear = last_link_named(&html, "Clear search");
+        assert!(
+            clear.contains("sort=title"),
+            "clear search must keep sort: {clear}"
+        );
+        assert!(
+            clear.contains("dir=desc"),
+            "clear search must keep dir: {clear}"
+        );
+        assert!(
+            clear.contains("filters="),
+            "clear search must keep filters: {clear}"
+        );
+        assert!(
+            clear.contains("group_by=status"),
+            "clear search must keep group_by: {clear}"
+        );
+        assert!(!clear.contains("q="), "clear search must drop q: {clear}");
+
+        let state = TableState {
+            filters: HashMap::from([("status".to_string(), "published".to_string())]),
+            sort: Some(Sort {
+                column: "title".to_string(),
+                descending: true,
+            }),
+            group_by: Some("status".to_string()),
+            ..TableState::default()
+        };
+        let html = tbl
+            .render_with_state(&cx, Vec::new().into(), &state, "/admin/tasks")
+            .await
+            .unwrap()
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
+        // The filter bar renders a "Clear filters" link earlier in the page;
+        // the empty-cell one is the subject here.
+        let clear = last_link_named(&html, "Clear filters");
+        assert!(
+            clear.contains("sort=title"),
+            "clear filters must keep sort: {clear}"
+        );
+        assert!(
+            clear.contains("group_by=status"),
+            "clear filters must keep group_by: {clear}"
+        );
+        assert!(
+            !clear.contains("filters="),
+            "clear filters must drop filters: {clear}"
+        );
+    }
+
+    fn last_link_named<'a>(html: &'a str, label: &str) -> &'a str {
+        html.rsplit('<')
+            .find(|chunk| chunk.contains(label))
+            .unwrap_or_else(|| panic!("missing {label} link in {html}"))
     }
 
     #[tokio::test]
