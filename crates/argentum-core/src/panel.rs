@@ -3114,6 +3114,52 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn shell_dark_mode_sets_html_class_and_toggle() {
+        fn cx_with(dark: Option<bool>) -> Cx {
+            use topcoat::context::CxTestBuilder;
+            let (parts, ()) = http::Request::builder()
+                .uri("/admin/users")
+                .body(())
+                .unwrap()
+                .into_parts();
+            match dark {
+                Some(v) => CxTestBuilder::new()
+                    .request_context(parts)
+                    .app_context(DarkMode(v)),
+                None => CxTestBuilder::new().request_context(parts),
+            }
+            .build()
+        }
+
+        async fn document_html(cx: &Cx) -> String {
+            let slot = view! { cx => "hello" }.boxed().into();
+            Panel::layout_shell(cx, slot)
+                .await
+                .unwrap()
+                .single()
+                .await
+                .unwrap()
+                .render(cx)
+        }
+
+        let html = document_html(&cx_with(Some(true))).await;
+        assert!(
+            html.contains("<html class=\"dark\">"),
+            "DarkMode(true) must set the html class, got {html}"
+        );
+        assert!(
+            html.contains("data-theme-toggle"),
+            "theme toggle must render, got {html}"
+        );
+
+        let html = document_html(&cx_with(None)).await;
+        assert!(
+            html.contains("<html>"),
+            "no DarkMode must not set the dark class, got {html}"
+        );
+    }
+
+    #[tokio::test]
     async fn shell_notification_carries_dismiss_hooks() {
         use crate::notification::Notification;
         use crate::resource::NavigationItem;
