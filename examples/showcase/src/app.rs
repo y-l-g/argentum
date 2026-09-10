@@ -298,7 +298,8 @@ impl Resource for AuthorResource {
                 .unwrap_or_default()
                 .trim()
                 .to_string();
-            let tid = tenant_id(&cx).expect("requires_tenant handlers always set a tenant (GH #87)");
+            let tid =
+                tenant_id(&cx).expect("requires_tenant handlers always set a tenant (GH #87)");
             toasty::create!(Author {
                 tenant_id: tid,
                 name: name,
@@ -569,7 +570,8 @@ impl Resource for PostResource {
                 .unwrap_or_default()
                 .trim()
                 .to_string();
-            let tid = tenant_id(&cx).expect("requires_tenant handlers always set a tenant (GH #87)");
+            let tid =
+                tenant_id(&cx).expect("requires_tenant handlers always set a tenant (GH #87)");
             toasty::create!(Post {
                 tenant_id: tid,
                 title: title,

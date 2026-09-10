@@ -307,9 +307,11 @@ fn read_value_with_depth(buf: &[u8], depth: usize) -> Result<(Value, &[u8])> {
             let text = std::str::from_utf8(&s)
                 .map_err(|e| std::io::Error::other(format!("cursor: invalid zoned: {e}")))?;
             Ok((
-                Value::Zoned(text.parse::<jiff::Zoned>().map_err(|e| {
-                    std::io::Error::other(format!("cursor: invalid zoned: {e}"))
-                })?),
+                Value::Zoned(
+                    text.parse::<jiff::Zoned>().map_err(|e| {
+                        std::io::Error::other(format!("cursor: invalid zoned: {e}"))
+                    })?,
+                ),
                 buf,
             ))
         }

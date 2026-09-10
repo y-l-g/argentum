@@ -230,12 +230,7 @@ where
         if let Ok(date) = v.parse::<jiff::civil::Date>() {
             let start: jiff::Timestamp = format!("{date}T00:00:00Z").parse().ok()?;
             let end = start + jiff::Span::new().hours(24);
-            return Some(
-                self.lens
-                    .clone()
-                    .ge(start)
-                    .and(self.lens.clone().lt(end)),
-            );
+            return Some(self.lens.clone().ge(start).and(self.lens.clone().lt(end)));
         }
         None
     }
@@ -1299,8 +1294,7 @@ impl<M> Table<M> {
                     .map(|(pair, reason)| format!("{pair} ({reason})"))
                     .collect::<Vec<_>>()
                     .join(", ");
-                let text =
-                    format!("Ignored filter(s): {detail} — showing unfiltered results.");
+                let text = format!("Ignored filter(s): {detail} — showing unfiltered results.");
                 let dir = state
                     .sort
                     .as_ref()
@@ -1310,10 +1304,7 @@ impl<M> Table<M> {
                     path,
                     &[
                         ("q", state.search.as_deref()),
-                        (
-                            "sort",
-                            state.sort.as_ref().map(|s| s.column.as_str()),
-                        ),
+                        ("sort", state.sort.as_ref().map(|s| s.column.as_str())),
                         ("dir", dir),
                         ("group_by", group.as_deref()),
                     ],
@@ -1854,8 +1845,13 @@ impl<M> Table<M> {
         let live_group = self.effective_group_name(state).unwrap_or_default();
         // Snapshots travel as one encoded bundle (GH #104): it keeps the
         // shard arity small and lets future state fields ride free.
-        let live_rest =
-            encode_live_rest(&initial_q, &live_filters, &live_sort, &live_dir, &live_group);
+        let live_rest = encode_live_rest(
+            &initial_q,
+            &live_filters,
+            &live_sort,
+            &live_dir,
+            &live_group,
+        );
         Ok(view! {
             cx =>
             table_search(
@@ -2122,25 +2118,24 @@ impl<M> Table<M> {
         // rows deleted under pagination) leaves an empty page with no pager —
         // link back to the first page instead of a dead end. State is
         // preserved, only the cursor is dropped.
-        let first_page_url =
-            (state.after.is_some() || state.before.is_some()).then(|| {
-                let dir = state
-                    .sort
-                    .as_ref()
-                    .map(|s| if s.descending { "desc" } else { "asc" });
-                let filters = state.filters_param();
-                let group = self.effective_group_name(state);
-                build_url(
-                    path,
-                    &[
-                        ("q", state.search.as_deref()),
-                        ("sort", state.sort.as_ref().map(|s| s.column.as_str())),
-                        ("dir", dir),
-                        ("filters", filters.as_deref()),
-                        ("group_by", group.as_deref()),
-                    ],
-                )
-            });
+        let first_page_url = (state.after.is_some() || state.before.is_some()).then(|| {
+            let dir = state
+                .sort
+                .as_ref()
+                .map(|s| if s.descending { "desc" } else { "asc" });
+            let filters = state.filters_param();
+            let group = self.effective_group_name(state);
+            build_url(
+                path,
+                &[
+                    ("q", state.search.as_deref()),
+                    ("sort", state.sort.as_ref().map(|s| s.column.as_str())),
+                    ("dir", dir),
+                    ("filters", filters.as_deref()),
+                    ("group_by", group.as_deref()),
+                ],
+            )
+        });
         Ok(view! {
             cx =>
             table_body(
@@ -2513,7 +2508,11 @@ impl TableState {
                 .filters
                 .iter()
                 .map(|(k, v)| {
-                    format!("{}:{}", encode_filter_component(k), encode_filter_component(v))
+                    format!(
+                        "{}:{}",
+                        encode_filter_component(k),
+                        encode_filter_component(v)
+                    )
                 })
                 .collect();
             pairs.sort();
@@ -3873,9 +3872,7 @@ mod tests {
         let mut parts = Vec::new();
         let rest = tag.trim_start();
         // Tag head (name, `/` for close tags) passes through first.
-        let head_len = rest
-            .find(|c: char| c.is_whitespace())
-            .unwrap_or(rest.len());
+        let head_len = rest.find(|c: char| c.is_whitespace()).unwrap_or(rest.len());
         let (head, mut tail) = rest.split_at(head_len);
         parts.push(head.to_string());
         tail = tail.trim_start();
@@ -3890,10 +3887,7 @@ mod tests {
                 let value = value.trim_start();
                 let (val, len) = if let Some(q) = value.chars().next() {
                     if q == '"' || q == '\'' {
-                        let end = value[1..]
-                            .find(q)
-                            .map(|i| i + 2)
-                            .unwrap_or(value.len());
+                        let end = value[1..].find(q).map(|i| i + 2).unwrap_or(value.len());
                         (value[..end].to_string(), end)
                     } else {
                         let end = value
@@ -4398,7 +4392,10 @@ mod tests {
             name: "Ada, \"the\" first".to_string(),
         }];
         let csv = csv_table.to_csv(&rows.into());
-        assert!(csv.contains("\"Ada, \"\"the\"\" first\""), "quoting broke: {csv:?}");
+        assert!(
+            csv.contains("\"Ada, \"\"the\"\" first\""),
+            "quoting broke: {csv:?}"
+        );
     }
 
     #[test]
@@ -4537,7 +4534,9 @@ mod tests {
     fn status_table(cx: &Cx) -> Table<Task> {
         Table::<Task>::r#for(cx)
             .id(|t| t.id.to_string())
-            .columns(TextColumn::r#for(Task::fields().title(), |t| t.title.clone()))
+            .columns(TextColumn::r#for(Task::fields().title(), |t| {
+                t.title.clone()
+            }))
             .filters(SelectFilter::r#for(
                 Task::fields().status(),
                 vec!["published".to_string(), "draft".to_string()],
@@ -4562,8 +4561,7 @@ mod tests {
         let tbl = status_table(&cx);
         assert!(tbl.unapplied_filters(&filters_state(&[])).is_empty());
         assert!(
-            tbl
-                .unapplied_filters(&filters_state(&[("status", "published")]))
+            tbl.unapplied_filters(&filters_state(&[("status", "published")]))
                 .is_empty(),
             "valid filter must apply"
         );
@@ -4591,7 +4589,12 @@ mod tests {
             created_at: jiff::Timestamp::now(),
         }];
         let html = tbl
-            .render_with_state(&cx, rows.into(), &filters_state(&[("stauts", "published")]), "/admin/tasks")
+            .render_with_state(
+                &cx,
+                rows.into(),
+                &filters_state(&[("stauts", "published")]),
+                "/admin/tasks",
+            )
             .await
             .unwrap()
             .single()
@@ -4611,7 +4614,12 @@ mod tests {
             created_at: jiff::Timestamp::now(),
         }];
         let html = tbl
-            .render_with_state(&cx, rows.into(), &filters_state(&[("status", "published")]), "/admin/tasks")
+            .render_with_state(
+                &cx,
+                rows.into(),
+                &filters_state(&[("status", "published")]),
+                "/admin/tasks",
+            )
             .await
             .unwrap()
             .single()
@@ -4657,7 +4665,10 @@ mod tests {
             .await
             .unwrap()
             .render(&cx);
-        assert!(html.contains("on this page"), "group header must be page-local, got {html}");
+        assert!(
+            html.contains("on this page"),
+            "group header must be page-local, got {html}"
+        );
         assert!(
             html.contains("group_by") && html.contains("after=abc"),
             "pager must preserve group_by, got {html}"
@@ -4782,8 +4793,14 @@ mod tests {
             .await
             .unwrap()
             .render(&cx);
-        assert!(html.contains("data-table-root"), "skeleton must share table root, got {html}");
-        assert!(html.contains("aria-busy"), "skeleton must announce loading, got {html}");
+        assert!(
+            html.contains("data-table-root"),
+            "skeleton must share table root, got {html}"
+        );
+        assert!(
+            html.contains("aria-busy"),
+            "skeleton must announce loading, got {html}"
+        );
         assert!(
             html.contains("aria-hidden"),
             "skeleton must hold chrome placeholders, got {html}"
@@ -4803,7 +4820,10 @@ mod tests {
             .await
             .unwrap()
             .render(&cx);
-        assert!(html.contains("Ada"), "swap payload must be rows, got {html}");
+        assert!(
+            html.contains("Ada"),
+            "swap payload must be rows, got {html}"
+        );
     }
 
     #[test]
@@ -4822,7 +4842,14 @@ mod tests {
             ..TableState::default()
         };
         let url = state.retry_url("/admin/users");
-        for part in ["q=Ada", "sort=name", "dir=desc", "filters=", "group_by=status", "after=cur"] {
+        for part in [
+            "q=Ada",
+            "sort=name",
+            "dir=desc",
+            "filters=",
+            "group_by=status",
+            "after=cur",
+        ] {
             assert!(url.contains(part), "retry must preserve {part}, got {url}");
         }
     }

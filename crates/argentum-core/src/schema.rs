@@ -287,10 +287,7 @@ impl TextInput {
 /// only data seam (tenancy preserved); label mapping stays in the caller so
 /// selects with different labels share the hit.
 #[topcoat::context::memoize(as_ref)]
-async fn related_records<R>(
-    cx: &Cx,
-    _tenant: Option<uuid::Uuid>,
-) -> Result<Vec<R::Model>, String>
+async fn related_records<R>(cx: &Cx, _tenant: Option<uuid::Uuid>) -> Result<Vec<R::Model>, String>
 where
     R: crate::resource::Resource + 'static,
     R::Model: Send + Sync + 'static,
@@ -438,9 +435,7 @@ impl Select {
             Box::pin(async move {
                 let records = related_records::<R>(&cx, crate::tenancy::tenant_id(&cx))
                     .await
-                    .map_err(|e| {
-                        topcoat::Error::from(std::io::Error::other(e.clone()))
-                    })?;
+                    .map_err(|e| topcoat::Error::from(std::io::Error::other(e.clone())))?;
                 if records.len() > MAX_RELATIONSHIP_OPTIONS {
                     // Fail visibly (GH #91): validating against a silent
                     // truncation would reject legitimate FKs as "invalid"
@@ -825,29 +820,17 @@ where
         toasty_core::stmt::Type::F64 => toasty_core::stmt::Value::F64(id.parse().ok()?),
         // Bytes PKs have no canonical URL text form; accept the UTF-8 bytes so
         // list/edit round-trip instead of 404ing (GH #95).
-        toasty_core::stmt::Type::Bytes => {
-            toasty_core::stmt::Value::Bytes(id.as_bytes().to_vec())
-        }
+        toasty_core::stmt::Type::Bytes => toasty_core::stmt::Value::Bytes(id.as_bytes().to_vec()),
         // Temporal PKs parse from their canonical string forms, in lockstep
         // with the cursor codec (GH #95). Decimal/net PKs need Toasty
         // features this build doesn't enable (`rust_decimal`, `bigdecimal`,
         // `net`) and composite keys have no URL representation — both stay
         // documented limits.
-        toasty_core::stmt::Type::Timestamp => {
-            toasty_core::stmt::Value::Timestamp(id.parse().ok()?)
-        }
-        toasty_core::stmt::Type::Date => {
-            toasty_core::stmt::Value::Date(id.parse().ok()?)
-        }
-        toasty_core::stmt::Type::Time => {
-            toasty_core::stmt::Value::Time(id.parse().ok()?)
-        }
-        toasty_core::stmt::Type::DateTime => {
-            toasty_core::stmt::Value::DateTime(id.parse().ok()?)
-        }
-        toasty_core::stmt::Type::Zoned => {
-            toasty_core::stmt::Value::Zoned(id.parse().ok()?)
-        }
+        toasty_core::stmt::Type::Timestamp => toasty_core::stmt::Value::Timestamp(id.parse().ok()?),
+        toasty_core::stmt::Type::Date => toasty_core::stmt::Value::Date(id.parse().ok()?),
+        toasty_core::stmt::Type::Time => toasty_core::stmt::Value::Time(id.parse().ok()?),
+        toasty_core::stmt::Type::DateTime => toasty_core::stmt::Value::DateTime(id.parse().ok()?),
+        toasty_core::stmt::Type::Zoned => toasty_core::stmt::Value::Zoned(id.parse().ok()?),
         _ => return None,
     };
     Some((fid, value))
@@ -2669,7 +2652,10 @@ mod tests {
         values.insert("name".to_string(), "Ada".to_string());
         values.insert("role".to_string(), "admin".to_string());
         values.insert("confirm".to_string(), "1".to_string());
-        assert_eq!(schema.unknown_keys(&values), vec!["confirm".to_string(), "role".to_string()]);
+        assert_eq!(
+            schema.unknown_keys(&values),
+            vec!["confirm".to_string(), "role".to_string()]
+        );
         values.remove("role");
         values.remove("confirm");
         assert!(schema.unknown_keys(&values).is_empty());
@@ -2834,11 +2820,10 @@ mod tests {
             .unwrap();
         }
         let cx = CxTestBuilder::new().app_context(db).build();
-        let select =
-            Select::r#for(RefPost::fields().author_id()).relationship::<RefAuthorResource>(
-                RefAuthorResource::query,
-                |a: &RefAuthor| a.name.clone(),
-            );
+        let select = Select::r#for(RefPost::fields().author_id())
+            .relationship::<RefAuthorResource>(RefAuthorResource::query, |a: &RefAuthor| {
+                a.name.clone()
+            });
         // Over the cap: bounded work, visible retry error — never an
         // empty-options passthrough (GH #91).
         let errs = select.validate_async(&cx, "whatever").await;
@@ -2852,8 +2837,7 @@ mod tests {
     async fn searchable_select_renders_filter_input() {
         // GH #91: opt-in client-side option search; default selects stay bare.
         let cx = CxTestBuilder::new().build();
-        let plain =
-            Select::r#for(DummyUser::fields().name()).options(vec!["a".to_string()]);
+        let plain = Select::r#for(DummyUser::fields().name()).options(vec!["a".to_string()]);
         let html = plain
             .render_with(&cx, None, &[])
             .await
@@ -2937,9 +2921,7 @@ mod tests {
 
         // Two selects, different labels, same resource.
         let s1 = Select::r#for(Ref::fields().name())
-            .relationship::<CountingResource>(CountingResource::query, |r: &Ref| {
-                r.name.clone()
-            });
+            .relationship::<CountingResource>(CountingResource::query, |r: &Ref| r.name.clone());
         let s2 = Select::r#for(Ref::fields().name())
             .relationship::<CountingResource>(CountingResource::query, |r: &Ref| {
                 format!("{}!", r.name)

@@ -1,4 +1,7 @@
-use http::{Method, Request, header::{CONTENT_TYPE, COOKIE}};
+use http::{
+    Method, Request,
+    header::{CONTENT_TYPE, COOKIE},
+};
 use http_body_util::BodyExt;
 use showcase::{
     app::router_for_tests as router,
@@ -279,12 +282,16 @@ async fn posts_edit_untouched_file_keeps_stored_path() {
     let db = full_db().await;
     let router = router(db.clone());
     let mut db_q = db.clone();
-    let post = Post::filter(showcase::models::Post::fields().title().eq("Hello Toasty".to_string()))
-        .first()
-        .exec(&mut db_q)
-        .await
-        .unwrap()
-        .expect("seeded post");
+    let post = Post::filter(
+        showcase::models::Post::fields()
+            .title()
+            .eq("Hello Toasty".to_string()),
+    )
+    .first()
+    .exec(&mut db_q)
+    .await
+    .unwrap()
+    .expect("seeded post");
     assert_eq!(post.image_path, "/images/hello.jpg");
     let authors = Author::all().exec(&mut db_q).await.unwrap();
     let csrf = uuid::Uuid::new_v4().to_string();
@@ -308,13 +315,20 @@ async fn posts_edit_untouched_file_keeps_stored_path() {
         "untouched-file edit must redirect, got {}",
         resp.status()
     );
-    let kept = Post::filter(showcase::models::Post::fields().title().eq("Renamed".to_string()))
-        .first()
-        .exec(&mut db_q)
-        .await
-        .unwrap()
-        .expect("renamed post");
-    assert_eq!(kept.image_path, "/images/hello.jpg", "stored path must survive untouched edit");
+    let kept = Post::filter(
+        showcase::models::Post::fields()
+            .title()
+            .eq("Renamed".to_string()),
+    )
+    .first()
+    .exec(&mut db_q)
+    .await
+    .unwrap()
+    .expect("renamed post");
+    assert_eq!(
+        kept.image_path, "/images/hello.jpg",
+        "stored path must survive untouched edit"
+    );
 }
 
 #[tokio::test]
@@ -325,12 +339,16 @@ async fn posts_edit_explicit_clear_flag_skips_preservation() {
     let db = full_db().await;
     let router = router(db.clone());
     let mut db_q = db.clone();
-    let post = Post::filter(showcase::models::Post::fields().title().eq("Hello Toasty".to_string()))
-        .first()
-        .exec(&mut db_q)
-        .await
-        .unwrap()
-        .expect("seeded post");
+    let post = Post::filter(
+        showcase::models::Post::fields()
+            .title()
+            .eq("Hello Toasty".to_string()),
+    )
+    .first()
+    .exec(&mut db_q)
+    .await
+    .unwrap()
+    .expect("seeded post");
     let authors = Author::all().exec(&mut db_q).await.unwrap();
     let csrf = uuid::Uuid::new_v4().to_string();
     let resp = router
@@ -359,13 +377,20 @@ async fn posts_edit_explicit_clear_flag_skips_preservation() {
         html.contains("is required"),
         "cleared required file must error inline, got {html}"
     );
-    let kept = Post::filter(showcase::models::Post::fields().title().eq("Hello Toasty".to_string()))
-        .first()
-        .exec(&mut db_q)
-        .await
-        .unwrap()
-        .expect("post still titled");
-    assert_eq!(kept.image_path, "/images/hello.jpg", "failed edit must not touch storage");
+    let kept = Post::filter(
+        showcase::models::Post::fields()
+            .title()
+            .eq("Hello Toasty".to_string()),
+    )
+    .first()
+    .exec(&mut db_q)
+    .await
+    .unwrap()
+    .expect("post still titled");
+    assert_eq!(
+        kept.image_path, "/images/hello.jpg",
+        "failed edit must not touch storage"
+    );
 }
 
 #[tokio::test]
@@ -396,7 +421,10 @@ async fn multipart_body_limit_matches_urlencoded_cap() {
             Request::builder()
                 .uri("/admin/posts/create")
                 .method(Method::POST)
-                .header(CONTENT_TYPE, format!("multipart/form-data; boundary={boundary}"))
+                .header(
+                    CONTENT_TYPE,
+                    format!("multipart/form-data; boundary={boundary}"),
+                )
                 .header(COOKIE, format!("argentum_csrf={csrf}"))
                 .header("x-tenant-id", showcase::models::DEMO_TENANT.to_string())
                 .body(Body::from(body))
@@ -422,7 +450,10 @@ async fn multipart_body_limit_matches_urlencoded_cap() {
             Request::builder()
                 .uri("/admin/posts/create")
                 .method(Method::POST)
-                .header(CONTENT_TYPE, format!("multipart/form-data; boundary={boundary}"))
+                .header(
+                    CONTENT_TYPE,
+                    format!("multipart/form-data; boundary={boundary}"),
+                )
                 .header(COOKIE, format!("argentum_csrf={csrf}"))
                 .header("x-tenant-id", showcase::models::DEMO_TENANT.to_string())
                 .body(Body::from(body))

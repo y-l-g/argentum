@@ -217,10 +217,22 @@ mod tests {
             let enc = n.encode();
             let cx = cx_with_cookie(Some(&enc));
             let html = render_notification(&cx).expect("must render");
-            assert!(html.contains(marker), "status {status:?} must map to {marker}, got {html}");
-            assert!(!html.contains("<script>"), "title must be escaped, got {html}");
-            assert!(html.contains("&lt;script&gt;"), "missing escaped title, got {html}");
-            assert!(html.contains("&#x27;"), "single quote must be escaped, got {html}");
+            assert!(
+                html.contains(marker),
+                "status {status:?} must map to {marker}, got {html}"
+            );
+            assert!(
+                !html.contains("<script>"),
+                "title must be escaped, got {html}"
+            );
+            assert!(
+                html.contains("&lt;script&gt;"),
+                "missing escaped title, got {html}"
+            );
+            assert!(
+                html.contains("&#x27;"),
+                "single quote must be escaped, got {html}"
+            );
             // Auto-dismiss hook for notifications.js (GH #97).
             assert!(
                 html.contains("data-notification"),

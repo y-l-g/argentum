@@ -59,8 +59,7 @@ impl Parse for ResourceArgs {
 
 /// Reject anything that is not a unit struct (GH #103).
 fn check_unit_struct(input: &DeriveInput) -> syn::Result<()> {
-    if matches!(&input.data, syn::Data::Struct(data) if matches!(data.fields, syn::Fields::Unit))
-    {
+    if matches!(&input.data, syn::Data::Struct(data) if matches!(data.fields, syn::Fields::Unit)) {
         Ok(())
     } else {
         Err(syn::Error::new_spanned(

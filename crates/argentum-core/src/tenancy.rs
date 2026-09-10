@@ -53,12 +53,16 @@ mod tests {
     use topcoat::context::CxTestBuilder;
 
     fn cx_with_header(value: Option<&str>) -> Cx {
-        let mut builder = http::Request::builder().uri("/").body(()).unwrap().into_parts().0;
+        let mut builder = http::Request::builder()
+            .uri("/")
+            .body(())
+            .unwrap()
+            .into_parts()
+            .0;
         if let Some(v) = value {
-            builder.headers.insert(
-                "x-tenant-id",
-                v.parse().expect("header value must parse"),
-            );
+            builder
+                .headers
+                .insert("x-tenant-id", v.parse().expect("header value must parse"));
         }
         CxTestBuilder::new().request_context(builder).build()
     }

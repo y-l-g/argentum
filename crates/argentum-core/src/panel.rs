@@ -10,6 +10,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use toasty::Db;
+use topcoat::runtime::shard;
 use topcoat::view::internal::ThenView;
 use topcoat::{
     Result,
@@ -24,7 +25,6 @@ use topcoat::{
     },
     view::{BoxView, Child, HoistView, View, ViewExt, attributes, suspense, view},
 };
-use topcoat::runtime::shard;
 
 use crate::db::db;
 use crate::notification::{Notification, set_notification, take_notification};
@@ -425,7 +425,8 @@ impl Panel {
         cx: &'a Cx,
         nav_items: &[NavigationItem],
         current_path: &str,
-    ) -> Result<BoxView<'a>> {        use argentum_ui::{
+    ) -> Result<BoxView<'a>> {
+        use argentum_ui::{
             sidebar_group, sidebar_group_content, sidebar_group_label, sidebar_menu,
             sidebar_menu_button, sidebar_menu_item,
         };
@@ -733,7 +734,10 @@ pub struct SearchRegistry(pub HashMap<String, SearchFn>);
 /// then the same load + render the streamed list uses.
 fn search_handler_for<R: Resource>() -> SearchFn {
     Arc::new(
-        |cx: &Cx, state: TableState, path: String| -> Pin<Box<dyn Future<Output = Result<BoxView<'_>>> + Send + '_>> {
+        |cx: &Cx,
+         state: TableState,
+         path: String|
+         -> Pin<Box<dyn Future<Output = Result<BoxView<'_>>> + Send + '_>> {
             Box::pin(async move {
                 enforce_tenant::<R>(cx)?;
                 if !R::can_view_any(cx) {
@@ -960,10 +964,9 @@ async fn load_table_page<R: Resource>(
     state: &TableState,
 ) -> Result<TablePage<R::Model>> {
     if table.page_size() == Some(0) {
-        return Err(std::io::Error::other(
-            "Table::load: paginate requires per_page > 0 (GH #96)",
-        )
-        .into());
+        return Err(
+            std::io::Error::other("Table::load: paginate requires per_page > 0 (GH #96)").into(),
+        );
     }
     let mut query = R::query(cx);
     if let Some(term) = &state.search
@@ -1063,7 +1066,10 @@ async fn parse_form_values(cx: &Cx, body: Body) -> Result<HashMap<String, String
                 .get(http::header::CONTENT_TYPE)
                 .and_then(|v| v.to_str().ok().map(|s| s.to_string()))
         });
-    if content_type.as_deref().is_some_and(is_multipart_content_type) {
+    if content_type
+        .as_deref()
+        .is_some_and(is_multipart_content_type)
+    {
         return parse_multipart_values(cx, body).await;
     }
     let bytes = Bytes::from_request(cx, body)
@@ -1176,11 +1182,7 @@ const MAX_FORM_BYTES: usize = 10 * 1024 * 1024;
 /// control chars, and caps length at 255 bytes. Empty stays empty so
 /// `required` validation fires.
 fn sanitize_filename(raw: &str) -> String {
-    let base = raw
-        .rsplit(['/', '\\'])
-        .next()
-        .unwrap_or(raw)
-        .trim();
+    let base = raw.rsplit(['/', '\\']).next().unwrap_or(raw).trim();
     let clean: String = base.chars().filter(|c| !c.is_control()).collect();
     let trimmed = clean.trim();
     if trimmed.is_empty() {
@@ -1475,8 +1477,7 @@ fn resource_create_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
         // App-side unique check over every `unique()`-marked input — the only
         // error layer until toasty exposes a unique-violation predicate
         // (EXTERNAL_GAPS.md; never string-match driver error messages).
-        for (name, errs) in
-            check_unique::<R>(cx, &schema, &values, &HashMap::new(), &mut tx).await
+        for (name, errs) in check_unique::<R>(cx, &schema, &values, &HashMap::new(), &mut tx).await
         {
             errors.entry(name).or_default().extend(errs);
         }
@@ -1612,12 +1613,7 @@ fn resource_edit_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
                 .get(name)
                 .map(|v| v.trim().is_empty())
                 .unwrap_or(true);
-            if !cleared
-                && empty
-                && current
-                    .get(name)
-                    .is_some_and(|v| !v.trim().is_empty())
-            {
+            if !cleared && empty && current.get(name).is_some_and(|v| !v.trim().is_empty()) {
                 values.insert(name.clone(), current[name].clone());
             }
         }
@@ -2214,7 +2210,10 @@ mod tests {
                 http::Request::builder()
                     .uri(&url)
                     .method(http::Method::POST)
-                    .header(http::header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                    .header(
+                        http::header::CONTENT_TYPE,
+                        "application/x-www-form-urlencoded",
+                    )
                     .header(http::header::COOKIE, format!("argentum_csrf={token}"))
                     .body(Body::from(format!("name=Ada&csrf_token={token}")))
                     .unwrap(),
@@ -2231,7 +2230,10 @@ mod tests {
                 http::Request::builder()
                     .uri(&url)
                     .method(http::Method::POST)
-                    .header(http::header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                    .header(
+                        http::header::CONTENT_TYPE,
+                        "application/x-www-form-urlencoded",
+                    )
                     .body(Body::from("name=Ada"))
                     .unwrap(),
             )
@@ -2311,7 +2313,10 @@ mod tests {
                 http::Request::builder()
                     .uri("/admin/dummies/bulk-delete")
                     .method(http::Method::POST)
-                    .header(http::header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                    .header(
+                        http::header::CONTENT_TYPE,
+                        "application/x-www-form-urlencoded",
+                    )
                     .header(http::header::COOKIE, format!("argentum_csrf={token}"))
                     .body(Body::from(format!("ids={}&csrf_token={token}", row.id)))
                     .unwrap(),
@@ -2332,7 +2337,10 @@ mod tests {
                 http::Request::builder()
                     .uri("/admin/dummies/bulk-delete")
                     .method(http::Method::POST)
-                    .header(http::header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                    .header(
+                        http::header::CONTENT_TYPE,
+                        "application/x-www-form-urlencoded",
+                    )
                     .header(http::header::COOKIE, format!("argentum_csrf={token}"))
                     .body(Body::from(format!("ids={big}&csrf_token={token}")))
                     .unwrap(),
@@ -2345,7 +2353,10 @@ mod tests {
                 http::Request::builder()
                     .uri("/admin/dummies/bulk-delete")
                     .method(http::Method::POST)
-                    .header(http::header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                    .header(
+                        http::header::CONTENT_TYPE,
+                        "application/x-www-form-urlencoded",
+                    )
                     .body(Body::from(format!("ids={}", row.id)))
                     .unwrap(),
             )
@@ -2437,7 +2448,10 @@ mod tests {
                 http::Request::builder()
                     .uri("/admin/dummies/bulk-delete")
                     .method(http::Method::POST)
-                    .header(http::header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                    .header(
+                        http::header::CONTENT_TYPE,
+                        "application/x-www-form-urlencoded",
+                    )
                     .header(http::header::COOKIE, format!("argentum_csrf={token}"))
                     .body(Body::from(format!("ids={ids}&csrf_token={token}")))
                     .unwrap(),
@@ -2488,10 +2502,12 @@ mod tests {
             fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
                 crate::resource::Table::r#for(cx)
                     .id(|d: &Dummy| d.id.to_string())
-                    .columns(crate::resource::TextColumn::r#for(
-                        Dummy::fields().name(),
-                        |d: &Dummy| d.name.clone(),
-                    ).searchable())
+                    .columns(
+                        crate::resource::TextColumn::r#for(Dummy::fields().name(), |d: &Dummy| {
+                            d.name.clone()
+                        })
+                        .searchable(),
+                    )
                     .paginate(1)
                     .live_search(true)
             }
@@ -2527,12 +2543,7 @@ mod tests {
             )
             .await;
         assert!(resp.status().is_success());
-        let body = resp
-            .into_body()
-            .collect()
-            .await
-            .unwrap()
-            .to_bytes();
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
         let html = String::from_utf8_lossy(&body);
         assert!(
             html.contains("data-live-search"),
@@ -2606,16 +2617,16 @@ mod tests {
             .await
             .unwrap();
         }
-        let page1 = load_table_page::<LiveResource>(
-            &cx,
-            &paged,
-            &crate::resource::TableState::default(),
-        )
-        .await
-        .unwrap();
+        let page1 =
+            load_table_page::<LiveResource>(&cx, &paged, &crate::resource::TableState::default())
+                .await
+                .unwrap();
         assert_eq!(page1.rows.len(), 1);
         let first_name = page1.rows[0].name.clone();
-        let cursor = page1.next_cursor.clone().expect("page 1 must have a cursor");
+        let cursor = page1
+            .next_cursor
+            .clone()
+            .expect("page 1 must have a cursor");
         // Same query as the page (empty == empty): cursor honored.
         let grid = table_search::handler(
             &cx,
@@ -2715,12 +2726,7 @@ mod tests {
             )
             .await;
         assert!(resp.status().is_success());
-        let body = resp
-            .into_body()
-            .collect()
-            .await
-            .unwrap()
-            .to_bytes();
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
         let html = String::from_utf8_lossy(&body);
         assert!(
             !html.contains("data-bulk-form") && !html.contains("Bulk Delete"),
@@ -2733,7 +2739,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn export_drops_rows_failing_can_view() {        use crate::resource::Resource;
+    async fn export_drops_rows_failing_can_view() {
+        use crate::resource::Resource;
         use http_body_util::BodyExt;
         use std::collections::HashMap;
 
@@ -2796,12 +2803,7 @@ mod tests {
             )
             .await;
         assert!(resp.status().is_success());
-        let body = resp
-            .into_body()
-            .collect()
-            .await
-            .unwrap()
-            .to_bytes();
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
         let csv = String::from_utf8_lossy(&body);
         assert!(
             csv.contains("allowed"),
@@ -2901,7 +2903,10 @@ mod tests {
                 http::Request::builder()
                     .uri("/admin/dummies/create")
                     .method(http::Method::POST)
-                    .header(http::header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                    .header(
+                        http::header::CONTENT_TYPE,
+                        "application/x-www-form-urlencoded",
+                    )
                     .header(http::header::COOKIE, format!("argentum_csrf={token}"))
                     .body(Body::from(format!("name=Ada&csrf_token={token}")))
                     .unwrap(),
@@ -2983,7 +2988,10 @@ mod tests {
                 http::Request::builder()
                     .uri("/admin/dummies/create")
                     .method(http::Method::POST)
-                    .header(http::header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                    .header(
+                        http::header::CONTENT_TYPE,
+                        "application/x-www-form-urlencoded",
+                    )
                     .header(http::header::COOKIE, format!("argentum_csrf={token}"))
                     .body(Body::from(format!("csrf_token={token}")))
                     .unwrap(),
@@ -3072,8 +3080,7 @@ mod tests {
         let cx = CxTestBuilder::new()
             .request_context(parts)
             .app_context(
-                Brand::new("<script>alert(1)</script>")
-                    .logo("\"><script>alert(2)</script>"),
+                Brand::new("<script>alert(1)</script>").logo("\"><script>alert(2)</script>"),
             )
             .build();
         let nav_items = vec![NavigationItem {
@@ -3352,7 +3359,8 @@ mod tests {
 
         // Create: duplicate → inline error on the field, label-derived.
         let errors =
-            check_unique::<SubscriberResource>(&cx, &schema, &values, &HashMap::new(), &mut ex).await;
+            check_unique::<SubscriberResource>(&cx, &schema, &values, &HashMap::new(), &mut ex)
+                .await;
         assert_eq!(
             errors.get("email"),
             Some(&vec!["Email has already been taken".to_string()]),
@@ -3363,13 +3371,15 @@ mod tests {
         let mut fresh = HashMap::new();
         fresh.insert("email".to_string(), "other@b.c".to_string());
         let errors =
-            check_unique::<SubscriberResource>(&cx, &schema, &fresh, &HashMap::new(), &mut ex).await;
+            check_unique::<SubscriberResource>(&cx, &schema, &fresh, &HashMap::new(), &mut ex)
+                .await;
         assert!(errors.is_empty(), "fresh value must pass, got {errors:?}");
 
         // Edit: the record's own unchanged value is not a duplicate.
         let mut current = HashMap::new();
         current.insert("email".to_string(), "a@b.c".to_string());
-        let errors = check_unique::<SubscriberResource>(&cx, &schema, &values, &current, &mut ex).await;
+        let errors =
+            check_unique::<SubscriberResource>(&cx, &schema, &values, &current, &mut ex).await;
         assert!(
             errors.is_empty(),
             "own unchanged value must be skipped, got {errors:?}"
@@ -3379,7 +3389,8 @@ mod tests {
         let mut changed_current = HashMap::new();
         changed_current.insert("email".to_string(), "old@b.c".to_string());
         let errors =
-            check_unique::<SubscriberResource>(&cx, &schema, &values, &changed_current, &mut ex).await;
+            check_unique::<SubscriberResource>(&cx, &schema, &values, &changed_current, &mut ex)
+                .await;
         assert_eq!(
             errors.get("email"),
             Some(&vec!["Email has already been taken".to_string()]),
@@ -3391,7 +3402,8 @@ mod tests {
         let mut empty = HashMap::new();
         empty.insert("email".to_string(), "   ".to_string());
         let errors =
-            check_unique::<SubscriberResource>(&cx, &schema, &empty, &HashMap::new(), &mut ex).await;
+            check_unique::<SubscriberResource>(&cx, &schema, &empty, &HashMap::new(), &mut ex)
+                .await;
         assert!(errors.is_empty(), "empty must be skipped, got {errors:?}");
     }
 
@@ -3559,18 +3571,13 @@ mod tests {
         // Over-cap body is rejected before buffering into maps.
         let big = vec![b'a'; MAX_FORM_BYTES + 1];
         assert!(
-            form_values_from_request_parts(
-                Some("application/x-www-form-urlencoded"),
-                &big
-            )
-            .is_err()
+            form_values_from_request_parts(Some("application/x-www-form-urlencoded"), &big)
+                .is_err()
         );
         // Normal urlencoded still parses.
-        let ok = form_values_from_request_parts(
-            Some("application/x-www-form-urlencoded"),
-            b"name=Ada",
-        )
-        .unwrap();
+        let ok =
+            form_values_from_request_parts(Some("application/x-www-form-urlencoded"), b"name=Ada")
+                .unwrap();
         assert_eq!(ok.get("name").map(String::as_str), Some("Ada"));
     }
 

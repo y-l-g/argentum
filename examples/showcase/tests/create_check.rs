@@ -260,10 +260,7 @@ async fn create_policy_deny() {
                 .uri(create_url)
                 .method(Method::POST)
                 .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
-                .header(
-                    http::header::COOKIE,
-                    format!("argentum_csrf={csrf}"),
-                )
+                .header(http::header::COOKIE, format!("argentum_csrf={csrf}"))
                 .body(topcoat::router::Body::from(format!(
                     "name=test&csrf_token={csrf}"
                 )))
