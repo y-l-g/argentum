@@ -157,8 +157,9 @@ where
     }
 }
 
-/// Date filter — exact match on a `Timestamp` field (e.g. `created_at = "2024-01-15"`).
-/// For now exact `Timestamp` equality; range support is future.
+/// Date filter — same-calendar-day match on a `Timestamp` field
+/// (e.g. `created_at = "2024-01-15"` selects that whole day).
+/// Range (`from`/`to`) support is future.
 pub struct DateFilter<M> {
     name: String,
     label: String,
@@ -977,6 +978,9 @@ impl<M> Table<M> {
     /// inside `<noscript>` as the no-JS fallback. Opt-in per resource; the
     /// shard authorizes itself (`can_view_any` + tenancy via
     /// `Resource::query`) and every arg is validated like the GET path.
+    /// Per-row `can_view` is not applied here, matching the list page:
+    /// page-local row filtering would mislabel pagination, so row scoping
+    /// belongs in `Resource::query` (GH #86).
     /// Note: Topcoat coalesces same-tick keystrokes and aborts in-flight
     /// reruns (latest wins) but does no time-based debounce.
     pub fn live_search(mut self, enabled: bool) -> Self {
@@ -995,7 +999,8 @@ impl<M> Table<M> {
 
     /// Defer the initial load, showing skeleton rows until the data arrives.
     /// When `true`, the table renders skeleton placeholders on first paint;
-    /// data loads are `#[memoize]`d so streaming can fill them.
+    /// the streamed list renders the swap through [`Self::without_skeleton`]
+    /// so the loaded rows always arrive.
     pub fn defer(mut self, enabled: bool) -> Self {
         self.defer_initial = enabled;
         self.show_skeleton = enabled;

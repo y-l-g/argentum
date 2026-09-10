@@ -49,9 +49,9 @@ These are invariants. Code that violates them is a bug.
 
 ## 3. Architecture
 
-Only `argentum-core` + `argentum-macros` are hard dependencies. UI chrome lives in **`argentum-ui`** (ADR-0006/0007): its *primitives* are a verbatim mirror of `topcoat-ui-registry`, synced by `cargo xtask sync-topcoat-ui` and never hand-edited; its *composites* (Sidebar, Page, CodeBlock) are owned Argentum components. Apps depend on the crate.
+Every app depends on **`argentum-core`** (which in turn depends on **`argentum-macros`** and **`argentum-ui`**). UI chrome lives in **`argentum-ui`** (ADR-0006/0007): its *primitives* are a verbatim mirror of `topcoat-ui-registry`, synced by `cargo xtask sync-topcoat-ui` and never hand-edited; its *composites* (Sidebar, Page, CodeBlock) are owned Argentum components.
 
-Topcoat stack assumptions (Topcoat 0.8 / Toasty 0.10, both tracking `main`, pins in `Cargo.lock` — bump deliberately with `cargo update -p topcoat` / `cargo update -p toasty`): `view!` / `#[component]` (concurrent), `#[page]` / `#[layout]` / `discover` + `href!`, `Cx` with `cx.with(...)` + `#[memoize]`, `cookie`/`session`, `asset!`, `tailwind`. `Panel::build` mounts the browser-runtime routes (`RouterBuilderRuntimeExt::runtime()`, required by `runtime::script`). Streaming SSR via `suspense` is **adopted** — the resource list streams its rows behind a skeleton — and rerun morphing is **adopted** (Topcoat #392: shard/page re-runs morph in place, focus survives); `Signal<T>` shard params landed (Topcoat #393) while the keystroke-live table shard itself remains a **ticket** (#104); Argentum keeps working on today's runtime (see §7). `TowerRoute::any` has no Argentum use (we mount no tower services).
+Topcoat stack assumptions (Topcoat 0.8 / Toasty 0.10, both tracking `main`, pins in `Cargo.lock` — bump deliberately with `cargo update -p topcoat` / `cargo update -p toasty`): `view!` / `#[component]` (concurrent), `#[page]` / `#[layout]` / `discover` + `href!`, `Cx` with `cx.with(...)` + `#[memoize]`, `cookie`/`session`, `asset!`, `tailwind`. `Panel::build` mounts the browser-runtime routes (`RouterBuilderRuntimeExt::runtime()`, required by `runtime::script`). Streaming SSR via `suspense` is **adopted** — the resource list streams its rows behind a skeleton — and rerun morphing is **adopted** (Topcoat #392: shard/page re-runs morph in place, focus survives); `Signal<T>` shard params landed (Topcoat #393) and the keystroke-live table shard landed behind `Table::live_search` (#104); Argentum keeps working on today's runtime (see §7). `TowerRoute::any` has no Argentum use (we mount no tower services).
 
 ---
 
@@ -98,10 +98,10 @@ pub trait Resource: Sized + Send + Sync + 'static {
     fn navigation() -> NavigationItem { NavigationItem::from_resource::<Self>() }
 
     // Record operations driven by the create/edit/delete POST handlers.
-    fn create_record(_cx: &Cx, _values: HashMap<String, String>) -> impl Future<Output = Result<()>> + Send;
-    fn update_record(_cx: &Cx, _id: String, _values: HashMap<String, String>) -> impl Future<Output = Result<()>> + Send;
-    fn delete_record(_cx: &Cx, _id: String) -> impl Future<Output = Result<()>> + Send;
-    fn bulk_delete_records(_cx: &Cx, _ids: Vec<String>) -> impl Future<Output = Result<()>> + Send;
+    fn create_record(_cx: &Cx, _values: HashMap<String, String>, _ex: &mut dyn toasty::Executor) -> impl Future<Output = Result<()>> + Send;
+    fn update_record(_cx: &Cx, _record: Self::Model, _values: HashMap<String, String>, _ex: &mut dyn toasty::Executor) -> impl Future<Output = Result<()>> + Send;
+    fn delete_record(_cx: &Cx, _record: Self::Model, _ex: &mut dyn toasty::Executor) -> impl Future<Output = Result<()>> + Send;
+    fn bulk_delete_records(_cx: &Cx, _records: Vec<Self::Model>, _ex: &mut dyn toasty::Executor) -> impl Future<Output = Result<()>> + Send;
     fn hydrate_form_values(_record: &Self::Model) -> HashMap<String, String>;
 }
 ```
@@ -238,11 +238,11 @@ User::all().include(User::fields().posts()).exec(&mut db).await?;
 // then `user.posts.get().len()` — no await
 ```
 
-Eager `Vec<T>` is for tiny relations only — eager cycles are a compile-time schema-build error. `has_many(via = …)` many-to-many is **SQL-only, read-only** — out of scope for v1 tables; use the join-model query when DynamoDB compatibility is desired. Computed columns (`TextColumn::computed`) and `Select::relationship` reuse `Resource::query` so tenancy is preserved; relation cells must handle the unloaded case (the showcase renders `"-"`/empty until `include`d).
+Eager `Vec<T>` is for tiny relations only — eager cycles are a compile-time schema-build error. `has_many(via = …)` many-to-many is **SQL-only, read-only** — out of scope for v1 tables; use the join-model query when DynamoDB compatibility is desired. Computed columns (`TextColumn::computed`) and `Select::relationship` reuse `Resource::query` so tenancy is preserved; relation cells must handle the unloaded case (the showcase renders `"(unloaded)"` and `debug_assert!`s that `include` ran, GH #101).
 
 ### 6.5 Aggregates, schema & migrations
 
-Toasty has `count()` but no `GROUP BY / HAVING / SUM / DISTINCT` yet — dashboard grouping stays in-memory and raw SQL stays behind a narrow helper, never in table code. `Db::builder().models(toasty::models!(crate::*)).connect(url).await?; db.push_schema().await` for POC; prod uses `embed_migrations!()` + `history.toml` + `snapshots/*.toml` via `toasty-cli`.
+Toasty has `count()` but no `GROUP BY / HAVING / SUM / DISTINCT` yet — grouping stays in-memory over the loaded page (`count` only, labelled page-local) and raw SQL is not used in table code. `Db::builder().models(toasty::models!(crate::*)).connect(url).await?; db.push_schema().await` for POC; prod uses `embed_migrations!()` + `history.toml` + `snapshots/*.toml` via `toasty-cli`.
 
 ---
 
@@ -262,13 +262,13 @@ let query = signal(cx, String::new); // page-owned; hoists identity for the clie
 - **Adopted:** `suspense(fallback, child)` for streaming skeletons — first content ships the shell + skeleton, the loaded content swaps in via `<template data-topcoat-swap>` markers, no client library. (Upstream also ships `live!`/`emit!`; Argentum does not use them.) `resource_list` streams rows this way; `Table::render_skeleton` is the shared fallback.
 - **Designs, not mechanisms:** the keystroke-live table shard (ticket #104, shipped as one slug-dispatched `table_search` shard fanning out through the panel's per-resource registry — inventory only discovers concrete fns, so a generic shard is undiscoverable — with the swapped region morphing per #392 and stable morph `id`s on rows). `Table::render_with_state` + `TableState::from_live_args` are the kept seam; `Table::live_search(true)` opts a table in, and the `?q=` GET toolbar stays as the no-JS fallback.
 
-**Argentum's contract (works on `main`, migrates without rewriting resources):** tables and slow cards are **streamed regions**; filter/search/sort/page state is page-owned URL state; all deferred data loads are **`#[memoize]`d** so streaming, concurrent rendering, and fan-out dedup are free.
+**Argentum's contract (works on `main`, migrates without rewriting resources):** tables and slow cards are **streamed regions**; filter/search/sort/page state is page-owned URL state; shared loads are **`#[memoize]`d** so concurrent rendering and fan-out dedup are free. Relationship option loads ship that way today; the streamed table loader does not yet (a dev lint for unmemoized deferred loads is on the Now list).
 
 ---
 
 ## 8. Performance, security & testing
 
-Fast is: **concurrent rendering** (siblings `try_join!`, no waterfalls, side-effect-free bodies), **memoization** (`#[memoize]` keyed by args — page re-renders rebuild views, not I/O), **preloading** (`include`: 50 rows + 2 relations = 3 operations, not 101), **streamed regions** (skeleton first, grid swaps in). Client changes coalesce and in-flight requests abort; explicit debounce/defer-filter controls are future work.
+Fast is: **concurrent rendering** (siblings `try_join!`, no waterfalls, side-effect-free bodies), **memoization where declared** (`#[memoize]` keyed by args — relationship option loads today; page re-renders rebuild views, not I/O), **preloading** (`include`: 50 rows + 2 relations = 3 operations, not 101), **streamed regions** (skeleton first, grid swaps in). Client changes coalesce and in-flight requests abort; explicit debounce/defer-filter controls are future work.
 
 Budget: list render (50 rows, 2 includes) < 40ms p50 on local SQLite, TTFB dominated by the skeleton — rows arrive as a streaming swap. Harness: `benchmarks/` vs `axum-maud`/`leptos` stubs (`cargo run --manifest-path benchmarks/argentum/Cargo.toml -- --bench`, `./benchmarks/scripts/bench.sh`, `verify_parity.sh`).
 
@@ -294,13 +294,13 @@ Validate in `Schema` (field rules), then in the POST handler, then DB constraint
 
 `Post` with `BelongsTo author` + `HasMany comments` via `include` (one round-trip, `TextColumn::computed` + `Select::relationship` reusing `Resource::query`); `FileUpload`/`Repeater` in `Section`/`Grid`; `SelectFilter`/`TernaryFilter`/`DateFilter`/`VariantFilter` via `Filter` + `TableState ?filters=`; in-memory `group_by` + `count` + `to_csv()` with `GET /admin/{slug}/export`; tenancy (`Tenant` + per-tenant policy); `Panel::brand` + `Panel::dark_mode`; `benchmarks/` Phase-2 budget. Showcase at `/admin/posts` + `/admin/authors` (see `relation_check`, `filter_check`, `tenancy_check`, `file_repeater_check`, `group_export_check` tests).
 
-### Shipped — post-Phase-2 polish (#73, #74, #77, #78, #79, #76)
+### Shipped — post-Phase-2 polish (#73, #74, #77, #78, #79, #76, #104)
 
-Multipart `FileUpload` (filename-as-path, no `value` on `type=file`), single-entry `Repeater` docs + inline required error, `VariantFilter`, honest table chrome (checkbox bulk column, typed filter widgets, dummy live-search shard removed in favor of the GET toolbar), in-region `ErrorState` for failed streamed loads, PK tie-breaker delegated to toasty.
+Multipart `FileUpload` (filename-as-path, no `value` on `type=file`), single-entry `Repeater` docs + inline required error, `VariantFilter`, honest table chrome (checkbox bulk column, typed filter widgets, dummy live-search shard removed in favor of the GET toolbar), in-region `ErrorState` for failed streamed loads, PK tie-breaker delegated to toasty, keystroke-live table search behind `Table::live_search` on the `render_with_state` + `from_live_args` seam with stable morph `id`s on reorderable rows.
 
 ### Now
 
-Keystroke-live table search (ticket #104, landed behind `Table::live_search` on the `render_with_state` + `from_live_args` seam, with stable morph `id`s on reorderable rows). Plus: dev lint for unmemoized deferred loads, prewarm hint for `defer`, per-region flush tradeoffs.
+Dev lint for unmemoized deferred loads, prewarm hint for `defer`, per-region flush tradeoffs.
 
 ### Next
 
@@ -308,7 +308,7 @@ Widgets (`StatsOverview`, chart), global search, infolist entries, file/media as
 
 **Out of scope for v1:** `via` many-to-many in tables, DynamoDB-backed admin, `GROUP BY` aggregates beyond `count` (raw-SQL shim only), WASM admin, SPA mode.
 
-(The old tracking issue #38 is closed; its remaining future slices are the Now/Next lists above. Open work is tracked per-topic in #84–#104 plus Renovate's `#82`.)
+(The old tracking issue #38 is closed; its remaining future slices are the Now/Next lists above. Open work is tracked per-topic in #88 (unique-check race/scope) and #91 (relationship Select), plus Renovate's `#82`.)
 
 ---
 
@@ -336,8 +336,10 @@ impl Resource for PostResource {
     fn query(cx: &Cx) -> toasty::stmt::Query<toasty::stmt::List<Post>> {
         let mut q = toasty::stmt::Query::<toasty::stmt::List<Post>>::all();
         if let Some(tid) = tenant_id(cx) { q = q.filter(Post::fields().tenant_id().eq(tid)); }
-        q.include(Post::fields().author().into())
-         .include(Post::fields().comments().into()) // one round-trip, no N+1
+        let inc_author: toasty::stmt::Include<Post, Author> = Post::fields().author().into();
+        let inc_comments: toasty::stmt::Include<Post, toasty::stmt::List<Comment>> =
+            Post::fields().comments().into();
+        q.include(inc_author).include(inc_comments) // one round-trip, no N+1
     }
     fn table(cx: &Cx) -> Table<Post> {
         Table::r#for(cx)
@@ -346,7 +348,7 @@ impl Resource for PostResource {
                 TextColumn::r#for(Post::fields().title(), |p: &Post| p.title.clone()).searchable().sortable(),
                 // `include`d relations still guard the unloaded case:
                 TextColumn::computed("Author", |p: &Post| {
-                    if p.author.is_unloaded() { "-".to_string() } else { p.author.get().name.clone() }
+                    if p.author.is_unloaded() { "(unloaded)".to_string() } else { p.author.get().name.clone() }
                 }),
                 TextColumn::computed("Comments", |p: &Post| {
                     if p.comments.is_unloaded() { "(unloaded)".to_string() } else { p.comments.get().len().to_string() }
