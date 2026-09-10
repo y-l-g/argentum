@@ -20,11 +20,8 @@ tracing = "0.1"
 uuid.workspace = true
 
 [dev-dependencies]
-http = "1"
 http-body-util = "0.1"
 tokio.workspace = true
-uuid.workspace = true
-jiff.workspace = true
 
 [lints]
 workspace = true
