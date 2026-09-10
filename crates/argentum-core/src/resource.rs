@@ -14,7 +14,6 @@ use argentum_ui::{
     pagination_item, pagination_next, pagination_previous, table, table_body, table_cell,
     table_head, table_header, table_row,
 };
-use serde::Deserialize;
 use toasty::stmt::{Expr, List, OrderByExpr};
 use topcoat::context::Cx;
 use topcoat::router::{Href, HrefParams, HrefQueries, HrefTarget};
@@ -2439,60 +2438,37 @@ pub struct TableState {
     pub group_by: Option<String>,
 }
 
-#[derive(Debug, Default, Deserialize)]
-struct TableQuery {
-    q: Option<String>,
-    sort: Option<String>,
-    dir: Option<String>,
-    after: Option<String>,
-    before: Option<String>,
-    filters: Option<String>,
-    group_by: Option<String>,
-}
-
 impl TableState {
     /// Parse the state from the request in `cx`.
     ///
-    /// A malformed query string parses as empty state rather than failing the
-    /// request — a garbage `?q=` filters to nothing, and cursor errors surface
-    /// later, at decode time, where they are precise. Renders without a
-    /// request context (e.g. unit tests) get neutral state instead of a panic.
+    /// A blank or unknown query parses as neutral state rather than failing
+    /// the request. Duplicate keys (`?filters=a&filters=b`) resolve to the
+    /// first occurrence: the previous serde decode rejected duplicates, and
+    /// swallowing that error as empty state silently dropped every filter —
+    /// including export's fail-closed guard (GH #93). Cursor errors still
+    /// surface later, at decode time, where they are precise. Renders
+    /// without a request context (e.g. unit tests) get neutral state.
     pub fn from_cx(cx: &Cx) -> Self {
-        if topcoat::context::try_request_context::<http::request::Parts>(cx).is_none() {
+        let Some(parts) = topcoat::context::try_request_context::<http::request::Parts>(cx) else {
             return Self::default();
-        }
-        let parsed: TableQuery = topcoat::router::parse_query_params(cx).unwrap_or_default();
-        let search = parsed
-            .q
-            .as_deref()
-            .map(str::trim)
-            .filter(|t| !t.is_empty())
-            .map(str::to_string);
-        let sort = parsed
-            .sort
-            .as_deref()
-            .map(str::trim)
-            .filter(|t| !t.is_empty())
-            .map(|column| Sort {
-                column: column.to_string(),
-                descending: parsed.dir.as_deref() == Some("desc"),
-            });
-        let non_empty = |v: Option<String>| {
-            v.filter(|t| !t.trim().is_empty())
-                .map(|t| t.trim().to_string())
         };
-        let filters = parsed
-            .filters
-            .as_deref()
-            .map(parse_filters_param)
-            .unwrap_or_default();
+        let params = first_wins_query_params(parts.uri.query().unwrap_or(""));
+        let get = |key: &str| params.get(key).map(String::as_str);
+        let non_empty = |v: Option<&str>| {
+            v.map(str::trim)
+                .filter(|t| !t.is_empty())
+                .map(str::to_string)
+        };
         Self {
-            search,
-            sort,
-            after: non_empty(parsed.after),
-            before: non_empty(parsed.before),
-            filters,
-            group_by: non_empty(parsed.group_by),
+            search: non_empty(get("q")),
+            sort: non_empty(get("sort")).map(|column| Sort {
+                column,
+                descending: get("dir") == Some("desc"),
+            }),
+            after: non_empty(get("after")),
+            before: non_empty(get("before")),
+            filters: get("filters").map(parse_filters_param).unwrap_or_default(),
+            group_by: non_empty(get("group_by")),
         }
     }
 
@@ -2594,6 +2570,22 @@ impl TableState {
             group_by: non_empty(group_by),
         }
     }
+}
+
+/// Query-string pairs with the first occurrence winning.
+///
+/// Deliberately not serde's derived `duplicate_field` behavior: a duplicate
+/// `?filters=` used to fail the whole decode, and `from_cx` swallowed that
+/// error as empty state — silently dropping filters and export's fail-closed
+/// guard (GH #93). Unknown keys are ignored, like the typed decode was.
+fn first_wins_query_params(query: &str) -> HashMap<String, String> {
+    let mut out = HashMap::new();
+    for (key, value) in form_urlencoded::parse(query.as_bytes()) {
+        if !out.contains_key(key.as_ref()) {
+            out.insert(key.into_owned(), value.into_owned());
+        }
+    }
+    out
 }
 
 /// Parse `filters` query param: `key:value,key2:value2` (trimmed, blank ignored).
@@ -4080,6 +4072,21 @@ mod tests {
         let cx = cx_with_query("q=&sort=&dir=weird");
         let state = TableState::from_cx(&cx);
         assert_eq!(state, TableState::default());
+    }
+
+    #[test]
+    fn table_state_duplicate_params_keep_first_and_never_fail_open() {
+        // GH #93: a duplicate param used to fail the serde decode, and
+        // `from_cx` swallowed that as empty state — dropping every filter
+        // (and export's fail-closed guard along with it).
+        let cx = cx_with_query("filters=status:published&filters=status:draft&q=Ada&q=Grace");
+        let state = TableState::from_cx(&cx);
+        assert_eq!(
+            state.filters.get("status").map(String::as_str),
+            Some("published"),
+            "first occurrence must win, not vanish"
+        );
+        assert_eq!(state.search.as_deref(), Some("Ada"));
     }
 
     #[test]
