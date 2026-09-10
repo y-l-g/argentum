@@ -453,8 +453,8 @@ where
 /// The projection closure is the render side: it reads the value off a model
 /// instance for the cell (`|u| u.name.clone()`). Toasty models are plain
 /// structs and expose no instance→field reflection, so the closure is the
-/// only way to read a field generically (see `EXTERNAL_GAPS.md` "instance →
-/// field-value extraction"). A typo in the closure body fails at compile
+/// only way to read a field generically (upstream gap #119: instance →
+/// field-value extraction). A typo in the closure body fails at compile
 /// time — there is no string dispatch and no panic at render.
 #[derive(Clone)]
 pub struct TextColumn<M> {
@@ -736,7 +736,7 @@ where
 /// Row-key projection: reads the row identity off one model instance
 /// (typically `|u| u.id.to_string()`). Toasty models are plain structs with
 /// no instance→field reflection, so the key cannot be extracted generically
-/// (see `EXTERNAL_GAPS.md`).
+/// (upstream gap #119).
 pub type RowKey<M> = Arc<dyn Fn(&M) -> String + Send + Sync>;
 
 /// Table description of a `Resource`'s list view. Declares columns and how they map to queries.

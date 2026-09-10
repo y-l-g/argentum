@@ -24,8 +24,8 @@ async fn query_users(cx: &Cx) -> Result<Vec<User>> {
 async fn users(cx: &Cx) -> Result<&Vec<User>> {
     // #[memoize(as_ref)] caches Result<&T, &Error>, and `topcoat::Error`
     // (anyhow) is not Clone, so the borrowed error must be converted into an
-    // owned one here — stringification is the workaround. See EXTERNAL_GAPS.md
-    // "Topcoat — memoize(as_ref) error conversion". Use `.map_err(Into::into)`
+    // owned one here — stringification is the workaround. See upstream gap
+    // #120 (Topcoat — memoize(as_ref) error conversion). Use `.map_err(Into::into)`
     // in non-memoized loaders; do not spread this pattern.
     query_users(cx)
         .await

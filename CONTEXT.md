@@ -57,7 +57,7 @@ A predicate contributed to a Table's query. A typed wrapper around a Toasty Expr
 _Avoid_: Scope, Constraint, Where
 
 ### Field
-A typed input bound to a Model lens inside a Schema. Bound via its field lens and column name; `required` defaults from Toasty column nullability (GH #100, opt out with `.optional()`), while uniqueness metadata and non-TextInput defaults are future work (see EXTERNAL_GAPS.md). Hydrates from the Model into Create/Update projections.
+A typed input bound to a Model lens inside a Schema. Bound via its field lens and column name; `required` defaults from Toasty column nullability (GH #100, opt out with `.optional()`), while uniqueness metadata and non-TextInput defaults are future work (upstream gaps #115, #119). Hydrates from the Model into Create/Update projections.
 
 _Avoid_: Input, Control, Widget (in form context), statePath
 

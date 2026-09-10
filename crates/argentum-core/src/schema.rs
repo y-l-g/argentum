@@ -6,9 +6,8 @@
 //! form via the `IntoSchema` trait.
 //!
 //! Bridge note: `lens_field_name_and_label` reaches into `toasty_core` (see
-//! `EXTERNAL_GAPS.md` at repo root), alongside the `pk_*` bridge helpers and
-//! `cursor.rs` cursor values; migrate to public `Path::field_name()` when
-//! Toasty exposes it.
+//! upstream issue #114), alongside the `pk_*` bridge helpers and `cursor.rs`
+//! cursor values; migrate to public `Path::field_name()` when Toasty exposes it.
 
 use std::collections::HashMap;
 
@@ -612,14 +611,14 @@ impl Select {
 
 /// Spec alias — ADR-0001 typed lens. Currently uses `toasty::stmt::Path` directly;
 /// a richer `FieldLens` trait (carrying `FieldTy`, nullability, etc.) will replace
-/// this alias when Toasty exposes the helpers publicly (see GH #11,
-/// EXTERNAL_GAPS.md “field metadata”).
+/// this alias when Toasty exposes the helpers publicly (see GH #11, upstream
+/// issue #115).
 pub type FieldLens<M, T> = toasty::stmt::Path<M, T>;
 
 /// Resolve a typed lens to its app-level field name and capitalized label.
 ///
 /// Hides the `Path → toasty_core::stmt::Path → projection → M::schema()` walk
-/// (see EXTERNAL_GAPS.md). Used by both `TextInput` and
+/// (upstream issue #114). Used by both `TextInput` and
 /// `TextColumn` so the shape is defined once.
 ///
 /// Traversal lenses are rejected (GH #100): a multi-step path has no single
@@ -721,7 +720,7 @@ where
 /// have no URL representation in Argentum; row keys are plain `String`s).
 ///
 /// Bridge helper — reaches into `toasty_core` for the schema walk and the
-/// untyped equality construction (see EXTERNAL_GAPS.md): the facade's
+/// untyped equality construction (upstream issue #114): the facade's
 /// `find_by_primary_key` takes a typed `Expr<M::PrimaryKey>`, which generic
 /// code cannot build from a `String` without a dynamic-value bridge.
 fn pk_field_value<M>(

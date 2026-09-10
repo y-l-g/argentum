@@ -1384,7 +1384,7 @@ fn reject_unknown_form_keys(
 /// `current` holds the record's own hydrated values on edit: a field whose
 /// submitted value is unchanged belongs to this record and is skipped.
 ///
-/// Known limits (GH #88, see EXTERNAL_GAPS unique entry): races with concurrent
+/// Known limits (GH #88, upstream gap #117): races with concurrent
 /// inserts (only a driver predicate closes it); the check is tenant-scoped via
 /// `R::query` while DB `#[unique]` is global, so cross-tenant duplicates 500;
 /// empty values are skipped (pair `unique()` with `required()` or normalize
@@ -1451,7 +1451,7 @@ fn resource_create_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
         let mut tx = db.transaction().await.map_err(topcoat::Error::from)?;
         // App-side unique check over every `unique()`-marked input — the only
         // error layer until toasty exposes a unique-violation predicate
-        // (EXTERNAL_GAPS.md; never string-match driver error messages).
+        // (upstream gap #117; never string-match driver error messages).
         for (name, errs) in check_unique::<R>(cx, &schema, &values, &HashMap::new(), &mut tx).await
         {
             errors.entry(name).or_default().extend(errs);
@@ -1483,7 +1483,7 @@ fn resource_create_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
             }
             // A unique violation that slipped past the app-side check (a
             // concurrent insert) surfaces as an error, not a string-matched
-            // inline message (EXTERNAL_GAPS.md unique-violation entry).
+            // inline message (upstream gap #117).
             Err(e) => Err(e),
         }
     })))
@@ -1645,7 +1645,7 @@ fn resource_edit_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
             }
             // A unique violation that slipped past the app-side check (a
             // concurrent update) surfaces as an error, not a string-matched
-            // inline message (EXTERNAL_GAPS.md unique-violation entry).
+            // inline message (upstream gap #117).
             Err(e) => Err(e),
         }
     })))
@@ -2944,7 +2944,7 @@ mod tests {
 
     #[tokio::test]
     async fn mutation_redirect_carries_query_until_cookies_flush_on_error() {
-        // Tripwire for the EXTERNAL_GAPS cookie-flush entry (GH #97): Topcoat's
+        // Tripwire for the cookie-flush gap (GH #97, upstream #126): Topcoat's
         // cookie layer skips `Set-Cookie` on `Err`-path responses, and mutation
         // redirects return via `Err` — so the toast rides `?notification=`
         // until upstream flushes. If the cookie assertion below starts failing,
