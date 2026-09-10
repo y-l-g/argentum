@@ -130,7 +130,6 @@ dependencies = [
  "http",
  "http-body-util",
  "jiff",
- "serde",
  "toasty",
  "toasty-core",
  "tokio",
