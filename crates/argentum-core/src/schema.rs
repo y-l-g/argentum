@@ -277,6 +277,32 @@ impl TextInput {
     }
 }
 
+/// Option records for one related resource, memoized per request (GH #91).
+///
+/// Every relationship `Select` over the same `R` shares one bounded load per
+/// `(request, tenant)` instead of scanning the table per select per validate
+/// plus re-render scans. `tenant` is an explicit cache key: memoize tracking
+/// alone cannot distinguish header-tenanted callers sharing one `Parts`, so
+/// tenancy isolation never rides on scope resolution. `R::query` stays the
+/// only data seam (tenancy preserved); label mapping stays in the caller so
+/// selects with different labels share the hit.
+#[topcoat::context::memoize(as_ref)]
+async fn related_records<R>(
+    cx: &Cx,
+    _tenant: Option<uuid::Uuid>,
+) -> Result<Vec<R::Model>, String>
+where
+    R: crate::resource::Resource + 'static,
+    R::Model: Send + Sync + 'static,
+{
+    let mut db = crate::db::db(cx);
+    R::query(cx)
+        .limit(MAX_RELATIONSHIP_OPTIONS + 1)
+        .exec(&mut db)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 /// Select field bound to a lens (often a foreign key like `author_id`).
 ///
 /// `Select::for(Post::fields().author_id()).relationship(AuthorResource::query, |a| a.name.clone())`
@@ -318,6 +344,10 @@ impl Clone for Select {
 
 impl Select {
     /// Create a `Select` bound to the given field lens (e.g. `Post::fields().author_id()`).
+    ///
+    /// A bare `Select` over a foreign-key lens validates only presence (any
+    /// value passes) — prefer [`.relationship()`](Self::relationship), which
+    /// checks existence tenancy-aware, for FK fields (GH #91).
     pub fn for_lens<M, T>(path: toasty::stmt::Path<M, T>) -> Self
     where
         M: toasty::schema::Model,
@@ -370,13 +400,14 @@ impl Select {
     /// only used for type inference; the loader calls `R::query(cx)` directly so tenancy is
     /// preserved. The second argument maps the related record to its display label.
     ///
-    /// Bounded (GH #91): the loader fetches at most one row past
-    /// `MAX_RELATIONSHIP_OPTIONS` and fails when the related table is
+    /// Bounded and memoized (GH #91): the loader fetches at most one row
+    /// past `MAX_RELATIONSHIP_OPTIONS` and fails when the related table is
     /// larger — a 10k-row reference table costs bounded work per submit and
     /// surfaces `could not load options, retry` instead of silently
-    /// validating against a truncated list. Suitable for small reference
-    /// tables only; a searchable/paginated dropdown with per-request
-    /// memoization is future work.
+    /// validating against a truncated list. Option records are memoized per
+    /// `(request, tenant)`, so any number of selects over one resource share
+    /// a single load. Suitable for small reference tables only; a
+    /// searchable/paginated dropdown is future work.
     pub fn relationship<R>(
         mut self,
         _query: fn(&Cx) -> toasty::stmt::Query<toasty::stmt::List<R::Model>>,
@@ -391,12 +422,11 @@ impl Select {
             let label = label.clone();
             let cx = cx.clone();
             Box::pin(async move {
-                let mut db = crate::db::db(&cx);
-                let records = R::query(&cx)
-                    .limit(MAX_RELATIONSHIP_OPTIONS + 1)
-                    .exec(&mut db)
+                let records = related_records::<R>(&cx, crate::tenancy::tenant_id(&cx))
                     .await
-                    .map_err(topcoat::Error::from)?;
+                    .map_err(|e| {
+                        topcoat::Error::from(std::io::Error::other(e.clone()))
+                    })?;
                 if records.len() > MAX_RELATIONSHIP_OPTIONS {
                     // Fail visibly (GH #91): validating against a silent
                     // truncation would reject legitimate FKs as "invalid"
@@ -408,7 +438,7 @@ impl Select {
                 }
                 let table = R::table(&cx);
                 let mut opts = Vec::new();
-                for rec in &records {
+                for rec in records.iter() {
                     if let Some(k) = table.key_for(rec) {
                         opts.push((k, label(rec)));
                     }
@@ -2758,6 +2788,90 @@ mod tests {
         assert!(
             errs.iter().any(|e| e.contains("could not load options")),
             "overflow must surface retry error, got {errs:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn relationship_options_share_one_load_per_request_and_tenant() {
+        // GH #91: selects over one resource share a single bounded load per
+        // (request, tenant) — validate + re-render no longer rescan.
+        use crate::resource::Resource;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        static OPTION_LOADS: AtomicUsize = AtomicUsize::new(0);
+
+        #[derive(Debug, Clone, toasty::Model)]
+        struct Ref {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            name: String,
+        }
+        struct CountingResource;
+        impl Resource for CountingResource {
+            type Model = Ref;
+            fn query(_cx: &Cx) -> toasty::stmt::Query<toasty::stmt::List<Ref>> {
+                OPTION_LOADS.fetch_add(1, Ordering::SeqCst);
+                toasty::stmt::Query::<toasty::stmt::List<Ref>>::all()
+            }
+            fn table(cx: &Cx) -> crate::resource::Table<Ref> {
+                crate::resource::Table::r#for(cx)
+                    .id(|r: &Ref| r.id.to_string())
+                    .columns(crate::resource::TextColumn::r#for(
+                        Ref::fields().name(),
+                        |r: &Ref| r.name.clone(),
+                    ))
+            }
+        }
+
+        let mut db = toasty::Db::builder()
+            .models(toasty::models!(Ref))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        let row = toasty::create!(Ref {
+            name: "Ada".to_string(),
+        })
+        .exec(&mut db)
+        .await
+        .unwrap();
+        let id = row.id.to_string();
+        let cx = CxTestBuilder::new().app_context(db).build();
+
+        // Two selects, different labels, same resource.
+        let s1 = Select::r#for(Ref::fields().name())
+            .relationship::<CountingResource>(CountingResource::query, |r: &Ref| {
+                r.name.clone()
+            });
+        let s2 = Select::r#for(Ref::fields().name())
+            .relationship::<CountingResource>(CountingResource::query, |r: &Ref| {
+                format!("{}!", r.name)
+            });
+
+        OPTION_LOADS.store(0, Ordering::SeqCst);
+        assert!(s1.validate_async(&cx, &id).await.is_empty());
+        assert!(s2.validate_async(&cx, &id).await.is_empty());
+        s1.render_with(&cx, Some(&id), &[])
+            .await
+            .unwrap()
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
+        assert_eq!(
+            OPTION_LOADS.load(Ordering::SeqCst),
+            1,
+            "two selects + re-render must share one load"
+        );
+
+        // Same cache, other tenant → separate load (no cross-tenant sharing).
+        let cx_b = cx.with(crate::tenancy::Tenant(uuid::Uuid::new_v4()));
+        assert!(s1.validate_async(&cx_b, &id).await.is_empty());
+        assert_eq!(
+            OPTION_LOADS.load(Ordering::SeqCst),
+            2,
+            "a second tenant must not reuse the first tenant's options"
         );
     }
 }
