@@ -58,14 +58,6 @@ pub fn current_token(cx: &Cx) -> String {
         .unwrap_or_default()
 }
 
-/// Ensure a token exists for this request, setting the cookie when needed.
-///
-/// Kept as the handler-side entry point; renders inside streamed children
-/// must use [`current_token`] instead.
-pub fn form_token(cx: &Cx) -> String {
-    ensure_token(cx)
-}
-
 /// Verify the submitted form token matches the cookie (GH #99).
 ///
 /// Fails closed: missing cookie, missing field, or mismatch all yield 403.

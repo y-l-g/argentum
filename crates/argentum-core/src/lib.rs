@@ -10,8 +10,8 @@ pub mod __macro {
     pub use toasty::stmt;
     pub use topcoat::context::Cx;
 }
-// The toolkit surface: Panel, Resource, Table, Schema, Notification,
-// Policy, Tenancy, CSRF, and the `Db` glue, plus a small `heading` demo component.
+// The toolkit surface: Panel, Resource, Table, Schema, Notification, Policy,
+// Tenancy, CSRF, and the `Db` glue.
 pub mod csrf;
 pub mod cursor;
 pub mod db;
@@ -21,7 +21,6 @@ pub mod policy;
 pub mod resource;
 pub mod schema;
 pub mod tenancy;
-pub mod view;
 
 pub use argentum_macros::Resource;
 pub use notification::{Notification, NotificationStatus};
@@ -33,6 +32,6 @@ pub use resource::{
 };
 pub use schema::{
     FieldLens, FileUpload, Grid, Group, IntoSchema, Repeater, Schema, Section, Select, Tabs, Text,
-    TextInput, Wizard, lens_field_column_name, lens_field_is_nullable, lens_field_is_unique,
+    TextInput, Wizard, lens_field_is_nullable,
 };
 pub use tenancy::{Tenant, tenant_id};

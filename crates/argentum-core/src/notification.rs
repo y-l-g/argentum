@@ -119,36 +119,6 @@ pub fn take_notification(cx: &Cx) -> Option<Notification> {
     Notification::decode(&value)
 }
 
-/// Render the notification stack HTML if a notification is present.
-/// Returns `Option<View>` HTML string fragment; caller should embed in shell.
-pub fn render_notification(cx: &Cx) -> Option<String> {
-    let n = take_notification(cx)?;
-    // Rendered as fixed top-4 right-4 card with Token classes, as spec requires.
-    // The shell's outer div already has `fixed top-4 right-4 z-50 flex flex-col gap-2`,
-    // so we just need the inner card.
-    // For direct HTML check, ensure these classes appear.
-    let (border, bg) = match n.status {
-        NotificationStatus::Success => ("border-border bg-background", "success"),
-        NotificationStatus::Error => ("border-destructive bg-background", "error"),
-        _ => ("border-border bg-background", "info"),
-    };
-    let _ = bg;
-    // The actual rendering will be done via view! in panel.rs; this helper just provides data.
-    // But we expose a helper to get the notification for rendering.
-    Some(format!(
-        r#"<div class="rounded-xl border {border} shadow-sm p-4" data-notification=""><p class="text-sm font-medium">{}</p><button type="button" data-notification-close="" aria-label="Dismiss notification">Dismiss</button></div>"#,
-        html_escape(&n.title)
-    ))
-}
-
-fn html_escape(s: &str) -> String {
-    s.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&#x27;")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -202,46 +172,5 @@ mod tests {
         // not immediate get). In this test jar still has original cookie, so we check that
         // decode works; actual removal is via Set-Cookie header, not immediate.
         // Just ensure first take succeeded.
-    }
-
-    #[test]
-    fn render_notification_honors_status_and_escapes() {
-        for (status, marker) in [
-            (NotificationStatus::Success, "border-border"),
-            (NotificationStatus::Error, "border-destructive"),
-        ] {
-            let n = Notification {
-                status: status.clone(),
-                title: "<script>alert('x')</script>".to_string(),
-            };
-            let enc = n.encode();
-            let cx = cx_with_cookie(Some(&enc));
-            let html = render_notification(&cx).expect("must render");
-            assert!(
-                html.contains(marker),
-                "status {status:?} must map to {marker}, got {html}"
-            );
-            assert!(
-                !html.contains("<script>"),
-                "title must be escaped, got {html}"
-            );
-            assert!(
-                html.contains("&lt;script&gt;"),
-                "missing escaped title, got {html}"
-            );
-            assert!(
-                html.contains("&#x27;"),
-                "single quote must be escaped, got {html}"
-            );
-            // Auto-dismiss hook for notifications.js (GH #97).
-            assert!(
-                html.contains("data-notification"),
-                "missing data-notification hook, got {html}"
-            );
-            assert!(
-                html.contains("data-notification-close"),
-                "missing dismiss hook, got {html}"
-            );
-        }
     }
 }

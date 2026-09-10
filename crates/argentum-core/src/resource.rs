@@ -851,11 +851,6 @@ impl<M> Table<M> {
         self
     }
 
-    /// Filters as slice (for testing).
-    pub fn filter_list(&self) -> &[Filter<M>] {
-        &self.filters
-    }
-
     /// Filter predicate for the current `TableState` — `AND` of active filter exprs.
     pub fn filter_expr(&self, state: &TableState) -> Option<Expr<bool>>
     where
@@ -986,12 +981,6 @@ impl<M> Table<M> {
     /// reruns (latest wins) but does no time-based debounce.
     pub fn live_search(mut self, enabled: bool) -> Self {
         self.live_search = enabled;
-        self
-    }
-
-    /// Enable skeleton placeholder rows (reserved for future `Boundary` `defer`).
-    pub fn skeleton(mut self, enabled: bool) -> Self {
-        self.show_skeleton = enabled;
         self
     }
 

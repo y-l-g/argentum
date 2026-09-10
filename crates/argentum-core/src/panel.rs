@@ -372,12 +372,6 @@ impl Panel {
         NavigationItem::from_resource_with_prefix::<R>(&self.prefix)
     }
 
-    /// Deprecated alias for [`Self::nav_item`].
-    #[deprecated(note = "use Panel::nav_item instead")]
-    pub fn navigation_item<R: Resource>(&self) -> NavigationItem {
-        self.nav_item::<R>()
-    }
-
     async fn theme_toggle(cx: &Cx) -> Result<BoxView<'_>> {
         use argentum_ui::{ButtonSize, ButtonVariant, button};
 
