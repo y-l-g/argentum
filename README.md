@@ -96,7 +96,7 @@ pub trait Resource: Sized + Send + Sync + 'static {
     }
     fn table(_cx: &Cx) -> Table<Self::Model> { Table::new() } // default: empty, not renderable until columns + id
     fn form(_cx: &Cx) -> Schema { Schema::empty() }
-    fn pages() -> Pages<Self> { Pages::crud() }
+    fn pages() -> Pages<Self> { Pages::crud() } // Phase 1 stub: Panel does not consume this yet (#106)
     fn navigation() -> NavigationItem { NavigationItem::from_resource::<Self>() }
 
     // Record operations driven by the create/edit/delete POST handlers.
@@ -276,7 +276,7 @@ Budget: list render (50 rows, 2 includes) < 40ms p50 on local SQLite, TTFB domin
 
 Security: `like` patterns escape `%`/`_`; never interpolate raw input into raw SQL. Every mutation runs in a framework-owned transaction (GH #84): handlers open the tx, load + policy-check records on that snapshot, and pass the checked records into the `Resource` record fns — no silent re-loads (GH #86 TOCTOU). Every resource enforces `can_*` in page **and** POST handler (default deny); edit GET and POST both require `can_view` + `can_update`, export drops rows failing per-row `can_view`, while the list checks only `can_view_any` by design (GH #86: in-memory predicates can't paginate honestly — list-level row scoping belongs in `Resource::query`). Tenancy applies only in `Resource::query` (`tenant_id(cx)` from `cx.with(Tenant(id))`, request extensions, or the `x-tenant-id` test/showcase header, GH #87). All POSTs require a double-submit `csrf_token` (GH #99); `confirm=1` is a UX step, not a boundary. Cookies/sessions via Topcoat's `cookie`/`session` + origin-checked sessions.
 
-Testing: `CxTestBuilder` for unit renders, `Page` golden tests, per-resource policy tests, showcase integration tests (`examples/showcase/tests/`: admin, create/edit/delete/bulk, relations, filters, tenancy, file+repeater, group+export).
+Testing: `CxTestBuilder` for unit renders, per-resource policy tests, showcase integration tests (`examples/showcase/tests/`: admin, create/edit/delete/bulk, relations, filters, tenancy, file+repeater, group+export).
 
 ---
 
