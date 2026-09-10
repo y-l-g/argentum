@@ -25,10 +25,10 @@ use topcoat::router::{
     Body, Layer, LayerFuture, Next, Path, PathBuf, RouteFuture,
     error::{forbidden, redirect, unauthorized},
     request::{method, uri},
-    response::{AsyncIntoResponse, IntoResponse},
+    response::IntoResponse,
 };
 use topcoat::session::{self, RouterBuilderSessionExt, SessionConfig, TokenHash};
-use topcoat::view::{BoxView, ViewExt, internal::MoveView, internal::ScopeView};
+use topcoat::view::{BoxView, ViewExt};
 use uuid::Uuid;
 
 use crate::panel::{LoginHint, Panel, PanelPrefix, route_path};
@@ -197,7 +197,11 @@ impl Authenticator for PasswordAuth {
                 .exec(&mut db)
                 .await
                 .map_err(topcoat::Error::from)?;
-            Ok(user.map(|user| current_user_from(&user)))
+            // A deactivated account stops resolving: its live sessions are
+            // purged and the next request redirects to login (spec #127 US11).
+            Ok(user
+                .filter(|user| user.active)
+                .map(|user| current_user_from(&user)))
         })
     }
 }
@@ -292,12 +296,6 @@ impl Default for Auth {
     }
 }
 
-impl From<PasswordAuth> for Auth {
-    fn from(password: PasswordAuth) -> Self {
-        Self::Password(password)
-    }
-}
-
 /// Whether the request's panel gates (auth is installed and not disabled).
 pub fn enforced(cx: &Cx) -> bool {
     try_app_context::<Auth>(cx).is_some_and(|auth| !auth.is_disabled())
@@ -340,6 +338,11 @@ fn unauthenticated_error(cx: &Cx) -> topcoat::Error {
 /// Where the panel's login page lives: `{prefix}/login`.
 fn login_url(cx: &Cx) -> String {
     format!("{}/login", panel_prefix(cx))
+}
+
+/// Where the shell's logout control posts: `{prefix}/logout`.
+pub(crate) fn logout_url(cx: &Cx) -> String {
+    format!("{}/logout", panel_prefix(cx))
 }
 
 /// The login URL with a validated `next` back to the requested page.
@@ -407,8 +410,13 @@ fn token_key(hash: &TokenHash) -> String {
 
 /// Delete the session row a token hash names, if any.
 async fn delete_session(cx: &Cx, hash: &TokenHash) -> topcoat::Result<()> {
+    delete_session_row(cx, &token_key(hash)).await
+}
+
+/// Delete one stored session row by its hex token-hash key.
+async fn delete_session_row(cx: &Cx, key: &str) -> topcoat::Result<()> {
     let mut db = crate::db::db(cx);
-    AuthSession::filter(AuthSession::fields().token_hash().eq(token_key(hash)))
+    AuthSession::filter(AuthSession::fields().token_hash().eq(key.to_string()))
         .delete()
         .exec(&mut db)
         .await
@@ -449,18 +457,18 @@ pub(crate) async fn resolve(
     };
     if row.expires_at <= Timestamp::now() {
         // Expired sessions do not resolve; purge the row on the way out.
-        AuthSession::filter(
-            AuthSession::fields()
-                .token_hash()
-                .eq(row.token_hash.clone()),
-        )
-        .delete()
-        .exec(&mut db)
-        .await
-        .map_err(topcoat::Error::from)?;
+        delete_session_row(cx, &row.token_hash).await?;
         return Ok(None);
     }
-    authenticator.find_by_id(cx, &row.user_id).await
+    match authenticator.find_by_id(cx, &row.user_id).await? {
+        Some(user) => Ok(Some(user)),
+        None => {
+            // The session names a user who no longer authenticates (deleted
+            // or deactivated): purge it so removal is real (US11).
+            delete_session_row(cx, &row.token_hash).await?;
+            Ok(None)
+        }
+    }
 }
 
 /// The layer that gates the panel and runtime prefixes (ADR-0013): resolves
@@ -529,21 +537,22 @@ pub(crate) fn install(
 
 /// The status and route a login attempt renders: either the generic failure
 /// (403, same body for every cause) or a redirect back to `next`.
+///
+/// The login page is a settled view, so [`ViewExt::single`] resolves it into
+/// an owned handle before the response is built — no borrowed view escapes.
 async fn login_response(
     cx: &Cx,
     error: Option<String>,
+    next: String,
 ) -> topcoat::Result<topcoat::router::response::Response> {
-    let owned = cx.clone();
-    let view = MoveView::new(async move {
-        let page = render_login_page(&owned, error.as_deref()).await?;
-        MoveView::drive(ScopeView::new(page)).await
-    });
-    view.async_into_response(cx).await
+    let page = render_login_page(cx, error, next).await?;
+    page.single().await?.into_response(cx)
 }
 
 /// `GET {prefix}/login` — the standalone login page.
 pub(crate) fn login_page(cx: &Cx, _body: Body) -> RouteFuture<'_> {
-    Box::pin(login_response(cx, None))
+    let next = next_from_query(cx).unwrap_or_default();
+    Box::pin(login_response(cx, None, next))
 }
 
 /// `POST {prefix}/login` — verify, rotate the session, redirect to `next`.
@@ -551,6 +560,14 @@ pub(crate) fn login_post(cx: &Cx, body: Body) -> RouteFuture<'_> {
     Box::pin(async move {
         let values = crate::panel::parse_form_values(cx, body).await?;
         crate::csrf::verify(cx, &values)?;
+        // Keep a validated destination across a failed attempt so the retry
+        // form still returns where the visitor was headed (US6).
+        let next = values
+            .get(NEXT_FIELD)
+            .and_then(|value| safe_next(value))
+            .map(str::to_string)
+            .or_else(|| next_from_query(cx))
+            .unwrap_or_default();
         let email = values.get(LOGIN_FIELD).map(|value| value.trim());
         let password = values.get(PASSWORD_FIELD).map(String::as_str);
         let auth = app_context::<Auth>(cx);
@@ -565,7 +582,7 @@ pub(crate) fn login_post(cx: &Cx, body: Body) -> RouteFuture<'_> {
         // One path for every failure: wrong password, unknown account, empty
         // fields, or valid credentials without panel access (ADR-0013).
         let Some(user) = verified.filter(|user| user.can_access_panel) else {
-            return login_response(cx, Some(GENERIC_ERROR.to_string())).await;
+            return login_response(cx, Some(GENERIC_ERROR.to_string()), next).await;
         };
         // Rotate on login: a token this request presented cannot be replayed.
         if let Some(hash) = session::token_hash(cx).await? {
@@ -582,11 +599,11 @@ pub(crate) fn login_post(cx: &Cx, body: Body) -> RouteFuture<'_> {
         .exec(&mut db)
         .await
         .map_err(topcoat::Error::from)?;
-        let target = values
-            .get(NEXT_FIELD)
-            .and_then(|value| safe_next(value))
-            .map(str::to_string)
-            .unwrap_or_else(|| panel_root(cx));
+        let target = if next.is_empty() {
+            panel_root(cx)
+        } else {
+            next
+        };
         // Success stays on the `Ok` path so `Set-Cookie` flushes
         // (upstream topcoat#126).
         topcoat::router::error::see_other(target).into_response(cx)
@@ -596,6 +613,9 @@ pub(crate) fn login_post(cx: &Cx, body: Body) -> RouteFuture<'_> {
 /// `POST {prefix}/logout` — delete the session row and clear the cookie.
 pub(crate) fn logout_post(cx: &Cx, body: Body) -> RouteFuture<'_> {
     Box::pin(async move {
+        // Defense in depth: the route only exists on gated panels, but it
+        // re-checks so a missing layer cannot leave logout ungated.
+        crate::auth::require_authenticated(cx)?;
         let values = crate::panel::parse_form_values(cx, body).await?;
         crate::csrf::verify(cx, &values)?;
         if let Some(hash) = session::stop(cx).await? {
@@ -608,10 +628,13 @@ pub(crate) fn logout_post(cx: &Cx, body: Body) -> RouteFuture<'_> {
 
 /// The standalone login document: brand and dark mode honored, CSRF hidden
 /// field, one generic error slot, no sidebar (ADR-0013).
-async fn render_login_page<'a>(cx: &'a Cx, error: Option<&'a str>) -> topcoat::Result<BoxView<'a>> {
+async fn render_login_page<'a>(
+    cx: &'a Cx,
+    error: Option<String>,
+    next: String,
+) -> topcoat::Result<BoxView<'a>> {
     let csrf = crate::csrf::ensure_token(cx);
     let action = login_url(cx);
-    let next = next_from_query(cx).unwrap_or_default();
     let brand = Panel::render_brand(cx).await?;
     let hint = try_app_context::<LoginHint>(cx).map(|hint| hint.0.clone());
     let body = topcoat::view::view! {
@@ -640,13 +663,13 @@ async fn render_login_page<'a>(cx: &'a Cx, error: Option<&'a str>) -> topcoat::R
                     <div class="grid gap-2">
                         argentum_ui::label(
                             attrs: topcoat::view::attributes! { for="email" },
-                            "Email"
+                            "Email or username"
                         )
                         argentum_ui::input(
                             attrs: topcoat::view::attributes! {
                                 id="email"
                                 name=(LOGIN_FIELD)
-                                type="email"
+                                type="text"
                                 required=""
                                 autocomplete="username"
                                 autofocus=""

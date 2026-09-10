@@ -303,8 +303,8 @@ impl Panel {
     /// authenticator with `Panel::auth(Auth::custom(..))`, or opt a public
     /// demo out explicitly with `Panel::auth(Auth::disabled())`.
     #[cfg(feature = "auth")]
-    pub fn auth(mut self, auth: impl Into<crate::auth::Auth>) -> Self {
-        self.auth = auth.into();
+    pub fn auth(mut self, auth: crate::auth::Auth) -> Self {
+        self.auth = auth;
         self
     }
 
@@ -578,12 +578,7 @@ impl Panel {
         let account_view: BoxView<'_> = match crate::auth::current_user(cx) {
             Some(user) => {
                 let csrf = crate::csrf::ensure_token(cx);
-                let logout = format!(
-                    "{}/logout",
-                    topcoat::context::try_app_context::<PanelPrefix>(cx)
-                        .map(|prefix| prefix.0.as_str())
-                        .unwrap_or("/admin")
-                );
+                let logout = crate::auth::logout_url(cx);
                 view! {
                     cx =>
                     <div class="flex items-center gap-2">
@@ -818,11 +813,17 @@ pub(crate) fn route_path(path: &str) -> topcoat::router::PathBuf {
 /// panel handler and the live-search shard re-check the resolved user, so a
 /// missing or mis-mounted gate cannot silently open a handler. A no-op when
 /// the panel explicitly disabled auth.
+#[cfg(feature = "auth")]
 fn enforce_auth(cx: &Cx) -> Result<(), topcoat::Error> {
-    #[cfg(feature = "auth")]
     if crate::auth::enforced(cx) {
         crate::auth::require_authenticated(cx)?;
     }
+    Ok(())
+}
+
+/// Auth compiled out: the gate does not exist either, so nothing to enforce.
+#[cfg(not(feature = "auth"))]
+fn enforce_auth(_cx: &Cx) -> Result<(), topcoat::Error> {
     Ok(())
 }
 

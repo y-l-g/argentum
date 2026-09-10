@@ -188,13 +188,14 @@ There is no `Action` type. Deletes run through panel POST routes driving the `Re
 
 ### 4.6 Authentication
 
-`Panel` is gated by default and fails closed (ADR-0013, spec #127): an unauthenticated panel page redirects to `{prefix}/login` with a validated same-origin `next`, runtime endpoints answer 401, and a user without `can_access_panel` answers 403.
+`Panel` is gated by default and fails closed (ADR-0013, spec #127): an unauthenticated panel page redirects to `{prefix}/login` with a validated same-origin `next`, runtime endpoints answer 401, non-GET panel requests answer 401 rather than redirecting a mutation into the login form, and a user without `can_access_panel` answers 403.
 
 - **Zero-config default.** Register the shipped models (`toasty::models!(…, argentum_core::auth::AdminUser, argentum_core::auth::AuthSession)`), seed an `AdminUser` (`argentum_core::auth::hash_password("…")` stores Argon2id PHC strings), and log in through `GET`/`POST /admin/login`; `POST {prefix}/logout` revokes. Sessions are server-side `AuthSession` rows keyed by token hash, seven-day fixed lifetime, rotated on login, revocable per user with `auth::revoke_sessions_for_user(cx, id)`.
 - **One override seam.** An app with its own user table implements `Authenticator` (`verify` + `find_by_id`) and passes `Panel::auth(Auth::custom(MyAuth))`; it still registers `AuthSession`, which owns session storage. Resolution yields one erased `CurrentUser { id, login, display_name, tenant_id, can_access_panel }` in request `Cx`; read it with `current_user(cx)` / `require_authenticated(cx)`.
 - **Explicit opt-out.** `Panel::auth(Auth::disabled())` serves the panel without a gate — greppable, never implicit.
 - **Tenancy from the login.** The user's optional `tenant_id` is injected as `Tenant` into the request, so `/admin/authors` and `/admin/posts` scope to the logged-in admin; the `x-tenant-id` header is never trusted (GH #131). A server-set `Tenant` request extension overrides deliberately.
 - **Login page.** `Panel::login_hint("Demo: admin@example.com / password")` renders a muted line under the shipped form for demos; brand and dark mode carry over from the panel.
+- **Brute force is a deployment concern.** There is no built-in rate limiter or account lockout: an in-process limiter is false safety across instances, and lockout is a DoS against the real admin. Enforce rate limits at the edge (proxy/WAF) where they belong (ADR-0013).
 
 The showcase proves the default (`examples/showcase/tests/auth_check.rs`); `crates/argentum-core/tests/auth_override.rs` proves the custom model path end to end.
 

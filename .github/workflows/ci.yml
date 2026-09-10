@@ -26,6 +26,10 @@ jobs:
       - run: rustup update stable && rustup default stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --workspace --locked
+      # The auth feature ships on by default and is opt-out; keep the opt-out
+      # path compiling (and warning-free) so `default-features = false` stays
+      # a real escape hatch (GH #129).
+      - run: cargo check -p argentum-core --no-default-features --locked
 
   clippy:
     name: clippy

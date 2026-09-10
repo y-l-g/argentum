@@ -13,16 +13,8 @@ use topcoat::router::Body;
 mod common;
 use common::{
     SESSION_COOKIE, TestClient, body_string, form_body, full_db, input_value, login, login_next,
-    response_cookies, set_cookie_header,
+    response_cookies, session_cookie_value, set_cookie_header,
 };
-
-/// The session cookie value a login response set, if any.
-fn session_value(response: &http::Response<Body>) -> Option<String> {
-    response_cookies(response)
-        .into_iter()
-        .find(|(name, _)| name == SESSION_COOKIE)
-        .map(|(_, value)| value)
-}
 
 /// A runtime (page re-run) POST, optionally carrying a session cookie.
 async fn runtime_post(
@@ -120,7 +112,7 @@ async fn every_login_failure_renders_one_generic_error() {
         let (_, response) = login_next(&router, email, password, "").await;
         assert_eq!(response.status(), 403, "email={email:?}");
         assert!(
-            session_value(&response).is_none(),
+            session_cookie_value(&response).is_none(),
             "a failed login must not start a session"
         );
         let html = body_string(response).await;
@@ -205,7 +197,7 @@ async fn login_rotates_the_session_token() {
     let db = full_db().await;
     let router = router(db.clone());
     let (client, first) = login_next(&router, DEMO_ADMIN_EMAIL, DEMO_ADMIN_PASSWORD, "").await;
-    let first_session = session_value(&first).expect("first session cookie");
+    let first_session = session_cookie_value(&first).expect("first session cookie");
 
     // Present the first session while logging in again.
     let page = body_string(client.get("/admin/login").await).await;
@@ -221,7 +213,7 @@ async fn login_rotates_the_session_token() {
         )
         .await;
     assert_eq!(response.status(), 303);
-    let second_session = session_value(&response).expect("rotated session cookie");
+    let second_session = session_cookie_value(&response).expect("rotated session cookie");
     assert_ne!(first_session, second_session, "login must mint a new token");
 
     let mut db2 = db.clone();
@@ -345,11 +337,11 @@ async fn unauthenticated_mutations_answer_401_not_a_redirect() {
 }
 
 #[tokio::test]
-async fn deactivating_a_user_blocks_their_live_session() {
+async fn deactivating_a_user_invalidates_their_live_session() {
     let db = full_db().await;
     let router = router(db.clone());
     let (_, login_response) = login_next(&router, DEMO_ADMIN_EMAIL, DEMO_ADMIN_PASSWORD, "").await;
-    let session = session_value(&login_response).expect("session cookie");
+    let session = session_cookie_value(&login_response).expect("session cookie");
 
     let mut db2 = db.clone();
     let mut admin = AdminUser::filter(AdminUser::fields().email().eq(DEMO_ADMIN_EMAIL.to_string()))
@@ -364,11 +356,74 @@ async fn deactivating_a_user_blocks_their_live_session() {
         .unwrap();
 
     let client = TestClient::new(&router).cookie(SESSION_COOKIE, &session);
-    assert_eq!(client.get("/admin/users").await.status(), 403, "page");
+    assert_eq!(
+        client.get("/admin/users").await.status(),
+        307,
+        "page: deactivation invalidates the session"
+    );
     assert_eq!(
         runtime_post(&router, Some(&session)).await.status(),
-        403,
+        401,
         "runtime"
+    );
+    assert!(
+        AuthSession::all().exec(&mut db2).await.unwrap().is_empty(),
+        "dead session rows are purged"
+    );
+}
+
+#[tokio::test]
+async fn failed_login_preserves_the_next_destination() {
+    let db = full_db().await;
+    let router = router(db);
+    let (_, response) = login_next(&router, DEMO_ADMIN_EMAIL, "wrong", "/admin/posts").await;
+    assert_eq!(response.status(), 403);
+    let html = body_string(response).await;
+    assert_eq!(
+        input_value(&html, "next").as_deref(),
+        Some("/admin/posts"),
+        "a retry must keep the original destination: {html}"
+    );
+}
+
+#[tokio::test]
+async fn login_returns_to_the_originally_requested_page() {
+    let db = full_db().await;
+    let router = router(db);
+
+    // Follow the gate's redirect the way a browser would.
+    let gated = TestClient::new(&router).get("/admin/posts").await;
+    assert_eq!(gated.status(), 307);
+    let login_url = gated
+        .headers()
+        .get(LOCATION)
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_string();
+    let page = TestClient::new(&router).get(&login_url).await;
+    let cookies = response_cookies(&page);
+    let html = body_string(page).await;
+    assert_eq!(input_value(&html, "next").as_deref(), Some("/admin/posts"));
+    let csrf = input_value(&html, "csrf_token").expect("CSRF token");
+
+    let response = TestClient::new(&router)
+        .cookies(&cookies)
+        .post_form(
+            "/admin/login",
+            form_body(&[
+                ("email", DEMO_ADMIN_EMAIL),
+                ("password", DEMO_ADMIN_PASSWORD),
+                ("next", "/admin/posts"),
+                ("csrf_token", &csrf),
+            ]),
+        )
+        .await;
+    assert_eq!(response.status(), 303);
+    assert_eq!(
+        response.headers().get(LOCATION).unwrap(),
+        "/admin/posts",
+        "success must land where the visitor was headed"
     );
 }
 
