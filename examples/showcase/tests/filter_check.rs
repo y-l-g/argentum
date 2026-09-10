@@ -1,45 +1,20 @@
-use http::Request;
-use http_body_util::BodyExt;
-use showcase::{
-    app::router_for_tests as router,
-    models::{DEMO_TENANT, seed, seed_phase2},
-};
-use toasty::Db;
-use topcoat::router::Body;
+use showcase::{app::router_for_tests as router, models::DEMO_TENANT};
 
-async fn full_db() -> Db {
-    let mut db = Db::builder()
-        .models(toasty::models!(
-            showcase::models::User,
-            showcase::models::Author,
-            showcase::models::Post,
-            showcase::models::Comment
-        ))
-        .connect("sqlite::memory:")
-        .await
-        .unwrap();
-    db.push_schema().await.unwrap();
-    seed(&mut db).await.unwrap();
-    seed_phase2(&mut db).await.unwrap();
-    db
-}
+mod common;
+use common::{body_string, full_db, get_tenant};
 
 #[tokio::test]
 async fn posts_filter_widgets_render_typed_controls() {
     let db = full_db().await;
     let router = router(db);
-    let resp = router
-        .handle(
-            Request::builder()
-                .uri("/admin/posts?filters=status:published")
-                .header("x-tenant-id", DEMO_TENANT.to_string())
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
+    let resp = get_tenant(
+        &router,
+        "/admin/posts?filters=status:published",
+        DEMO_TENANT,
+    )
+    .await;
     assert!(resp.status().is_success());
-    let body = resp.into_body().collect().await.unwrap().to_bytes();
-    let html = String::from_utf8_lossy(&body);
+    let html = body_string(resp).await;
     // One typed control per declared filter, composed by filters.js into the
     // single filters param (free-text input stays as the fallback).
     for name in ["status", "featured", "created_at"] {
@@ -83,18 +58,14 @@ async fn posts_filter_select_status_published() {
     let db = full_db().await;
     let router = router(db);
     // filter status:published should show only Hello Toasty (published)
-    let resp = router
-        .handle(
-            Request::builder()
-                .uri("/admin/posts?filters=status:published")
-                .header("x-tenant-id", DEMO_TENANT.to_string())
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
+    let resp = get_tenant(
+        &router,
+        "/admin/posts?filters=status:published",
+        DEMO_TENANT,
+    )
+    .await;
     assert!(resp.status().is_success());
-    let body = resp.into_body().collect().await.unwrap().to_bytes();
-    let html = String::from_utf8_lossy(&body);
+    let html = body_string(resp).await;
     assert!(
         html.contains("Hello Toasty"),
         "should contain published {}",
@@ -112,18 +83,9 @@ async fn posts_filter_ternary_featured_true() {
     let db = full_db().await;
     let router = router(db);
     // featured:true should show only Hello Toasty (featured true)
-    let resp = router
-        .handle(
-            Request::builder()
-                .uri("/admin/posts?filters=featured:true")
-                .header("x-tenant-id", DEMO_TENANT.to_string())
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
+    let resp = get_tenant(&router, "/admin/posts?filters=featured:true", DEMO_TENANT).await;
     assert!(resp.status().is_success());
-    let body = resp.into_body().collect().await.unwrap().to_bytes();
-    let html = String::from_utf8_lossy(&body);
+    let html = body_string(resp).await;
     assert!(
         html.contains("Hello Toasty"),
         "featured true should show Hello {}",
@@ -140,18 +102,9 @@ async fn posts_filter_ternary_featured_true() {
 async fn posts_filter_ternary_featured_false() {
     let db = full_db().await;
     let router = router(db);
-    let resp = router
-        .handle(
-            Request::builder()
-                .uri("/admin/posts?filters=featured:false")
-                .header("x-tenant-id", DEMO_TENANT.to_string())
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
+    let resp = get_tenant(&router, "/admin/posts?filters=featured:false", DEMO_TENANT).await;
     assert!(resp.status().is_success());
-    let body = resp.into_body().collect().await.unwrap().to_bytes();
-    let html = String::from_utf8_lossy(&body);
+    let html = body_string(resp).await;
     assert!(
         !html.contains("Hello Toasty"),
         "featured false should not show Hello {}",
@@ -169,18 +122,14 @@ async fn posts_filter_date_created_at() {
     let db = full_db().await;
     let router = router(db);
     // filter by exact timestamp of Hello Toasty
-    let resp = router
-        .handle(
-            Request::builder()
-                .uri("/admin/posts?filters=created_at:2024-01-15T09:30:00Z")
-                .header("x-tenant-id", DEMO_TENANT.to_string())
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
+    let resp = get_tenant(
+        &router,
+        "/admin/posts?filters=created_at:2024-01-15T09:30:00Z",
+        DEMO_TENANT,
+    )
+    .await;
     assert!(resp.status().is_success());
-    let body = resp.into_body().collect().await.unwrap().to_bytes();
-    let html = String::from_utf8_lossy(&body);
+    let html = body_string(resp).await;
     assert!(
         html.contains("Hello Toasty"),
         "date filter should show Hello {}",
@@ -198,35 +147,27 @@ async fn posts_filter_composes_and() {
     let db = full_db().await;
     let router = router(db);
     // status:published and featured:true should still show Hello Toasty (both true)
-    let resp = router
-        .handle(
-            Request::builder()
-                .uri("/admin/posts?filters=status:published,featured:true")
-                .header("x-tenant-id", DEMO_TENANT.to_string())
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
+    let resp = get_tenant(
+        &router,
+        "/admin/posts?filters=status:published,featured:true",
+        DEMO_TENANT,
+    )
+    .await;
     assert!(resp.status().is_success());
-    let body = resp.into_body().collect().await.unwrap().to_bytes();
-    let html = String::from_utf8_lossy(&body);
+    let html = body_string(resp).await;
     assert!(
         html.contains("Hello Toasty"),
         "and filter should show Hello {}",
         html
     );
     // status:draft and featured:true should show none (draft is not featured)
-    let resp = router
-        .handle(
-            Request::builder()
-                .uri("/admin/posts?filters=status:draft,featured:true")
-                .header("x-tenant-id", DEMO_TENANT.to_string())
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
-    let body = resp.into_body().collect().await.unwrap().to_bytes();
-    let html = String::from_utf8_lossy(&body);
+    let resp = get_tenant(
+        &router,
+        "/admin/posts?filters=status:draft,featured:true",
+        DEMO_TENANT,
+    )
+    .await;
+    let html = body_string(resp).await;
     assert!(
         !html.contains("Hello Toasty") && !html.contains("Second Post"),
         "and filter should show none {}",
@@ -298,32 +239,25 @@ async fn typo_filter_warns_on_list_but_refuses_export() {
     let db = full_db().await;
     let router = router(db);
 
-    let resp = router
-        .handle(
-            Request::builder()
-                .uri("/admin/posts?filters=stauts:published")
-                .header("x-tenant-id", DEMO_TENANT.to_string())
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
+    let resp = get_tenant(
+        &router,
+        "/admin/posts?filters=stauts:published",
+        DEMO_TENANT,
+    )
+    .await;
     assert!(resp.status().is_success(), "typo filter keeps 200");
-    let body = resp.into_body().collect().await.unwrap().to_bytes();
-    let html = String::from_utf8_lossy(&body);
+    let html = body_string(resp).await;
     assert!(
         html.contains("role=\"alert\"") && html.contains("stauts:published"),
         "typo filter must warn, got {html}"
     );
 
-    let resp = router
-        .handle(
-            Request::builder()
-                .uri("/admin/posts/export?filters=stauts:published")
-                .header("x-tenant-id", DEMO_TENANT.to_string())
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
+    let resp = get_tenant(
+        &router,
+        "/admin/posts/export?filters=stauts:published",
+        DEMO_TENANT,
+    )
+    .await;
     assert_eq!(
         resp.status(),
         400,
@@ -332,15 +266,12 @@ async fn typo_filter_warns_on_list_but_refuses_export() {
     );
 
     // Rejected values (capital P) behave the same.
-    let resp = router
-        .handle(
-            Request::builder()
-                .uri("/admin/posts/export?filters=status:Published")
-                .header("x-tenant-id", DEMO_TENANT.to_string())
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
+    let resp = get_tenant(
+        &router,
+        "/admin/posts/export?filters=status:Published",
+        DEMO_TENANT,
+    )
+    .await;
     assert_eq!(
         resp.status(),
         400,
@@ -349,36 +280,23 @@ async fn typo_filter_warns_on_list_but_refuses_export() {
     );
 
     // Valid filters still export fine.
-    let resp = router
-        .handle(
-            Request::builder()
-                .uri("/admin/posts/export?filters=status:published")
-                .header("x-tenant-id", DEMO_TENANT.to_string())
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
+    let resp = get_tenant(
+        &router,
+        "/admin/posts/export?filters=status:published",
+        DEMO_TENANT,
+    )
+    .await;
     assert!(resp.status().is_success(), "valid export must stay 200");
 }
 
 #[tokio::test]
 async fn posts_list_renders_live_search_host() {
     // GH #104: posts table opts into the live shard (tenant header required).
-    use showcase::models::DEMO_TENANT;
     let db = full_db().await;
     let router = router(db);
-    let resp = router
-        .handle(
-            Request::builder()
-                .uri("/admin/posts")
-                .header("x-tenant-id", DEMO_TENANT.to_string())
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
+    let resp = get_tenant(&router, "/admin/posts", DEMO_TENANT).await;
     assert!(resp.status().is_success());
-    let body = resp.into_body().collect().await.unwrap().to_bytes();
-    let html = String::from_utf8_lossy(&body);
+    let html = body_string(resp).await;
     assert!(
         html.contains("data-live-search"),
         "posts list must render the live host, got {html}"

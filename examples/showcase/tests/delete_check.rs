@@ -1,25 +1,9 @@
-use http::{
-    Method, Request,
-    header::{CONTENT_TYPE, COOKIE, LOCATION},
-};
-use http_body_util::BodyExt;
-use showcase::{
-    app::router_for_tests as router,
-    models::{User, seed},
-};
+use http::header::LOCATION;
+use showcase::{app::router_for_tests as router, models::User};
 use toasty::Db;
-use topcoat::router::Body;
 
-async fn seeded_db() -> Db {
-    let mut db = Db::builder()
-        .models(toasty::models!(User))
-        .connect("sqlite::memory:")
-        .await
-        .unwrap();
-    db.push_schema().await.unwrap();
-    seed(&mut db).await.unwrap();
-    db
-}
+mod common;
+use common::{body_string, get, post_form, seeded_db};
 
 #[tokio::test]
 async fn delete_requires_confirmation_and_deletes() {
@@ -33,16 +17,8 @@ async fn delete_requires_confirmation_and_deletes() {
     let csrf = uuid::Uuid::new_v4().to_string();
 
     // Check that list page contains Delete button
-    let resp = router
-        .handle(
-            Request::builder()
-                .uri("/admin/users")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
-    let body = resp.into_body().collect().await.unwrap().to_bytes();
-    let html = String::from_utf8_lossy(&body);
+    let resp = get(&router, "/admin/users").await;
+    let html = body_string(resp).await;
     assert!(
         html.contains("Delete"),
         "list should contain Delete button, got {}",
@@ -54,24 +30,13 @@ async fn delete_requires_confirmation_and_deletes() {
     );
 
     // POST without confirm should re-render confirmation (200 with Confirm)
-    let resp = router
-        .handle(
-            Request::builder()
-                .uri(delete_url.clone())
-                .method(Method::POST)
-                .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
-                .header(COOKIE, format!("argentum_csrf={csrf}"))
-                .body(Body::from(format!("csrf_token={csrf}")))
-                .unwrap(),
-        )
-        .await;
+    let resp = post_form(&router, &delete_url, &csrf, format!("csrf_token={csrf}")).await;
     assert!(
         resp.status().is_success(),
         "POST without confirm should be 200 confirmation, got {}",
         resp.status()
     );
-    let body = resp.into_body().collect().await.unwrap().to_bytes();
-    let html = String::from_utf8_lossy(&body);
+    let html = body_string(resp).await;
     assert!(
         html.contains("Confirm") || html.contains("Are you sure"),
         "confirmation page should have Confirm, got {}",
@@ -79,17 +44,13 @@ async fn delete_requires_confirmation_and_deletes() {
     );
 
     // POST with confirm should delete and redirect with notification
-    let resp = router
-        .handle(
-            Request::builder()
-                .uri(delete_url.clone())
-                .method(Method::POST)
-                .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
-                .header(COOKIE, format!("argentum_csrf={csrf}"))
-                .body(Body::from(format!("confirm=1&csrf_token={csrf}")))
-                .unwrap(),
-        )
-        .await;
+    let resp = post_form(
+        &router,
+        &delete_url,
+        &csrf,
+        format!("confirm=1&csrf_token={csrf}"),
+    )
+    .await;
     assert!(
         resp.status().is_redirection(),
         "confirmed delete should redirect, got {}",
@@ -119,11 +80,8 @@ async fn delete_requires_confirmation_and_deletes() {
     assert!(gone.is_none(), "deleted user should be gone");
 
     // Follow redirect and check notification
-    let resp2 = router
-        .handle(Request::builder().uri(loc).body(Body::empty()).unwrap())
-        .await;
-    let body2 = resp2.into_body().collect().await.unwrap().to_bytes();
-    let html2 = String::from_utf8_lossy(&body2);
+    let resp2 = get(&router, loc).await;
+    let html2 = body_string(resp2).await;
     assert!(
         html2.contains("fixed top-4 right-4"),
         "notification should survive, got {}",
@@ -137,17 +95,13 @@ async fn delete_404_for_missing_or_wrong_tenant() {
     let router = router(db.clone());
     let fake_id = uuid::Uuid::new_v4().to_string();
     let csrf = uuid::Uuid::new_v4().to_string();
-    let resp = router
-        .handle(
-            Request::builder()
-                .uri(format!("/admin/users/{}/delete", fake_id))
-                .method(Method::POST)
-                .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
-                .header(COOKIE, format!("argentum_csrf={csrf}"))
-                .body(Body::from(format!("confirm=1&csrf_token={csrf}")))
-                .unwrap(),
-        )
-        .await;
+    let resp = post_form(
+        &router,
+        &format!("/admin/users/{}/delete", fake_id),
+        &csrf,
+        format!("confirm=1&csrf_token={csrf}"),
+    )
+    .await;
     assert_eq!(
         resp.status(),
         404,
@@ -159,7 +113,6 @@ async fn delete_404_for_missing_or_wrong_tenant() {
 #[tokio::test]
 async fn delete_policy_deny() {
     use argentum_core::{Resource, Schema, Table, TextColumn, TextInput};
-    use http::{Method, Request, header::CONTENT_TYPE};
 
     #[derive(Debug, toasty::Model)]
     struct DummyUser {
@@ -213,17 +166,13 @@ async fn delete_policy_deny() {
     let slug = DenyDeleteResource::slug();
     let delete_url = format!("/admin/{}/{}/delete", slug, rec.id);
     let csrf = uuid::Uuid::new_v4().to_string();
-    let resp = router
-        .handle(
-            Request::builder()
-                .uri(delete_url)
-                .method(Method::POST)
-                .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
-                .header(http::header::COOKIE, format!("argentum_csrf={csrf}"))
-                .body(Body::from(format!("confirm=1&csrf_token={csrf}")))
-                .unwrap(),
-        )
-        .await;
+    let resp = post_form(
+        &router,
+        &delete_url,
+        &csrf,
+        format!("confirm=1&csrf_token={csrf}"),
+    )
+    .await;
     assert_eq!(
         resp.status(),
         403,

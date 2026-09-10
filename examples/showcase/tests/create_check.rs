@@ -2,24 +2,12 @@ use http::{
     Method, Request,
     header::{CONTENT_TYPE, COOKIE, LOCATION, SET_COOKIE},
 };
-use http_body_util::BodyExt;
-use showcase::{
-    app::router_for_tests as router,
-    models::{User, seed},
-};
+use showcase::{app::router_for_tests as router, models::User};
 use toasty::Db;
 use topcoat::router::Body;
 
-async fn seeded_db() -> Db {
-    let mut db = Db::builder()
-        .models(toasty::models!(User))
-        .connect("sqlite::memory:")
-        .await
-        .unwrap();
-    db.push_schema().await.unwrap();
-    seed(&mut db).await.unwrap();
-    db
-}
+mod common;
+use common::{body_string, get, post_form, seeded_db};
 
 #[tokio::test]
 async fn manual_create_check() {
@@ -27,18 +15,10 @@ async fn manual_create_check() {
     let router = router(db.clone());
 
     // Test GET /admin/users/create returns 200 with form HTML
-    let resp = router
-        .handle(
-            Request::builder()
-                .uri("/admin/users/create")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
+    let resp = get(&router, "/admin/users/create").await;
     println!("GET /admin/users/create status: {}", resp.status());
     assert!(resp.status().is_success(), "GET create should be 200");
-    let body = resp.into_body().collect().await.unwrap().to_bytes();
-    let html = String::from_utf8_lossy(&body);
+    let html = body_string(resp).await;
     assert!(
         html.contains("grid gap-1.5"),
         "missing grid gap-1.5 in {}",
@@ -58,23 +38,16 @@ async fn manual_create_check() {
 
     // Test POST empty name
     let csrf = uuid::Uuid::new_v4().to_string();
-    let resp = router
-        .handle(
-            Request::builder()
-                .uri("/admin/users/create")
-                .method(Method::POST)
-                .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
-                .header(COOKIE, format!("argentum_csrf={csrf}"))
-                .body(Body::from(format!(
-                    "name=&email=not-an-email&csrf_token={csrf}"
-                )))
-                .unwrap(),
-        )
-        .await;
+    let resp = post_form(
+        &router,
+        "/admin/users/create",
+        &csrf,
+        format!("name=&email=not-an-email&csrf_token={csrf}"),
+    )
+    .await;
     let status = resp.status();
     println!("POST empty name status: {}", status);
-    let body = resp.into_body().collect().await.unwrap().to_bytes();
-    let html = String::from_utf8_lossy(&body);
+    let html = body_string(resp).await;
     assert!(
         html.contains("is required"),
         "should contain is required error, got {}",
@@ -95,19 +68,13 @@ async fn manual_create_check() {
     assert_eq!(count, 3, "DB should still have 3 after invalid");
 
     // Test POST valid
-    let resp = router
-        .handle(
-            Request::builder()
-                .uri("/admin/users/create")
-                .method(Method::POST)
-                .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
-                .header(COOKIE, format!("argentum_csrf={csrf}"))
-                .body(Body::from(format!(
-                    "name=New%20User&email=new%40example.com&csrf_token={csrf}"
-                )))
-                .unwrap(),
-        )
-        .await;
+    let resp = post_form(
+        &router,
+        "/admin/users/create",
+        &csrf,
+        format!("name=New%20User&email=new%40example.com&csrf_token={csrf}"),
+    )
+    .await;
     println!("POST valid status: {}", resp.status());
     assert!(
         resp.status().is_redirection(),
@@ -156,8 +123,7 @@ async fn manual_create_check() {
         resp2.status().is_success(),
         "GET list after create should be 200"
     );
-    let body2 = resp2.into_body().collect().await.unwrap().to_bytes();
-    let html2 = String::from_utf8_lossy(&body2);
+    let html2 = body_string(resp2).await;
     // Need to check if new user appears on page 1 or 2? Since paginated 2 per page, new user "New User" with name N may be on page 2 (after Grace Hopper? Let's see sort is name asc: Ada, Alan, Grace, New User -> New User is last, so on page 2)
     // So we need to fetch page 2 via pagination? Or increase page size? But list page default shows page 1 (Ada, Alan). New User not on page1.
     // Let's check DB directly that user was created, and also check that notification appears.
@@ -187,8 +153,6 @@ async fn manual_create_check() {
 #[tokio::test]
 async fn create_policy_deny() {
     use argentum_core::{Resource, Schema, Table, TextColumn, TextInput};
-    use http::{Method, Request, header::CONTENT_TYPE};
-    use toasty::Db;
 
     #[derive(Debug, toasty::Model)]
     struct DummyUser {
@@ -242,31 +206,18 @@ async fn create_policy_deny() {
     let slug = DenyCreateResource::slug();
     let create_url = format!("/admin/{}/create", slug);
     // GET create should be 403
-    let resp = router
-        .handle(
-            Request::builder()
-                .uri(create_url.clone())
-                .body(topcoat::router::Body::empty())
-                .unwrap(),
-        )
-        .await;
+    let resp = get(&router, &create_url).await;
     assert_eq!(resp.status(), 403, "GET create should be 403 when denied");
 
     // POST should also be 403 and not create
     let csrf = uuid::Uuid::new_v4().to_string();
-    let resp = router
-        .handle(
-            Request::builder()
-                .uri(create_url)
-                .method(Method::POST)
-                .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
-                .header(http::header::COOKIE, format!("argentum_csrf={csrf}"))
-                .body(topcoat::router::Body::from(format!(
-                    "name=test&csrf_token={csrf}"
-                )))
-                .unwrap(),
-        )
-        .await;
+    let resp = post_form(
+        &router,
+        &create_url,
+        &csrf,
+        format!("name=test&csrf_token={csrf}"),
+    )
+    .await;
     assert_eq!(
         resp.status(),
         403,
@@ -303,19 +254,15 @@ async fn create_post_with_unknown_keys_is_bad_request() {
     let db = seeded_db().await;
     let router = router(db.clone());
     let csrf = uuid::Uuid::new_v4().to_string();
-    let resp = router
-        .handle(
-            Request::builder()
-                .uri("/admin/users/create")
-                .method(Method::POST)
-                .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
-                .header(COOKIE, format!("argentum_csrf={csrf}"))
-                .body(Body::from(format!(
-                    "name=Sneaky&email=sneaky%40example.com&role=admin&tenant_id=victim&csrf_token={csrf}"
-                )))
-                .unwrap(),
-        )
-        .await;
+    let resp = post_form(
+        &router,
+        "/admin/users/create",
+        &csrf,
+        format!(
+            "name=Sneaky&email=sneaky%40example.com&role=admin&tenant_id=victim&csrf_token={csrf}"
+        ),
+    )
+    .await;
     assert_eq!(
         resp.status(),
         400,

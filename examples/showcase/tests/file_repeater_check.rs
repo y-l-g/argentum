@@ -1,48 +1,18 @@
-use http::{
-    Method, Request,
-    header::{CONTENT_TYPE, COOKIE},
-};
-use http_body_util::BodyExt;
 use showcase::{
     app::router_for_tests as router,
-    models::{Author, DEMO_TENANT, Post, seed, seed_phase2},
+    models::{Author, DEMO_TENANT, Post},
 };
-use toasty::Db;
-use topcoat::router::Body;
 
-async fn full_db() -> Db {
-    let mut db = Db::builder()
-        .models(toasty::models!(
-            showcase::models::User,
-            showcase::models::Author,
-            showcase::models::Post,
-            showcase::models::Comment
-        ))
-        .connect("sqlite::memory:")
-        .await
-        .unwrap();
-    db.push_schema().await.unwrap();
-    seed(&mut db).await.unwrap();
-    seed_phase2(&mut db).await.unwrap();
-    db
-}
+mod common;
+use common::{body_string, full_db, get, get_tenant, post_form_tenant, post_multipart_tenant};
 
 #[tokio::test]
 async fn posts_create_shows_fileupload_and_repeater() {
     let db = full_db().await;
     let router = router(db);
-    let resp = router
-        .handle(
-            Request::builder()
-                .uri("/admin/posts/create")
-                .header("x-tenant-id", DEMO_TENANT.to_string())
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
+    let resp = get_tenant(&router, "/admin/posts/create", DEMO_TENANT).await;
     assert!(resp.status().is_success());
-    let body = resp.into_body().collect().await.unwrap().to_bytes();
-    let html = String::from_utf8_lossy(&body);
+    let html = body_string(resp).await;
     // FileUpload should be an input type="file" with for/id linking and Tokens
     assert!(
         html.contains("type=\"file\""),
@@ -93,24 +63,19 @@ async fn posts_create_invalid_fileupload_repeater_shows_errors() {
     let authors = Author::all().exec(&mut db2).await.unwrap();
     let first = &authors[0];
     // Missing image_path and tags (both required)
-    let resp = router
-        .handle(
-            Request::builder()
-                .uri("/admin/posts/create")
-                .header("x-tenant-id", DEMO_TENANT.to_string())
-                .method(Method::POST)
-                .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
-                .header(COOKIE, format!("argentum_csrf={csrf}"))
-                .body(Body::from(format!(
-                    "title=Test&author_id={}&image_path=&tags=&csrf_token={csrf}",
-                    first.id
-                )))
-                .unwrap(),
-        )
-        .await;
+    let resp = post_form_tenant(
+        &router,
+        "/admin/posts/create",
+        DEMO_TENANT,
+        &csrf,
+        format!(
+            "title=Test&author_id={}&image_path=&tags=&csrf_token={csrf}",
+            first.id
+        ),
+    )
+    .await;
     let status = resp.status();
-    let body = resp.into_body().collect().await.unwrap().to_bytes();
-    let html = String::from_utf8_lossy(&body);
+    let html = body_string(resp).await;
     assert!(
         status.is_success(),
         "invalid should be 200, got {} {}",
@@ -137,21 +102,17 @@ async fn posts_create_valid_fileupload_repeater_creates() {
     let authors = Author::all().exec(&mut db2).await.unwrap();
     let first = &authors[0];
     let before = Post::all().exec(&mut db2).await.unwrap().len();
-    let resp = router
-        .handle(
-            Request::builder()
-                .uri("/admin/posts/create")
-                .header("x-tenant-id", DEMO_TENANT.to_string())
-                .method(Method::POST)
-                .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
-                .header(COOKIE, format!("argentum_csrf={csrf}"))
-                .body(Body::from(format!(
-                    "title=Valid+With+Files&author_id={}&image_path=/tmp/valid.jpg&tags=valid,tags&csrf_token={csrf}",
-                    first.id
-                )))
-                .unwrap(),
-        )
-        .await;
+    let resp = post_form_tenant(
+        &router,
+        "/admin/posts/create",
+        DEMO_TENANT,
+        &csrf,
+        format!(
+            "title=Valid+With+Files&author_id={}&image_path=/tmp/valid.jpg&tags=valid,tags&csrf_token={csrf}",
+            first.id
+        ),
+    )
+    .await;
     assert!(
         resp.status().is_redirection(),
         "valid should redirect, got {} ",
@@ -175,18 +136,9 @@ async fn posts_create_valid_fileupload_repeater_creates() {
 async fn posts_create_form_is_multipart() {
     let db = full_db().await;
     let router = router(db);
-    let resp = router
-        .handle(
-            Request::builder()
-                .uri("/admin/posts/create")
-                .header("x-tenant-id", DEMO_TENANT.to_string())
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
+    let resp = get_tenant(&router, "/admin/posts/create", DEMO_TENANT).await;
     assert!(resp.status().is_success());
-    let body = resp.into_body().collect().await.unwrap().to_bytes();
-    let html = String::from_utf8_lossy(&body);
+    let html = body_string(resp).await;
     assert!(
         html.contains("enctype=\"multipart/form-data\""),
         "file form must be multipart, got {}",
@@ -203,17 +155,9 @@ async fn posts_create_form_is_multipart() {
 async fn users_create_form_stays_urlencoded() {
     let db = full_db().await;
     let router = router(db);
-    let resp = router
-        .handle(
-            Request::builder()
-                .uri("/admin/users/create")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
+    let resp = get(&router, "/admin/users/create").await;
     assert!(resp.status().is_success());
-    let body = resp.into_body().collect().await.unwrap().to_bytes();
-    let html = String::from_utf8_lossy(&body);
+    let html = body_string(resp).await;
     assert!(
         !html.contains("multipart/form-data"),
         "plain form must stay urlencoded, got {}",
@@ -241,21 +185,15 @@ async fn posts_create_multipart_file_stores_filename() {
         id = first.id
     );
     let before = Post::all().exec(&mut db2).await.unwrap().len();
-    let resp = router
-        .handle(
-            Request::builder()
-                .uri("/admin/posts/create")
-                .header("x-tenant-id", DEMO_TENANT.to_string())
-                .method(Method::POST)
-                .header(
-                    CONTENT_TYPE,
-                    format!("multipart/form-data; boundary={boundary}"),
-                )
-                .header(COOKIE, format!("argentum_csrf={csrf}"))
-                .body(Body::from(body))
-                .unwrap(),
-        )
-        .await;
+    let resp = post_multipart_tenant(
+        &router,
+        "/admin/posts/create",
+        DEMO_TENANT,
+        &csrf,
+        boundary,
+        body,
+    )
+    .await;
     assert!(
         resp.status().is_redirection(),
         "multipart valid should redirect, got {}",
@@ -295,21 +233,17 @@ async fn posts_edit_untouched_file_keeps_stored_path() {
     assert_eq!(post.image_path, "/images/hello.jpg");
     let authors = Author::all().exec(&mut db_q).await.unwrap();
     let csrf = uuid::Uuid::new_v4().to_string();
-    let resp = router
-        .handle(
-            Request::builder()
-                .uri(format!("/admin/posts/{}/edit", post.id))
-                .header("x-tenant-id", DEMO_TENANT.to_string())
-                .method(Method::POST)
-                .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
-                .header(COOKIE, format!("argentum_csrf={csrf}"))
-                .body(Body::from(format!(
-                    "title=Renamed&author_id={}&image_path=&tags=rust&csrf_token={csrf}",
-                    authors[0].id
-                )))
-                .unwrap(),
-        )
-        .await;
+    let resp = post_form_tenant(
+        &router,
+        &format!("/admin/posts/{}/edit", post.id),
+        DEMO_TENANT,
+        &csrf,
+        format!(
+            "title=Renamed&author_id={}&image_path=&tags=rust&csrf_token={csrf}",
+            authors[0].id
+        ),
+    )
+    .await;
     assert!(
         resp.status().is_redirection(),
         "untouched-file edit must redirect, got {}",
@@ -351,28 +285,23 @@ async fn posts_edit_explicit_clear_flag_skips_preservation() {
     .expect("seeded post");
     let authors = Author::all().exec(&mut db_q).await.unwrap();
     let csrf = uuid::Uuid::new_v4().to_string();
-    let resp = router
-        .handle(
-            Request::builder()
-                .uri(format!("/admin/posts/{}/edit", post.id))
-                .method(Method::POST)
-                .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
-                .header(COOKIE, format!("argentum_csrf={csrf}"))
-                .header("x-tenant-id", showcase::models::DEMO_TENANT.to_string())
-                .body(Body::from(format!(
-                    "title=Kept&author_id={}&image_path=&tags=rust&clear_image_path=1&csrf_token={csrf}",
-                    authors[0].id
-                )))
-                .unwrap(),
-        )
-        .await;
+    let resp = post_form_tenant(
+        &router,
+        &format!("/admin/posts/{}/edit", post.id),
+        DEMO_TENANT,
+        &csrf,
+        format!(
+            "title=Kept&author_id={}&image_path=&tags=rust&clear_image_path=1&csrf_token={csrf}",
+            authors[0].id
+        ),
+    )
+    .await;
     assert!(
         resp.status().is_success(),
         "explicit clear on a required file must re-render, got {}",
         resp.status()
     );
-    let body = resp.into_body().collect().await.unwrap().to_bytes();
-    let html = String::from_utf8_lossy(&body);
+    let html = body_string(resp).await;
     assert!(
         html.contains("is required"),
         "cleared required file must error inline, got {html}"
@@ -416,21 +345,15 @@ async fn multipart_body_limit_matches_urlencoded_cap() {
         id = authors[0].id,
         blob = big_ok,
     );
-    let resp = router
-        .handle(
-            Request::builder()
-                .uri("/admin/posts/create")
-                .method(Method::POST)
-                .header(
-                    CONTENT_TYPE,
-                    format!("multipart/form-data; boundary={boundary}"),
-                )
-                .header(COOKIE, format!("argentum_csrf={csrf}"))
-                .header("x-tenant-id", showcase::models::DEMO_TENANT.to_string())
-                .body(Body::from(body))
-                .unwrap(),
-        )
-        .await;
+    let resp = post_multipart_tenant(
+        &router,
+        "/admin/posts/create",
+        DEMO_TENANT,
+        &csrf,
+        boundary,
+        body,
+    )
+    .await;
     assert!(
         resp.status().is_redirection(),
         "3 MiB multipart must pass the 10 MiB cap, got {}",
@@ -445,21 +368,15 @@ async fn multipart_body_limit_matches_urlencoded_cap() {
         b = boundary,
         blob = big_no,
     );
-    let resp = router
-        .handle(
-            Request::builder()
-                .uri("/admin/posts/create")
-                .method(Method::POST)
-                .header(
-                    CONTENT_TYPE,
-                    format!("multipart/form-data; boundary={boundary}"),
-                )
-                .header(COOKIE, format!("argentum_csrf={csrf}"))
-                .header("x-tenant-id", showcase::models::DEMO_TENANT.to_string())
-                .body(Body::from(body))
-                .unwrap(),
-        )
-        .await;
+    let resp = post_multipart_tenant(
+        &router,
+        "/admin/posts/create",
+        DEMO_TENANT,
+        &csrf,
+        boundary,
+        body,
+    )
+    .await;
     assert_eq!(resp.status(), 413, "11 MiB multipart must be rejected");
 }
 
@@ -468,18 +385,9 @@ async fn posts_author_select_is_searchable() {
     // GH #91: the relationship select carries the client-side filter hook.
     let db = full_db().await;
     let router = router(db);
-    let resp = router
-        .handle(
-            Request::builder()
-                .uri("/admin/posts/create")
-                .header("x-tenant-id", DEMO_TENANT.to_string())
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
+    let resp = get_tenant(&router, "/admin/posts/create", DEMO_TENANT).await;
     assert!(resp.status().is_success());
-    let body = resp.into_body().collect().await.unwrap().to_bytes();
-    let html = String::from_utf8_lossy(&body);
+    let html = body_string(resp).await;
     assert!(
         html.contains("data-options-filter"),
         "author select must render the filter hook, got {html}"

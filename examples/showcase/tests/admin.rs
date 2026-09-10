@@ -1,45 +1,23 @@
-use http_body_util::BodyExt;
-use toasty::Db;
-use topcoat::router::Body;
 use topcoat::view::ViewExt;
 
-use showcase::{
-    app::router_for_tests as router,
-    models::{User, seed},
-};
+use showcase::app::router_for_tests as router;
 
-async fn seeded_db() -> Db {
-    let mut db = Db::builder()
-        .models(toasty::models!(User))
-        .connect("sqlite::memory:")
-        .await
-        .expect("connect");
-    db.push_schema().await.expect("push_schema");
-    seed(&mut db).await.expect("seed");
-    db
-}
+mod common;
+use common::{body_string, get, seeded_db};
 
 #[tokio::test]
 async fn admin_resource_list_page_serve_seeded_users() {
     let db = seeded_db().await;
     let router = router(db);
 
-    let response = router
-        .handle(
-            http::Request::builder()
-                .uri("/admin/users")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
+    let response = get(&router, "/admin/users").await;
 
     assert!(
         response.status().is_success(),
         "status {}",
         response.status()
     );
-    let body = response.into_body().collect().await.unwrap().to_bytes();
-    let html = String::from_utf8_lossy(&body);
+    let html = body_string(response).await;
 
     // Layout shell — beautiful: Token classes, sidebar, Token borders
     assert!(
@@ -83,14 +61,7 @@ async fn admin_resource_list_page_serve_seeded_users() {
 async fn admin_unknown_route_is_not_found() {
     let db = seeded_db().await;
     let router = router(db);
-    let response = router
-        .handle(
-            http::Request::builder()
-                .uri("/admin/unknown")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
+    let response = get(&router, "/admin/unknown").await;
     assert_eq!(response.status(), 404);
 }
 
@@ -98,14 +69,7 @@ async fn admin_unknown_route_is_not_found() {
 async fn admin_root_redirects_to_first_resource() {
     let db = seeded_db().await;
     let router = router(db);
-    let response = router
-        .handle(
-            http::Request::builder()
-                .uri("/admin")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
+    let response = get(&router, "/admin").await;
 
     assert_eq!(response.status(), http::StatusCode::TEMPORARY_REDIRECT);
     assert_eq!(
@@ -118,21 +82,13 @@ async fn admin_root_redirects_to_first_resource() {
 async fn showcase_index_lists_features() {
     let db = seeded_db().await;
     let router = router(db);
-    let response = router
-        .handle(
-            http::Request::builder()
-                .uri("/admin/showcase")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
+    let response = get(&router, "/admin/showcase").await;
     assert!(
         response.status().is_success(),
         "showcase index status {}",
         response.status()
     );
-    let body = response.into_body().collect().await.unwrap().to_bytes();
-    let html = String::from_utf8_lossy(&body);
+    let html = body_string(response).await;
     assert!(
         html.contains("Showcase"),
         "missing Showcase heading in {html}"
@@ -158,21 +114,13 @@ async fn showcase_index_lists_features() {
 async fn showcase_ui_renders_card_and_button_with_tokens() {
     let db = seeded_db().await;
     let router = router(db);
-    let response = router
-        .handle(
-            http::Request::builder()
-                .uri("/admin/showcase/ui")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
+    let response = get(&router, "/admin/showcase/ui").await;
     assert!(
         response.status().is_success(),
         "ui showcase status {}",
         response.status()
     );
-    let body = response.into_body().collect().await.unwrap().to_bytes();
-    let html = String::from_utf8_lossy(&body);
+    let html = body_string(response).await;
     assert!(
         html.contains("Beautiful card") || html.contains("argentum-ui"),
         "missing card title in {html}"
@@ -196,21 +144,13 @@ async fn showcase_ui_renders_card_and_button_with_tokens() {
 async fn showcase_dialog_renders_notification_and_dialog_with_tokens() {
     let db = seeded_db().await;
     let router = router(db);
-    let response = router
-        .handle(
-            http::Request::builder()
-                .uri("/admin/showcase/dialog")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
+    let response = get(&router, "/admin/showcase/dialog").await;
     assert!(
         response.status().is_success(),
         "dialog showcase status {}",
         response.status()
     );
-    let body = response.into_body().collect().await.unwrap().to_bytes();
-    let html = String::from_utf8_lossy(&body);
+    let html = body_string(response).await;
     // Notification stack: fixed top-4 right-4, card with border-border bg-background shadow-sm
     assert!(
         html.contains("fixed top-4 right-4") || html.contains("top-4 right-4"),
@@ -246,21 +186,13 @@ async fn showcase_dialog_renders_notification_and_dialog_with_tokens() {
 async fn showcase_schema_renders_variants() {
     let db = seeded_db().await;
     let router = router(db);
-    let response = router
-        .handle(
-            http::Request::builder()
-                .uri("/admin/showcase/schema")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
+    let response = get(&router, "/admin/showcase/schema").await;
     assert!(
         response.status().is_success(),
         "schema showcase status {}",
         response.status()
     );
-    let body = response.into_body().collect().await.unwrap().to_bytes();
-    let html = String::from_utf8_lossy(&body);
+    let html = body_string(response).await;
     // Snippets + rendered classes — beautiful: Token classes
     assert!(html.contains("Text::new"), "missing Text snippet in {html}");
     assert!(
@@ -306,21 +238,13 @@ async fn showcase_schema_renders_variants() {
 async fn showcase_resource_renders_derives_and_navigation() {
     let db = seeded_db().await;
     let router = router(db);
-    let response = router
-        .handle(
-            http::Request::builder()
-                .uri("/admin/showcase/resource")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
+    let response = get(&router, "/admin/showcase/resource").await;
     assert!(
         response.status().is_success(),
         "resource showcase status {}",
         response.status()
     );
-    let body = response.into_body().collect().await.unwrap().to_bytes();
-    let html = String::from_utf8_lossy(&body);
+    let html = body_string(response).await;
     assert!(
         html.contains("BareUserResource"),
         "missing Bare snippet in {html}"
@@ -352,21 +276,13 @@ async fn showcase_resource_renders_derives_and_navigation() {
 async fn showcase_panel_renders_normalization() {
     let db = seeded_db().await;
     let router = router(db);
-    let response = router
-        .handle(
-            http::Request::builder()
-                .uri("/admin/showcase/panel")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
+    let response = get(&router, "/admin/showcase/panel").await;
     assert!(
         response.status().is_success(),
         "panel showcase status {}",
         response.status()
     );
-    let body = response.into_body().collect().await.unwrap().to_bytes();
-    let html = String::from_utf8_lossy(&body);
+    let html = body_string(response).await;
     assert!(
         html.contains("Panel::new"),
         "missing Panel snippet in {html}"
@@ -381,21 +297,13 @@ async fn showcase_panel_renders_normalization() {
 async fn showcase_db_renders_memoized_loader() {
     let db = seeded_db().await;
     let router = router(db);
-    let response = router
-        .handle(
-            http::Request::builder()
-                .uri("/admin/showcase/db")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
+    let response = get(&router, "/admin/showcase/db").await;
     assert!(
         response.status().is_success(),
         "db showcase status {}",
         response.status()
     );
-    let body = response.into_body().collect().await.unwrap().to_bytes();
-    let html = String::from_utf8_lossy(&body);
+    let html = body_string(response).await;
     assert!(html.contains("db(cx)"), "missing db snippet in {html}");
     assert!(
         html.contains("#[memoize"),
@@ -411,21 +319,13 @@ async fn showcase_db_renders_memoized_loader() {
 async fn showcase_table_renders_variants() {
     let db = seeded_db().await;
     let router = router(db);
-    let response = router
-        .handle(
-            http::Request::builder()
-                .uri("/admin/showcase/table")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
+    let response = get(&router, "/admin/showcase/table").await;
     assert!(
         response.status().is_success(),
         "table showcase status {}",
         response.status()
     );
-    let body = response.into_body().collect().await.unwrap().to_bytes();
-    let html = String::from_utf8_lossy(&body);
+    let html = body_string(response).await;
     assert!(
         html.contains("TextColumn::for"),
         "missing TextColumn snippet in {html}"
@@ -478,21 +378,13 @@ async fn admin_table_via_resource_has_searchable_sortable() {
 async fn admin_list_renders_search_box_and_sort_links() {
     let db = seeded_db().await;
     let router = router(db);
-    let response = router
-        .handle(
-            http::Request::builder()
-                .uri("/admin/users")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
+    let response = get(&router, "/admin/users").await;
     assert!(
         response.status().is_success(),
         "status {}",
         response.status()
     );
-    let body = response.into_body().collect().await.unwrap().to_bytes();
-    let html = String::from_utf8_lossy(&body);
+    let html = body_string(response).await;
     // Real search UI — a GET form with a q input, not a URL-only affordance.
     assert!(
         html.contains("<form") && html.contains("name=\"q\""),
@@ -516,21 +408,13 @@ async fn admin_list_renders_search_box_and_sort_links() {
 
     // Sorted ascending: the same link toggles to descending and the column
     // declares aria-sort="ascending".
-    let response = router
-        .handle(
-            http::Request::builder()
-                .uri("/admin/users?sort=name&dir=asc")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
+    let response = get(&router, "/admin/users?sort=name&dir=asc").await;
     assert!(
         response.status().is_success(),
         "sorted status {}",
         response.status()
     );
-    let body = response.into_body().collect().await.unwrap().to_bytes();
-    let sorted = String::from_utf8_lossy(&body);
+    let sorted = body_string(response).await;
     assert!(
         sorted.contains("sort=name&amp;dir=desc"),
         "missing sort toggle link in {sorted}"
@@ -541,21 +425,13 @@ async fn admin_list_renders_search_box_and_sort_links() {
     );
 
     // Sorted descending: direction is declared and the link toggles back.
-    let response = router
-        .handle(
-            http::Request::builder()
-                .uri("/admin/users?sort=name&dir=desc")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
+    let response = get(&router, "/admin/users?sort=name&dir=desc").await;
     assert!(
         response.status().is_success(),
         "desc status {}",
         response.status()
     );
-    let body = response.into_body().collect().await.unwrap().to_bytes();
-    let desc = String::from_utf8_lossy(&body);
+    let desc = body_string(response).await;
     assert!(
         desc.contains("aria-sort=\"descending\""),
         "missing aria-sort=descending in {desc}"
@@ -570,16 +446,8 @@ async fn admin_list_renders_search_box_and_sort_links() {
 async fn admin_list_pagination_walks_cursor_links() {
     let db = seeded_db().await;
     let router = router(db);
-    let response = router
-        .handle(
-            http::Request::builder()
-                .uri("/admin/users")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
-    let body = response.into_body().collect().await.unwrap().to_bytes();
-    let page1 = String::from_utf8_lossy(&body);
+    let response = get(&router, "/admin/users").await;
+    let page1 = body_string(response).await;
 
     // Page 1 (name asc, 2 per page): Ada + Alan, not Grace; a real Next link.
     assert!(page1.contains("Ada Lovelace"), "page1 missing Ada: {page1}");
@@ -591,21 +459,13 @@ async fn admin_list_pagination_walks_cursor_links() {
     let next_href = find_href_with(&page1, "after=")
         .unwrap_or_else(|| panic!("page1 missing Next (after=) link: {page1}"));
 
-    let response = router
-        .handle(
-            http::Request::builder()
-                .uri(next_href)
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
+    let response = get(&router, &next_href).await;
     assert!(
         response.status().is_success(),
         "page2 status {}",
         response.status()
     );
-    let body = response.into_body().collect().await.unwrap().to_bytes();
-    let page2 = String::from_utf8_lossy(&body);
+    let page2 = body_string(response).await;
     assert!(
         page2.contains("Grace Hopper"),
         "page2 missing Grace: {page2}"
@@ -621,21 +481,13 @@ async fn admin_list_pagination_walks_cursor_links() {
 
     // Following Previous returns to the first page.
     let prev_href = find_href_with(&page2, "before=").unwrap();
-    let response = router
-        .handle(
-            http::Request::builder()
-                .uri(prev_href)
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
+    let response = get(&router, &prev_href).await;
     assert!(
         response.status().is_success(),
         "page1-again status {}",
         response.status()
     );
-    let body = response.into_body().collect().await.unwrap().to_bytes();
-    let page1_again = String::from_utf8_lossy(&body);
+    let page1_again = body_string(response).await;
     assert!(
         page1_again.contains("Ada Lovelace") || page1_again.contains("Alan Turing"),
         "previous page must show page-1 rows: {page1_again}"
@@ -661,21 +513,13 @@ fn find_href_with(html: &str, needle: &str) -> Option<String> {
 async fn admin_list_empty_search_shows_no_results_with_clear() {
     let db = seeded_db().await;
     let router = router(db);
-    let response = router
-        .handle(
-            http::Request::builder()
-                .uri("/admin/users?q=zzz-none")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
+    let response = get(&router, "/admin/users?q=zzz-none").await;
     assert!(
         response.status().is_success(),
         "status {}",
         response.status()
     );
-    let body = response.into_body().collect().await.unwrap().to_bytes();
-    let html = String::from_utf8_lossy(&body);
+    let html = body_string(response).await;
     assert!(
         html.contains("No prefix matches for"),
         "search-empty state must say No prefix matches: {html}"
@@ -698,21 +542,13 @@ async fn admin_list_empty_search_shows_no_results_with_clear() {
 async fn admin_list_filters_via_q_param() {
     let db = seeded_db().await;
     let router = router(db);
-    let response = router
-        .handle(
-            http::Request::builder()
-                .uri("/admin/users?q=Ada")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
+    let response = get(&router, "/admin/users?q=Ada").await;
     assert!(
         response.status().is_success(),
         "filtered status {}",
         response.status()
     );
-    let body = response.into_body().collect().await.unwrap().to_bytes();
-    let html = String::from_utf8_lossy(&body);
+    let html = body_string(response).await;
     assert!(
         html.contains("Ada Lovelace"),
         "filtered should contain Ada in {html}"
@@ -772,20 +608,11 @@ async fn admin_form_via_resource_renders_text_inputs() {
 async fn users_list_renders_live_search_host_with_get_fallback() {
     // GH #104: the users table opts into the keystroke-live shard; the ?q=
     // GET toolbar stays as the no-JS fallback.
-    use http::Request;
     let db = seeded_db().await;
     let router = router(db);
-    let resp = router
-        .handle(
-            Request::builder()
-                .uri("/admin/users")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
+    let resp = get(&router, "/admin/users").await;
     assert!(resp.status().is_success());
-    let body = resp.into_body().collect().await.unwrap().to_bytes();
-    let html = String::from_utf8_lossy(&body);
+    let html = body_string(resp).await;
     assert!(
         html.contains("data-live-search"),
         "users list must render the live host, got {html}"

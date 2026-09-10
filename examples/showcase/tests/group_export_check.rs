@@ -1,62 +1,23 @@
-use http::Request;
-use http_body_util::BodyExt;
-use showcase::{
-    app::router_for_tests as router,
-    models::{DEMO_TENANT, seed, seed_phase2},
-};
-use toasty::Db;
-use topcoat::router::Body;
+use showcase::{app::router_for_tests as router, models::DEMO_TENANT};
 
-async fn full_db() -> Db {
-    let mut db = Db::builder()
-        .models(toasty::models!(
-            showcase::models::User,
-            showcase::models::Author,
-            showcase::models::Post,
-            showcase::models::Comment
-        ))
-        .connect("sqlite::memory:")
-        .await
-        .unwrap();
-    db.push_schema().await.unwrap();
-    seed(&mut db).await.unwrap();
-    seed_phase2(&mut db).await.unwrap();
-    db
-}
+mod common;
+use common::{body_string, full_db, get_tenant};
 
 #[tokio::test]
 async fn posts_export_bom_opt_in_prepends_bom() {
     // GH #94: `?bom=1` opts into a UTF-8 BOM for Excel; default stays BOM-free.
     let db = full_db().await;
     let router = router(db);
-    let resp = router
-        .handle(
-            Request::builder()
-                .uri("/admin/posts/export?bom=1")
-                .header("x-tenant-id", DEMO_TENANT.to_string())
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
+    let resp = get_tenant(&router, "/admin/posts/export?bom=1", DEMO_TENANT).await;
     assert!(resp.status().is_success());
-    let body = resp.into_body().collect().await.unwrap().to_bytes();
-    let csv = String::from_utf8_lossy(&body);
+    let csv = body_string(resp).await;
     assert!(
         csv.starts_with('\u{FEFF}'),
         "bom=1 export must start with BOM, got {csv:?}"
     );
 
-    let resp = router
-        .handle(
-            Request::builder()
-                .uri("/admin/posts/export")
-                .header("x-tenant-id", DEMO_TENANT.to_string())
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
-    let body = resp.into_body().collect().await.unwrap().to_bytes();
-    let csv = String::from_utf8_lossy(&body);
+    let resp = get_tenant(&router, "/admin/posts/export", DEMO_TENANT).await;
+    let csv = body_string(resp).await;
     assert!(
         !csv.starts_with('\u{FEFF}'),
         "default export must stay BOM-free, got {csv:?}"
@@ -67,22 +28,13 @@ async fn posts_export_bom_opt_in_prepends_bom() {
 async fn posts_group_by_status_shows_counts() {
     let db = full_db().await;
     let router = router(db);
-    let resp = router
-        .handle(
-            Request::builder()
-                .uri("/admin/posts?group_by=status")
-                .header("x-tenant-id", DEMO_TENANT.to_string())
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
+    let resp = get_tenant(&router, "/admin/posts?group_by=status", DEMO_TENANT).await;
     assert!(
         resp.status().is_success(),
         "group_by should be 200, got {}",
         resp.status()
     );
-    let body = resp.into_body().collect().await.unwrap().to_bytes();
-    let html = String::from_utf8_lossy(&body);
+    let html = body_string(resp).await;
     // Should show group headers with counts (in-memory grouping)
     assert!(
         html.contains("published") || html.contains("draft"),
@@ -101,15 +53,7 @@ async fn posts_group_by_status_shows_counts() {
 async fn posts_export_streams_csv_with_content_disposition() {
     let db = full_db().await;
     let router = router(db);
-    let resp = router
-        .handle(
-            Request::builder()
-                .uri("/admin/posts/export")
-                .header("x-tenant-id", DEMO_TENANT.to_string())
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
+    let resp = get_tenant(&router, "/admin/posts/export", DEMO_TENANT).await;
     assert!(
         resp.status().is_success(),
         "export should be 200, got {}",
@@ -147,8 +91,7 @@ async fn posts_export_streams_csv_with_content_disposition() {
         "filename should be posts.csv, got {}",
         disposition
     );
-    let body = resp.into_body().collect().await.unwrap().to_bytes();
-    let csv = String::from_utf8_lossy(&body);
+    let csv = body_string(resp).await;
     // Header row with column labels (Title, Author, etc.)
     assert!(
         csv.contains("Title") || csv.contains("title"),
@@ -164,17 +107,13 @@ async fn posts_export_streams_csv_with_content_disposition() {
         csv
     );
     // Should respect filters if provided
-    let resp = router
-        .handle(
-            Request::builder()
-                .uri("/admin/posts/export?filters=status:published")
-                .header("x-tenant-id", DEMO_TENANT.to_string())
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
-    let body = resp.into_body().collect().await.unwrap().to_bytes();
-    let csv = String::from_utf8_lossy(&body);
+    let resp = get_tenant(
+        &router,
+        "/admin/posts/export?filters=status:published",
+        DEMO_TENANT,
+    )
+    .await;
+    let csv = body_string(resp).await;
     assert!(
         csv.contains("Hello Toasty"),
         "filtered export should contain published {}",

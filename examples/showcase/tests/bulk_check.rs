@@ -1,26 +1,10 @@
-use http::{
-    Method, Request,
-    header::{CONTENT_TYPE, COOKIE, LOCATION},
-};
-use http_body_util::BodyExt;
-use showcase::{
-    app::router_for_tests as router,
-    models::{User, seed},
-};
+use http::header::LOCATION;
+use showcase::{app::router_for_tests as router, models::User};
 use toasty::Db;
-use topcoat::router::Body;
 use topcoat::view::ViewExt;
 
-async fn seeded_db() -> Db {
-    let mut db = Db::builder()
-        .models(toasty::models!(User))
-        .connect("sqlite::memory:")
-        .await
-        .unwrap();
-    db.push_schema().await.unwrap();
-    seed(&mut db).await.unwrap();
-    db
-}
+mod common;
+use common::{body_string, get, post_form, seeded_db};
 
 #[tokio::test]
 async fn bulk_delete_deletes_selected() {
@@ -34,16 +18,8 @@ async fn bulk_delete_deletes_selected() {
     let ids_param = ids.join(",");
 
     // Check that list page contains Bulk Delete
-    let resp = router
-        .handle(
-            Request::builder()
-                .uri("/admin/users")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
-    let body = resp.into_body().collect().await.unwrap().to_bytes();
-    let html = String::from_utf8_lossy(&body);
+    let resp = get(&router, "/admin/users").await;
+    let html = body_string(resp).await;
     assert!(
         html.contains("Bulk Delete"),
         "list should contain Bulk Delete, got {}",
@@ -56,17 +32,13 @@ async fn bulk_delete_deletes_selected() {
     );
 
     // Bulk delete
-    let resp = router
-        .handle(
-            Request::builder()
-                .uri("/admin/users/bulk-delete")
-                .method(Method::POST)
-                .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
-                .header(COOKIE, format!("argentum_csrf={csrf}"))
-                .body(Body::from(format!("ids={ids_param}&csrf_token={csrf}")))
-                .unwrap(),
-        )
-        .await;
+    let resp = post_form(
+        &router,
+        "/admin/users/bulk-delete",
+        &csrf,
+        format!("ids={ids_param}&csrf_token={csrf}"),
+    )
+    .await;
     assert!(
         resp.status().is_redirection(),
         "bulk delete should redirect, got {}",
@@ -94,11 +66,8 @@ async fn bulk_delete_deletes_selected() {
         remaining.len()
     );
     // Follow redirect and check notification
-    let resp2 = router
-        .handle(Request::builder().uri(loc).body(Body::empty()).unwrap())
-        .await;
-    let body2 = resp2.into_body().collect().await.unwrap().to_bytes();
-    let html2 = String::from_utf8_lossy(&body2);
+    let resp2 = get(&router, loc).await;
+    let html2 = body_string(resp2).await;
     assert!(
         html2.contains("fixed top-4 right-4"),
         "notification should survive, got {}",
@@ -119,17 +88,9 @@ async fn bulk_bar_renders_checkboxes_with_row_keys() {
     // The list streams (skeleton first, rows in the swap payload); the
     // collected body contains both. The table paginates by 2, so the first
     // page carries exactly 2 row checkboxes.
-    let resp = router
-        .handle(
-            Request::builder()
-                .uri("/admin/users")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
+    let resp = get(&router, "/admin/users").await;
     assert!(resp.status().is_success());
-    let body = resp.into_body().collect().await.unwrap().to_bytes();
-    let html = String::from_utf8_lossy(&body);
+    let html = body_string(resp).await;
     assert_eq!(
         html.matches("data-row-select").count(),
         2,
@@ -163,16 +124,8 @@ async fn bulk_bar_renders_checkboxes_with_row_keys() {
     );
     // A filtered list shows only the matching row's checkbox.
     let ada = users.iter().find(|u| u.name == "Ada Lovelace").unwrap();
-    let resp = router
-        .handle(
-            Request::builder()
-                .uri("/admin/users?q=Ada")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
-    let body = resp.into_body().collect().await.unwrap().to_bytes();
-    let html = String::from_utf8_lossy(&body);
+    let resp = get(&router, "/admin/users?q=Ada").await;
+    let html = body_string(resp).await;
     assert!(
         html.contains(&format!("value=\"{}\"", ada.id)),
         "filtered row checkbox missing in {}",
@@ -192,17 +145,13 @@ async fn bulk_bar_renders_checkboxes_with_row_keys() {
         .map(|u| u.id.to_string())
         .collect::<Vec<_>>()
         .join(",");
-    let resp = router
-        .handle(
-            Request::builder()
-                .uri("/admin/users/bulk-delete")
-                .method(Method::POST)
-                .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
-                .header(COOKIE, format!("argentum_csrf={csrf}"))
-                .body(Body::from(format!("ids={ids_param}&csrf_token={csrf}")))
-                .unwrap(),
-        )
-        .await;
+    let resp = post_form(
+        &router,
+        "/admin/users/bulk-delete",
+        &csrf,
+        format!("ids={ids_param}&csrf_token={csrf}"),
+    )
+    .await;
     assert!(
         resp.status().is_redirection(),
         "checkbox-joined bulk delete should redirect, got {}",
@@ -270,17 +219,13 @@ async fn bulk_delete_partial_deny_aborts() {
     let slug = PartialDenyResource::slug();
     let ids = format!("{},{}", a.id, b.id);
     let csrf = uuid::Uuid::new_v4().to_string();
-    let resp = router
-        .handle(
-            Request::builder()
-                .uri(format!("/admin/{}/bulk-delete", slug))
-                .method(Method::POST)
-                .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
-                .header(http::header::COOKIE, format!("argentum_csrf={csrf}"))
-                .body(Body::from(format!("ids={ids}&csrf_token={csrf}")))
-                .unwrap(),
-        )
-        .await;
+    let resp = post_form(
+        &router,
+        &format!("/admin/{}/bulk-delete", slug),
+        &csrf,
+        format!("ids={ids}&csrf_token={csrf}"),
+    )
+    .await;
     assert_eq!(
         resp.status(),
         403,
@@ -340,14 +285,7 @@ async fn view_any_deny_blocks_list() {
         .resource::<DenyViewAnyResource>()
         .build();
     let slug = DenyViewAnyResource::slug();
-    let resp = router
-        .handle(
-            Request::builder()
-                .uri(format!("/admin/{}", slug))
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
+    let resp = get(&router, &format!("/admin/{}", slug)).await;
     assert_eq!(
         resp.status(),
         403,

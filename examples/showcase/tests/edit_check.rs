@@ -1,25 +1,9 @@
-use http::{
-    Method, Request,
-    header::{CONTENT_TYPE, COOKIE, LOCATION},
-};
-use http_body_util::BodyExt;
-use showcase::{
-    app::router_for_tests as router,
-    models::{User, seed},
-};
+use http::header::LOCATION;
+use showcase::{app::router_for_tests as router, models::User};
 use toasty::Db;
-use topcoat::router::Body;
 
-async fn seeded_db() -> Db {
-    let mut db = Db::builder()
-        .models(toasty::models!(User))
-        .connect("sqlite::memory:")
-        .await
-        .unwrap();
-    db.push_schema().await.unwrap();
-    seed(&mut db).await.unwrap();
-    db
-}
+mod common;
+use common::{assert_hydrate_keys_are_form_fields, body_string, get, post_form, seeded_db};
 
 #[tokio::test]
 async fn edit_page_hydrates_and_updates() {
@@ -34,21 +18,13 @@ async fn edit_page_hydrates_and_updates() {
     let edit_url = format!("/admin/users/{}/edit", id);
 
     // GET edit should be 200 with hydrated values
-    let resp = router
-        .handle(
-            Request::builder()
-                .uri(edit_url.clone())
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
+    let resp = get(&router, &edit_url).await;
     assert!(
         resp.status().is_success(),
         "GET edit should be 200, got {}",
         resp.status()
     );
-    let body = resp.into_body().collect().await.unwrap().to_bytes();
-    let html = String::from_utf8_lossy(&body);
+    let html = body_string(resp).await;
     assert!(
         html.contains(&user.name),
         "edit should contain hydrated name {}, got {}",
@@ -67,24 +43,19 @@ async fn edit_page_hydrates_and_updates() {
 
     // Invalid POST should re-render with errors and not mutate
     let csrf = uuid::Uuid::new_v4().to_string();
-    let resp = router
-        .handle(
-            Request::builder()
-                .uri(edit_url.clone())
-                .method(Method::POST)
-                .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
-                .header(COOKIE, format!("argentum_csrf={csrf}"))
-                .body(Body::from(format!("name=&email=bad&csrf_token={csrf}")))
-                .unwrap(),
-        )
-        .await;
+    let resp = post_form(
+        &router,
+        &edit_url,
+        &csrf,
+        format!("name=&email=bad&csrf_token={csrf}"),
+    )
+    .await;
     assert!(
         resp.status().is_success(),
         "invalid POST should re-render 200, got {}",
         resp.status()
     );
-    let body = resp.into_body().collect().await.unwrap().to_bytes();
-    let html = String::from_utf8_lossy(&body);
+    let html = body_string(resp).await;
     assert!(
         html.contains("is required") || html.contains("must be a valid email"),
         "should contain validation error, got {}",
@@ -96,19 +67,13 @@ async fn edit_page_hydrates_and_updates() {
     assert_eq!(fresh.name, user.name, "should not mutate on invalid");
 
     // Valid POST should update and redirect with notification
-    let resp = router
-        .handle(
-            Request::builder()
-                .uri(edit_url.clone())
-                .method(Method::POST)
-                .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
-                .header(COOKIE, format!("argentum_csrf={csrf}"))
-                .body(Body::from(format!(
-                    "name=Updated%20Name&email=updated%40example.com&csrf_token={csrf}",
-                )))
-                .unwrap(),
-        )
-        .await;
+    let resp = post_form(
+        &router,
+        &edit_url,
+        &csrf,
+        format!("name=Updated%20Name&email=updated%40example.com&csrf_token={csrf}",),
+    )
+    .await;
     assert!(
         resp.status().is_redirection(),
         "valid POST should redirect, got {}",
@@ -126,11 +91,8 @@ async fn edit_page_hydrates_and_updates() {
         loc
     );
     // Follow redirect and check notification
-    let resp2 = router
-        .handle(Request::builder().uri(loc).body(Body::empty()).unwrap())
-        .await;
-    let body2 = resp2.into_body().collect().await.unwrap().to_bytes();
-    let html2 = String::from_utf8_lossy(&body2);
+    let resp2 = get(&router, loc).await;
+    let html2 = body_string(resp2).await;
     assert!(
         html2.contains("fixed top-4 right-4"),
         "missing notification"
@@ -147,14 +109,7 @@ async fn edit_404_for_unknown_or_wrong_tenant() {
     let db = seeded_db().await;
     let router = router(db.clone());
     let fake_id = uuid::Uuid::new_v4().to_string();
-    let resp = router
-        .handle(
-            Request::builder()
-                .uri(format!("/admin/users/{}/edit", fake_id))
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
+    let resp = get(&router, &format!("/admin/users/{}/edit", fake_id)).await;
     assert_eq!(
         resp.status(),
         404,
@@ -169,7 +124,6 @@ async fn edit_404_for_unknown_or_wrong_tenant() {
 #[tokio::test]
 async fn edit_policy_deny() {
     use argentum_core::{Resource, Schema, Table, TextColumn, TextInput};
-    use http::{Method, Request, header::CONTENT_TYPE};
 
     #[derive(Debug, toasty::Model)]
     struct DummyUser {
@@ -229,14 +183,7 @@ async fn edit_policy_deny() {
     let edit_url = format!("/admin/{}/{}/edit", slug, rec.id);
 
     // GET should be 403
-    let resp = router
-        .handle(
-            Request::builder()
-                .uri(edit_url.clone())
-                .body(topcoat::router::Body::empty())
-                .unwrap(),
-        )
-        .await;
+    let resp = get(&router, &edit_url).await;
     assert_eq!(
         resp.status(),
         403,
@@ -246,19 +193,13 @@ async fn edit_policy_deny() {
 
     // POST should also be 403
     let csrf = uuid::Uuid::new_v4().to_string();
-    let resp = router
-        .handle(
-            Request::builder()
-                .uri(edit_url)
-                .method(Method::POST)
-                .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
-                .header(http::header::COOKIE, format!("argentum_csrf={csrf}"))
-                .body(topcoat::router::Body::from(format!(
-                    "name=y&csrf_token={csrf}"
-                )))
-                .unwrap(),
-        )
-        .await;
+    let resp = post_form(
+        &router,
+        &edit_url,
+        &csrf,
+        format!("name=y&csrf_token={csrf}"),
+    )
+    .await;
     assert_eq!(
         resp.status(),
         403,
@@ -299,7 +240,6 @@ async fn update_record_keeps_absent_fields() {
 
 #[tokio::test]
 async fn hydrate_form_values_match_schema_fields() {
-    use argentum_core::Resource;
     use showcase::app::UserResource;
 
     let db = seeded_db().await;
@@ -312,11 +252,5 @@ async fn hydrate_form_values_match_schema_fields() {
     // Every hydrated key must be a declared form field (GH #89): a renamed
     // lens without an updated string literal would render blank and break
     // the unique unchanged-skip.
-    let fields = UserResource::form(&cx).field_names();
-    for key in UserResource::hydrate_form_values(user).keys() {
-        assert!(
-            fields.contains(key),
-            "hydrate key {key} is not a User form field"
-        );
-    }
+    assert_hydrate_keys_are_form_fields::<UserResource>(&cx, user);
 }
