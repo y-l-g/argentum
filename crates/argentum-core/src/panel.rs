@@ -810,6 +810,23 @@ pub(crate) async fn table_search(
     entry(cx, state, path).await
 }
 
+/// Retry link for a failed streamed grid load (GH #110).
+///
+/// A malformed `?after=`/`?before=` cursor is the failure itself: retrying the
+/// identical URL loops forever, so drop pagination from the link and keep the
+/// rest of the state (search/sort/filters/grouping). Every other failure keeps
+/// pagination too (GH #98) so a transient blip retries the same evidence.
+fn retry_url_for_error(state: &TableState, error: &topcoat::Error, path: &str) -> String {
+    if error
+        .downcast_ref::<crate::cursor::CursorDecodeError>()
+        .is_some()
+    {
+        state.retry_url_without_cursor(path)
+    } else {
+        state.retry_url(path)
+    }
+}
+
 fn resource_list<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
     Box::pin(HoistView::new(ThenView::new(async move {
         enforce_tenant::<R>(cx)?;
@@ -861,7 +878,7 @@ fn resource_list<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
                 Ok(view) => Ok(view),
                 Err(error) => {
                     tracing::error!(resource = R::slug(), error = %error, "table load failed");
-                    let retry = state.retry_url(&list_url(cx, &R::slug()));
+                    let retry = retry_url_for_error(&state, &error, &list_url(cx, &R::slug()));
                     let action = view! { cx => <a href=(retry)>"Retry"</a> }.boxed();
                     Ok(view! {
                         cx =>
@@ -923,7 +940,7 @@ fn resource_list_live<R: Resource>(
                 Ok(view) => Ok(view),
                 Err(error) => {
                     tracing::error!(resource = R::slug(), error = %error, "table load failed");
-                    let retry = state.retry_url(&list_path);
+                    let retry = retry_url_for_error(&state, &error, &list_path);
                     let action = view! { cx => <a href=(retry)>"Retry"</a> }.boxed();
                     Ok(view! {
                         cx =>
@@ -3874,6 +3891,45 @@ mod tests {
         assert!(
             !body.contains("No records yet"),
             "a failed load is not an empty state: {body}"
+        );
+        // GH #110: the tampered cursor is the failure itself, so the retry link
+        // drops `after`/`before` instead of re-requesting the identical broken
+        // URL forever. The rest of the list state still retries.
+        assert!(
+            body.contains("href=\"/admin/subscribers\""),
+            "retry link must target the bare list (cursor dropped): {body}"
+        );
+        assert!(
+            !body.contains("after="),
+            "a malformed cursor must not travel into the retry link: {body}"
+        );
+    }
+
+    #[test]
+    fn retry_url_for_error_drops_only_bad_cursors() {
+        // GH #110: a malformed cursor can never decode, so its retry link drops
+        // pagination; any other failure keeps the full evidence (GH #98).
+        let state = TableState {
+            search: Some("Ada".to_string()),
+            after: Some("cur".to_string()),
+            ..TableState::default()
+        };
+        let bad_cursor = crate::cursor::decode("zz").expect_err("malformed cursor must fail");
+        let retry = retry_url_for_error(&state, &bad_cursor, "/admin/users");
+        assert!(
+            !retry.contains("after="),
+            "bad-cursor retry must drop pagination, got {retry}"
+        );
+        assert!(
+            retry.contains("q=Ada"),
+            "bad-cursor retry keeps the other state, got {retry}"
+        );
+
+        let db_error = topcoat::Error::from(std::io::Error::other("db unavailable"));
+        let retry = retry_url_for_error(&state, &db_error, "/admin/users");
+        assert!(
+            retry.contains("after=cur"),
+            "transient failures retry the same evidence, got {retry}"
         );
     }
 

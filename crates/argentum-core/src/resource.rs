@@ -2469,11 +2469,33 @@ impl TableState {
     /// (GH #98): a filtered/sorted/paginated failure retries the same evidence,
     /// not the bare list.
     pub(crate) fn retry_url(&self, path: &str) -> String {
+        self.retry_url_inner(path, true)
+    }
+
+    /// Retry URL for a failure whose cause is the cursor itself (GH #110): the
+    /// malformed `after`/`before` token can never decode, so retrying the
+    /// identical URL would loop forever. Drop pagination and keep the rest of
+    /// the evidence (search/sort/filters/grouping).
+    pub(crate) fn retry_url_without_cursor(&self, path: &str) -> String {
+        self.retry_url_inner(path, false)
+    }
+
+    fn retry_url_inner(&self, path: &str, with_cursor: bool) -> String {
         let dir = self
             .sort
             .as_ref()
             .map(|s| if s.descending { "desc" } else { "asc" });
         let filters = self.filters_param();
+        let after = if with_cursor {
+            self.after.as_deref()
+        } else {
+            None
+        };
+        let before = if with_cursor {
+            self.before.as_deref()
+        } else {
+            None
+        };
         build_url(
             path,
             &[
@@ -2482,8 +2504,8 @@ impl TableState {
                 ("dir", dir),
                 ("filters", filters.as_deref()),
                 ("group_by", self.group_by.as_deref()),
-                ("after", self.after.as_deref()),
-                ("before", self.before.as_deref()),
+                ("after", after),
+                ("before", before),
             ],
         )
     }
@@ -4849,5 +4871,23 @@ mod tests {
         ] {
             assert!(url.contains(part), "retry must preserve {part}, got {url}");
         }
+    }
+
+    #[test]
+    fn retry_url_without_cursor_drops_pagination_only() {
+        // GH #110: a malformed cursor can never decode again, so its retry
+        // drops `after`/`before` while keeping the rest of the evidence.
+        let state = TableState {
+            search: Some("Ada".to_string()),
+            after: Some("after-cur".to_string()),
+            before: Some("before-cur".to_string()),
+            ..TableState::default()
+        };
+        let url = state.retry_url_without_cursor("/admin/users");
+        assert!(url.contains("q=Ada"), "must keep search, got {url}");
+        assert!(
+            !url.contains("after=") && !url.contains("before="),
+            "must drop both cursors, got {url}"
+        );
     }
 }

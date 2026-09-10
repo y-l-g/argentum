@@ -55,6 +55,23 @@ pub fn encode(value: &Value) -> Result<String> {
     Ok(hex_encode(&payload))
 }
 
+/// A malformed cursor token — the `?after=`/`?before=` value itself is bad.
+///
+/// Distinguishable from any other load failure so the list page can drop the
+/// cursor from its retry link (GH #110): retrying the identical URL can never
+/// succeed, while a transient failure must retry the same evidence (GH #98).
+/// The message is the decode error's own `cursor: …` text.
+#[derive(Debug)]
+pub(crate) struct CursorDecodeError(String);
+
+impl std::fmt::Display for CursorDecodeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for CursorDecodeError {}
+
 /// Decode a token produced by [`encode`] back into a cursor [`Value`].
 ///
 /// # Errors
@@ -62,8 +79,15 @@ pub fn encode(value: &Value) -> Result<String> {
 /// Errors on malformed input (wrong length, unknown tag or version) so a
 /// tampered or truncated `?after=`/`?before=` parameter fails loudly instead
 /// of silently restarting pagination. Record nesting is depth-capped (GH #95)
-/// so attacker-controlled tokens cannot drive unbounded recursion.
+/// so attacker-controlled tokens cannot drive unbounded recursion. Every
+/// failure carries the crate-private `CursorDecodeError` marker, letting the
+/// list page's retry link tell a tampered cursor (drop it) from a transient
+/// load failure (keep it, #98).
 pub fn decode(token: &str) -> Result<Value> {
+    decode_inner(token).map_err(|e| topcoat::Error::from(CursorDecodeError(e.to_string())))
+}
+
+fn decode_inner(token: &str) -> Result<Value> {
     let payload = hex_decode(token)?;
     let mut buf = &payload[..];
     let version = take(&mut buf, 1)?[0];
