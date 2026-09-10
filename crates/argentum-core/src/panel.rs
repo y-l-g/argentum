@@ -1747,7 +1747,7 @@ fn resource_bulk_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
             let values = parse_form_values(cx, body).await?;
             crate::csrf::verify(cx, &values)?;
             let ids_raw = values.get("ids").cloned().unwrap_or_default();
-            let ids = parse_bulk_ids(&ids_raw);
+            let ids = parse_bulk_ids(&ids_raw, MAX_BULK_IDS);
             if ids.is_empty() {
                 return Err(topcoat::router::error::bad_request("no ids provided").into());
             }
@@ -1827,15 +1827,25 @@ fn export_wants_bom(cx: &Cx) -> bool {
 /// Parse + dedupe bulk `ids` while preserving order, so a repeated id can't
 /// make the fetched-rows count check misfire.
 ///
+/// `max` bounds the parse itself, not just the final list (GH #85): a 10 MiB
+/// body of distinct ids stops at `max + 1` entries (which the handler then
+/// rejects with 400) instead of allocating millions of strings while the
+/// `MAX_BULK_IDS` check waits for the parse to finish. Deduping uses a set —
+/// the previous `Vec::contains` scan was quadratic.
+///
 /// Known limit (GH #85): the split happens after url-decoding, so a
 /// `String`-PK id containing a literal comma (`%2C`) splits into phantom
 /// ids and the batch 404s. Comma-bearing string PKs need a different
 /// transport (future work); all other PK types are comma-free.
-fn parse_bulk_ids(raw: &str) -> Vec<String> {
+fn parse_bulk_ids(raw: &str, max: usize) -> Vec<String> {
     let mut ids: Vec<String> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
     for s in raw.split(',').map(str::trim).filter(|s| !s.is_empty()) {
-        if !ids.iter().any(|existing| existing == s) {
+        if seen.insert(s) {
             ids.push(s.to_string());
+            if ids.len() > max {
+                break;
+            }
         }
     }
     ids
@@ -2247,8 +2257,13 @@ mod tests {
 
     #[test]
     fn parse_bulk_ids_dedupes_and_trims() {
-        assert!(parse_bulk_ids("").is_empty());
-        assert_eq!(parse_bulk_ids("a, b ,a,, c"), vec!["a", "b", "c"]);
+        assert!(parse_bulk_ids("", MAX_BULK_IDS).is_empty());
+        assert_eq!(
+            parse_bulk_ids("a, b ,a,, c", MAX_BULK_IDS),
+            vec!["a", "b", "c"]
+        );
+        // The cap bounds the parse too: stop at max + 1 for the handler's 400.
+        assert_eq!(parse_bulk_ids("a,b,c,d,e", 3).len(), 4);
     }
 
     #[tokio::test]
