@@ -360,3 +360,27 @@ async fn typo_filter_warns_on_list_but_refuses_export() {
         .await;
     assert!(resp.status().is_success(), "valid export must stay 200");
 }
+
+#[tokio::test]
+async fn posts_list_renders_live_search_host() {
+    // GH #104: posts table opts into the live shard (tenant header required).
+    use showcase::models::DEMO_TENANT;
+    let db = full_db().await;
+    let router = router(db);
+    let resp = router
+        .handle(
+            Request::builder()
+                .uri("/admin/posts")
+                .header("x-tenant-id", DEMO_TENANT.to_string())
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+    assert!(resp.status().is_success());
+    let body = resp.into_body().collect().await.unwrap().to_bytes();
+    let html = String::from_utf8_lossy(&body);
+    assert!(
+        html.contains("data-live-search"),
+        "posts list must render the live host, got {html}"
+    );
+}
