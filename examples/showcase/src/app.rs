@@ -496,6 +496,7 @@ impl Resource for PostResource {
                         a.name.clone()
                     })
                     .required()
+                    .searchable()
                     .label("Author"),
             )),
             Grid::new(2).schema((

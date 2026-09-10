@@ -648,6 +648,7 @@ impl Panel {
                 <script src=(argentum_ui::CODE_BLOCK_JS)></script>
                 <script src=(argentum_ui::BULK_JS)></script>
                 <script src=(argentum_ui::FILTERS_JS)></script>
+                <script src=(argentum_ui::SELECTS_JS)></script>
                 <script src=(argentum_ui::NOTIFICATION_JS)></script>
             }
             .boxed(),

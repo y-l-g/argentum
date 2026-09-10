@@ -431,3 +431,26 @@ async fn multipart_body_limit_matches_urlencoded_cap() {
         .await;
     assert_eq!(resp.status(), 413, "11 MiB multipart must be rejected");
 }
+
+#[tokio::test]
+async fn posts_author_select_is_searchable() {
+    // GH #91: the relationship select carries the client-side filter hook.
+    let db = full_db().await;
+    let router = router(db);
+    let resp = router
+        .handle(
+            Request::builder()
+                .uri("/admin/posts/create")
+                .header("x-tenant-id", DEMO_TENANT.to_string())
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+    assert!(resp.status().is_success());
+    let body = resp.into_body().collect().await.unwrap().to_bytes();
+    let html = String::from_utf8_lossy(&body);
+    assert!(
+        html.contains("data-options-filter"),
+        "author select must render the filter hook, got {html}"
+    );
+}

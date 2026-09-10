@@ -313,6 +313,7 @@ pub struct Select {
     name: String,
     label: String,
     required: bool,
+    searchable: bool,
     options_static: Vec<(String, String)>,
     #[allow(clippy::type_complexity)]
     relationship: Option<RelationshipLoader>,
@@ -324,6 +325,7 @@ impl std::fmt::Debug for Select {
             .field("name", &self.name)
             .field("label", &self.label)
             .field("required", &self.required)
+            .field("searchable", &self.searchable)
             .field("options_static", &self.options_static)
             .field("relationship", &self.relationship.is_some())
             .finish()
@@ -336,6 +338,7 @@ impl Clone for Select {
             name: self.name.clone(),
             label: self.label.clone(),
             required: self.required,
+            searchable: self.searchable,
             options_static: self.options_static.clone(),
             relationship: self.relationship.clone(),
         }
@@ -357,9 +360,20 @@ impl Select {
             name: field_name,
             label: label_str,
             required: false,
+            searchable: false,
             options_static: Vec::new(),
             relationship: None,
         }
+    }
+
+    /// Client-side option search (GH #91): renders a filter input above the
+    /// select that narrows options by label substring (delegated JS, no
+    /// re-render). Covers the bounded option set (relationship loads are
+    /// capped); over-cap tables still fail visibly, and server-side option
+    /// search for huge tables is future work. No-JS keeps the plain select.
+    pub fn searchable(mut self) -> Self {
+        self.searchable = true;
+        self
     }
 
     /// Convenience alias so call sites read `Select::for(Post::fields().author_id())`.
@@ -516,6 +530,7 @@ impl Select {
         let label_text = self.label.clone();
         let name = self.name.clone();
         let required = self.required;
+        let searchable = self.searchable;
         let has_error = !errors.is_empty();
         let error_text = errors.first().cloned().unwrap_or_default();
         let current = value.unwrap_or("").trim().to_string();
@@ -557,9 +572,10 @@ impl Select {
         } else {
             "ac-field grid gap-1.5"
         };
+        let filter_label = format!("Filter {label_text} options");
         Ok(view! {
             cx =>
-            <div class=(field_class)>
+            <div class=(field_class) data-select-filterable="">
                 argentum_ui::label(
                     attrs: attributes! { for=(name.clone()) },
                     (label_text.clone())
@@ -567,6 +583,17 @@ impl Select {
                         <span class="text-destructive" aria-hidden="true">"*"</span>
                     }
                 )
+                if searchable {
+                    ui_input(
+                        attrs: attributes! {
+                            type="search"
+                            aria-label=(filter_label.clone())
+                            placeholder="Filter…"
+                            data-options-filter=""
+                            class="h-9"
+                        }
+                    )
+                }
                 <select
                     id=(name.clone())
                     name=(name.clone())
@@ -2652,7 +2679,6 @@ mod tests {
     fn composite_pk_has_no_url_representation() {
         // GH #95: composite keys fail loudly (programmer error), never a
         // per-id 404 that hides the misconfiguration.
-        use toasty::schema::Model;
         #[derive(Debug, Clone, toasty::Model)]
         struct Pair {
             #[key]
@@ -2823,6 +2849,45 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn searchable_select_renders_filter_input() {
+        // GH #91: opt-in client-side option search; default selects stay bare.
+        let cx = CxTestBuilder::new().build();
+        let plain =
+            Select::r#for(DummyUser::fields().name()).options(vec!["a".to_string()]);
+        let html = plain
+            .render_with(&cx, None, &[])
+            .await
+            .unwrap()
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
+        assert!(
+            !html.contains("data-options-filter"),
+            "default select must stay bare, got {html}"
+        );
+        let searchable = Select::r#for(DummyUser::fields().name())
+            .options(vec!["a".to_string()])
+            .searchable();
+        let html = searchable
+            .render_with(&cx, None, &[])
+            .await
+            .unwrap()
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
+        assert!(
+            html.contains("data-options-filter"),
+            "searchable select must render the filter hook, got {html}"
+        );
+        assert!(
+            html.contains("data-select-filterable"),
+            "searchable select must scope the filter, got {html}"
+        );
+    }
+
+    #[tokio::test]
     async fn relationship_options_share_one_load_per_request_and_tenant() {
         // GH #91: selects over one resource share a single bounded load per
         // (request, tenant) — validate + re-render no longer rescan.
@@ -2883,7 +2948,8 @@ mod tests {
         OPTION_LOADS.store(0, Ordering::SeqCst);
         assert!(s1.validate_async(&cx, &id).await.is_empty());
         assert!(s2.validate_async(&cx, &id).await.is_empty());
-        s1.render_with(&cx, Some(&id), &[])
+        let _ = s1
+            .render_with(&cx, Some(&id), &[])
             .await
             .unwrap()
             .single()
