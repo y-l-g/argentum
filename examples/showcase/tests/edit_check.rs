@@ -3,13 +3,15 @@ use showcase::{app::router_for_tests as router, models::User};
 use toasty::Db;
 
 mod common;
-use common::{TestClient, assert_hydrate_keys_are_form_fields, body_string, seeded_db};
+use common::{
+    TestClient, assert_hydrate_keys_are_form_fields, body_string, demo_client, seeded_db,
+};
 
 #[tokio::test]
 async fn edit_page_hydrates_and_updates() {
     let db = seeded_db().await;
     let router = router(db.clone());
-    let client = TestClient::new(&router);
+    let client = demo_client(&router).await;
 
     // Get a user id
     let mut db_q = db.clone();
@@ -106,7 +108,7 @@ async fn edit_page_hydrates_and_updates() {
 async fn edit_404_for_unknown_or_wrong_tenant() {
     let db = seeded_db().await;
     let router = router(db.clone());
-    let client = TestClient::new(&router);
+    let client = demo_client(&router).await;
     let fake_id = uuid::Uuid::new_v4().to_string();
     let resp = client.get(&format!("/admin/users/{}/edit", fake_id)).await;
     assert_eq!(

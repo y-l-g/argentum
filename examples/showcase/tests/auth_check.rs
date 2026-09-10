@@ -1,11 +1,14 @@
-//! Authentication integration tests (spec #127, ticket #129): the shipped
-//! password auth, server-side sessions, login/logout, and the shell's
-//! account controls. The gate itself is exercised by GH #130.
+//! Authentication integration tests (spec #127, tickets #129/#130): the
+//! shipped password auth, server-side sessions, login/logout, the shell's
+//! account controls, and the fail-closed gate over the panel and runtime
+//! prefixes.
 
 use argentum_core::auth::{AdminUser, AuthSession};
+use http::header::{COOKIE, LOCATION};
 use showcase::app::router_for_tests as router;
 use showcase::models::{DEMO_ADMIN_EMAIL, DEMO_ADMIN_PASSWORD};
 use topcoat::context::CxTestBuilder;
+use topcoat::router::Body;
 
 mod common;
 use common::{
@@ -14,11 +17,26 @@ use common::{
 };
 
 /// The session cookie value a login response set, if any.
-fn session_value(response: &http::Response<topcoat::router::Body>) -> Option<String> {
+fn session_value(response: &http::Response<Body>) -> Option<String> {
     response_cookies(response)
         .into_iter()
         .find(|(name, _)| name == SESSION_COOKIE)
         .map(|(_, value)| value)
+}
+
+/// A runtime (page re-run) POST, optionally carrying a session cookie.
+async fn runtime_post(
+    router: &topcoat::router::Router,
+    session: Option<&str>,
+) -> http::Response<Body> {
+    let mut request = http::Request::builder()
+        .method(http::Method::POST)
+        .uri("/_topcoat/runtime/pages/admin/users")
+        .header(http::header::CONTENT_TYPE, "application/json");
+    if let Some(session) = session {
+        request = request.header(COOKIE, format!("{SESSION_COOKIE}={session}"));
+    }
+    router.handle(request.body(Body::from("{}")).unwrap()).await
 }
 
 #[tokio::test]
@@ -177,9 +195,9 @@ async fn logout_deletes_the_session_and_clears_the_cookie() {
     let mut db2 = db.clone();
     assert_eq!(AuthSession::all().exec(&mut db2).await.unwrap().len(), 0);
 
-    // The stale cookie no longer resolves a user.
-    let html = body_string(client.get("/admin/users").await).await;
-    assert!(!html.contains("Demo Admin"), "ended session still resolved");
+    // The stale cookie no longer resolves a user: the gate redirects to login.
+    let stale = client.get("/admin/users").await;
+    assert_eq!(stale.status(), 307, "ended session still resolved");
 }
 
 #[tokio::test]
@@ -210,10 +228,13 @@ async fn login_rotates_the_session_token() {
     let rows = AuthSession::all().exec(&mut db2).await.unwrap();
     assert_eq!(rows.len(), 1, "the pre-login session is revoked");
 
-    // The pre-login token cannot be replayed.
+    // The pre-login token cannot be replayed: the gate redirects to login.
     let stale = TestClient::new(&router).cookie(SESSION_COOKIE, &first_session);
-    let html = body_string(stale.get("/admin/users").await).await;
-    assert!(!html.contains("Demo Admin"), "pre-login token still works");
+    assert_eq!(
+        stale.get("/admin/users").await.status(),
+        307,
+        "pre-login token still works"
+    );
 }
 
 #[tokio::test]
@@ -236,8 +257,11 @@ async fn expired_sessions_resolve_to_no_user() {
     .await
     .unwrap();
 
-    let html = body_string(client.get("/admin/users").await).await;
-    assert!(!html.contains("Demo Admin"), "expired session resolved");
+    assert_eq!(
+        client.get("/admin/users").await.status(),
+        307,
+        "expired session resolved"
+    );
     assert!(
         AuthSession::all().exec(&mut db2).await.unwrap().is_empty(),
         "expired rows are purged"
@@ -263,6 +287,108 @@ async fn revoke_sessions_for_user_ends_access() {
         .unwrap();
 
     assert!(AuthSession::all().exec(&mut db2).await.unwrap().is_empty());
-    let html = body_string(client.get("/admin/users").await).await;
-    assert!(!html.contains("Demo Admin"), "revoked session resolved");
+    assert_eq!(
+        client.get("/admin/users").await.status(),
+        307,
+        "revoked session resolved"
+    );
+}
+
+#[tokio::test]
+async fn unauthenticated_panel_pages_redirect_to_login_with_validated_next() {
+    let db = full_db().await;
+    let router = router(db);
+    for path in [
+        "/admin/users",
+        "/admin/users/create",
+        "/admin/authors",
+        "/admin/posts",
+        "/admin/posts?filters=status%3Apublished",
+        "/admin/showcase",
+    ] {
+        let response = TestClient::new(&router).get(path).await;
+        assert_eq!(response.status(), 307, "{path}");
+        let expected = format!("/admin/login?{}", form_body(&[("next", path)]));
+        assert_eq!(
+            response.headers().get(LOCATION).unwrap().to_str().unwrap(),
+            expected,
+            "{path}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn unauthenticated_runtime_requests_answer_401_not_a_redirect() {
+    let db = full_db().await;
+    let router = router(db);
+    // The gate covers the whole `/_topcoat/runtime` prefix (shards, page
+    // re-runs, procedures); page re-runs are the endpoint this binary mounts.
+    assert_eq!(
+        runtime_post(&router, None).await.status(),
+        401,
+        "page re-run"
+    );
+}
+
+#[tokio::test]
+async fn unauthenticated_mutations_answer_401_not_a_redirect() {
+    let db = full_db().await;
+    let router = router(db);
+    let response = TestClient::new(&router)
+        .post_form("/admin/users/create", "name=x".to_string())
+        .await;
+    assert_eq!(
+        response.status(),
+        401,
+        "a mutation must not be redirected into the login POST"
+    );
+}
+
+#[tokio::test]
+async fn deactivating_a_user_blocks_their_live_session() {
+    let db = full_db().await;
+    let router = router(db.clone());
+    let (_, login_response) = login_next(&router, DEMO_ADMIN_EMAIL, DEMO_ADMIN_PASSWORD, "").await;
+    let session = session_value(&login_response).expect("session cookie");
+
+    let mut db2 = db.clone();
+    let mut admin = AdminUser::filter(AdminUser::fields().email().eq(DEMO_ADMIN_EMAIL.to_string()))
+        .first()
+        .exec(&mut db2)
+        .await
+        .unwrap()
+        .expect("seeded admin");
+    toasty::update!(admin { active: false })
+        .exec(&mut db2)
+        .await
+        .unwrap();
+
+    let client = TestClient::new(&router).cookie(SESSION_COOKIE, &session);
+    assert_eq!(client.get("/admin/users").await.status(), 403, "page");
+    assert_eq!(
+        runtime_post(&router, Some(&session)).await.status(),
+        403,
+        "runtime"
+    );
+}
+
+#[tokio::test]
+async fn auth_disabled_serves_the_panel_without_login() {
+    let db = full_db().await;
+    let router = argentum_core::Panel::new("admin")
+        .app_context(db)
+        .auth(argentum_core::Auth::disabled())
+        .resource::<showcase::app::UserResource>()
+        .build();
+
+    assert_eq!(
+        TestClient::new(&router).get("/admin/users").await.status(),
+        200,
+        "disabled auth must not gate"
+    );
+    assert_eq!(
+        TestClient::new(&router).get("/admin/login").await.status(),
+        404,
+        "no login routes when auth is off"
+    );
 }

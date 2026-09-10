@@ -4,13 +4,13 @@ use toasty::Db;
 use topcoat::view::ViewExt;
 
 mod common;
-use common::{TestClient, body_string, seeded_db};
+use common::{TestClient, body_string, demo_client, seeded_db};
 
 #[tokio::test]
 async fn bulk_delete_deletes_selected() {
     let db = seeded_db().await;
     let router = router(db.clone());
-    let client = TestClient::new(&router);
+    let client = demo_client(&router).await;
     let csrf = uuid::Uuid::new_v4().to_string();
     let mut db_q = db.clone();
     let users = User::all().exec(&mut db_q).await.unwrap();
@@ -80,7 +80,7 @@ async fn bulk_delete_deletes_selected() {
 async fn bulk_bar_renders_checkboxes_with_row_keys() {
     let db = seeded_db().await;
     let router = router(db.clone());
-    let client = TestClient::new(&router);
+    let client = demo_client(&router).await;
     let csrf = uuid::Uuid::new_v4().to_string();
     let mut db_q = db.clone();
     let users = User::all().exec(&mut db_q).await.unwrap();

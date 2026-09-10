@@ -1,19 +1,18 @@
-use http::{
-    Method, Request,
-    header::{CONTENT_TYPE, LOCATION, SET_COOKIE},
-};
+use http::header::{LOCATION, SET_COOKIE};
 use showcase::{app::router_for_tests as router, models::User};
 use toasty::Db;
-use topcoat::router::Body;
 
 mod common;
-use common::{TestClient, body_string, response_cookies, seeded_db};
+use common::{
+    SESSION_COOKIE, TestClient, body_string, demo_client, login_next, response_cookies, seeded_db,
+    session_cookie_value,
+};
 
 #[tokio::test]
 async fn manual_create_check() {
     let db = seeded_db().await;
     let router = router(db.clone());
-    let client = TestClient::new(&router);
+    let client = demo_client(&router).await;
 
     // Test GET /admin/users/create returns 200 with form HTML
     let resp = client.get("/admin/users/create").await;
@@ -226,18 +225,24 @@ async fn create_policy_deny() {
 async fn create_post_without_csrf_is_forbidden() {
     let db = seeded_db().await;
     let router = router(db);
-    // Raw request on purpose: asserting the protocol-level 403 without CSRF.
-    let resp = router
-        .handle(
-            Request::builder()
-                .uri("/admin/users/create")
-                .method(Method::POST)
-                .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
-                .body(Body::from("name=NoToken&email=notoken%40example.com"))
-                .unwrap(),
+    // A logged-in client presenting no CSRF cookie or field: the auth gate
+    // passes, the double-submit check must still 403.
+    let (_, login) = login_next(
+        &router,
+        showcase::models::DEMO_ADMIN_EMAIL,
+        showcase::models::DEMO_ADMIN_PASSWORD,
+        "",
+    )
+    .await;
+    let session = session_cookie_value(&login).expect("session cookie");
+    let client = TestClient::new(&router).cookie(SESSION_COOKIE, &session);
+    let response = client
+        .post_form(
+            "/admin/users/create",
+            "name=NoToken&email=notoken%40example.com".to_string(),
         )
         .await;
-    assert_eq!(resp.status(), 403, "missing CSRF must be 403");
+    assert_eq!(response.status(), 403, "missing CSRF must be 403");
 }
 
 #[tokio::test]
@@ -246,7 +251,7 @@ async fn create_post_with_unknown_keys_is_bad_request() {
     // layer, never silently ignored.
     let db = seeded_db().await;
     let router = router(db.clone());
-    let client = TestClient::new(&router);
+    let client = demo_client(&router).await;
     let csrf = uuid::Uuid::new_v4().to_string();
     let resp = client.csrf(&csrf).post_form("/admin/users/create", format!(
             "name=Sneaky&email=sneaky%40example.com&role=admin&tenant_id=victim&csrf_token={csrf}"

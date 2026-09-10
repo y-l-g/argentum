@@ -3,13 +3,13 @@ use showcase::{app::router_for_tests as router, models::User};
 use toasty::Db;
 
 mod common;
-use common::{TestClient, body_string, seeded_db};
+use common::{TestClient, body_string, demo_client, seeded_db};
 
 #[tokio::test]
 async fn delete_requires_confirmation_and_deletes() {
     let db = seeded_db().await;
     let router = router(db.clone());
-    let client = TestClient::new(&router);
+    let client = demo_client(&router).await;
     let mut db_q = db.clone();
     let users = User::all().exec(&mut db_q).await.unwrap();
     let user = users.first().unwrap();
@@ -94,7 +94,7 @@ async fn delete_requires_confirmation_and_deletes() {
 async fn delete_404_for_missing_or_wrong_tenant() {
     let db = seeded_db().await;
     let router = router(db.clone());
-    let client = TestClient::new(&router);
+    let client = demo_client(&router).await;
     let fake_id = uuid::Uuid::new_v4().to_string();
     let csrf = uuid::Uuid::new_v4().to_string();
     let resp = client

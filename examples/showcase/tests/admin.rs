@@ -3,13 +3,13 @@ use topcoat::view::ViewExt;
 use showcase::app::router_for_tests as router;
 
 mod common;
-use common::{TestClient, body_string, seeded_db};
+use common::{body_string, demo_client, seeded_db};
 
 #[tokio::test]
 async fn admin_resource_list_page_serve_seeded_users() {
     let db = seeded_db().await;
     let router = router(db);
-    let client = TestClient::new(&router);
+    let client = demo_client(&router).await;
 
     let response = client.get("/admin/users").await;
 
@@ -59,7 +59,7 @@ async fn admin_resource_list_page_serve_seeded_users() {
 async fn admin_unknown_route_is_not_found() {
     let db = seeded_db().await;
     let router = router(db);
-    let client = TestClient::new(&router);
+    let client = demo_client(&router).await;
     let response = client.get("/admin/unknown").await;
     assert_eq!(response.status(), 404);
 }
@@ -68,7 +68,7 @@ async fn admin_unknown_route_is_not_found() {
 async fn admin_root_redirects_to_first_resource() {
     let db = seeded_db().await;
     let router = router(db);
-    let client = TestClient::new(&router);
+    let client = demo_client(&router).await;
     let response = client.get("/admin").await;
 
     assert_eq!(response.status(), http::StatusCode::TEMPORARY_REDIRECT);
@@ -82,7 +82,7 @@ async fn admin_root_redirects_to_first_resource() {
 async fn showcase_index_lists_features() {
     let db = seeded_db().await;
     let router = router(db);
-    let client = TestClient::new(&router);
+    let client = demo_client(&router).await;
     let response = client.get("/admin/showcase").await;
     assert!(
         response.status().is_success(),
@@ -115,7 +115,7 @@ async fn showcase_index_lists_features() {
 async fn showcase_ui_renders_card_and_button_with_tokens() {
     let db = seeded_db().await;
     let router = router(db);
-    let client = TestClient::new(&router);
+    let client = demo_client(&router).await;
     let response = client.get("/admin/showcase/ui").await;
     assert!(
         response.status().is_success(),
@@ -146,7 +146,7 @@ async fn showcase_ui_renders_card_and_button_with_tokens() {
 async fn showcase_dialog_renders_notification_and_dialog_with_tokens() {
     let db = seeded_db().await;
     let router = router(db);
-    let client = TestClient::new(&router);
+    let client = demo_client(&router).await;
     let response = client.get("/admin/showcase/dialog").await;
     assert!(
         response.status().is_success(),
@@ -189,7 +189,7 @@ async fn showcase_dialog_renders_notification_and_dialog_with_tokens() {
 async fn showcase_schema_renders_variants() {
     let db = seeded_db().await;
     let router = router(db);
-    let client = TestClient::new(&router);
+    let client = demo_client(&router).await;
     let response = client.get("/admin/showcase/schema").await;
     assert!(
         response.status().is_success(),
@@ -242,7 +242,7 @@ async fn showcase_schema_renders_variants() {
 async fn showcase_resource_renders_derives_and_navigation() {
     let db = seeded_db().await;
     let router = router(db);
-    let client = TestClient::new(&router);
+    let client = demo_client(&router).await;
     let response = client.get("/admin/showcase/resource").await;
     assert!(
         response.status().is_success(),
@@ -281,7 +281,7 @@ async fn showcase_resource_renders_derives_and_navigation() {
 async fn showcase_panel_renders_normalization() {
     let db = seeded_db().await;
     let router = router(db);
-    let client = TestClient::new(&router);
+    let client = demo_client(&router).await;
     let response = client.get("/admin/showcase/panel").await;
     assert!(
         response.status().is_success(),
@@ -303,7 +303,7 @@ async fn showcase_panel_renders_normalization() {
 async fn showcase_db_renders_memoized_loader() {
     let db = seeded_db().await;
     let router = router(db);
-    let client = TestClient::new(&router);
+    let client = demo_client(&router).await;
     let response = client.get("/admin/showcase/db").await;
     assert!(
         response.status().is_success(),
@@ -326,7 +326,7 @@ async fn showcase_db_renders_memoized_loader() {
 async fn showcase_table_renders_variants() {
     let db = seeded_db().await;
     let router = router(db);
-    let client = TestClient::new(&router);
+    let client = demo_client(&router).await;
     let response = client.get("/admin/showcase/table").await;
     assert!(
         response.status().is_success(),
@@ -386,7 +386,7 @@ async fn admin_table_via_resource_has_searchable_sortable() {
 async fn admin_list_renders_search_box_and_sort_links() {
     let db = seeded_db().await;
     let router = router(db);
-    let client = TestClient::new(&router);
+    let client = demo_client(&router).await;
     let response = client.get("/admin/users").await;
     assert!(
         response.status().is_success(),
@@ -455,7 +455,7 @@ async fn admin_list_renders_search_box_and_sort_links() {
 async fn admin_list_pagination_walks_cursor_links() {
     let db = seeded_db().await;
     let router = router(db);
-    let client = TestClient::new(&router);
+    let client = demo_client(&router).await;
     let response = client.get("/admin/users").await;
     let page1 = body_string(response).await;
 
@@ -523,7 +523,7 @@ fn find_href_with(html: &str, needle: &str) -> Option<String> {
 async fn admin_list_empty_search_shows_no_results_with_clear() {
     let db = seeded_db().await;
     let router = router(db);
-    let client = TestClient::new(&router);
+    let client = demo_client(&router).await;
     let response = client.get("/admin/users?q=zzz-none").await;
     assert!(
         response.status().is_success(),
@@ -553,7 +553,7 @@ async fn admin_list_empty_search_shows_no_results_with_clear() {
 async fn admin_list_filters_via_q_param() {
     let db = seeded_db().await;
     let router = router(db);
-    let client = TestClient::new(&router);
+    let client = demo_client(&router).await;
     let response = client.get("/admin/users?q=Ada").await;
     assert!(
         response.status().is_success(),
@@ -622,7 +622,7 @@ async fn users_list_renders_live_search_host_with_get_fallback() {
     // GET toolbar stays as the no-JS fallback.
     let db = seeded_db().await;
     let router = router(db);
-    let client = TestClient::new(&router);
+    let client = demo_client(&router).await;
     let resp = client.get("/admin/users").await;
     assert!(resp.status().is_success());
     let html = body_string(resp).await;

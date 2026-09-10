@@ -5,13 +5,13 @@ use showcase::{
 };
 
 mod common;
-use common::{TestClient, assert_hydrate_keys_are_form_fields, body_string, full_db};
+use common::{assert_hydrate_keys_are_form_fields, body_string, demo_client, full_db};
 
 #[tokio::test]
 async fn posts_list_shows_author_name() {
     let db = full_db().await;
     let router = router(db.clone());
-    let client = TestClient::new(&router);
+    let client = demo_client(&router).await;
     let resp = client.tenant(DEMO_TENANT).get("/admin/posts").await;
     assert!(resp.status().is_success(), "status {}", resp.status());
     let html = body_string(resp).await;
@@ -23,7 +23,7 @@ async fn posts_list_shows_author_name() {
 async fn posts_create_shows_select_with_author_options() {
     let db = full_db().await;
     let router = router(db);
-    let client = TestClient::new(&router);
+    let client = demo_client(&router).await;
     let resp = client.tenant(DEMO_TENANT).get("/admin/posts/create").await;
     assert!(resp.status().is_success(), "status {}", resp.status());
     let html = body_string(resp).await;
@@ -39,7 +39,7 @@ async fn posts_create_shows_select_with_author_options() {
 async fn posts_create_empty_author_shows_required_error() {
     let db = full_db().await;
     let router = router(db.clone());
-    let client = TestClient::new(&router);
+    let client = demo_client(&router).await;
     let csrf = uuid::Uuid::new_v4().to_string();
     let resp = client
         .tenant(DEMO_TENANT)
@@ -72,7 +72,7 @@ async fn posts_create_empty_author_shows_required_error() {
 async fn posts_create_invalid_author_shows_invalid_error() {
     let db = full_db().await;
     let router = router(db.clone());
-    let client = TestClient::new(&router);
+    let client = demo_client(&router).await;
     let csrf = uuid::Uuid::new_v4().to_string();
     let fake_id = uuid::Uuid::new_v4();
     let resp = client
@@ -103,7 +103,7 @@ async fn posts_create_invalid_author_shows_invalid_error() {
 async fn posts_create_valid_redirects_and_creates() {
     let db = full_db().await;
     let router = router(db.clone());
-    let client = TestClient::new(&router);
+    let client = demo_client(&router).await;
     let csrf = uuid::Uuid::new_v4().to_string();
     let mut db2 = db.clone();
     let authors = Author::all().exec(&mut db2).await.unwrap();
@@ -142,7 +142,7 @@ async fn posts_create_valid_redirects_and_creates() {
 async fn posts_edit_hydrates_author() {
     let db = full_db().await;
     let router = router(db.clone());
-    let client = TestClient::new(&router);
+    let client = demo_client(&router).await;
     let csrf = uuid::Uuid::new_v4().to_string();
     let mut db2 = db.clone();
     let authors = Author::all().exec(&mut db2).await.unwrap();
@@ -182,7 +182,7 @@ async fn posts_edit_hydrates_author() {
 async fn posts_list_shows_comments_count_via_include() {
     let db = full_db().await;
     let router = router(db.clone());
-    let client = TestClient::new(&router);
+    let client = demo_client(&router).await;
     let resp = client.tenant(DEMO_TENANT).get("/admin/posts").await;
     assert!(resp.status().is_success());
     let html = body_string(resp).await;
@@ -207,7 +207,7 @@ async fn posts_list_shows_comments_count_via_include() {
 async fn posts_update_rechecks_author_existence() {
     let db = full_db().await;
     let router = router(db.clone());
-    let client = TestClient::new(&router);
+    let client = demo_client(&router).await;
     let csrf = uuid::Uuid::new_v4().to_string();
     let mut db_q = db.clone();
     let authors = Author::all().exec(&mut db_q).await.unwrap();

@@ -4,13 +4,13 @@ use showcase::{
 };
 
 mod common;
-use common::{TestClient, body_string, full_db, tenanted_db};
+use common::{body_string, demo_client, full_db, tenanted_db};
 
 #[tokio::test]
 async fn posts_list_is_scoped_by_tenant_via_resource_query() {
     let (db, t1, t2) = tenanted_db().await;
     let router = router(db.clone());
-    let client = TestClient::new(&router);
+    let client = demo_client(&router).await;
 
     let resp_t1 = client.tenant(t1).get("/admin/posts").await;
     assert!(resp_t1.status().is_success());
@@ -37,7 +37,7 @@ async fn posts_list_is_scoped_by_tenant_via_resource_query() {
 async fn edit_with_wrong_tenant_yields_404_via_resource_query() {
     let (db, t1, t2) = tenanted_db().await;
     let router = router(db.clone());
-    let client = TestClient::new(&router);
+    let client = demo_client(&router).await;
     // Find T1 post id
     let mut db2 = db.clone();
     let t1_post = Post::filter(Post::fields().tenant_id().eq(t1))
@@ -61,7 +61,7 @@ async fn edit_with_wrong_tenant_yields_404_via_resource_query() {
 async fn per_tenant_policy_deny_yields_403() {
     let (db, _, _) = tenanted_db().await;
     let router = router(db);
-    let client = TestClient::new(&router);
+    let client = demo_client(&router).await;
     let blocked = uuid::Uuid::from_u128(9999);
     let resp = client.tenant(blocked).get("/admin/posts").await;
     assert_eq!(
@@ -101,7 +101,7 @@ async fn tenantless_requests_to_gated_resources_fail_closed() {
     // without a tenant instead of leaking rows or minting nil orphans.
     let db = full_db().await;
     let router = router(db.clone());
-    let client = TestClient::new(&router);
+    let client = demo_client(&router).await;
 
     // List without tenant → 403 (not unscoped rows).
     let resp = client.get("/admin/posts").await;
@@ -153,7 +153,7 @@ async fn header_create_assigns_header_tenant() {
     // GH #87: creates land in the request tenant, never nil.
     let db = full_db().await;
     let router = router(db.clone());
-    let client = TestClient::new(&router);
+    let client = demo_client(&router).await;
     let tenant = showcase::models::DEMO_TENANT;
     let csrf = uuid::Uuid::new_v4().to_string();
     let mut db_q = db.clone();

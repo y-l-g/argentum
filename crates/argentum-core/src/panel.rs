@@ -814,6 +814,18 @@ pub(crate) fn route_path(path: &str) -> topcoat::router::PathBuf {
         .to_owned()
 }
 
+/// Defense-in-depth companion to the auth gate (GH #130, ADR-0013): every
+/// panel handler and the live-search shard re-check the resolved user, so a
+/// missing or mis-mounted gate cannot silently open a handler. A no-op when
+/// the panel explicitly disabled auth.
+fn enforce_auth(cx: &Cx) -> Result<(), topcoat::Error> {
+    #[cfg(feature = "auth")]
+    if crate::auth::enforced(cx) {
+        crate::auth::require_authenticated(cx)?;
+    }
+    Ok(())
+}
+
 /// Enforce tenancy gating for resources that require it (GH #87).
 ///
 /// Wired into every resource handler; a no-op unless the resource overrides
@@ -866,6 +878,7 @@ fn search_handler_for<R: Resource>() -> SearchFn {
          path: String|
          -> Pin<Box<dyn Future<Output = Result<BoxView<'_>>> + Send + '_>> {
             Box::pin(async move {
+                enforce_auth(cx)?;
                 enforce_tenant::<R>(cx)?;
                 if !R::can_view_any(cx) {
                     return Err(forbidden().into());
@@ -957,6 +970,7 @@ fn retry_url_for_error(state: &TableState, error: &topcoat::Error, path: &str) -
 
 fn resource_list<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
     Box::pin(HoistView::new(ThenView::new(async move {
+        enforce_auth(cx)?;
         enforce_tenant::<R>(cx)?;
         if !R::can_view_any(cx) {
             return Err(forbidden().into());
@@ -1469,6 +1483,7 @@ async fn render_form_page<'a, R: Resource>(
 /// Create page GET.
 fn resource_create<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
     Box::pin(HoistView::new(ThenView::new(async move {
+        enforce_auth(cx)?;
         enforce_tenant::<R>(cx)?;
         if !R::can_create(cx) {
             return Err(forbidden().into());
@@ -1580,6 +1595,7 @@ async fn check_unique<R: Resource>(
 
 fn resource_create_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
     Box::pin(HoistView::new(ThenView::new(async move {
+        enforce_auth(cx)?;
         enforce_tenant::<R>(cx)?;
         if !R::can_create(cx) {
             return Err(forbidden().into());
@@ -1683,6 +1699,7 @@ async fn find_by_key<R: Resource>(
 /// Edit page GET — hydrates form from model via Resource::query seam.
 fn resource_edit<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
     Box::pin(HoistView::new(ThenView::new(async move {
+        enforce_auth(cx)?;
         enforce_tenant::<R>(cx)?;
         let id = topcoat::router::path_param_segment(cx, "id").to_string();
         let mut db = db(cx);
@@ -1713,6 +1730,7 @@ fn resource_edit<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
 /// a view-denied but writable record must not be mutable by direct POST.
 fn resource_edit_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
     Box::pin(HoistView::new(ThenView::new(async move {
+        enforce_auth(cx)?;
         enforce_tenant::<R>(cx)?;
         let id = topcoat::router::path_param_segment(cx, "id").to_string();
         // Advisory load on a pooled handle (GH #86): feeds hydration and the
@@ -1803,6 +1821,7 @@ fn resource_edit_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
 /// framework transaction (GH #84): the checked record flows into the write.
 fn resource_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
     Box::pin(HoistView::new(ThenView::new(async move {
+        enforce_auth(cx)?;
         enforce_tenant::<R>(cx)?;
         let mut db = db(cx);
         let mut tx = db.transaction().await.map_err(topcoat::Error::from)?;
@@ -1883,6 +1902,7 @@ fn resource_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
 fn resource_bulk_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
     Box::pin(HoistView::new(ThenView::<_, BoxView<'_>>::new(
         async move {
+            enforce_auth(cx)?;
             enforce_tenant::<R>(cx)?;
             let values = parse_form_values(cx, body).await?;
             crate::csrf::verify(cx, &values)?;
@@ -2010,6 +2030,7 @@ fn parse_bulk_ids(raw: &str, max: usize) -> Vec<String> {
 /// Excel interop (GH #94).
 fn resource_export<R: Resource>(cx: &Cx, _body: Body) -> RouteFuture<'_> {
     Box::pin(async move {
+        enforce_auth(cx)?;
         enforce_tenant::<R>(cx)?;
         if !R::can_view_any(cx) {
             return Err(forbidden().into());

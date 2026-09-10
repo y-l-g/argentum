@@ -1,14 +1,14 @@
 use showcase::{app::router_for_tests as router, models::DEMO_TENANT};
 
 mod common;
-use common::{TestClient, body_string, full_db};
+use common::{body_string, demo_client, full_db};
 
 #[tokio::test]
 async fn posts_export_bom_opt_in_prepends_bom() {
     // GH #94: `?bom=1` opts into a UTF-8 BOM for Excel; default stays BOM-free.
     let db = full_db().await;
     let router = router(db);
-    let client = TestClient::new(&router);
+    let client = demo_client(&router).await;
     let resp = client
         .tenant(DEMO_TENANT)
         .get("/admin/posts/export?bom=1")
@@ -32,7 +32,7 @@ async fn posts_export_bom_opt_in_prepends_bom() {
 async fn posts_group_by_status_shows_counts() {
     let db = full_db().await;
     let router = router(db);
-    let client = TestClient::new(&router);
+    let client = demo_client(&router).await;
     let resp = client
         .tenant(DEMO_TENANT)
         .get("/admin/posts?group_by=status")
@@ -57,7 +57,7 @@ async fn posts_group_by_status_shows_counts() {
 async fn posts_export_streams_csv_with_content_disposition() {
     let db = full_db().await;
     let router = router(db);
-    let client = TestClient::new(&router);
+    let client = demo_client(&router).await;
     let resp = client.tenant(DEMO_TENANT).get("/admin/posts/export").await;
     assert!(
         resp.status().is_success(),

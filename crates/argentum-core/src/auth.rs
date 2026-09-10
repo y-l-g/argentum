@@ -463,9 +463,9 @@ pub(crate) async fn resolve(
     authenticator.find_by_id(cx, &row.user_id).await
 }
 
-/// The layer that resolves the session into request `Cx` at the panel and
-/// runtime prefixes (ADR-0013). Enforcement lands with GH #130; this commit
-/// only makes `current_user` available.
+/// The layer that gates the panel and runtime prefixes (ADR-0013): resolves
+/// the session into request `Cx` when present and answers fail-closed when a
+/// route inside its prefix has no permitted user.
 pub(crate) struct AuthGate {
     path: PathBuf,
 }
@@ -495,11 +495,16 @@ impl Layer for AuthGate {
                 return next.run(cx, body).await;
             };
             match resolve(cx, authenticator).await? {
-                Some(user) => {
+                Some(user) if user.can_access_panel => {
                     let child = cx.with(user);
                     next.run(&child, body).await
                 }
-                None => next.run(cx, body).await,
+                // Authenticated but not permitted: 403, indistinguishable
+                // from bad credentials at login (ADR-0013).
+                Some(_) => Err(forbidden().into()),
+                // Pages redirect to the login route with a validated `next`;
+                // runtime endpoints and non-GET requests answer 401.
+                None => Err(unauthenticated_error(cx)),
             }
         })
     }

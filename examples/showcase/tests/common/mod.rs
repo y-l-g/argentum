@@ -9,7 +9,7 @@ use argentum_core::Resource;
 use argentum_core::Tenant;
 use http::header::{CONTENT_TYPE, COOKIE};
 use http_body_util::BodyExt;
-use showcase::models::{seed, seed_phase2};
+use showcase::models::{DEMO_ADMIN_EMAIL, DEMO_ADMIN_PASSWORD, create_admin, seed, seed_phase2};
 use toasty::Db;
 use topcoat::context::Cx;
 use topcoat::router::{Body, Router};
@@ -68,6 +68,15 @@ pub async fn tenanted_db() -> (Db, uuid::Uuid, uuid::Uuid) {
         .await
         .expect("connect");
     db.push_schema().await.expect("push_schema");
+    create_admin(
+        &mut db,
+        DEMO_ADMIN_EMAIL,
+        "Demo Admin",
+        DEMO_ADMIN_PASSWORD,
+        Some(showcase::models::DEMO_TENANT),
+    )
+    .await
+    .expect("seed demo admin");
     let a1 = toasty::create!(showcase::models::Author {
         tenant_id: t1,
         name: "Alice T1",
@@ -265,6 +274,19 @@ pub fn set_cookie_header(response: &http::Response<Body>, name: &str) -> Option<
 /// CSRF pair, post the credentials, and keep every cookie the exchange set.
 pub async fn login<'a>(router: &'a Router, email: &str, password: &str) -> TestClient<'a> {
     login_next(router, email, password, "").await.0
+}
+
+/// A client logged in as the seeded demo admin.
+pub async fn demo_client(router: &Router) -> TestClient<'_> {
+    login(router, DEMO_ADMIN_EMAIL, DEMO_ADMIN_PASSWORD).await
+}
+
+/// The session cookie value a response set, if any.
+pub fn session_cookie_value(response: &http::Response<Body>) -> Option<String> {
+    response_cookies(response)
+        .into_iter()
+        .find(|(name, _)| name == SESSION_COOKIE)
+        .map(|(_, value)| value)
 }
 
 /// [`login`] with an explicit `next` destination. Returns the client (CSRF +

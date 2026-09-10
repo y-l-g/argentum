@@ -1,13 +1,13 @@
 use showcase::{app::router_for_tests as router, models::DEMO_TENANT};
 
 mod common;
-use common::{TestClient, body_string, full_db};
+use common::{body_string, demo_client, full_db};
 
 #[tokio::test]
 async fn posts_filter_widgets_render_typed_controls() {
     let db = full_db().await;
     let router = router(db);
-    let client = TestClient::new(&router);
+    let client = demo_client(&router).await;
     let resp = client
         .tenant(DEMO_TENANT)
         .get("/admin/posts?filters=status:published")
@@ -56,7 +56,7 @@ async fn posts_filter_widgets_render_typed_controls() {
 async fn posts_filter_select_status_published() {
     let db = full_db().await;
     let router = router(db);
-    let client = TestClient::new(&router);
+    let client = demo_client(&router).await;
     // filter status:published should show only Hello Toasty (published)
     let resp = client
         .tenant(DEMO_TENANT)
@@ -80,7 +80,7 @@ async fn posts_filter_select_status_published() {
 async fn posts_filter_ternary_featured_true() {
     let db = full_db().await;
     let router = router(db);
-    let client = TestClient::new(&router);
+    let client = demo_client(&router).await;
     // featured:true should show only Hello Toasty (featured true)
     let resp = client
         .tenant(DEMO_TENANT)
@@ -104,7 +104,7 @@ async fn posts_filter_ternary_featured_true() {
 async fn posts_filter_ternary_featured_false() {
     let db = full_db().await;
     let router = router(db);
-    let client = TestClient::new(&router);
+    let client = demo_client(&router).await;
     let resp = client
         .tenant(DEMO_TENANT)
         .get("/admin/posts?filters=featured:false")
@@ -127,7 +127,7 @@ async fn posts_filter_ternary_featured_false() {
 async fn posts_filter_date_created_at() {
     let db = full_db().await;
     let router = router(db);
-    let client = TestClient::new(&router);
+    let client = demo_client(&router).await;
     // filter by exact timestamp of Hello Toasty
     let resp = client
         .tenant(DEMO_TENANT)
@@ -151,7 +151,7 @@ async fn posts_filter_date_created_at() {
 async fn posts_filter_composes_and() {
     let db = full_db().await;
     let router = router(db);
-    let client = TestClient::new(&router);
+    let client = demo_client(&router).await;
     // status:published and featured:true should still show Hello Toasty (both true)
     let resp = client
         .tenant(DEMO_TENANT)
@@ -240,7 +240,7 @@ async fn typo_filter_warns_on_list_but_refuses_export() {
     // closed on export (400) instead of silently over-sharing.
     let db = full_db().await;
     let router = router(db);
-    let client = TestClient::new(&router);
+    let client = demo_client(&router).await;
 
     let resp = client
         .tenant(DEMO_TENANT)
@@ -289,7 +289,7 @@ async fn posts_list_renders_live_search_host() {
     // GH #104: posts table opts into the live shard (tenant header required).
     let db = full_db().await;
     let router = router(db);
-    let client = TestClient::new(&router);
+    let client = demo_client(&router).await;
     let resp = client.tenant(DEMO_TENANT).get("/admin/posts").await;
     assert!(resp.status().is_success());
     let html = body_string(resp).await;
