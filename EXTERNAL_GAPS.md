@@ -116,6 +116,18 @@ impl IntoExpr<T> for stmt::Value { … }          // or: trait Model { fn parse_
 
 ---
 
+## Toasty — `GROUP BY` + aggregates for table grouping
+
+**Where:** `crates/argentum-core/src/resource.rs` `Table::group_by` (in-memory page-local shim, GH #92).
+
+**Today:** Toasty has no `GROUP BY`/`HAVING` and no `SUM`/`AVG`/`MIN`/`MAX` (only global `COUNT(*)`); the typed `Query` builder offers `filter/include/order_by/limit/offset/first/one/count` only (upstream roadmap #421). Full-set grouping with true counts is unbuildable without raw SQL per resource.
+
+**Clean upstream API:** `Query::group_by(..)` + grouped aggregates in the typed builder.
+
+**Argentum plan:** keep the named in-memory shim with honest page-local labels; export renders the ungrouped full set (documented). Migrate when upstream lands grouping and delete this entry.
+
+---
+
 ## Topcoat — hand-registered fallible async pages (`ThenView` is internal)
 
 **Where:** the single `use topcoat::view::internal::ThenView;` in `crates/argentum-core/src/panel.rs:10`; `Box::pin(HoistView::new(ThenView::new(async move { .. })))` in the seven resource handlers (`resource_list`/`resource_create`/`resource_create_post`/`resource_edit`/`resource_edit_post`/`resource_delete`/`resource_bulk_delete`) and the nested `lazy_rows` suspense child.

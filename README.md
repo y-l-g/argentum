@@ -171,7 +171,7 @@ Columns/filters declare **how to query**, not just how to render: `searchable()`
 
 - **Filters:** the `Filter` enum (`SelectFilter`/`TernaryFilter`/`DateFilter`/`VariantFilter`) over `IntoFilters` tuples. `Table::filter_expr` ANDs the active `?filters=` expressions into the loader. `VariantFilter` holds prebuilt `(label, Expr<bool>)` options (e.g. `is_variant()` predicates) for embedded-enum fields. Every declared filter renders a typed control composed into the single `?filters=` param (free-text input stays as fallback). Unknown keys and rejected values never fail silently: the list renders a `role=alert` banner (`Table::unapplied_filters`) while export refuses with 400.
 - **Bulk selection** is a leading checkbox column with select-all whose JS joins keys into the single `ids` transport (text field stays as fallback).
-- **Grouping/export:** in-memory named `group_by` + `count` summarizer + `Table::to_csv()` (RFC4180, OWASP formula-defused) via `GET /admin/{slug}/export` (`text/csv; charset=utf-8` + `Content-Disposition`), reusing `Resource::query` + filters/sort, capped at 10k rows (413 past the cap, `?bom=1` opts into an Excel BOM). Unknown `?group_by=` values render no headers and drop from nav links.
+- **Grouping/export:** in-memory named `group_by` + `count` summarizer + `Table::to_csv()` (RFC4180, OWASP formula-defused) via `GET /admin/{slug}/export` (`text/csv; charset=utf-8` + `Content-Disposition`), reusing `Resource::query` + filters/sort, capped at 10k rows (413 past the cap, `?bom=1` opts into an Excel BOM). Unknown `?group_by=` values render no headers and drop from nav links. Grouping is page-local by design (Toasty has no `GROUP BY` yet — see `EXTERNAL_GAPS.md`); export renders the ungrouped full filtered set.
 - **Rendering:** `Table` is a boundary by default (`data-boundary="table"` wrapper) with an eager-render `defer` demo hook; the streamed list uses the skeleton as its `suspense` fallback, and failed loads render the branded `ErrorState` in-region.
 
 ### 4.5 Deletes, notifications, policy
@@ -349,7 +349,7 @@ impl Resource for PostResource {
                     if p.author.is_unloaded() { "-".to_string() } else { p.author.get().name.clone() }
                 }),
                 TextColumn::computed("Comments", |p: &Post| {
-                    if p.comments.is_unloaded() { "0".to_string() } else { p.comments.get().len().to_string() }
+                    if p.comments.is_unloaded() { "(unloaded)".to_string() } else { p.comments.get().len().to_string() }
                 }),
             ))
             .filters((
@@ -357,7 +357,7 @@ impl Resource for PostResource {
                 TernaryFilter::r#for(Post::fields().featured()),
                 DateFilter::r#for(Post::fields().created_at()),
             ))
-            .group_by(|p: &Post| p.status.clone())
+            .group_by("status", |p: &Post| p.status.clone())
             .paginate(2)
     }
     fn form(_cx: &Cx) -> Schema {
