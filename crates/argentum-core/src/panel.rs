@@ -1108,13 +1108,11 @@ async fn parse_multipart_values(
         if name.is_empty() {
             continue;
         }
-        // RFC 6266: `filename*=` (decoded) takes precedence over `filename=`
-        // (multer only surfaces the latter, so read the raw header for the
-        // former — GH #90).
-        let filename = field
-            .file_name()
-            .map(str::to_string)
-            .or_else(|| filename_star_from_headers(&field));
+        // RFC 6266: `filename*=` (decoded) takes precedence over `filename=`.
+        // Multer surfaces the plain `filename=` first, so the raw header is
+        // read for `filename*=` before falling back (GH #90).
+        let filename =
+            filename_star_from_headers(&field).or_else(|| field.file_name().map(str::to_string));
         match filename {
             Some(f) if !f.is_empty() => {
                 // v1 stores the sanitized basename, not the bytes
@@ -1188,9 +1186,15 @@ fn sanitize_filename(raw: &str) -> String {
     if trimmed.is_empty() {
         return String::new();
     }
-    // Cap at 255 chars (common filename limit), preserving the tail.
+    // Cap at 255 bytes (common filename limit), preserving the tail. The cut
+    // point is walked forward to a char boundary: slicing a multibyte char
+    // would panic (a >255-byte non-ASCII filename is attacker-controlled).
     if trimmed.len() > 255 {
-        trimmed[trimmed.len() - 255..].to_string()
+        let mut start = trimmed.len() - 255;
+        while !trimmed.is_char_boundary(start) {
+            start += 1;
+        }
+        trimmed[start..].to_string()
     } else {
         trimmed.to_string()
     }
@@ -3528,8 +3532,8 @@ mod tests {
             .unwrap();
         assert_eq!(got.get("image_path").map(String::as_str), Some("passwd"));
 
-        // RFC 5987 filename* decodes and wins over filename=.
-        let body = "--B\r\nContent-Disposition: form-data; name=\"image_path\"; filename*=UTF-8''%E2%82%ACphoto.jpg\r\nContent-Type: image/jpeg\r\n\r\nBYTES\r\n--B--\r\n";
+        // RFC 5987 filename* decodes and wins over filename= (both present).
+        let body = "--B\r\nContent-Disposition: form-data; name=\"image_path\"; filename=\"plain.jpg\"; filename*=UTF-8''%E2%82%ACphoto.jpg\r\nContent-Type: image/jpeg\r\n\r\nBYTES\r\n--B--\r\n";
         let got = multipart_values(&multipart_type("B"), body.as_bytes().to_vec())
             .await
             .unwrap();
@@ -3568,6 +3572,19 @@ mod tests {
         assert_eq!(sanitize_filename("/abs/path"), "path");
         assert_eq!(sanitize_filename("C:\\fakepath\\x"), "x");
         assert_eq!(sanitize_filename(""), "");
+        // Cap keeps the tail without splitting a multibyte char: a naive
+        // `[len - 255..]` slice panics here (the cut lands inside `é`).
+        let multibyte = format!("{}{}", "é".repeat(200), "a".repeat(200));
+        let capped = sanitize_filename(&multibyte);
+        assert!(
+            capped.len() <= 255,
+            "cap must bound bytes, got {}",
+            capped.len()
+        );
+        assert!(
+            capped.ends_with('a'),
+            "tail must be preserved, got {capped:?}"
+        );
         // Over-cap body is rejected before buffering into maps.
         let big = vec![b'a'; MAX_FORM_BYTES + 1];
         assert!(
