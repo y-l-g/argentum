@@ -130,7 +130,7 @@ impl IntoExpr<T> for stmt::Value { … }          // or: trait Model { fn parse_
 
 ## Topcoat — hand-registered fallible async pages (`ThenView` is internal)
 
-**Where:** the single `use topcoat::view::internal::ThenView;` in `crates/argentum-core/src/panel.rs:10`; `Box::pin(HoistView::new(ThenView::new(async move { .. })))` in the seven resource handlers (`resource_list`/`resource_create`/`resource_create_post`/`resource_edit`/`resource_edit_post`/`resource_delete`/`resource_bulk_delete`) and the nested `lazy_rows` suspense child.
+**Where:** the single `use topcoat::view::internal::ThenView;` in `crates/argentum-core/src/panel.rs`; `Box::pin(HoistView::new(ThenView::new(async move { .. })))` in the seven resource handlers (`resource_list`/`resource_create`/`resource_create_post`/`resource_edit`/`resource_edit_post`/`resource_delete`/`resource_bulk_delete`) and the nested `lazy_rows` suspense child.
 
 **Today:** `Panel` hand-registers pages through the public registry seam — `PageFn::new(method, path, handler)`; `PageRenderFn` is sync (`fn(&Cx, Body) -> BoxView`), so a fallible async page body (auth check → `Err(forbidden().into())`, awaits, `Ok(view! { .. })`) can only be expressed by adapting the future with the internal `ThenView` and boxing — the same adaptation `#[page]` performs internally, which also includes the public `HoistView` wrap: signals are ordinary `signal(cx, …)` calls now, and a body that creates one must run inside a `HoistView`.
 

@@ -1,6 +1,6 @@
 # Stable state after Slice 1-3 (typed lens → TextInput + TextColumn)
 
-Date: 2026-08-26 — Status: accepted — Supersedes: ADR-0001 len seam is now proved end-to-end.
+Date: 2026-08-26 — Status: accepted — Supersedes: none (proves ADR-0001's lens seam end-to-end).
 
 ## Context
 
@@ -27,3 +27,7 @@ New seams introduced sit on highest existing seams (`Resource::table/form`, `Sch
 - `cargo test --workspace && cargo clippy && cargo fmt --check` must stay green on stable.
 - Review at this tag reports only documented debt (see 4 tickets). No new `toasty_core` usage outside `schema.rs:139/182`.
 - Next feature (Slice 4: filters/pagination/shard) must consume tickets #10-#13 in order, not reintroduce hand-rolled `<table>` or string `statePath`.
+
+## Amendment (2026-09-10)
+
+The stable-state notes have moved on: `HasId`/`GetField` string dispatch was replaced by typed row-key closures (`Table::id`) and typed column projections; the PK tie-breaker now lives inside Toasty (GH #76) and `schema::pk_tie_breakers` is gone; `TextColumn::for_lens` is the current entry point. The invariant this ADR recorded — typed lenses and one seam per surface — still holds.

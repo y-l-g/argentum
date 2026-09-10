@@ -25,3 +25,7 @@ Considered: (A) Tower middleware for auth (rejected: `Cx`-scoped `fn require_*` 
 - `cargo run` at `/admin/users` now supports search/sort/paginate/create/edit/delete/bulk-delete, all policy-checked, no N+1, benchable. `cargo test --workspace` proves list/create/edit/delete/bulk, `viewAny`/`view` gating, `Boundary`/`defer`/`memoize` dedup, and notification survival.
 - `Panel` remains the single owner of `Router`/`Db`/`Shell`; `Resource::query` stays the single tenancy seam; `Schema` stays the single form seam; `Table` stays the single list seam. No `Resource` hand-rolls `#[shard]`; the seam migrates from `#[shard]` to `defer`+`boundary` without rewriting resources.
 - `cargo test --workspace` / `clippy -D warnings` / `fmt` stay green per commit; `examples/showcase/tests/{admin,create_check,edit_check,delete_check,bulk_check}.rs` cover the vertical slice.
+
+## Amendment (2026-09-10)
+
+Implementation drifted from this record; the code won. There is no `#[procedure]`/`Action` value — mutations are `Resource` record fns called by handlers inside a framework-owned transaction (#84), with policy re-checked on the loaded snapshot (#86). `table_shard`/`memoized_dummy` were deleted (#74); the live shard is slug-dispatched `table_search` behind `Table::live_search` (#104), and the table is a `data-boundary="table"` wrapper, not a `Boundary` type. The PK tie-breaker moved into Toasty (#76). App-side unique checks do not map DB violations to fields: a concurrent write surfaces as a 500 (#88, open).

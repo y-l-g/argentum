@@ -25,3 +25,7 @@ This keeps one tenancy seam, no new `Relation` trait, and no `via` many-to-many 
 - `cargo test --workspace` proves tenancy via `Router::handle` with `Cx::with(Tenant)` and `x-tenant-id` header, `Policy` 403/404, and grouping/export via `Router::handle` (`text/csv` + `Content-Disposition`). `Table` stays a `Boundary` (`data-boundary="table"`); `TableState` is parsed once for loader and render.
 - `EXTERNAL_GAPS.md` records that `FileUpload`/`Repeater`/`Tenant`/`author include` need no new upstream API; grouping/export are in-memory shims. When Toasty exposes `GROUP BY`, `Table::group_by` can delegate without changing `Resource`s.
 - Showcase at `/admin/posts` demonstrates tenancy (tenant 1 vs 2 rows), `SelectFilter`/`TernaryFilter`/`DateFilter`, `group_by` and export, `FileUpload`/`Repeater`, `Panel::brand`/`dark_mode`, and `benchmarks/` Phase-2 budget (50 rows, 2 includes, `<40ms p50`).
+
+## Amendment (2026-09-10)
+
+Group headers read `{key} ({count} on this page)` (page-local counts, GH #92). There is no raw-SQL `trait Aggregate` — `sum` summarizers are not implemented (follow-up to #71) — and export is capped at 10k rows and buffered rather than streamed (GH #94). `Panel::brand`/`dark_mode` exist but the showcase leaves them unset. Tenancy remains `Cx`-scoped, but `requires_tenant` defaults false and the `x-tenant-id` fallback is harness-oriented (GH #87 caveat).
