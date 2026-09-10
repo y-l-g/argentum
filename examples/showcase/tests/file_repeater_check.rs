@@ -316,3 +316,118 @@ async fn posts_edit_untouched_file_keeps_stored_path() {
         .expect("renamed post");
     assert_eq!(kept.image_path, "/images/hello.jpg", "stored path must survive untouched edit");
 }
+
+#[tokio::test]
+async fn posts_edit_explicit_clear_flag_skips_preservation() {
+    // GH #90: `clear_<field>=1` opts back into clearing. On the required
+    // image field that surfaces as the inline required error (not a silent
+    // keep), with the stored path untouched.
+    let db = full_db().await;
+    let router = router(db.clone());
+    let mut db_q = db.clone();
+    let post = Post::filter(showcase::models::Post::fields().title().eq("Hello Toasty".to_string()))
+        .first()
+        .exec(&mut db_q)
+        .await
+        .unwrap()
+        .expect("seeded post");
+    let authors = Author::all().exec(&mut db_q).await.unwrap();
+    let csrf = uuid::Uuid::new_v4().to_string();
+    let resp = router
+        .handle(
+            Request::builder()
+                .uri(format!("/admin/posts/{}/edit", post.id))
+                .method(Method::POST)
+                .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .header(COOKIE, format!("argentum_csrf={csrf}"))
+                .header("x-tenant-id", showcase::models::DEMO_TENANT.to_string())
+                .body(Body::from(format!(
+                    "title=Kept&author_id={}&image_path=&tags=rust&clear_image_path=1&csrf_token={csrf}",
+                    authors[0].id
+                )))
+                .unwrap(),
+        )
+        .await;
+    assert!(
+        resp.status().is_success(),
+        "explicit clear on a required file must re-render, got {}",
+        resp.status()
+    );
+    let body = resp.into_body().collect().await.unwrap().to_bytes();
+    let html = String::from_utf8_lossy(&body);
+    assert!(
+        html.contains("is required"),
+        "cleared required file must error inline, got {html}"
+    );
+    let kept = Post::filter(showcase::models::Post::fields().title().eq("Hello Toasty".to_string()))
+        .first()
+        .exec(&mut db_q)
+        .await
+        .unwrap()
+        .expect("post still titled");
+    assert_eq!(kept.image_path, "/images/hello.jpg", "failed edit must not touch storage");
+}
+
+#[tokio::test]
+async fn multipart_body_limit_matches_urlencoded_cap() {
+    // GH #90: the BodyLimit layer gives multipart the same 10 MiB cap as
+    // urlencoded (Topcoat's 2 MiB default would 413 uploads we accept).
+    let db = full_db().await;
+    let router = router(db.clone());
+    let mut db_q = db.clone();
+    let authors = Author::all().exec(&mut db_q).await.unwrap();
+    let csrf = uuid::Uuid::new_v4().to_string();
+    let boundary = "----LimitTest";
+    // 3 MiB streams fine (above Topcoat's 2 MiB default).
+    let big_ok = "a".repeat(3 * 1024 * 1024);
+    let body = format!(
+        "--{b}\r\nContent-Disposition: form-data; name=\"title\"\r\n\r\nT\r\n\
+         --{b}\r\nContent-Disposition: form-data; name=\"author_id\"\r\n\r\n{id}\r\n\
+         --{b}\r\nContent-Disposition: form-data; name=\"image_path\"; filename=\"big.jpg\"\r\nContent-Type: image/jpeg\r\n\r\n{blob}\r\n\
+         --{b}\r\nContent-Disposition: form-data; name=\"tags\"\r\n\r\nt\r\n\
+         --{b}\r\nContent-Disposition: form-data; name=\"csrf_token\"\r\n\r\n{csrf}\r\n\
+         --{b}--\r\n",
+        b = boundary,
+        id = authors[0].id,
+        blob = big_ok,
+    );
+    let resp = router
+        .handle(
+            Request::builder()
+                .uri("/admin/posts/create")
+                .method(Method::POST)
+                .header(CONTENT_TYPE, format!("multipart/form-data; boundary={boundary}"))
+                .header(COOKIE, format!("argentum_csrf={csrf}"))
+                .header("x-tenant-id", showcase::models::DEMO_TENANT.to_string())
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await;
+    assert!(
+        resp.status().is_redirection(),
+        "3 MiB multipart must pass the 10 MiB cap, got {}",
+        resp.status()
+    );
+    // 11 MiB is a 413 without buffering the whole body first.
+    let big_no = "a".repeat(11 * 1024 * 1024);
+    let body = format!(
+        "--{b}\r\nContent-Disposition: form-data; name=\"title\"\r\n\r\n{blob}\r\n\
+         --{b}\r\nContent-Disposition: form-data; name=\"csrf_token\"\r\n\r\n{csrf}\r\n\
+         --{b}--\r\n",
+        b = boundary,
+        blob = big_no,
+    );
+    let resp = router
+        .handle(
+            Request::builder()
+                .uri("/admin/posts/create")
+                .method(Method::POST)
+                .header(CONTENT_TYPE, format!("multipart/form-data; boundary={boundary}"))
+                .header(COOKIE, format!("argentum_csrf={csrf}"))
+                .header("x-tenant-id", showcase::models::DEMO_TENANT.to_string())
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await;
+    assert_eq!(resp.status(), 413, "11 MiB multipart must be rejected");
+}

@@ -315,6 +315,10 @@ impl Panel {
             .discover()
             .runtime()
             .cookies()
+            // Form bodies (urlencoded buffered, multipart streamed) share one
+            // cap (GH #90): without this layer Topcoat's 2 MiB default would
+            // 413 uploads the framework otherwise accepts.
+            .layer(topcoat::router::BodyLimit::max(MAX_FORM_BYTES))
             .app_context(db);
         if !search_handlers.is_empty() {
             builder = builder.app_context(SearchRegistry(search_handlers));
@@ -1032,7 +1036,8 @@ async fn load_table_page<R: Resource>(
 }
 
 /// Helper: parse form bodies into a map — `application/x-www-form-urlencoded`
-/// today, plus `multipart/form-data` when a `FileUpload` is present (GH #73).
+/// buffered, plus `multipart/form-data` streamed when a `FileUpload` is present
+/// (GH #73).
 ///
 /// Decoding for urlencoded is delegated to `form_urlencoded` (already in the
 /// tree via topcoat): it splits pairs, decodes `+` as space, assembles
@@ -1042,9 +1047,11 @@ async fn load_table_page<R: Resource>(
 /// every non-ASCII value (GH #75 item 6). Invalid UTF-8 degrades per-value
 /// (lossy) instead of discarding the whole form.
 ///
-/// Multipart (file) parts store the client filename as the `String` value —
-/// binary bytes are not persisted in v1 (see `FileUpload` storage contract).
-/// Text parts store their raw content. Unknown content types fall back to
+/// Multipart (file) parts stream through Topcoat's multer-based extractor
+/// (GH #90): file bytes are drained in chunks and discarded — v1 stores the
+/// sanitized filename as the `String` value, never the bytes (see
+/// `FileUpload` storage contract) — so a 2 GB "upload" never materializes.
+/// Text parts store their content. Unknown content types fall back to
 /// urlencoded so existing tests/clients keep working.
 async fn parse_form_values(cx: &Cx, body: Body) -> Result<HashMap<String, String>, topcoat::Error> {
     let content_type =
@@ -1054,19 +1061,95 @@ async fn parse_form_values(cx: &Cx, body: Body) -> Result<HashMap<String, String
                 .get(http::header::CONTENT_TYPE)
                 .and_then(|v| v.to_str().ok().map(|s| s.to_string()))
         });
+    if content_type.as_deref().is_some_and(is_multipart_content_type) {
+        return parse_multipart_values(cx, body).await;
+    }
     let bytes = Bytes::from_request(cx, body)
         .await
         .map_err(|_| topcoat::router::error::bad_request("cannot read form body"))?;
     form_values_from_request_parts(content_type.as_deref(), bytes.as_ref())
 }
 
-/// Pure request dispatch for [`parse_form_values`] (GH #90) — testable without a request.
+/// Whether a content type is `multipart/form-data` (parameters ignored).
+fn is_multipart_content_type(ct: &str) -> bool {
+    ct.split(';')
+        .next()
+        .is_some_and(|mime| mime.trim().eq_ignore_ascii_case("multipart/form-data"))
+}
+
+/// Streamed multipart half of [`parse_form_values`] (GH #90).
 ///
-/// - Rejects bodies over `MAX_FORM_BYTES` with 413 (v1 stores filenames only,
-///   never file bytes, so large uploads are pure memory pressure).
-/// - A `multipart/form-data` content type without a boundary is a 400, not a
-///   silent urlencoded fallback that turns binary bytes into confusing
-///   required-errors.
+/// Fields stream one at a time with constant memory: text fields buffer
+/// (bounded by the request body limit), file fields drain-and-discard while
+/// only the sanitized filename is kept. Duplicate part names are last-wins;
+/// nameless parts are skipped. A missing boundary is a 400, an over-limit
+/// body a 413 — both classified by the extractor, never silent fallbacks.
+async fn parse_multipart_values(
+    cx: &Cx,
+    body: Body,
+) -> Result<HashMap<String, String>, topcoat::Error> {
+    use topcoat::router::content::multipart::Multipart;
+    use topcoat::router::request::FromRequest;
+
+    let mut out = HashMap::new();
+    let mut multipart = Multipart::from_request(cx, body).await?;
+    while let Some(mut field) = multipart.next_field().await? {
+        let Some(name) = field.name().map(str::to_string) else {
+            continue;
+        };
+        if name.is_empty() {
+            continue;
+        }
+        // RFC 6266: `filename*=` (decoded) takes precedence over `filename=`
+        // (multer only surfaces the latter, so read the raw header for the
+        // former — GH #90).
+        let filename = field
+            .file_name()
+            .map(str::to_string)
+            .or_else(|| filename_star_from_headers(&field));
+        match filename {
+            Some(f) if !f.is_empty() => {
+                // v1 stores the sanitized basename, not the bytes
+                // (FileUpload contract, GH #90): drain to advance the stream.
+                while field.chunk().await?.is_some() {}
+                out.insert(name, sanitize_filename(&f));
+            }
+            Some(_) => {
+                // Empty filename (no file chosen) → empty value so `required`
+                // validation fires instead of treating it as missing.
+                while field.chunk().await?.is_some() {}
+                out.insert(name, String::new());
+            }
+            None => {
+                out.insert(name, field.text().await?);
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// RFC 5987 `filename*=` from a field's raw `Content-Disposition` header.
+fn filename_star_from_headers(
+    field: &topcoat::router::content::multipart::Field<'_>,
+) -> Option<String> {
+    let raw = field
+        .headers()
+        .get(http::header::CONTENT_DISPOSITION)?
+        .to_str()
+        .ok()?;
+    raw.split(';').find_map(|seg| {
+        let seg = seg.trim();
+        seg.get(..10)
+            .filter(|h| h.eq_ignore_ascii_case("filename*="))
+            .and_then(|_| decode_rfc5987(seg[10..].trim()))
+    })
+}
+
+/// Pure urlencoded half of [`parse_form_values`] (GH #90) — testable without
+/// a request. Rejects bodies over `MAX_FORM_BYTES` with 413. Multipart
+/// never reaches here: it streams via [`parse_multipart_values`], where a
+/// missing boundary is a 400 and an over-limit body a 413 (both classified
+/// by the extractor).
 fn form_values_from_request_parts(
     content_type: Option<&str>,
     bytes: &[u8],
@@ -1074,21 +1157,10 @@ fn form_values_from_request_parts(
     if bytes.len() > MAX_FORM_BYTES {
         return Err(topcoat::router::error::content_too_large().into());
     }
-    if let Some(ct) = content_type {
-        let is_multipart = ct
-            .split(';')
-            .next()
-            .is_some_and(|mime| mime.trim().eq_ignore_ascii_case("multipart/form-data"));
-        if is_multipart {
-            let Some(boundary) = multipart_boundary(ct) else {
-                return Err(
-                    topcoat::router::error::bad_request("malformed multipart: missing boundary")
-                        .into(),
-                );
-            };
-            return Ok(form_values_from_multipart(bytes, &boundary));
-        }
-    }
+    debug_assert!(
+        content_type.is_none_or(|ct| !is_multipart_content_type(ct)),
+        "multipart must stream via parse_multipart_values, not buffer here (GH #90)"
+    );
     Ok(form_values_from_bytes(bytes))
 }
 
@@ -1120,32 +1192,6 @@ fn sanitize_filename(raw: &str) -> String {
     }
 }
 
-/// Extract the `boundary=` parameter from a `multipart/form-data` content type.
-/// Returns `None` for non-multipart types or a missing boundary.
-///
-/// Lenient where RFC 7578 is (GH #90): the parameter name matches
-/// case-insensitively, whitespace around `=` is tolerated, and single- as
-/// well as double-quoted values are unquoted.
-fn multipart_boundary(content_type: &str) -> Option<String> {
-    let (mime, params) = content_type.split_once(';')?;
-    if !mime.trim().eq_ignore_ascii_case("multipart/form-data") {
-        return None;
-    }
-    for param in params.split(';') {
-        let Some((key, value)) = param.split_once('=') else {
-            continue;
-        };
-        if !key.trim().eq_ignore_ascii_case("boundary") {
-            continue;
-        }
-        let b = value.trim().trim_matches(['"', '\'']).trim();
-        if !b.is_empty() {
-            return Some(b.to_string());
-        }
-    }
-    None
-}
-
 /// Decode an RFC 5987/6266 `filename*=UTF-8''...` value (GH #90).
 ///
 /// Only UTF-8 is supported; other charsets yield `None` so the caller falls
@@ -1171,88 +1217,6 @@ fn decode_rfc5987(value: &str) -> Option<String> {
         }
     }
     String::from_utf8(out).ok()
-}
-
-/// Pure multipart half of [`parse_form_values`] — testable without a request.
-///
-/// Splits on `--boundary`, extracts each part's `name=` (and optional
-/// `filename=`), and collects `name -> value`. File parts contribute their
-/// filename; text parts contribute their raw content (UTF-8 lossy). A missing
-/// trailing CRLF or preamble/epilogue is tolerated.
-fn form_values_from_multipart(bytes: &[u8], boundary: &str) -> HashMap<String, String> {
-    let mut out = HashMap::new();
-    let delimiter = format!("--{boundary}");
-    let body = String::from_utf8_lossy(bytes);
-    for raw_part in body.split(&delimiter) {
-        // Skip preamble and closing `--`: trim leading CRLF only — trimming
-        // trailing CRLF first would eat the header/content separator when the
-        // content itself is empty (no file chosen).
-        let part = raw_part.trim_start_matches(['\r', '\n']);
-        if part.is_empty() || part.starts_with("--") {
-            continue;
-        }
-        let Some(sep) = part.find("\r\n\r\n") else {
-            continue;
-        };
-        let (header_block, content) = part.split_at(sep);
-        let content = content["\r\n\r\n".len()..].trim_end_matches(['\r', '\n']);
-        let mut name: Option<String> = None;
-        let mut filename: Option<String> = None;
-        let mut filename_star: Option<String> = None;
-        for header_line in header_block.split("\r\n") {
-            let line = header_line.trim();
-            // Header names are case-insensitive (GH #90). Prefix matching uses
-            // `get` so non-ASCII junk fails the match instead of panicking.
-            let rest = if line
-                .get(..20)
-                .is_some_and(|h| h.eq_ignore_ascii_case("content-disposition:"))
-            {
-                &line[20..]
-            } else {
-                continue;
-            };
-            for seg in rest.split(';') {
-                let seg = seg.trim();
-                if seg
-                    .get(..9)
-                    .is_some_and(|h| h.eq_ignore_ascii_case("filename="))
-                {
-                    filename = Some(seg[9..].trim().trim_matches(['"', '\'']).to_string());
-                } else if seg
-                    .get(..10)
-                    .is_some_and(|h| h.eq_ignore_ascii_case("filename*="))
-                {
-                    filename_star = Some(seg[10..].trim().to_string());
-                } else if seg.get(..5).is_some_and(|h| h.eq_ignore_ascii_case("name=")) {
-                    name = Some(seg[5..].trim().trim_matches(['"', '\'']).to_string());
-                }
-            }
-        }
-        // RFC 6266: `filename*=` (decoded) takes precedence over `filename=`.
-        let filename = filename_star
-            .as_deref()
-            .and_then(decode_rfc5987)
-            .or(filename);
-        if let Some(n) = name
-            && !n.is_empty()
-        {
-            match filename {
-                Some(f) if !f.is_empty() => {
-                    // v1 stores the sanitized basename, not the bytes (FileUpload contract, GH #90).
-                    out.insert(n, sanitize_filename(&f));
-                }
-                Some(_) => {
-                    // Empty filename (no file chosen) → empty value so `required`
-                    // validation fires instead of treating it as missing.
-                    out.insert(n, String::new());
-                }
-                None => {
-                    out.insert(n, content.to_string());
-                }
-            }
-        }
-    }
-    out
 }
 
 /// Pure half of [`parse_form_values`] — testable without a request.
@@ -1397,17 +1361,25 @@ fn resource_create<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
 
 /// Reject POST keys no declared Schema input owns (GH #89 mass-assignment
 /// allow-list). `csrf_token` is a handler key, not a field, so it is filtered
-/// before the check; absent keys are fine (present-keys-only updates), unknown
-/// keys are a 400 — silently ignoring `role`/`tenant_id` smuggling is what the
-/// old code did, and a generic record fn iterating `values` would promote them
-/// to client-controlled writes.
+/// before the check, as are `clear_<field>` flags for declared `FileUpload`
+/// fields (GH #90 explicit-clear convention); absent keys are fine
+/// (present-keys-only updates), unknown keys are a 400 — silently ignoring
+/// `role`/`tenant_id` smuggling is what the old code did, and a generic
+/// record fn iterating `values` would promote them to client-controlled
+/// writes.
 fn reject_unknown_form_keys(
     schema: &crate::schema::Schema,
     values: &HashMap<String, String>,
 ) -> Result<(), topcoat::Error> {
+    let uploads = schema.file_uploads();
     let filtered: HashMap<String, String> = values
         .iter()
-        .filter(|(k, _)| k.as_str() != crate::csrf::FIELD_NAME)
+        .filter(|(k, _)| {
+            k.as_str() != crate::csrf::FIELD_NAME
+                && !(k
+                    .strip_prefix("clear_")
+                    .is_some_and(|f| uploads.contains_key(f)))
+        })
         .map(|(k, v)| (k.clone(), v.clone()))
         .collect();
     let unknown = schema.unknown_keys(&filtered);
@@ -1615,13 +1587,19 @@ fn resource_edit_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
         // form renders an empty file input (browsers never pre-fill it), so
         // an empty submit means "keep", not "clear" — without this the
         // required check rejects untouched edits and optional uploads get
-        // blanked. Explicit clearing needs its own control (future work).
+        // blanked. An explicit `clear_<field>=1` opts back into clearing
+        // (apps render their own checkbox; a first-class control is future
+        // work).
         for name in schema.file_uploads().keys() {
+            let cleared = values
+                .get(&format!("clear_{name}"))
+                .is_some_and(|v| v == "1" || v == "true");
             let empty = values
                 .get(name)
                 .map(|v| v.trim().is_empty())
                 .unwrap_or(true);
-            if empty
+            if !cleared
+                && empty
                 && current
                     .get(name)
                     .is_some_and(|v| !v.trim().is_empty())
@@ -3418,82 +3396,97 @@ mod tests {
         assert!(form_values_from_bytes(b"").is_empty());
     }
 
-    #[test]
-    fn multipart_boundary_extracts_param() {
-        assert_eq!(
-            multipart_boundary("multipart/form-data; boundary=----ABC"),
-            Some("----ABC".to_string())
-        );
-        assert_eq!(
-            multipart_boundary("multipart/form-data; boundary=\"----ABC\""),
-            Some("----ABC".to_string())
-        );
-        // GH #90 hardening: case-insensitive name, spaces, single quotes.
-        assert_eq!(
-            multipart_boundary("multipart/form-data; BOUNDARY = '----ABC' "),
-            Some("----ABC".to_string())
-        );
-        assert_eq!(
-            multipart_boundary("multipart/form-data; charset=x; boundary=----ABC"),
-            Some("----ABC".to_string())
-        );
-        assert_eq!(
-            multipart_boundary("application/x-www-form-urlencoded"),
-            None
-        );
-        assert_eq!(multipart_boundary("multipart/form-data"), None);
-        assert_eq!(multipart_boundary("text/plain; boundary=x"), None);
+    /// Build a request context carrying `content_type` and run the streaming
+    /// multipart parser over `body` (GH #90).
+    async fn multipart_values(
+        content_type: &str,
+        body: Vec<u8>,
+    ) -> Result<HashMap<String, String>, topcoat::Error> {
+        let (parts, ()) = http::Request::builder()
+            .uri("/admin/users/create")
+            .header(http::header::CONTENT_TYPE, content_type)
+            .body(())
+            .unwrap()
+            .into_parts();
+        let cx = topcoat::context::CxTestBuilder::new()
+            .request_context(parts)
+            .build();
+        parse_multipart_values(&cx, Body::from(body)).await
     }
 
-    #[test]
-    fn multipart_values_store_text_and_filenames() {
+    fn multipart_type(boundary: &str) -> String {
+        format!("multipart/form-data; boundary={boundary}")
+    }
+
+    #[tokio::test]
+    async fn multipart_stream_stores_text_and_filenames() {
         let boundary = "----Boundary123";
         let body = format!(
             "--{b}\r\nContent-Disposition: form-data; name=\"title\"\r\n\r\nHello\r\n\
              --{b}\r\nContent-Disposition: form-data; name=\"image_path\"; filename=\"photo.jpg\"\r\nContent-Type: image/jpeg\r\n\r\nBINARYBYTES\r\n\
              --{b}\r\nContent-Disposition: form-data; name=\"tags\"\r\n\r\nrust,async\r\n\
+             --{b}\r\nContent-Disposition: form-data; name=\"tags\"\r\n\r\nsecond-wins\r\n\
              --{b}--\r\n",
             b = boundary
         );
-        let got = form_values_from_multipart(body.as_bytes(), boundary);
+        let got = multipart_values(&multipart_type(boundary), body.into_bytes())
+            .await
+            .unwrap();
         assert_eq!(got.get("title").map(String::as_str), Some("Hello"));
         // v1 stores the filename, not the bytes (FileUpload contract).
         assert_eq!(got.get("image_path").map(String::as_str), Some("photo.jpg"));
-        assert_eq!(got.get("tags").map(String::as_str), Some("rust,async"));
+        assert_eq!(got.get("tags").map(String::as_str), Some("second-wins"));
 
         // Empty filename → empty value so `required` fires.
         let body = format!(
             "--{b}\r\nContent-Disposition: form-data; name=\"image_path\"; filename=\"\"\r\nContent-Type: application/octet-stream\r\n\r\n\r\n--{b}--\r\n",
             b = boundary
         );
-        let got = form_values_from_multipart(body.as_bytes(), boundary);
+        let got = multipart_values(&multipart_type(boundary), body.into_bytes())
+            .await
+            .unwrap();
         assert_eq!(got.get("image_path").map(String::as_str), Some(""));
     }
 
-    #[test]
-    fn multipart_headers_are_case_insensitive_and_decode_filename_star() {
-        let boundary = "----Boundary99";
-        // Lowercase disposition, single-quoted name, RFC 5987 filename*.
-        let body = format!(
-            "--{b}\r\ncontent-disposition: form-data; name='image_path'; filename*=UTF-8''%E2%82%ACphoto.jpg\r\nContent-Type: image/jpeg\r\n\r\nBYTES\r\n--{b}--\r\n",
-            b = boundary
-        );
-        let got = form_values_from_multipart(body.as_bytes(), boundary);
+    #[tokio::test]
+    async fn multipart_stream_sanitizes_traversal_and_filename_star() {
+        // Traversal filename lands sanitized (GH #90).
+        let body = "--B\r\nContent-Disposition: form-data; name=\"image_path\"; filename=\"../../../etc/passwd\"\r\nContent-Type: application/octet-stream\r\n\r\nBYTES\r\n--B--\r\n";
+        let got = multipart_values(&multipart_type("B"), body.as_bytes().to_vec())
+            .await
+            .unwrap();
+        assert_eq!(got.get("image_path").map(String::as_str), Some("passwd"));
+
+        // RFC 5987 filename* decodes and wins over filename=.
+        let body = "--B\r\nContent-Disposition: form-data; name=\"image_path\"; filename*=UTF-8''%E2%82%ACphoto.jpg\r\nContent-Type: image/jpeg\r\n\r\nBYTES\r\n--B--\r\n";
+        let got = multipart_values(&multipart_type("B"), body.as_bytes().to_vec())
+            .await
+            .unwrap();
         assert_eq!(
             got.get("image_path").map(String::as_str),
             Some("€photo.jpg"),
             "filename*=UTF-8 must decode and win, got {got:?}"
         );
         // Non-UTF-8 charset falls back to plain filename=.
-        let body = format!(
-            "--{b}\r\nContent-Disposition: form-data; name=\"image_path\"; filename=\"plain.jpg\"; filename*=latin-1''%E9.jpg\r\nContent-Type: image/jpeg\r\n\r\nBYTES\r\n--{b}--\r\n",
-            b = boundary
-        );
-        let got = form_values_from_multipart(body.as_bytes(), boundary);
+        let body = "--B\r\nContent-Disposition: form-data; name=\"image_path\"; filename=\"plain.jpg\"; filename*=latin-1''%E9.jpg\r\nContent-Type: image/jpeg\r\n\r\nBYTES\r\n--B--\r\n";
+        let got = multipart_values(&multipart_type("B"), body.as_bytes().to_vec())
+            .await
+            .unwrap();
         assert_eq!(
             got.get("image_path").map(String::as_str),
             Some("plain.jpg"),
             "unsupported charset must fall back, got {got:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn multipart_stream_rejects_missing_boundary() {
+        // Bare multipart without boundary is a 400, not a silent urlencoded
+        // fallback that turns binary bytes into confusing required-errors.
+        assert!(
+            multipart_values("multipart/form-data", b"name=x".to_vec())
+                .await
+                .is_err()
         );
     }
 
@@ -3504,18 +3497,6 @@ mod tests {
         assert_eq!(sanitize_filename("/abs/path"), "path");
         assert_eq!(sanitize_filename("C:\\fakepath\\x"), "x");
         assert_eq!(sanitize_filename(""), "");
-        // Traversal via multipart lands sanitized.
-        let boundary = "B";
-        let body = format!(
-            "--{b}\r\nContent-Disposition: form-data; name=\"image_path\"; filename=\"../../../etc/passwd\"\r\nContent-Type: application/octet-stream\r\n\r\nBYTES\r\n--{b}--\r\n",
-            b = boundary
-        );
-        let got = form_values_from_multipart(body.as_bytes(), boundary);
-        assert_eq!(got.get("image_path").map(String::as_str), Some("passwd"));
-        // Bare multipart without boundary is a 400, not silent urlencoded fallback.
-        assert!(
-            form_values_from_request_parts(Some("multipart/form-data"), b"name=x").is_err()
-        );
         // Over-cap body is rejected before buffering into maps.
         let big = vec![b'a'; MAX_FORM_BYTES + 1];
         assert!(

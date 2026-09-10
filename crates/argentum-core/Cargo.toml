@@ -15,7 +15,7 @@ jiff.workspace = true
 serde.workspace = true
 toasty.workspace = true
 toasty-core.workspace = true
-topcoat = { workspace = true, features = ["view", "router", "discover", "tailwind", "asset", "font", "font-fontsource", "runtime", "cookie"] }
+topcoat = { workspace = true, features = ["view", "router", "discover", "tailwind", "asset", "font", "font-fontsource", "runtime", "cookie", "multipart"] }
 tracing = "0.1"
 uuid.workspace = true
 
