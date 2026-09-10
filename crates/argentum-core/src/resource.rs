@@ -1374,13 +1374,13 @@ impl<M> Table<M> {
         // the honest empty state even when `?group_by=` is set (GH #75).
         // Counts are page-local (GH #92): label them as such so page 1 never
         // reads as a table total.
+        let mut group_views: Vec<BoxView<'_>> = Vec::new();
         if let Some(group_fn) = self.effective_group_key(state) {
             use std::collections::BTreeMap;
             let mut groups: BTreeMap<String, usize> = BTreeMap::new();
             for row in &page.rows {
                 *groups.entry(group_fn(row)).or_insert(0) += 1;
             }
-            let mut group_views: Vec<BoxView<'_>> = Vec::new();
             for (key, count) in groups {
                 let text = format!("{} ({} on this page)", key, count);
                 group_views.push(
@@ -1391,79 +1391,10 @@ impl<M> Table<M> {
                     .boxed(),
                 );
             }
-            let inner = view! {
-                cx =>
-                <div class="rounded-xl border border-border overflow-hidden" data-table-root="">
-                    if show_search {
-                        (search_bar.expect("search bar built when enabled"))
-                    }
-                    if show_filters {
-                        (filter_bar.expect("filter bar built when enabled"))
-                    }
-                    (bulk_bar_view)
-                    if let Some(warning) = filter_warning {
-                        (warning)
-                    }
-                    for gv in group_views {
-                        (gv)
-                    }
-                    table(
-                        (head)
-                        table_body(
-                            for (key, cells) in &row_data {
-                                let key_for_row = key.clone();
-                                let key_for_action = key.clone();
-                                let key_for_select = key.clone();
-                                let csrf_for_row = csrf_token.clone();
-                                let row_dom_id = row_dom_id(&key_for_row);
-                                table_row(
-                                    key: key_for_row,
-                                    attrs: attributes! { id=(row_dom_id) },
-                                    if with_bulk {
-                                        table_cell(
-                                            <input
-                                                type="checkbox"
-                                                value=(key_for_select)
-                                                aria-label="Select row"
-                                                data-row-select=""
-                                            >
-                                        )
-                                    }
-                                    for cell in cells {
-                                        table_cell((cell.clone()))
-                                    }
-                                    if let Some(prefix) = &delete_prefix {
-                                        table_cell(
-                                            <form
-                                                method="post"
-                                                action=(format!("{}/{}/delete", prefix, encode_path_segment(&key_for_action)))
-                                            >
-                                                <input type="hidden" name="csrf_token" value=(csrf_for_row)>
-                                                button(
-                                                    variant: ButtonVariant::Ghost,
-                                                    size: ButtonSize::Md,
-                                                    attrs: attributes! { r#type="submit" },
-                                                    "Delete"
-                                                )
-                                            </form>
-                                        )
-                                    }
-                                )
-                            }
-                        )
-                    )
-                    for p in pager {
-                        (p)
-                    }
-                </div>
-            };
-            if is_boundary {
-                return Ok(view! { cx => <div data-boundary="table">(inner)</div> }.boxed());
-            } else {
-                return Ok(inner.boxed());
-            }
         }
 
+        // One grid body for grouped and ungrouped pages: `group_views` is
+        // empty unless `?group_by=` named the declared group.
         let inner = view! {
             cx =>
             <div class="rounded-xl border border-border overflow-hidden" data-table-root="">
@@ -1476,6 +1407,9 @@ impl<M> Table<M> {
                 (bulk_bar_view)
                 if let Some(warning) = filter_warning {
                     (warning)
+                }
+                for gv in group_views {
+                    (gv)
                 }
                 table(
                     (head)
