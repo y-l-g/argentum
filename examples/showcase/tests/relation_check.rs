@@ -1,7 +1,7 @@
 use http::header::LOCATION;
 use showcase::{
     app::router_for_tests as router,
-    models::{Author, DEMO_TENANT, Post},
+    models::{Author, Post},
 };
 
 mod common;
@@ -12,7 +12,7 @@ async fn posts_list_shows_author_name() {
     let db = full_db().await;
     let router = router(db.clone());
     let client = demo_client(&router).await;
-    let resp = client.tenant(DEMO_TENANT).get("/admin/posts").await;
+    let resp = client.get("/admin/posts").await;
     assert!(resp.status().is_success(), "status {}", resp.status());
     let html = body_string(resp).await;
     assert!(html.contains("Hello Toasty"), "missing post title {}", html);
@@ -24,7 +24,7 @@ async fn posts_create_shows_select_with_author_options() {
     let db = full_db().await;
     let router = router(db);
     let client = demo_client(&router).await;
-    let resp = client.tenant(DEMO_TENANT).get("/admin/posts/create").await;
+    let resp = client.get("/admin/posts/create").await;
     assert!(resp.status().is_success(), "status {}", resp.status());
     let html = body_string(resp).await;
     assert!(html.contains("<select"), "missing select {}", html);
@@ -42,7 +42,6 @@ async fn posts_create_empty_author_shows_required_error() {
     let client = demo_client(&router).await;
     let csrf = uuid::Uuid::new_v4().to_string();
     let resp = client
-        .tenant(DEMO_TENANT)
         .csrf(&csrf)
         .post_form(
             "/admin/posts/create",
@@ -76,7 +75,6 @@ async fn posts_create_invalid_author_shows_invalid_error() {
     let csrf = uuid::Uuid::new_v4().to_string();
     let fake_id = uuid::Uuid::new_v4();
     let resp = client
-        .tenant(DEMO_TENANT)
         .csrf(&csrf)
         .post_form(
             "/admin/posts/create",
@@ -110,7 +108,6 @@ async fn posts_create_valid_redirects_and_creates() {
     let first = &authors[0];
     let before = Post::all().exec(&mut db2).await.unwrap().len();
     let resp = client
-        .tenant(DEMO_TENANT)
         .csrf(&csrf)
         .post_form(
             "/admin/posts/create",
@@ -149,7 +146,6 @@ async fn posts_edit_hydrates_author() {
     let first = &authors[0];
     // create a post via valid route to ensure edit hydrates
     let _ = client
-        .tenant(DEMO_TENANT)
         .csrf(&csrf)
         .post_form(
             "/admin/posts/create",
@@ -167,7 +163,7 @@ async fn posts_edit_hydrates_author() {
         .unwrap()
         .unwrap();
     let edit_url = format!("/admin/posts/{}/edit", post.id);
-    let resp = client.tenant(DEMO_TENANT).get(&edit_url).await;
+    let resp = client.get(&edit_url).await;
     assert!(resp.status().is_success());
     let html = body_string(resp).await;
     assert!(html.contains("EditMe"), "edit should show title {}", html);
@@ -183,7 +179,7 @@ async fn posts_list_shows_comments_count_via_include() {
     let db = full_db().await;
     let router = router(db.clone());
     let client = demo_client(&router).await;
-    let resp = client.tenant(DEMO_TENANT).get("/admin/posts").await;
+    let resp = client.get("/admin/posts").await;
     assert!(resp.status().is_success());
     let html = body_string(resp).await;
     // Table should have Comments header and counts 1 and 0 (one query, no N+1)
@@ -217,7 +213,6 @@ async fn posts_update_rechecks_author_existence() {
     let edit_url = format!("/admin/posts/{}/edit", post.id);
     // Valid same-author update still redirects (symmetric double-check, GH #91).
     let resp = client
-        .tenant(DEMO_TENANT)
         .csrf(&csrf)
         .post_form(
             &edit_url,
@@ -235,7 +230,6 @@ async fn posts_update_rechecks_author_existence() {
     // Bogus author is rejected, not silently written (validate_async invalid).
     let fake = uuid::Uuid::new_v4();
     let resp = client
-        .tenant(DEMO_TENANT)
         .csrf(&csrf)
         .post_form(
             &edit_url,

@@ -116,6 +116,14 @@ pub async fn seed(db: &mut Db) -> toasty::Result<()> {
         Some(DEMO_TENANT),
     )
     .await?;
+    create_admin(
+        db,
+        TENANTLESS_ADMIN_EMAIL,
+        "No Tenant",
+        DEMO_ADMIN_PASSWORD,
+        None,
+    )
+    .await?;
     Ok(())
 }
 
@@ -126,6 +134,10 @@ pub const DEMO_TENANT: uuid::Uuid = uuid::Uuid::from_u128(100);
 /// Demo administrator credentials, shown on the login page and in the README.
 pub const DEMO_ADMIN_EMAIL: &str = "admin@example.com";
 pub const DEMO_ADMIN_PASSWORD: &str = "password";
+
+/// A seeded administrator with no tenant, for `requires_tenant` fail-closed
+/// tests: valid credentials, no tenant to bridge.
+pub const TENANTLESS_ADMIN_EMAIL: &str = "root@example.com";
 
 /// Create an active admin (or another app user) with an Argon2id-hashed
 /// password. Used by the showcase seed and the tenancy test fixtures.

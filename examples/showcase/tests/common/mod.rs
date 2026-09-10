@@ -174,9 +174,9 @@ impl<'a> TestClient<'a> {
         self.cookie(argentum_core::csrf::COOKIE_NAME, token)
     }
 
-    /// Carry a tenant into the request: as a `Tenant` request extension and,
-    /// until the auth migration lands (GH #131), as the legacy `x-tenant-id`
-    /// header. Both sources resolve through `tenant_id(cx)`.
+    /// Carry a tenant as a `Tenant` request extension — the server-set
+    /// override seam (GH #131). It takes precedence over the logged-in user's
+    /// tenant, letting a suite scope one request to another tenant.
     pub fn tenant(&self, tenant: uuid::Uuid) -> Self {
         let mut client = self.clone();
         client.tenant = Some(tenant);
@@ -230,9 +230,6 @@ impl<'a> TestClient<'a> {
                 .collect::<Vec<_>>()
                 .join("; ");
             builder = builder.header(COOKIE, jar);
-        }
-        if let Some(tenant) = self.tenant {
-            builder = builder.header("x-tenant-id", tenant.to_string());
         }
         let (mut parts, body) = builder.body(Body::empty()).unwrap().into_parts();
         if let Some(tenant) = self.tenant {

@@ -3114,16 +3114,17 @@ mod tests {
             )
             .await;
         assert_eq!(resp.status(), http::StatusCode::FORBIDDEN);
-        // Harness header supplies the tenant → gate passes (create page 200).
-        let tenant = uuid::Uuid::new_v4().to_string();
+        // A server-set `Tenant` request extension supplies the tenant → gate
+        // passes (create page 200). The header no longer does (GH #131).
+        let tenant = uuid::Uuid::new_v4();
+        let (mut parts, ()) = http::Request::builder()
+            .uri("/admin/dummies/create")
+            .body(())
+            .unwrap()
+            .into_parts();
+        parts.extensions.insert(crate::Tenant(tenant));
         let resp = router
-            .handle(
-                http::Request::builder()
-                    .uri("/admin/dummies/create")
-                    .header("x-tenant-id", tenant)
-                    .body(Body::empty())
-                    .unwrap(),
-            )
+            .handle(http::Request::from_parts(parts, Body::empty()))
             .await;
         assert!(
             resp.status().is_success(),

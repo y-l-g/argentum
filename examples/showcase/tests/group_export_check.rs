@@ -1,4 +1,4 @@
-use showcase::{app::router_for_tests as router, models::DEMO_TENANT};
+use showcase::app::router_for_tests as router;
 
 mod common;
 use common::{body_string, demo_client, full_db};
@@ -9,10 +9,7 @@ async fn posts_export_bom_opt_in_prepends_bom() {
     let db = full_db().await;
     let router = router(db);
     let client = demo_client(&router).await;
-    let resp = client
-        .tenant(DEMO_TENANT)
-        .get("/admin/posts/export?bom=1")
-        .await;
+    let resp = client.get("/admin/posts/export?bom=1").await;
     assert!(resp.status().is_success());
     let csv = body_string(resp).await;
     assert!(
@@ -20,7 +17,7 @@ async fn posts_export_bom_opt_in_prepends_bom() {
         "bom=1 export must start with BOM, got {csv:?}"
     );
 
-    let resp = client.tenant(DEMO_TENANT).get("/admin/posts/export").await;
+    let resp = client.get("/admin/posts/export").await;
     let csv = body_string(resp).await;
     assert!(
         !csv.starts_with('\u{FEFF}'),
@@ -33,10 +30,7 @@ async fn posts_group_by_status_shows_counts() {
     let db = full_db().await;
     let router = router(db);
     let client = demo_client(&router).await;
-    let resp = client
-        .tenant(DEMO_TENANT)
-        .get("/admin/posts?group_by=status")
-        .await;
+    let resp = client.get("/admin/posts?group_by=status").await;
     assert!(
         resp.status().is_success(),
         "group_by should be 200, got {}",
@@ -58,7 +52,7 @@ async fn posts_export_streams_csv_with_content_disposition() {
     let db = full_db().await;
     let router = router(db);
     let client = demo_client(&router).await;
-    let resp = client.tenant(DEMO_TENANT).get("/admin/posts/export").await;
+    let resp = client.get("/admin/posts/export").await;
     assert!(
         resp.status().is_success(),
         "export should be 200, got {}",
@@ -113,7 +107,6 @@ async fn posts_export_streams_csv_with_content_disposition() {
     );
     // Should respect filters if provided
     let resp = client
-        .tenant(DEMO_TENANT)
         .get("/admin/posts/export?filters=status:published")
         .await;
     let csv = body_string(resp).await;

@@ -496,7 +496,13 @@ impl Layer for AuthGate {
             };
             match resolve(cx, authenticator).await? {
                 Some(user) if user.can_access_panel => {
-                    let child = cx.with(user);
+                    // The logged-in user's optional tenant becomes the request
+                    // tenant; auth never requires one (ADR-0013).
+                    let tenant_id = user.tenant_id;
+                    let mut child = cx.with(user);
+                    if let Some(tenant_id) = tenant_id {
+                        child = child.with(crate::tenancy::Tenant(tenant_id));
+                    }
                     next.run(&child, body).await
                 }
                 // Authenticated but not permitted: 403, indistinguishable

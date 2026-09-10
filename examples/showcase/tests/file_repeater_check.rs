@@ -1,6 +1,6 @@
 use showcase::{
     app::router_for_tests as router,
-    models::{Author, DEMO_TENANT, Post},
+    models::{Author, Post},
 };
 
 mod common;
@@ -11,7 +11,7 @@ async fn posts_create_shows_fileupload_and_repeater() {
     let db = full_db().await;
     let router = router(db);
     let client = demo_client(&router).await;
-    let resp = client.tenant(DEMO_TENANT).get("/admin/posts/create").await;
+    let resp = client.get("/admin/posts/create").await;
     assert!(resp.status().is_success());
     let html = body_string(resp).await;
     // FileUpload should be an input type="file" with for/id linking and Tokens
@@ -66,7 +66,6 @@ async fn posts_create_invalid_fileupload_repeater_shows_errors() {
     let first = &authors[0];
     // Missing image_path and tags (both required)
     let resp = client
-        .tenant(DEMO_TENANT)
         .csrf(&csrf)
         .post_form(
             "/admin/posts/create",
@@ -105,7 +104,7 @@ async fn posts_create_valid_fileupload_repeater_creates() {
     let authors = Author::all().exec(&mut db2).await.unwrap();
     let first = &authors[0];
     let before = Post::all().exec(&mut db2).await.unwrap().len();
-    let resp = client.tenant(DEMO_TENANT).csrf(&csrf).post_form("/admin/posts/create", format!(
+    let resp = client.csrf(&csrf).post_form("/admin/posts/create", format!(
             "title=Valid+With+Files&author_id={}&image_path=/tmp/valid.jpg&tags=valid,tags&csrf_token={csrf}",
             first.id
         ))
@@ -134,7 +133,7 @@ async fn posts_create_form_is_multipart() {
     let db = full_db().await;
     let router = router(db);
     let client = demo_client(&router).await;
-    let resp = client.tenant(DEMO_TENANT).get("/admin/posts/create").await;
+    let resp = client.get("/admin/posts/create").await;
     assert!(resp.status().is_success());
     let html = body_string(resp).await;
     assert!(
@@ -186,7 +185,6 @@ async fn posts_create_multipart_file_stores_filename() {
     );
     let before = Post::all().exec(&mut db2).await.unwrap().len();
     let resp = client
-        .tenant(DEMO_TENANT)
         .csrf(&csrf)
         .post_multipart("/admin/posts/create", boundary, body)
         .await;
@@ -231,7 +229,6 @@ async fn posts_edit_untouched_file_keeps_stored_path() {
     let authors = Author::all().exec(&mut db_q).await.unwrap();
     let csrf = uuid::Uuid::new_v4().to_string();
     let resp = client
-        .tenant(DEMO_TENANT)
         .csrf(&csrf)
         .post_form(
             &format!("/admin/posts/{}/edit", post.id),
@@ -283,7 +280,7 @@ async fn posts_edit_explicit_clear_flag_skips_preservation() {
     .expect("seeded post");
     let authors = Author::all().exec(&mut db_q).await.unwrap();
     let csrf = uuid::Uuid::new_v4().to_string();
-    let resp = client.tenant(DEMO_TENANT).csrf(&csrf).post_form(&format!("/admin/posts/{}/edit", post.id), format!(
+    let resp = client.csrf(&csrf).post_form(&format!("/admin/posts/{}/edit", post.id), format!(
             "title=Kept&author_id={}&image_path=&tags=rust&clear_image_path=1&csrf_token={csrf}",
             authors[0].id
         ))
@@ -339,7 +336,6 @@ async fn multipart_body_limit_matches_urlencoded_cap() {
         blob = big_ok,
     );
     let resp = client
-        .tenant(DEMO_TENANT)
         .csrf(&csrf)
         .post_multipart("/admin/posts/create", boundary, body)
         .await;
@@ -358,7 +354,6 @@ async fn multipart_body_limit_matches_urlencoded_cap() {
         blob = big_no,
     );
     let resp = client
-        .tenant(DEMO_TENANT)
         .csrf(&csrf)
         .post_multipart("/admin/posts/create", boundary, body)
         .await;
@@ -371,7 +366,7 @@ async fn posts_author_select_is_searchable() {
     let db = full_db().await;
     let router = router(db);
     let client = demo_client(&router).await;
-    let resp = client.tenant(DEMO_TENANT).get("/admin/posts/create").await;
+    let resp = client.get("/admin/posts/create").await;
     assert!(resp.status().is_success());
     let html = body_string(resp).await;
     assert!(

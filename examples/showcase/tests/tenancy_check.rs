@@ -1,10 +1,33 @@
+use http::header::COOKIE;
 use showcase::{
     app::router_for_tests as router,
-    models::{Author, Post},
+    models::{
+        Author, DEMO_ADMIN_EMAIL, DEMO_ADMIN_PASSWORD, DEMO_TENANT, Post, TENANTLESS_ADMIN_EMAIL,
+    },
 };
+use topcoat::router::Body;
 
 mod common;
-use common::{body_string, demo_client, full_db, tenanted_db};
+use common::{
+    SESSION_COOKIE, body_string, demo_client, full_db, login, login_next, session_cookie_value,
+    tenanted_db,
+};
+
+#[tokio::test]
+async fn logged_in_tenant_reaches_tenant_scoped_resources_without_headers() {
+    // GH #131: the demo admin's tenant flows from the login, so tenant-scoped
+    // resources serve without any tenant header or request extension.
+    let db = full_db().await;
+    let router = router(db);
+    let client = login(&router, DEMO_ADMIN_EMAIL, DEMO_ADMIN_PASSWORD).await;
+
+    for path in ["/admin/authors", "/admin/posts"] {
+        let response = client.get(path).await;
+        assert_eq!(response.status(), 200, "{path}");
+    }
+    let html = body_string(client.get("/admin/authors").await).await;
+    assert!(html.contains("Ada Author"), "{html}");
+}
 
 #[tokio::test]
 async fn posts_list_is_scoped_by_tenant_via_resource_query() {
@@ -97,13 +120,14 @@ async fn tenancy_via_cx_with_tenant_scopes_query_directly() {
 
 #[tokio::test]
 async fn tenantless_requests_to_gated_resources_fail_closed() {
-    // GH #87: Author/Post declare requires_tenant — every handler 403s
-    // without a tenant instead of leaking rows or minting nil orphans.
+    // GH #87/#131: Author/Post declare requires_tenant — every handler 403s
+    // when the logged-in user carries no tenant, instead of leaking rows or
+    // minting nil orphans.
     let db = full_db().await;
     let router = router(db.clone());
-    let client = demo_client(&router).await;
+    let client = login(&router, TENANTLESS_ADMIN_EMAIL, DEMO_ADMIN_PASSWORD).await;
 
-    // List without tenant → 403 (not unscoped rows).
+    // List without a tenant → 403 (not unscoped rows).
     let resp = client.get("/admin/posts").await;
     assert_eq!(resp.status(), 403, "tenantless list must fail closed");
 
@@ -149,17 +173,17 @@ async fn tenantless_requests_to_gated_resources_fail_closed() {
 }
 
 #[tokio::test]
-async fn header_create_assigns_header_tenant() {
-    // GH #87: creates land in the request tenant, never nil.
+async fn create_assigns_the_logged_in_tenant() {
+    // GH #87/#131: creates land in the tenant the logged-in user carries,
+    // never nil.
     let db = full_db().await;
     let router = router(db.clone());
     let client = demo_client(&router).await;
-    let tenant = showcase::models::DEMO_TENANT;
+    let tenant = DEMO_TENANT;
     let csrf = uuid::Uuid::new_v4().to_string();
     let mut db_q = db.clone();
     let authors = Author::all().exec(&mut db_q).await.unwrap();
     let resp = client
-        .tenant(tenant)
         .csrf(&csrf)
         .post_form(
             "/admin/posts/create",
@@ -171,7 +195,7 @@ async fn header_create_assigns_header_tenant() {
         .await;
     assert!(
         resp.status().is_redirection(),
-        "header-authed create must redirect, got {}",
+        "authenticated create must redirect, got {}",
         resp.status()
     );
     let created = showcase::models::Post::filter(
@@ -185,4 +209,30 @@ async fn header_create_assigns_header_tenant() {
     .unwrap()
     .expect("created post");
     assert_eq!(created.tenant_id, tenant);
+}
+
+#[tokio::test]
+async fn x_tenant_id_header_no_longer_grants_a_tenant() {
+    // GH #131: learning another tenant's UUID must not make the caller that
+    // tenant through the old harness header.
+    let db = full_db().await;
+    let router = router(db);
+    let (_, login_response) =
+        login_next(&router, TENANTLESS_ADMIN_EMAIL, DEMO_ADMIN_PASSWORD, "").await;
+    let session = session_cookie_value(&login_response).expect("session cookie");
+    let response = router
+        .handle(
+            http::Request::builder()
+                .uri("/admin/posts")
+                .header(COOKIE, format!("{SESSION_COOKIE}={session}"))
+                .header("x-tenant-id", DEMO_TENANT.to_string())
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+    assert_eq!(
+        response.status(),
+        403,
+        "x-tenant-id must not grant a tenant (GH #131)"
+    );
 }
