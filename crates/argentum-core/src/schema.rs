@@ -826,6 +826,19 @@ where
     Some((fid, value))
 }
 
+/// Whether `M`'s primary key is composite (GH #95): more than one field.
+/// Composite keys have no URL representation in Argentum (row keys are plain
+/// `String`s), so handlers fail loudly (500, programmer error) instead of
+/// 404ing every id and hiding the misconfiguration.
+pub(crate) fn pk_is_composite<M>() -> bool
+where
+    M: toasty::schema::Model,
+{
+    M::schema()
+        .as_root()
+        .is_some_and(|root| root.primary_key.fields.len() > 1)
+}
+
 /// Equality predicate on `M`'s primary key for a URL path-segment `id` —
 /// `pk == value`. `None` when the id does not parse as the PK's type or the
 /// PK is not a single primitive field.
@@ -2633,6 +2646,24 @@ mod tests {
         values.remove("role");
         values.remove("confirm");
         assert!(schema.unknown_keys(&values).is_empty());
+    }
+
+    #[test]
+    fn composite_pk_has_no_url_representation() {
+        // GH #95: composite keys fail loudly (programmer error), never a
+        // per-id 404 that hides the misconfiguration.
+        use toasty::schema::Model;
+        #[derive(Debug, Clone, toasty::Model)]
+        struct Pair {
+            #[key]
+            a: String,
+            #[key]
+            b: String,
+            name: String,
+        }
+        assert!(pk_is_composite::<Pair>());
+        assert!(!pk_is_composite::<DummyUser>());
+        assert!(pk_eq_expr::<Pair>("anything").is_none());
     }
 
     #[test]

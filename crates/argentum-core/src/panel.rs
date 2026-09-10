@@ -1523,6 +1523,18 @@ async fn find_by_key<R: Resource>(
     ex: &mut dyn toasty::Executor,
 ) -> Result<R::Model> {
     let Some(expr) = crate::schema::pk_eq_expr::<R::Model>(id) else {
+        // Composite PKs have no URL representation (GH #95): fail loudly so
+        // the misconfiguration surfaces instead of 404ing every id.
+        if crate::schema::pk_is_composite::<R::Model>() {
+            tracing::error!(
+                resource = R::slug(),
+                "composite primary key has no URL representation"
+            );
+            return Err(topcoat::Error::from(std::io::Error::other(format!(
+                "resource '{}' has a composite primary key, which has no URL representation (GH #95)",
+                R::slug()
+            ))));
+        }
         return Err(topcoat::router::error::not_found().into());
     };
     R::query(cx)
@@ -1750,6 +1762,16 @@ fn resource_bulk_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
             // short and 404s as well.
             let keys: Vec<&str> = ids.iter().map(String::as_str).collect();
             let Some(pk_filter) = crate::schema::pk_in_expr::<R::Model>(&keys) else {
+                if crate::schema::pk_is_composite::<R::Model>() {
+                    tracing::error!(
+                        resource = R::slug(),
+                        "composite primary key has no URL representation"
+                    );
+                    return Err(topcoat::Error::from(std::io::Error::other(format!(
+                        "resource '{}' has a composite primary key, which has no URL representation (GH #95)",
+                        R::slug()
+                    ))));
+                }
                 return Err(topcoat::router::error::not_found().into());
             };
             let mut db = db(cx);
@@ -3570,6 +3592,76 @@ mod tests {
                 .await
                 .is_err(),
             "malformed id must not resolve"
+        );
+    }
+
+    #[tokio::test]
+    async fn composite_pk_edit_fails_loudly_not_404() {
+        // GH #95: a composite-PK resource is a programming error the URL
+        // scheme cannot serve — 500 with a message, never per-id 404s.
+        use crate::resource::Resource;
+        use http_body_util::BodyExt;
+        use std::collections::HashMap;
+
+        #[derive(Debug, Clone, toasty::Model)]
+        struct Pair {
+            #[key]
+            a: String,
+            #[key]
+            b: String,
+            name: String,
+        }
+        struct PairResource;
+        impl Resource for PairResource {
+            type Model = Pair;
+            fn slug() -> String {
+                "pairs".to_string()
+            }
+            fn can_view_any(_cx: &Cx) -> bool {
+                true
+            }
+            fn can_view(_cx: &Cx, _record: &Pair) -> bool {
+                true
+            }
+            fn can_update(_cx: &Cx, _record: &Pair) -> bool {
+                true
+            }
+            fn table(cx: &Cx) -> crate::resource::Table<Pair> {
+                crate::resource::Table::r#for(cx)
+                    .id(|p: &Pair| format!("{}-{}", p.a, p.b))
+                    .columns(crate::resource::TextColumn::r#for(
+                        Pair::fields().name(),
+                        |p: &Pair| p.name.clone(),
+                    ))
+            }
+            fn hydrate_form_values(_record: &Pair) -> HashMap<String, String> {
+                HashMap::new()
+            }
+        }
+
+        let mut db = Db::builder()
+            .models(toasty::models!(Pair))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        let router = Panel::new("admin")
+            .app_context(db)
+            .resource::<PairResource>()
+            .build();
+        let resp = router
+            .handle(
+                http::Request::builder()
+                    .uri("/admin/pairs/whatever/edit")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await;
+        assert_eq!(
+            resp.status(),
+            http::StatusCode::INTERNAL_SERVER_ERROR,
+            "composite PK must fail loudly, got {}",
+            resp.status()
         );
     }
 
