@@ -502,8 +502,17 @@ impl Layer for AuthGate {
             let Some(authenticator) = auth.authenticator() else {
                 return next.run(cx, body).await;
             };
+            // The logout route must answer for any resolved user, even one
+            // whose panel access was revoked after login (GH #146) — clearing
+            // the session row + cookie must not require panel permission, or
+            // the session lingers to expiry. The bypass is POST-only at the
+            // exact logout path: the route table registers nothing else
+            // there, and a non-POST method must not smuggle a resolved
+            // identity to any handler an app might mount at the same path.
+            let logout_route =
+                uri(cx).path() == logout_url(cx) && matches!(*method(cx), http::Method::POST);
             match resolve(cx, authenticator).await? {
-                Some(user) if user.can_access_panel => {
+                Some(user) if user.can_access_panel || logout_route => {
                     // The logged-in user's optional tenant becomes the request
                     // tenant; auth never requires one (ADR-0013).
                     let tenant_id = user.tenant_id;
@@ -514,7 +523,8 @@ impl Layer for AuthGate {
                     next.run(&child, body).await
                 }
                 // Authenticated but not permitted: 403, indistinguishable
-                // from bad credentials at login (ADR-0013).
+                // from bad credentials at login (ADR-0013). The logout route
+                // is answered above (GH #146).
                 Some(_) => Err(forbidden().into()),
                 // Pages redirect to the login route with a validated `next`;
                 // runtime endpoints and non-GET requests answer 401.
@@ -614,8 +624,13 @@ pub(crate) fn login_post(cx: &Cx, body: Body) -> RouteFuture<'_> {
 pub(crate) fn logout_post(cx: &Cx, body: Body) -> RouteFuture<'_> {
     Box::pin(async move {
         // Defense in depth: the route only exists on gated panels, but it
-        // re-checks so a missing layer cannot leave logout ungated.
-        crate::auth::require_authenticated(cx)?;
+        // re-checks so a missing layer cannot leave logout ungated. Any
+        // resolved identity may log out — the gate answers this route for a
+        // `can_access_panel=false` user too (GH #146), so demanding panel
+        // access here would strand their session row + cookie to expiry.
+        if current_user(cx).is_none() {
+            return Err(unauthenticated_error(cx));
+        }
         let values = crate::panel::parse_form_values(cx, body).await?;
         crate::csrf::verify(cx, &values)?;
         if let Some(hash) = session::stop(cx).await? {

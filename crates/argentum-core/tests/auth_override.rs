@@ -185,6 +185,113 @@ fn cookie_value(response: &Response<Body>, name: &str) -> Option<String> {
         .map(|(_, value)| value)
 }
 
+/// Scrape the login page's CSRF pair (cookie + hidden token) — the shared
+/// first step of every login flow in this suite.
+async fn csrf_pair(router: &Router) -> (String, String) {
+    let page = get(router, "/admin/login", &[]).await;
+    let csrf_cookie = cookie_value(&page, argentum_core::csrf::COOKIE_NAME).expect("CSRF cookie");
+    let html = String::from_utf8_lossy(
+        &http_body_util::BodyExt::collect(page.into_body())
+            .await
+            .unwrap()
+            .to_bytes(),
+    )
+    .into_owned();
+    let csrf = input_value(&html, "csrf_token").expect("CSRF field");
+    (csrf_cookie, csrf)
+}
+
+/// Log in as the seeded member, returning the session cookie value.
+async fn login_session(router: &Router) -> String {
+    let (csrf_cookie, csrf) = csrf_pair(router).await;
+    let login = post_form(
+        router,
+        "/admin/login",
+        &[(argentum_core::csrf::COOKIE_NAME, csrf_cookie)],
+        format!("email=ada&password=opensesame&csrf_token={csrf}"),
+    )
+    .await;
+    assert_eq!(login.status(), 303, "login succeeds for an active member");
+    cookie_value(&login, "__Host-session").expect("session cookie")
+}
+
+/// A member whose panel access is revoked mid-session must still be able to
+/// log out (GH #146): the gate answers the logout route for any resolved
+/// user, so the session row + cookie are cleared instead of lingering to
+/// expiry behind a 403.
+#[tokio::test]
+async fn revoked_panel_access_can_still_log_out() {
+    let db = seeded_db().await;
+    let router = router(db.clone());
+    let session = login_session(&router).await;
+
+    // Revoke the member's panel access; the live session still resolves.
+    let mut db2 = db.clone();
+    let mut member = Member::filter(Member::fields().handle().eq("ada".to_string()))
+        .first()
+        .exec(&mut db2)
+        .await
+        .unwrap()
+        .expect("seeded member");
+    toasty::update!(member { active: false })
+        .exec(&mut db2)
+        .await
+        .unwrap();
+
+    // Panel pages now 403 the de-permitted user...
+    let response = get(
+        &router,
+        "/admin/members",
+        &[("__Host-session", session.clone())],
+    )
+    .await;
+    assert_eq!(response.status(), 403, "pages deny the de-permitted user");
+
+    // ...but logout still answers: 303 to login, row deleted, cookie cleared.
+    let logout_csrf = Uuid::new_v4().to_string();
+    let logout = post_form(
+        &router,
+        "/admin/logout",
+        &[
+            ("__Host-session", session.clone()),
+            (argentum_core::csrf::COOKIE_NAME, logout_csrf.clone()),
+        ],
+        format!("csrf_token={logout_csrf}"),
+    )
+    .await;
+    assert_eq!(
+        logout.status(),
+        303,
+        "a de-permitted user must still be able to log out"
+    );
+    assert_eq!(
+        logout.headers().get(LOCATION).unwrap(),
+        "/admin/login",
+        "logout lands on the login page"
+    );
+    let cleared = logout
+        .headers()
+        .get_all(SET_COOKIE)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .find(|value| value.starts_with("__Host-session="))
+        .expect("logout clears the session cookie")
+        .to_string();
+    assert!(
+        cleared.contains("Max-Age=0") || cleared.contains("Expires=Thu, 01 Jan 1970"),
+        "the session cookie must be cleared: {cleared}"
+    );
+    let mut db2 = db.clone();
+    assert!(
+        argentum_core::auth::AuthSession::all()
+            .exec(&mut db2)
+            .await
+            .unwrap()
+            .is_empty(),
+        "the session row must be deleted"
+    );
+}
+
 /// The `value` of the named hidden input in rendered HTML.
 fn input_value(html: &str, name: &str) -> Option<String> {
     let name_attr = format!("name=\"{name}\"");
@@ -218,16 +325,7 @@ async fn custom_authenticator_completes_a_full_login_round_trip() {
 
     // Log in through the shipped login page: its CSRF pair is reused, and a
     // wrong secret gets the one generic 403.
-    let page = get(&router, "/admin/login", &[]).await;
-    let csrf_cookie = cookie_value(&page, argentum_core::csrf::COOKIE_NAME).expect("CSRF cookie");
-    let html = String::from_utf8_lossy(
-        &http_body_util::BodyExt::collect(page.into_body())
-            .await
-            .unwrap()
-            .to_bytes(),
-    )
-    .into_owned();
-    let csrf = input_value(&html, "csrf_token").expect("CSRF field");
+    let (csrf_cookie, csrf) = csrf_pair(&router).await;
 
     let csrf_cookies = [(argentum_core::csrf::COOKIE_NAME, csrf_cookie)];
     // The shipped login form posts `email`/`password`; the custom

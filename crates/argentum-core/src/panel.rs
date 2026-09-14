@@ -904,6 +904,17 @@ fn search_handler_for<R: Resource>() -> SearchFn {
     )
 }
 
+/// Resolve the registered live-search handler for `path`, answering the gate
+/// first (GH #146 defense in depth): the registry lookup runs only for an
+/// authenticated request, so an unknown `path` cannot be distinguished from a
+/// registered one by an unauthenticated probe (404-vs-401 oracle).
+fn search_entry(cx: &Cx, path: &str) -> Result<SearchFn> {
+    enforce_auth(cx)?;
+    topcoat::context::try_app_context::<SearchRegistry>(cx)
+        .and_then(|reg| reg.0.get(path).cloned())
+        .ok_or_else(|| topcoat::router::error::not_found().into())
+}
+
 /// Keystroke-live table search (GH #104): re-renders one resource's grid as
 /// the query signal changes, morphing in place per Topcoat #392 (focus,
 /// scroll, and typing survive; rows carry stable `id`s from #104 prep).
@@ -927,11 +938,7 @@ pub(crate) async fn table_search(
     before: String,
     rest: String,
 ) -> Result<impl View> {
-    let Some(entry) = topcoat::context::try_app_context::<SearchRegistry>(cx)
-        .and_then(|reg| reg.0.get(&path).cloned())
-    else {
-        return Err(topcoat::router::error::not_found().into());
-    };
+    let entry = search_entry(cx, &path)?;
     let q: String = q.trim().chars().take(128).collect();
     // Snapshots arrive as one encoded bundle (see render_live_invocation).
     let (q_initial, filters, sort, dir, group_by) = crate::resource::decode_live_rest(&rest);
@@ -2216,6 +2223,177 @@ mod tests {
             .unwrap();
         let response = router.handle(request).await;
         assert_eq!(response.status(), http::StatusCode::FORBIDDEN);
+    }
+
+    /// The panel root answers the gate before reading `RootRedirect`
+    /// (GH #146 defense in depth): a mis-mounted gate must not leak the
+    /// first resource's slug via the redirect target.
+    #[tokio::test]
+    async fn panel_root_redirect_rechecks_auth_before_the_root_target() {
+        use topcoat::context::CxTestBuilder;
+        use topcoat::router::response::IntoResponse;
+
+        // Enforced auth, no resolved user: the handler itself redirects to
+        // login — and never reaches the `RootRedirect` read (absent here, so
+        // a missing re-check would panic instead of answering).
+        let (parts, ()) = http::Request::builder()
+            .uri("/admin")
+            .body(())
+            .unwrap()
+            .into_parts();
+        let cx = CxTestBuilder::new()
+            .request_context(parts)
+            .app_context(crate::Auth::password())
+            .build();
+        let err = match panel_root_redirect(&cx, Body::empty()).await {
+            Ok(_) => panic!("unauthenticated root must not read RootRedirect"),
+            Err(err) => err,
+        };
+        let location = err
+            .into_response(&cx)
+            .expect("gate redirect renders")
+            .headers()
+            .get(http::header::LOCATION)
+            .expect("login redirect carries a location")
+            .to_str()
+            .unwrap()
+            .to_string();
+        assert!(
+            location.starts_with("/admin/login"),
+            "unauthenticated root must redirect to login, got {location}"
+        );
+
+        // A resolved user passes the re-check and lands on the first resource.
+        let user = crate::auth::CurrentUser {
+            id: "u1".to_string(),
+            login: "ada@example.com".to_string(),
+            display_name: "Ada".to_string(),
+            tenant_id: None,
+            can_access_panel: true,
+        };
+        let (parts, ()) = http::Request::builder()
+            .uri("/admin")
+            .body(())
+            .unwrap()
+            .into_parts();
+        let cx = CxTestBuilder::new()
+            .request_context(parts)
+            .app_context(crate::Auth::password())
+            .app_context(RootRedirect("/admin/users".to_string()))
+            .request_context(user)
+            .build();
+        let err = match panel_root_redirect(&cx, Body::empty()).await {
+            Ok(_) => panic!("the redirect is an Err response"),
+            Err(err) => err,
+        };
+        let location = err
+            .into_response(&cx)
+            .expect("root redirect renders")
+            .headers()
+            .get(http::header::LOCATION)
+            .expect("root redirect carries a location")
+            .to_str()
+            .unwrap()
+            .to_string();
+        assert_eq!(location, "/admin/users");
+    }
+
+    /// The live-search shard answers the gate before the registry lookup
+    /// (GH #146): an unauthenticated probe cannot distinguish a registered
+    /// slug from an unregistered one.
+    #[tokio::test]
+    async fn search_shard_answers_auth_before_the_registry_lookup() {
+        use topcoat::context::CxTestBuilder;
+        use topcoat::router::response::IntoResponse;
+
+        use crate::resource::Resource;
+
+        #[derive(Debug, toasty::Model)]
+        struct Dummy {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            name: String,
+        }
+        struct DummyResource;
+        impl Resource for DummyResource {
+            type Model = Dummy;
+        }
+
+        // A registry that really knows the `users` slug, so the known-path
+        // probe is a resolution the gate must preempt.
+        let (parts, ()) = http::Request::builder()
+            .method(http::Method::POST)
+            .uri(crate::auth::RUNTIME_PREFIX)
+            .body(())
+            .unwrap()
+            .into_parts();
+        let cx = CxTestBuilder::new()
+            .request_context(parts)
+            .app_context(crate::Auth::password())
+            .app_context(SearchRegistry(HashMap::from([(
+                "users".to_string(),
+                search_handler_for::<DummyResource>(),
+            )])))
+            .build();
+
+        // The gate's answer comes before the lookup: both a registered and an
+        // unregistered slug answer 401 identically (no 404 oracle).
+        let unknown = match search_entry(&cx, "not-a-slug") {
+            Ok(_) => panic!("unauthenticated probe must not resolve an entry"),
+            Err(err) => err,
+        };
+        let registered = match search_entry(&cx, "users") {
+            Ok(_) => panic!("an unauthenticated probe must never reach the registry"),
+            Err(err) => err,
+        };
+        let unknown_status = unknown
+            .into_response(&cx)
+            .expect("gate answer renders")
+            .status();
+        let registered_status = registered
+            .into_response(&cx)
+            .expect("gate answer renders")
+            .status();
+        assert_eq!(
+            unknown_status, registered_status,
+            "unauthenticated probes must not distinguish registered slugs"
+        );
+        assert_eq!(
+            registered_status,
+            http::StatusCode::UNAUTHORIZED,
+            "runtime probes answer 401 (ADR-0013), got {registered_status}"
+        );
+
+        // Auth disabled (the shard's own lookup is what remains): a
+        // registered path resolves and an unknown path is a plain 404 again.
+        let (parts, ()) = http::Request::builder()
+            .method(http::Method::POST)
+            .uri(crate::auth::RUNTIME_PREFIX)
+            .body(())
+            .unwrap()
+            .into_parts();
+        let cx = CxTestBuilder::new()
+            .request_context(parts)
+            .app_context(crate::Auth::disabled())
+            .app_context(SearchRegistry(HashMap::from([(
+                "users".to_string(),
+                search_handler_for::<DummyResource>(),
+            )])))
+            .build();
+        assert!(
+            search_entry(&cx, "users").is_ok(),
+            "with auth disabled a registered path resolves through the lookup"
+        );
+        let err = match search_entry(&cx, "not-a-slug") {
+            Ok(_) => panic!("an unregistered path must not resolve"),
+            Err(err) => err,
+        };
+        assert!(
+            err.downcast_ref::<topcoat::router::error::NotFoundError>()
+                .is_some(),
+            "with auth disabled the unknown path is a plain 404, got {err}"
+        );
     }
 
     #[test]

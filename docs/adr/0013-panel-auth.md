@@ -22,6 +22,12 @@ Authentication is a first-class, default-on `Panel` concern in `argentum-core`, 
 
 Considered: (A) stateless signed-cookie sessions (rejected: no revocation), (B) account lockout after N failures (rejected: DoS against the legitimate admin), (C) requiring apps to hand-roll auth over generic Topcoat sessions (rejected: the out-of-the-box promise), (D) making `Panel` generic over the user type (rejected: poisons every framework type; an erased value suffices), (E) a built-in in-process rate limiter (deferred: wrong layer in multi-instance deployments).
 
+## Amendment (2026-09-14)
+
+Logout is the one route an authenticated-but-no-longer-permitted user may still reach (GH #146): the gate answers `{prefix}/logout` for any resolved user, and `logout_post` demands a resolved identity — not panel permission. Clearing the session row + cookie must not require the access that was just revoked, or a de-permitted session lingers to expiry with no way to end it. The 403-indistinguishable-from-bad-credentials rule now reads "on every panel surface except logout". The bypass is scoped to the POST method at the exact logout path — the framework registers only the POST route there, and no other handler may live at `{prefix}/logout` or the bypass would hand a resolved identity to it.
+
+Two corollaries: (1) a stranded user whose CSRF pair has gone stale still recovers — `GET {prefix}/login` is gate-bypassed and re-issues a token, so the next logout attempt succeeds; (2) with the shipped `PasswordAuth`, deactivation resolves no user at all (`find_by_id` filters on `active`) and the live session is purged eagerly, so the stranding scenario only exists for custom `Authenticator`s whose `find_by_id` keeps resolving a de-permitted user.
+
 ## Consequences
 
 - A fresh app registers the shipped models, seeds an `AdminUser`, and gets a working login and a gated panel; an existing app implements one trait and swaps it in. The showcase proves the default path end-to-end, and a core integration test proves the override path.
