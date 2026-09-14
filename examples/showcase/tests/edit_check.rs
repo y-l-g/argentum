@@ -122,6 +122,37 @@ async fn edit_404_for_unknown_or_wrong_tenant() {
     // For now, just test that unknown id is 404 (tenancy via query would also be 404)
 }
 
+/// A forged edit POST must answer 403 before the advisory record lookup
+/// (GH #144): the CSRF check runs first, so a nonexistent id cannot turn the
+/// token-less 403 into a 404 existence oracle. (The 403-vs-404 distinction
+/// makes this falsifiable: moving the verify back behind the load flips the
+/// nonexistent-id answer to 404.)
+#[tokio::test]
+async fn edit_rejects_forged_post_before_probing_the_record() {
+    let db = seeded_db().await;
+    let router = router(db.clone());
+    let client = demo_client(&router).await;
+    let fake_id = uuid::Uuid::new_v4().to_string();
+    let csrf = uuid::Uuid::new_v4().to_string();
+    let cookie_mismatch = uuid::Uuid::new_v4().to_string();
+    for (body, label) in [
+        // Field value differs from the cookie value.
+        (format!("name=x&csrf_token={csrf}"), "mismatched token"),
+        ("name=x".to_string(), "missing token"),
+    ] {
+        let resp = client
+            .csrf(&cookie_mismatch)
+            .post_form(&format!("/admin/users/{fake_id}/edit"), body)
+            .await;
+        assert_eq!(
+            resp.status(),
+            403,
+            "{label}: forged edit must 403 before the advisory lookup (never 404), got {}",
+            resp.status()
+        );
+    }
+}
+
 #[tokio::test]
 async fn edit_policy_deny() {
     use argentum_core::{Resource, Schema, Table, TextColumn, TextInput};

@@ -1733,13 +1733,16 @@ fn resource_edit_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
     Box::pin(HoistView::new(ThenView::new(async move {
         enforce_auth(cx)?;
         enforce_tenant::<R>(cx)?;
+        let mut values = parse_form_values(cx, body).await?;
+        crate::csrf::verify(cx, &values)?;
         let id = topcoat::router::path_param_segment(cx, "id").to_string();
         // Advisory load on a pooled handle (GH #86): feeds hydration and the
-        // pre-validation file backfill below. The authoritative load +
-        // policy check happens inside the framework transaction — validation
-        // (`validate_async` relationship loaders) runs on its own handle and
-        // must never execute while the tx holds the pool (see `db` pool
-        // discipline).
+        // pre-validation file backfill below. The body is already parsed and
+        // CSRF-verified (GH #144), so the load never runs for a forged POST.
+        // The authoritative load + policy check happens inside the framework
+        // transaction — validation (`validate_async` relationship loaders)
+        // runs on its own handle and must never execute while the tx holds
+        // the pool (see `db` pool discipline).
         let mut db0 = db(cx);
         let advisory = find_by_key::<R>(cx, &id, &mut db0).await?;
         if !R::can_view(cx, &advisory) {
@@ -1748,8 +1751,6 @@ fn resource_edit_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
         if !R::can_update(cx, &advisory) {
             return Err(forbidden().into());
         }
-        let mut values = parse_form_values(cx, body).await?;
-        crate::csrf::verify(cx, &values)?;
         let schema = R::form(cx);
         reject_unknown_form_keys(&schema, &values)?;
         // Unique check excludes this record's own unchanged values.
@@ -1820,28 +1821,26 @@ fn resource_edit_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
 
 /// Delete action POST — requires confirmation, re-checks Policy, runs in the
 /// framework transaction (GH #84): the checked record flows into the write.
+///
+/// Authentication comes before any DB work (GH #144): the CSRF check and the
+/// confirmation parse run first, so a forged POST answers 403 without opening
+/// a transaction, holding a pooled connection across the body read, or
+/// probing record existence (create/bulk-delete ordering, GH #84). The
+/// confirmation page is deliberately fetch-free and policy-blind: it carries
+/// no record data and embeds only the caller's own CSRF token, and the
+/// policy/tenancy checks run against the loaded record on the confirmed POST.
 fn resource_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
     Box::pin(HoistView::new(ThenView::new(async move {
         enforce_auth(cx)?;
         enforce_tenant::<R>(cx)?;
-        let mut db = db(cx);
-        let mut tx = db.transaction().await.map_err(topcoat::Error::from)?;
-        let id = topcoat::router::path_param_segment(cx, "id").to_string();
-        let record = find_by_key::<R>(cx, &id, &mut tx).await?;
-        if !R::can_delete(cx, &record) {
-            return Err(forbidden().into());
-        }
         let values = parse_form_values(cx, body).await?;
         crate::csrf::verify(cx, &values)?;
         let confirmed = values
             .get("confirm")
             .is_some_and(|v| v == "1" || v == "true" || v == "yes");
         if !confirmed {
-            // Render confirmation page. Drop the tx first (GH #84): nothing
-            // has been written, and holding the pool handle across the
-            // response serves nothing.
-            drop(tx);
-            // Render confirmation page.
+            // Render confirmation page — no transaction is open yet (GH #144),
+            // and the confirmation POST re-enters above once confirmed.
             let csrf = crate::csrf::current_token(cx);
             let html = view! {
                 cx =>
@@ -1881,8 +1880,17 @@ fn resource_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
             };
             return Ok(html);
         }
-        // Perform delete via Resource hook, inside the tx — commit makes
-        // the checked delete durable, any error rolls it back (GH #84).
+        // Confirmed and authenticated: open the transaction only now (GH
+        // #144), fetch through the tenancy seam, check Policy against the
+        // loaded record, and delete inside the tx — commit makes the checked
+        // delete durable, any error rolls it back (GH #84).
+        let mut db = db(cx);
+        let mut tx = db.transaction().await.map_err(topcoat::Error::from)?;
+        let id = topcoat::router::path_param_segment(cx, "id").to_string();
+        let record = find_by_key::<R>(cx, &id, &mut tx).await?;
+        if !R::can_delete(cx, &record) {
+            return Err(forbidden().into());
+        }
         R::delete_record(cx, record, &mut tx).await?;
         tx.commit().await.map_err(topcoat::Error::from)?;
         let base = list_url(cx, &R::slug());

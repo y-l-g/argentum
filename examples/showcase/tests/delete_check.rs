@@ -112,6 +112,127 @@ async fn delete_404_for_missing_or_wrong_tenant() {
     );
 }
 
+/// The real record is untouched too: a forged POST on an existing id must
+/// not reach the delete either.
+#[tokio::test]
+async fn forged_delete_runs_no_record_query() {
+    use argentum_core::{Resource, Schema, Table, TextColumn, TextInput};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    // `R::query(cx)` is the seam every load (find_by_key, the tx fetch)
+    // consults, so a counter on the override proves "no find_by_key query
+    // observed" (GH #144 acceptance) instead of inferring it from a status.
+    static QUERIES: AtomicUsize = AtomicUsize::new(0);
+    fn counted_query(_cx: &topcoat::context::Cx) -> toasty::stmt::Query<toasty::stmt::List<Dummy>> {
+        QUERIES.fetch_add(1, Ordering::SeqCst);
+        toasty::stmt::Query::<toasty::stmt::List<Dummy>>::all()
+    }
+
+    #[derive(Debug, toasty::Model)]
+    struct Dummy {
+        #[key]
+        #[auto]
+        id: uuid::Uuid,
+        name: String,
+    }
+
+    struct CountingResource;
+    impl Resource for CountingResource {
+        type Model = Dummy;
+        fn query(cx: &topcoat::context::Cx) -> toasty::stmt::Query<toasty::stmt::List<Dummy>> {
+            counted_query(cx)
+        }
+        fn can_view_any(_cx: &topcoat::context::Cx) -> bool {
+            true
+        }
+        fn can_view(_cx: &topcoat::context::Cx, _r: &Dummy) -> bool {
+            true
+        }
+        fn can_delete(_cx: &topcoat::context::Cx, _r: &Dummy) -> bool {
+            true
+        }
+        fn table(cx: &topcoat::context::Cx) -> Table<Dummy> {
+            Table::r#for(cx)
+                .id(|d: &Dummy| d.id.to_string())
+                .columns(TextColumn::r#for(Dummy::fields().name(), |d: &Dummy| {
+                    d.name.clone()
+                }))
+        }
+        fn form(_cx: &topcoat::context::Cx) -> Schema {
+            Schema::new(TextInput::r#for(Dummy::fields().name()))
+        }
+        async fn delete_record(
+            _cx: &topcoat::context::Cx,
+            record: Dummy,
+            ex: &mut dyn toasty::Executor,
+        ) -> topcoat::Result<()> {
+            Dummy::filter(Dummy::fields().id().eq(record.id))
+                .delete()
+                .exec(&mut *ex)
+                .await
+                .map_err(|e| -> topcoat::Error { e.into() })?;
+            Ok(())
+        }
+    }
+
+    let mut db = Db::builder()
+        .models(toasty::models!(Dummy))
+        .connect("sqlite::memory:")
+        .await
+        .unwrap();
+    db.push_schema().await.unwrap();
+    let rec = toasty::create!(Dummy {
+        name: "x".to_string()
+    })
+    .exec(&mut db)
+    .await
+    .unwrap();
+    let router = argentum_core::Panel::new("admin")
+        .app_context(db.clone())
+        .auth(argentum_core::Auth::disabled())
+        .resource::<CountingResource>()
+        .build();
+    let client = TestClient::new(&router);
+    let delete_url = format!("/admin/{}/{}/delete", CountingResource::slug(), rec.id);
+    let csrf = uuid::Uuid::new_v4().to_string();
+    let cookie_mismatch = uuid::Uuid::new_v4().to_string();
+
+    // A valid flow consults the query seam (the counter is live).
+    let resp = client
+        .csrf(&csrf)
+        .post_form(&delete_url, format!("confirm=1&csrf_token={csrf}"))
+        .await;
+    assert!(resp.status().is_redirection(), "valid delete redirects");
+    assert!(
+        QUERIES.load(Ordering::SeqCst) > 0,
+        "a confirmed delete must load the record (counter wired)"
+    );
+
+    // A forged POST answers 403 without a single record query: the CSRF
+    // check runs before the record seam is ever consulted (no find_by_key,
+    // no existence oracle). The transaction-open half of GH #144 is pinned
+    // by the handler ordering (parse/verify/confirm textually precede
+    // `db.transaction()`); a regression that reopened a tx before the fetch
+    // would deadlock the edit path's `validate_async` pool discipline loudly
+    // rather than silently pass.
+    QUERIES.store(0, Ordering::SeqCst);
+    for body in [
+        format!("confirm=1&csrf_token={csrf}"),
+        "confirm=1".to_string(),
+    ] {
+        let resp = client
+            .csrf(&cookie_mismatch)
+            .post_form(&delete_url, body)
+            .await;
+        assert_eq!(resp.status(), 403, "forged delete must 403");
+        assert_eq!(
+            QUERIES.load(Ordering::SeqCst),
+            0,
+            "a forged delete must not observe a record query"
+        );
+    }
+}
+
 #[tokio::test]
 async fn delete_policy_deny() {
     use argentum_core::{Resource, Schema, Table, TextColumn, TextInput};
