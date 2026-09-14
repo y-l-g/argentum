@@ -2000,6 +2000,42 @@ fn enforce_export_cap<T>(rows: Vec<T>) -> Result<Vec<T>, topcoat::Error> {
     }
 }
 
+/// Filter an export's rows to those the caller may view, then apply the cap
+/// (GH #86, GH #145): the 413 reflects what the caller may actually receive —
+/// never the pre-visibility count, which would both 413 tables whose visible
+/// rows fit and leak the existence/count of denied rows.
+fn filter_then_cap<T>(
+    mut rows: Vec<T>,
+    can_view: impl Fn(&T) -> bool,
+) -> Result<Vec<T>, topcoat::Error> {
+    rows.retain(|r| can_view(r));
+    enforce_export_cap(rows)
+}
+
+/// The longest slug a `Content-Disposition` filename keeps (GH #145): the
+/// header value stays bounded even for an oversized override.
+const MAX_EXPORT_FILENAME_LEN: usize = 100;
+
+/// Sanitize the export's `Content-Disposition` filename (GH #145): `slug()`
+/// is an overridable free-form `String`, and Topcoat route validation accepts
+/// quote and CR/LF segments, so a hostile override would otherwise split the
+/// response header. Quote, backslash, and control characters are dropped and
+/// the length is capped before the `.csv` suffix. Non-ASCII overrides pass
+/// through as obs-text (browsers render them; an RFC 6266 `filename*` is
+/// future work).
+fn export_filename(slug: &str) -> String {
+    let safe: String = slug
+        .chars()
+        .filter(|c| !c.is_control() && *c != '"' && *c != '\\')
+        .take(MAX_EXPORT_FILENAME_LEN)
+        .collect();
+    if safe.is_empty() {
+        "export.csv".to_string()
+    } else {
+        format!("{safe}.csv")
+    }
+}
+
 /// `?bom=1` opts into a UTF-8 BOM prefix on the CSV body for Excel (GH #94).
 fn export_wants_bom(cx: &Cx) -> bool {
     let Some(parts) = topcoat::context::try_request_context::<http::request::Parts>(cx) else {
@@ -2040,10 +2076,12 @@ fn parse_bulk_ids(raw: &str, max: usize) -> Vec<String> {
 
 /// CSV export — reuses `Resource::query` + `Table` filters/sort, downloads `text/csv`.
 ///
-/// The filtered query is capped at [`MAX_EXPORT_ROWS`] + 1 rows (413 beyond
-/// the cap) so a 100k-row table cannot OOM the handler; formula cells are
-/// defused per OWASP in [`Table::to_csv`]. `?bom=1` prepends a UTF-8 BOM for
-/// Excel interop (GH #94).
+/// The filtered query is capped at [`MAX_EXPORT_ROWS`] + 1 rows at the query
+/// layer so a 100k-row table cannot OOM the handler; visibility is applied
+/// before the cap (`filter_then_cap`, GH #145) so the 413 reflects what the
+/// caller may receive, formula cells are defused per OWASP in
+/// [`Table::to_csv`], and `?bom=1` prepends a UTF-8 BOM for Excel interop
+/// (GH #94).
 fn resource_export<R: Resource>(cx: &Cx, _body: Body) -> RouteFuture<'_> {
     Box::pin(async move {
         enforce_auth(cx)?;
@@ -2084,11 +2122,15 @@ fn resource_export<R: Resource>(cx: &Cx, _body: Body) -> RouteFuture<'_> {
         query = query.limit(MAX_EXPORT_ROWS + 1);
         let mut db = db(cx);
         let rows: Vec<R::Model> = query.exec(&mut db).await.map_err(topcoat::Error::from)?;
-        let rows = enforce_export_cap(rows)?;
-        // Export must not exceed row visibility (GH #86): drop rows the
-        // caller may not view. (The list page still checks only `can_view_any`
-        // — page-local per-row filtering would mislabel pagination.)
-        let rows: Vec<R::Model> = rows.into_iter().filter(|r| R::can_view(cx, r)).collect();
+        // Visibility first, cap second (GH #86, GH #145) — see
+        // `filter_then_cap` for why the cap counts only receivable rows.
+        // Bounded over-fetch (the issue's accepted alternative): a 200 holds
+        // the visible rows of the first MAX+1 fetched rows, so when denied
+        // rows interleave in query order, visible rows past the window are
+        // not exported. No truncation signal is emitted for that case: any
+        // window-full marker would leak the pre-visibility row count, which
+        // the same acceptance criterion forbids ("no count leak").
+        let rows = filter_then_cap(rows, |r| R::can_view(cx, r))?;
         // Build TablePage without pagination for CSV (all rows)
         let page: TablePage<R::Model> = rows.into();
         let mut csv = table.to_csv(&page);
@@ -2098,7 +2140,7 @@ fn resource_export<R: Resource>(cx: &Cx, _body: Body) -> RouteFuture<'_> {
         if export_wants_bom(cx) {
             csv.insert(0, '\u{FEFF}');
         }
-        let filename = format!("{}.csv", R::slug());
+        let filename = export_filename(&R::slug());
         let res = http::Response::builder()
             .status(200)
             .header(http::header::CONTENT_TYPE, "text/csv; charset=utf-8")
@@ -2117,6 +2159,10 @@ fn resource_export<R: Resource>(cx: &Cx, _body: Body) -> RouteFuture<'_> {
 /// GH #38). Filament registers a Dashboard page here.
 fn panel_root_redirect(cx: &Cx, _body: Body) -> RouteFuture<'_> {
     Box::pin(async move {
+        // Defense in depth (GH #146): every panel handler re-checks the
+        // resolved user, so a missing or mis-mounted gate cannot leak the
+        // first resource's slug via the redirect target.
+        enforce_auth(cx)?;
         let RootRedirect(target) = app_context::<RootRedirect>(cx);
         Err(redirect(target.clone()).into())
     })
@@ -3221,6 +3267,78 @@ mod tests {
                 .is_some(),
             "cap must map to content-too-large (413), got {err}"
         );
+    }
+
+    #[test]
+    fn export_cap_counts_only_viewable_rows() {
+        // GH #145 (with GH #86): visibility is applied before the cap, so a
+        // table with many invisible rows exports its visible rows instead of
+        // 413ing — the 413 also no longer leaks the invisible-row count.
+        let all_denied = filter_then_cap(vec![0u8; MAX_EXPORT_ROWS + 1], |_| false).unwrap();
+        assert!(
+            all_denied.is_empty(),
+            "an all-denied export returns 200 with zero rows, never 413"
+        );
+
+        // MAX visible rows plus one denied row fits under the cap.
+        let mut rows = vec![1u8; MAX_EXPORT_ROWS];
+        rows.push(2u8);
+        let capped = filter_then_cap(rows, |r| *r == 1).unwrap();
+        assert_eq!(capped.len(), MAX_EXPORT_ROWS);
+
+        // Mixed interleave (bounded over-fetch, GH #145): a full MAX+1
+        // window with denied rows inside it exports only the visible ones —
+        // visibly fewer than the caller could receive — without 413. This is
+        // the issue's accepted alternative ("or document over-fetch"); no
+        // truncation signal is emitted because a window-full marker would
+        // leak the pre-visibility row count ("no count leak").
+        let mixed: Vec<usize> = (0..MAX_EXPORT_ROWS + 1)
+            .map(|i| if i % 2 == 0 { i } else { usize::MAX })
+            .collect();
+        let visible = filter_then_cap(mixed, |r| *r != usize::MAX).unwrap();
+        assert_eq!(
+            visible.len(),
+            (MAX_EXPORT_ROWS + 1).div_ceil(2),
+            "mixed window exports its visible rows silently"
+        );
+
+        // More visible rows than the cap still 413.
+        let err = filter_then_cap(vec![0u8; MAX_EXPORT_ROWS + 1], |_| true).unwrap_err();
+        assert!(
+            err.downcast_ref::<topcoat::router::error::ContentTooLargeError>()
+                .is_some(),
+            "cap must map to content-too-large (413), got {err}"
+        );
+    }
+
+    #[test]
+    fn export_filename_cannot_split_the_disposition_header() {
+        // GH #145: `slug()` is an overridable free-form String, so quote and
+        // control characters must never reach the Content-Disposition header.
+        assert_eq!(export_filename("users"), "users.csv");
+        for hostile in [
+            "a\"b\r\nContent-Length: 0",
+            "a\\\"b",
+            "\nadmin",
+            "bad\u{0}name",
+        ] {
+            let filename = export_filename(hostile);
+            assert!(
+                !filename.contains('"')
+                    && !filename.contains('\\')
+                    && !filename.contains('\r')
+                    && !filename.contains('\n')
+                    && !filename.chars().any(char::is_control),
+                "hostile slug {hostile:?} must be defused, got {filename:?}"
+            );
+            assert!(filename.ends_with(".csv"), "suffix kept: {filename:?}");
+        }
+        // A slug that defuses to nothing falls back to a usable filename.
+        assert_eq!(export_filename(""), "export.csv");
+        assert_eq!(export_filename("\""), "export.csv");
+        // Bounded header value.
+        let long = "x".repeat(500);
+        assert_eq!(export_filename(&long).len(), 100 + ".csv".len());
     }
 
     #[tokio::test]

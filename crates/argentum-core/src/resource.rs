@@ -1571,17 +1571,27 @@ impl<M> Table<M> {
     /// Generate CSV for the given page (header + rows, RFC4180 escaped).
     ///
     /// Formula cells are defused per OWASP (a leading `'` is prepended when
-    /// the cell starts with `=`, `+`, `-`, `@`, `|`, or `%`) so a stored
-    /// value like `=1+1` opens as text, not a live spreadsheet formula.
-    /// The page passed in is buffered as one `String`; the export handler
-    /// caps the filtered query (GH #94) so callers cannot buffer an
-    /// unbounded table.
+    /// the first non-whitespace/control character is `=`, `+`, `-`, `@`, `|`,
+    /// or `%`) so a stored value like `=1+1` — including CR/LF- or tab-led
+    /// variants, which spreadsheets treat as formulas even when the payload
+    /// does not start the raw cell (GH #145) — opens as text, not a live
+    /// spreadsheet formula. The page passed in is buffered as one `String`;
+    /// the export handler caps the filtered query (GH #94) so callers cannot
+    /// buffer an unbounded table.
     pub fn to_csv(&self, page: &TablePage<M>) -> String
     where
         M: toasty::schema::Model,
     {
         fn defuse_formula(s: &str) -> String {
-            let trimmed = s.trim_start_matches([' ', '\t']);
+            // Spreadsheets run formulas led by CR/LF/tab too (OWASP CSV
+            // injection): the dangerous payload can start mid-cell after
+            // leading whitespace, controls, or zero-width format characters
+            // (BOM/ZWSP are neither whitespace nor control), so the
+            // first-char test skips them. The `'` lands on the original
+            // cell, before the payload.
+            let trimmed = s.trim_start_matches(|c: char| {
+                c.is_whitespace() || c.is_control() || matches!(c, '\u{FEFF}' | '\u{200B}')
+            });
             if let Some(first) = trimmed.chars().next()
                 && matches!(first, '=' | '+' | '-' | '@' | '|' | '%')
             {
@@ -4373,6 +4383,39 @@ mod tests {
             csv.contains("\"Ada, \"\"the\"\" first\""),
             "quoting broke: {csv:?}"
         );
+    }
+
+    #[test]
+    fn to_csv_defuses_cr_lf_led_formula_cells() {
+        // GH #145: spreadsheets treat CR/LF- and tab-led payloads as formulas
+        // even when the dangerous character does not start the raw cell, so
+        // the defuse test skips leading whitespace/controls. CR/LF-led cells
+        // are RFC4180-quoted (they carry a newline); a tab-led cell has no
+        // quote/comma/newline and stays bare — either way the `'` leads the
+        // defused content.
+        let cx = CxTestBuilder::new().build();
+        let csv_table = Table::<User>::r#for(&cx)
+            .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()));
+        for (payload, defused) in [
+            ("\r=1+1", "'\r=1+1"),
+            ("\n@cmd", "'\n@cmd"),
+            ("\t+1+1", "'\t+1+1"),
+            (" \r=HYPERLINK(1,2)", "' \r=HYPERLINK(1,2)"),
+            // BOM/ZWSP are neither whitespace nor control: cover the
+            // format-character gap explicitly.
+            ("\u{FEFF}=1+1", "'\u{FEFF}=1+1"),
+            ("\u{200B}@cmd", "'\u{200B}@cmd"),
+        ] {
+            let rows = vec![User {
+                id: uuid::Uuid::nil(),
+                name: payload.to_string(),
+            }];
+            let csv = csv_table.to_csv(&rows.into());
+            assert!(
+                csv.contains(defused),
+                "CR/LF-led formula payload {payload:?} must be defused to {defused:?}, got {csv:?}"
+            );
+        }
     }
 
     #[test]
