@@ -1261,6 +1261,11 @@ fn is_multipart_content_type(ct: &str) -> bool {
 /// only the sanitized filename is kept. Duplicate part names are last-wins;
 /// nameless parts are skipped. A missing boundary is a 400, an over-limit
 /// body a 413 — both classified by the extractor, never silent fallbacks.
+/// Every byte the stream carries is also counted against [`MAX_FORM_BYTES`]
+/// (GH #149): file drains and skipped parts go through the counter chunk by
+/// chunk, text fields join it after their (extractor-bounded) read, so a
+/// large upload cannot be drained chunk-by-chunk holding the handler even if
+/// the extractor's limit stops wrapping the stream.
 async fn parse_multipart_values(
     cx: &Cx,
     body: Body,
@@ -1269,12 +1274,17 @@ async fn parse_multipart_values(
     use topcoat::router::request::FromRequest;
 
     let mut out = HashMap::new();
+    let mut bytes_seen = 0usize;
     let mut multipart = Multipart::from_request(cx, body).await?;
     while let Some(mut field) = multipart.next_field().await? {
         let Some(name) = field.name().map(str::to_string) else {
+            // Nameless parts carry bytes too: drain them through the counter
+            // so the accounting covers the whole request stream (GH #149).
+            drain_bounded(&mut field, &mut bytes_seen).await?;
             continue;
         };
         if name.is_empty() {
+            drain_bounded(&mut field, &mut bytes_seen).await?;
             continue;
         }
         // RFC 6266: `filename*=` (decoded) takes precedence over `filename=`.
@@ -1286,21 +1296,58 @@ async fn parse_multipart_values(
             Some(f) if !f.is_empty() => {
                 // v1 stores the sanitized basename, not the bytes
                 // (FileUpload contract, GH #90): drain to advance the stream.
-                while field.chunk().await?.is_some() {}
+                drain_bounded(&mut field, &mut bytes_seen).await?;
                 out.insert(name, sanitize_filename(&f));
             }
             Some(_) => {
                 // Empty filename (no file chosen) → empty value so `required`
                 // validation fires instead of treating it as missing.
-                while field.chunk().await?.is_some() {}
+                drain_bounded(&mut field, &mut bytes_seen).await?;
                 out.insert(name, String::new());
             }
             None => {
-                out.insert(name, field.text().await?);
+                // Text fields buffer (extractor-bounded); the read joins the
+                // same counter so the backstop sees the per-request total.
+                let text = field.text().await?;
+                count_form_bytes(&mut bytes_seen, text.len())?;
+                out.insert(name, text);
             }
         }
     }
     Ok(out)
+}
+
+/// Drain one multipart field chunk-by-chunk, accounting every byte against
+/// [`MAX_FORM_BYTES`] (GH #149): enforcement normally happens in the
+/// extractor (`BodyLimit` wraps the multipart stream), but the drain owns its
+/// own counter so an over-cap upload 413s here too instead of holding the
+/// handler.
+async fn drain_bounded(
+    field: &mut topcoat::router::content::multipart::Field<'_>,
+    bytes_seen: &mut usize,
+) -> Result<(), topcoat::Error> {
+    while let Some(chunk) = field.chunk().await? {
+        count_form_bytes(bytes_seen, chunk.len())?;
+    }
+    Ok(())
+}
+
+/// Account one drained chunk against the form-body cap (GH #149). Extracted
+/// so the 413 mapping is testable at the boundary without building a
+/// multipart body — through the router the extractor's own limit classifies
+/// the same body first, so the counter only answers when that limit stops
+/// applying (defense-in-depth alongside `BodyLimit`, never a competing cap).
+fn count_form_bytes(bytes_seen: &mut usize, chunk_len: usize) -> Result<(), topcoat::Error> {
+    // checked_add: the accumulator cannot overflow a usize at real chunk
+    // sizes, but wrapping would silently disable the cap in release builds.
+    let Some(total) = bytes_seen.checked_add(chunk_len) else {
+        return Err(topcoat::router::error::content_too_large().into());
+    };
+    *bytes_seen = total;
+    if *bytes_seen > MAX_FORM_BYTES {
+        return Err(topcoat::router::error::content_too_large().into());
+    }
+    Ok(())
 }
 
 /// RFC 5987 `filename*=` from a field's raw `Content-Disposition` header.
@@ -1348,11 +1395,23 @@ const MAX_FORM_BYTES: usize = 10 * 1024 * 1024;
 /// `/abs/path` → `path`, `C:\fakepath\x` → `x`), trims whitespace, drops
 /// control chars, and caps length at 255 bytes. Empty stays empty so
 /// `required` validation fires.
+///
+/// Names that could never be a safely persisted file are rejected to empty
+/// (GH #149, before persistence lands): `.` and `..`, and Windows reserved
+/// device names (`con`, `nul`, `com1` — also with an extension, and
+/// case-insensitive). v1 stores only the basename `String` and never touches
+/// the filesystem, so today this is latent; the required validation then
+/// surfaces the empty value as an inline form error (on edit, the
+/// untouched-file backfill preserves the stored value instead — an
+/// explicitly rejected name falls back to "keep", GH #90).
 fn sanitize_filename(raw: &str) -> String {
     let base = raw.rsplit(['/', '\\']).next().unwrap_or(raw).trim();
     let clean: String = base.chars().filter(|c| !c.is_control()).collect();
     let trimmed = clean.trim();
     if trimmed.is_empty() {
+        return String::new();
+    }
+    if trimmed == "." || trimmed == ".." || is_windows_reserved_name(trimmed) {
         return String::new();
     }
     // Cap at 255 bytes (common filename limit), preserving the tail. The cut
@@ -1367,6 +1426,27 @@ fn sanitize_filename(raw: &str) -> String {
     } else {
         trimmed.to_string()
     }
+}
+
+/// Windows reserved device names (GH #149): the stem before the first dot is
+/// reserved case-insensitively — `con`, `nul`, `aux`, `prn`, `com1`–`com9`,
+/// `lpt1`–`lpt9` — so `con.txt` cannot become a persisted basename either.
+fn is_windows_reserved_name(name: &str) -> bool {
+    let stem = match name.split_once('.') {
+        Some((stem, _)) => stem,
+        None => name,
+    };
+    let stem = stem.to_ascii_uppercase();
+    if matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL") {
+        return true;
+    }
+    let Some(n) = stem
+        .strip_prefix("COM")
+        .or_else(|| stem.strip_prefix("LPT"))
+    else {
+        return false;
+    };
+    n.parse::<u8>().is_ok_and(|n| (1..=9).contains(&n))
 }
 
 /// Decode an RFC 5987/6266 `filename*=UTF-8''...` value (GH #90).
@@ -2624,7 +2704,10 @@ mod tests {
                         http::header::CONTENT_TYPE,
                         "application/x-www-form-urlencoded",
                     )
-                    .header(http::header::COOKIE, format!("argentum_csrf={token}"))
+                    .header(
+                        http::header::COOKIE,
+                        format!("{}={token}", crate::csrf::COOKIE_NAME),
+                    )
                     .body(Body::from(format!("name=Ada&csrf_token={token}")))
                     .unwrap(),
             )
@@ -2733,7 +2816,10 @@ mod tests {
                         http::header::CONTENT_TYPE,
                         "application/x-www-form-urlencoded",
                     )
-                    .header(http::header::COOKIE, format!("argentum_csrf={token}"))
+                    .header(
+                        http::header::COOKIE,
+                        format!("{}={token}", crate::csrf::COOKIE_NAME),
+                    )
                     .body(Body::from(format!("ids={}&csrf_token={token}", row.id)))
                     .unwrap(),
             )
@@ -2757,7 +2843,10 @@ mod tests {
                         http::header::CONTENT_TYPE,
                         "application/x-www-form-urlencoded",
                     )
-                    .header(http::header::COOKIE, format!("argentum_csrf={token}"))
+                    .header(
+                        http::header::COOKIE,
+                        format!("{}={token}", crate::csrf::COOKIE_NAME),
+                    )
                     .body(Body::from(format!("ids={big}&csrf_token={token}")))
                     .unwrap(),
             )
@@ -2869,7 +2958,10 @@ mod tests {
                         http::header::CONTENT_TYPE,
                         "application/x-www-form-urlencoded",
                     )
-                    .header(http::header::COOKIE, format!("argentum_csrf={token}"))
+                    .header(
+                        http::header::COOKIE,
+                        format!("{}={token}", crate::csrf::COOKIE_NAME),
+                    )
                     .body(Body::from(format!("ids={ids}&csrf_token={token}")))
                     .unwrap(),
             )
@@ -3413,7 +3505,10 @@ mod tests {
                         http::header::CONTENT_TYPE,
                         "application/x-www-form-urlencoded",
                     )
-                    .header(http::header::COOKIE, format!("argentum_csrf={token}"))
+                    .header(
+                        http::header::COOKIE,
+                        format!("{}={token}", crate::csrf::COOKIE_NAME),
+                    )
                     .body(Body::from(format!("name=Ada&csrf_token={token}")))
                     .unwrap(),
             )
@@ -3500,7 +3595,10 @@ mod tests {
                         http::header::CONTENT_TYPE,
                         "application/x-www-form-urlencoded",
                     )
-                    .header(http::header::COOKIE, format!("argentum_csrf={token}"))
+                    .header(
+                        http::header::COOKIE,
+                        format!("{}={token}", crate::csrf::COOKIE_NAME),
+                    )
                     .body(Body::from(format!("csrf_token={token}")))
                     .unwrap(),
             )
@@ -3520,7 +3618,11 @@ mod tests {
             .headers()
             .get_all(http::header::SET_COOKIE)
             .iter()
-            .any(|v| v.to_str().unwrap().starts_with("argentum_notification="));
+            .any(|v| {
+                v.to_str()
+                    .unwrap()
+                    .starts_with(&format!("{}=", crate::notification::COOKIE_NAME))
+            });
         assert!(
             !has_notif_cookie,
             "cookies now flush on Err redirect: switch to one-time notifications (GH #97)"
@@ -4043,6 +4145,110 @@ mod tests {
         format!("multipart/form-data; boundary={boundary}")
     }
 
+    /// The multipart drain's byte accounting 413s one byte past the cap
+    /// (GH #149 tripwire). Unit-tested at the boundary because through the
+    /// router the extractor's `BodyLimit` classifies the same body first —
+    /// the counter is the backstop for the day that limit stops wrapping the
+    /// stream, not a competing cap.
+    #[test]
+    fn multipart_drain_counts_bytes_and_413s_one_past_the_cap() {
+        let mut seen = 0usize;
+        count_form_bytes(&mut seen, MAX_FORM_BYTES / 2).unwrap();
+        count_form_bytes(&mut seen, MAX_FORM_BYTES / 2).unwrap();
+        assert_eq!(seen, MAX_FORM_BYTES);
+        let err = count_form_bytes(&mut seen, 1).unwrap_err();
+        assert!(
+            err.downcast_ref::<topcoat::router::error::ContentTooLargeError>()
+                .is_some(),
+            "one byte past the cap must map to content-too-large (413), got {err}"
+        );
+        // A single chunk past the cap fires without a prior accumulation.
+        let mut seen = 0usize;
+        let err = count_form_bytes(&mut seen, MAX_FORM_BYTES + 1).unwrap_err();
+        assert!(
+            err.downcast_ref::<topcoat::router::error::ContentTooLargeError>()
+                .is_some(),
+            "a single over-cap chunk must 413, got {err}"
+        );
+    }
+
+    /// An 11 MiB multipart upload 413s end to end through the panel (GH #149
+    /// acceptance). The installed `BodyLimit::max(MAX_FORM_BYTES)` layer and
+    /// the drain's own counter share the same threshold, so the body is over
+    /// both at once — the e2e pins the streaming path answers 413 rather than
+    /// draining; the counter's own accounting (which only answers if the
+    /// extractor's limit ever stops wrapping the stream — `BodyLimitKind` is
+    /// private, so no public configuration can disable it) is pinned by
+    /// [`count_form_bytes`]'s unit test above.
+    #[tokio::test]
+    async fn multipart_over_the_form_cap_413s_through_the_router() {
+        use crate::resource::Resource;
+
+        #[derive(Debug, toasty::Model)]
+        struct Dummy {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            name: String,
+        }
+        struct DummyResource;
+        impl Resource for DummyResource {
+            type Model = Dummy;
+            fn can_view_any(_cx: &Cx) -> bool {
+                true
+            }
+            fn can_create(_cx: &Cx) -> bool {
+                true
+            }
+            fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
+                crate::resource::Table::r#for(cx)
+                    .id(|d: &Dummy| d.id.to_string())
+                    .columns(crate::resource::TextColumn::r#for(
+                        Dummy::fields().name(),
+                        |d: &Dummy| d.name.clone(),
+                    ))
+            }
+            fn form(_cx: &Cx) -> crate::schema::Schema {
+                crate::schema::Schema::new(crate::schema::FileUpload::r#for(Dummy::fields().name()))
+            }
+            async fn create_record(
+                _cx: &Cx,
+                _values: std::collections::HashMap<String, String>,
+                _ex: &mut dyn toasty::Executor,
+            ) -> topcoat::Result<()> {
+                Ok(())
+            }
+        }
+
+        let db = Db::builder().connect("sqlite::memory:").await.unwrap();
+        let router = Panel::new("admin")
+            .app_context(db)
+            .resource::<DummyResource>()
+            .auth(crate::Auth::disabled())
+            .build();
+        let boundary = "----Boundary123";
+        let payload = "x".repeat(MAX_FORM_BYTES + 1024);
+        let body = format!(
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"name\"; filename=\"big.bin\"\r\nContent-Type: application/octet-stream\r\n\r\n{payload}\r\n--{boundary}--\r\n"
+        );
+        let request = http::Request::builder()
+            .method(http::Method::POST)
+            .uri("/admin/dummies/create")
+            .header(
+                http::header::CONTENT_TYPE,
+                format!("multipart/form-data; boundary={boundary}"),
+            )
+            .body(Body::from(body))
+            .unwrap();
+        let resp = router.handle(request).await;
+        assert_eq!(
+            resp.status(),
+            http::StatusCode::PAYLOAD_TOO_LARGE,
+            "an 11 MiB multipart upload must 413 through the router, got {}",
+            resp.status()
+        );
+    }
+
     #[tokio::test]
     async fn multipart_stream_stores_text_and_filenames() {
         let boundary = "----Boundary123";
@@ -4122,6 +4328,20 @@ mod tests {
         assert_eq!(sanitize_filename("/abs/path"), "path");
         assert_eq!(sanitize_filename("C:\\fakepath\\x"), "x");
         assert_eq!(sanitize_filename(""), "");
+        // Names that could never be a safe persisted file are rejected to
+        // empty (GH #149): dot/dot-dot, and Windows reserved device names —
+        // case-insensitively and with an extension too.
+        assert_eq!(sanitize_filename("."), "");
+        assert_eq!(sanitize_filename(".."), "");
+        assert_eq!(sanitize_filename("../.."), "");
+        assert_eq!(sanitize_filename("..."), "...");
+        assert_eq!(sanitize_filename("con"), "");
+        assert_eq!(sanitize_filename("NUL"), "");
+        assert_eq!(sanitize_filename("Com1.txt"), "");
+        assert_eq!(sanitize_filename("lpt9"), "");
+        assert_eq!(sanitize_filename("console.txt"), "console.txt");
+        assert_eq!(sanitize_filename("companion"), "companion");
+        assert_eq!(sanitize_filename("...."), "....");
         // Cap keeps the tail without splitting a multibyte char: a naive
         // `[len - 255..]` slice panics here (the cut lands inside `é`).
         let multibyte = format!("{}{}", "é".repeat(200), "a".repeat(200));

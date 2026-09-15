@@ -184,7 +184,7 @@ There is no `Action` type. Deletes run through panel POST routes driving the `Re
 - `POST {list}/bulk-delete` → `bulk_delete_records`, all-or-nothing: every id is re-fetched via `Resource::query` and policy-checked before anything is deleted.
 - Create/edit POSTs validate inline, check `can_create`/`can_update`, then call `create_record`/`update_record`.
 
-`Notification` (`success`/`error`/`info`) travels via `Set-Cookie` (`argentum_notification`) with a `?notification=` fallback and renders in a shell-level stack (`fixed top-4 right-4`) that survives table swaps. Policy is `Resource::can_*`, default-deny, enforced in both page and POST handlers; the standalone `Policy<R>` trait (`AllowAll`/`DenyAll`) exists as a helper.
+`Notification` (`success`/`error`/`info`) travels via `Set-Cookie` (`__Host-argentum_notification`) with a `?notification=` fallback and renders in a shell-level stack (`fixed top-4 right-4`) that survives table swaps. Policy is `Resource::can_*`, default-deny, enforced in both page and POST handlers; the standalone `Policy<R>` trait (`AllowAll`/`DenyAll`) exists as a helper.
 
 ### 4.6 Authentication
 
@@ -196,6 +196,7 @@ There is no `Action` type. Deletes run through panel POST routes driving the `Re
 - **Tenancy from the login.** The user's optional `tenant_id` is injected as `Tenant` into the request, so `/admin/authors` and `/admin/posts` scope to the logged-in admin; the `x-tenant-id` header is never trusted (GH #131). A server-set `Tenant` request extension overrides deliberately.
 - **Login page.** `Panel::login_hint("Demo: admin@example.com / password")` renders a muted line under the shipped form for demos; brand and dark mode carry over from the panel.
 - **Brute force is a deployment concern.** There is no built-in rate limiter or account lockout: an in-process limiter is false safety across instances, and lockout is a DoS against the real admin. Enforce rate limits at the edge (proxy/WAF) where they belong (ADR-0013).
+- **HTTPS on any non-localhost host.** The session, CSRF, and notification cookies are all `__Host-`-prefixed and `Secure` (GH #149), so browsers drop them over plain HTTP — on `http://` a non-localhost host every mutation would 403 silently. Localhost is exempt (browsers accept `Secure` cookies there); staging/LAN deployments need TLS.
 
 The showcase proves the default (`examples/showcase/tests/auth_check.rs`); `crates/argentum-core/tests/auth_override.rs` proves the custom model path end to end.
 

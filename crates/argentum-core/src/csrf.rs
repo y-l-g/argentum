@@ -1,17 +1,28 @@
 //! CSRF protection via double-submit cookie (GH #99).
 //!
 //! Every state-changing form embeds `csrf_token`, and every POST handler
-//! verifies the form value matches the `argentum_csrf` cookie. No server-side
-//! session is needed: the token is a random UUID the server sets (and reads)
-//! via the cookie layer, and the browser's same-origin policy keeps an
-//! attacker from reading the token to forge the form field. `confirm=1` stays
+//! verifies the form value matches the cookie. No server-side session is
+//! needed: the token is a random UUID the server sets (and reads) via the
+//! cookie layer, and the browser's same-origin policy keeps an attacker
+//! from reading the token to forge the form field. `confirm=1` stays
 //! a UX step, never a security boundary.
+//!
+//! The cookie is `__Host-`-prefixed and `Secure` (GH #149, matching the
+//! session cookie's hardened contract): a cookie-writable position
+//! (subdomain, cleartext HTTP) cannot pin a known token to the jar. The
+//! compare is constant-time so a mismatch cannot be probed byte-by-byte.
+//! The token deliberately stays a bare random UUID — binding it to the
+//! server (HMAC via Topcoat's signed jar) would need a `Key` app context
+//! `Panel::build` does not register; that stays an upstream-gap decision
+//! (#139), not a hand-rolled one.
 
+use subtle::ConstantTimeEq;
 use topcoat::context::{Cx, try_request_context};
 use topcoat::cookie::{Cookie, CookieJarCell, Cookies, cookies};
 
-/// Cookie carrying the CSRF token.
-pub const COOKIE_NAME: &str = "argentum_csrf";
+/// Cookie carrying the CSRF token (`__Host-` prefix: `Secure` + `Path=/` +
+/// no `Domain` are required by the prefix contract, GH #149).
+pub const COOKIE_NAME: &str = "__Host-argentum_csrf";
 /// Hidden form field carrying the CSRF token.
 pub const FIELD_NAME: &str = "csrf_token";
 
@@ -37,6 +48,7 @@ pub fn ensure_token(cx: &Cx) -> String {
     let cookie = Cookie::build((COOKIE_NAME, token.clone()))
         .path("/")
         .http_only(true)
+        .secure(true)
         .same_site(topcoat::cookie::SameSite::Lax)
         .build();
     jar.add(cookie);
@@ -61,6 +73,9 @@ pub fn current_token(cx: &Cx) -> String {
 /// Verify the submitted form token matches the cookie (GH #99).
 ///
 /// Fails closed: missing cookie, missing field, or mismatch all yield 403.
+/// The mismatch compare is constant-time (GH #149) so a failed double-submit
+/// cannot be probed byte-by-byte; the token itself stays a random UUID, so
+/// a length difference is not a secret.
 pub fn verify(
     cx: &Cx,
     values: &std::collections::HashMap<String, String>,
@@ -74,7 +89,7 @@ pub fn verify(
     let Some(submitted) = values.get(FIELD_NAME) else {
         return Err(topcoat::router::error::forbidden().into());
     };
-    if !is_valid_token(&expected) || submitted != &expected {
+    if !is_valid_token(&expected) || submitted.as_bytes().ct_ne(expected.as_bytes()).into() {
         return Err(topcoat::router::error::forbidden().into());
     }
     Ok(())
@@ -131,6 +146,32 @@ mod tests {
                 &std::collections::HashMap::from([(FIELD_NAME.to_string(), token)])
             )
             .is_err()
+        );
+    }
+
+    /// The issued cookie carries the hardened `__Host-` contract (GH #149),
+    /// matching the session cookie: `Secure`, `HttpOnly`, `SameSite=Lax`,
+    /// `Path=/`, no `Domain`.
+    #[test]
+    fn ensured_cookie_is_host_prefixed_and_secure() {
+        let cx = cx_with_cookie(None);
+        let token = ensure_token(&cx);
+        assert!(is_valid_token(&token));
+        let cookie = cookies(&cx)
+            .get(COOKIE_NAME)
+            .expect("ensure_token set the cookie");
+        assert_eq!(cookie.value(), token);
+        assert_eq!(cookie.name(), COOKIE_NAME);
+        assert!(cookie.secure().unwrap_or(false), "{cookie:?}");
+        assert!(cookie.http_only().unwrap_or(false), "{cookie:?}");
+        assert_eq!(cookie.path(), Some("/"));
+        assert!(cookie.domain().is_none(), "{cookie:?}");
+        assert!(
+            matches!(
+                cookie.same_site(),
+                Some(topcoat::cookie::SameSite::Lax) | None
+            ),
+            "{cookie:?}"
         );
     }
 }

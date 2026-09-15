@@ -91,7 +91,7 @@ impl Notification {
     }
 }
 
-pub(crate) const COOKIE_NAME: &str = "argentum_notification";
+pub(crate) const COOKIE_NAME: &str = "__Host-argentum_notification";
 
 /// Store a notification for the next request (flash).
 #[allow(clippy::question_mark)]
@@ -103,6 +103,7 @@ pub fn set_notification(cx: &Cx, notification: Notification) {
     let cookie = Cookie::build((COOKIE_NAME, value))
         .path("/")
         .http_only(true)
+        .secure(true)
         .same_site(topcoat::cookie::SameSite::Lax)
         .build();
     cookies(cx).add(cookie);
@@ -114,8 +115,16 @@ pub fn take_notification(cx: &Cx) -> Option<Notification> {
     let jar = cookies(cx);
     let cookie = jar.get(COOKIE_NAME)?;
     let value = cookie.value().to_string();
-    // Remove the cookie so it doesn't persist.
-    jar.remove(Cookie::build((COOKIE_NAME, "")).path("/").build());
+    // Remove the cookie so it doesn't persist. A `__Host-`-named removal must
+    // carry the prefix's required attributes (Secure + Path=/, no Domain) or
+    // browsers ignore the header and the flash survives every navigation
+    // (GH #149; Topcoat's `Prefixed::remove` forces the same attributes).
+    jar.remove(
+        Cookie::build((COOKIE_NAME, ""))
+            .path("/")
+            .secure(true)
+            .build(),
+    );
     Notification::decode(&value)
 }
 
@@ -172,5 +181,64 @@ mod tests {
         // not immediate get). In this test jar still has original cookie, so we check that
         // decode works; actual removal is via Set-Cookie header, not immediate.
         // Just ensure first take succeeded.
+    }
+
+    /// The flash cookie carries the hardened `__Host-` contract (GH #149):
+    /// `Secure`, `HttpOnly`, `SameSite=Lax`, `Path=/`, no `Domain`.
+    #[test]
+    fn notification_cookie_is_host_prefixed_and_secure() {
+        let cx = cx_with_cookie(None);
+        set_notification(&cx, Notification::success("hello"));
+        let cookie = cookies(&cx)
+            .get(COOKIE_NAME)
+            .expect("set_notification set the cookie");
+        assert_eq!(cookie.name(), COOKIE_NAME);
+        assert!(cookie.secure().unwrap_or(false), "{cookie:?}");
+        assert!(cookie.http_only().unwrap_or(false), "{cookie:?}");
+        assert_eq!(cookie.path(), Some("/"));
+        assert!(cookie.domain().is_none(), "{cookie:?}");
+    }
+
+    /// The consumed flash cookie must be cleared with a `__Host-`-conformant
+    /// removal (GH #149): a `__Host-`-named `Set-Cookie` without `Secure` is
+    /// ignored by browsers — `Max-Age=0` deletions included — so the flash
+    /// would survive every navigation. Asserted through topcoat's own
+    /// response finalization, because the shipped create/edit flow can't
+    /// exercise it yet: mutation responses don't flush cookies on their `Err`
+    /// redirect until upstream topcoat#126 lands, so the toast travels via
+    /// `?notification=` instead.
+    #[test]
+    fn notification_removal_header_carries_the_host_prefix_contract() {
+        use http::header::SET_COOKIE;
+
+        let enc = Notification::success("hello").encode();
+        let cx = cx_with_cookie(Some(&enc));
+        let n = take_notification(&cx);
+        assert!(n.is_some(), "the flash cookie must decode");
+
+        let mut headers = http::HeaderMap::new();
+        topcoat::cookie::write_cookies(&cx, &mut headers);
+        let cleared = headers
+            .get_all(SET_COOKIE)
+            .iter()
+            .filter_map(|v| v.to_str().ok())
+            .find(|v| v.starts_with(&format!("{COOKIE_NAME}=")))
+            .expect("the consumed flash cookie must be cleared")
+            .to_string();
+        assert!(
+            cleared.contains("Max-Age=0") || cleared.contains("Expires=Thu, 01 Jan 1970"),
+            "the removal header must expire the cookie: {cleared}"
+        );
+        assert!(
+            cleared.contains("Secure") && cleared.contains("Path=/"),
+            "the removal header must satisfy the __Host- contract: {cleared}"
+        );
+        assert!(
+            cleared.split(';').all(|attr| {
+                let attr = attr.trim();
+                !attr.starts_with("Domain=")
+            }),
+            "a `__Host-` cookie must not carry a Domain: {cleared}"
+        );
     }
 }

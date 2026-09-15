@@ -389,7 +389,10 @@ async fn custom_authenticator_completes_a_full_login_round_trip() {
                 )
                 .header(
                     COOKIE,
-                    format!("__Host-session={session}; argentum_csrf={logout_csrf}"),
+                    format!(
+                        "__Host-session={session}; {}={logout_csrf}",
+                        argentum_core::csrf::COOKIE_NAME
+                    ),
                 )
                 .body(Body::from(format!("csrf_token={logout_csrf}")))
                 .unwrap(),

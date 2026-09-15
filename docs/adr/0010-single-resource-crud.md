@@ -29,3 +29,7 @@ Considered: (A) Tower middleware for auth (rejected: `Cx`-scoped `fn require_*` 
 ## Amendment (2026-09-10)
 
 Implementation drifted from this record; the code won. There is no `#[procedure]`/`Action` value — mutations are `Resource` record fns called by handlers inside a framework-owned transaction (#84), with policy re-checked on the loaded snapshot (#86). `table_shard`/`memoized_dummy` were deleted (#74); the live shard is slug-dispatched `table_search` behind `Table::live_search` (#104), and the table is a `data-boundary="table"` wrapper, not a `Boundary` type. The PK tie-breaker moved into Toasty (#76). App-side unique checks do not map DB violations to fields: a concurrent write surfaces as a 500 (#88, open).
+
+## Amendment (2026-09-15)
+
+The notification flash cookie is `__Host-argentum_notification` with `Secure` (GH #149), matching the session and CSRF cookies' hardened contract — removals carry the same attributes so browsers honor the clear.

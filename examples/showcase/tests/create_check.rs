@@ -102,7 +102,7 @@ async fn manual_create_check() {
     println!("Cookie header: {}", cookie);
     // Notification may be via Set-Cookie or via ?notification= query param (fallback when cookie layer doesn't handle error).
     let has_notification_via =
-        loc.contains("notification") || cookie.contains("argentum_notification");
+        loc.contains("notification") || cookie.contains("__Host-argentum_notification");
     assert!(
         has_notification_via,
         "should set notification via cookie or query param, got loc {} cookie {}",
