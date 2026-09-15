@@ -146,6 +146,7 @@ dependencies = [
  "http",
  "jiff",
  "password-hash",
+ "subtle",
  "toasty",
  "toasty-core",
  "topcoat",

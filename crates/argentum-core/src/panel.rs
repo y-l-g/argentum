@@ -1812,7 +1812,7 @@ fn resource_edit<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
     })))
 }
 
-/// Edit page POST — validates, checks Policy::update, mutates via Update projection.
+/// Edit page POST — validates, checks `can_view` + `can_update`, mutates via Update projection.
 ///
 /// Requires both `can_view` and `can_update` (matching GET, GH #86 deny-by-default):
 /// a view-denied but writable record must not be mutable by direct POST.

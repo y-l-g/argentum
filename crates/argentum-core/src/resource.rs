@@ -3045,7 +3045,7 @@ pub trait Resource: Sized + Send + Sync + 'static {
     /// Create a new record from form values.
     ///
     /// The `Panel` create handler validates `required`/`email` inline and checks
-    /// `Policy::can_create` before calling this, inside a framework-owned
+    /// `Resource::can_create` before calling this, inside a framework-owned
     /// transaction (GH #84): `ex` is the open tx — run every statement
     /// through it (`exec(&mut *ex)`) and never open a second handle, so the
     /// write commits atomically with the handler's checks. The default

@@ -57,9 +57,9 @@ The base filtered query for a Resource. Returned by Resource::query(cx) and used
 _Avoid_: Scope, EloquentQuery, Builder (as domain term)
 
 ### Policy
-The per-Resource authorization rules (viewAny, view, create, update, delete). Default-deny; checked in both page and POST handlers.
+The per-Resource authorization rules (viewAny, view, create, update, delete), implemented as `Resource::can_view_any`/`can_view`/`can_create`/`can_update`/`can_delete` — the one authorization vocabulary. Default-deny; checked in both page and POST handlers.
 
-_Avoid_: Guard, Permission, Gate, Ability
+_Avoid_: Guard, Permission, Gate, Ability, Policy trait (the removed parallel vocabulary, GH #109)
 
 ### NavigationItem
 An entry in the Panel sidebar. Derived by default from a Resource, overridable for manual grouping and ordering.

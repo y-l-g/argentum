@@ -6,7 +6,7 @@ Repo layout:
 
 ```
 argentum/
-  crates/argentum-core/    // Panel, Resource trait, Table/Schema types, navigation, policy, tenancy, auth
+  crates/argentum-core/    // Panel, Resource trait, Table/Schema types, navigation, authorization (can_*), tenancy, auth
   crates/argentum-macros/  // #[derive(Resource)] (model/query only)
   crates/argentum-ui/      // vendored topcoat-ui primitives + owned composites
   examples/showcase/       // runnable admin: /admin/users + /admin/authors + /admin/posts
@@ -76,7 +76,7 @@ Panel::new("admin")
 
 ### 4.2 `Resource`
 
-The mapping from a Toasty model to its admin UI. One resource = one model = a set of pages (list / create / edit). Heavily inspired by Filament's `Resource.php` but typed.
+The mapping from a Toasty model to its admin UI. One resource = one model; `Panel::resource` registers its routes (list / create / edit / delete). Heavily inspired by Filament's `Resource.php` but typed.
 
 ```rust
 pub trait Resource: Sized + Send + Sync + 'static {
@@ -326,7 +326,7 @@ Dev lint for unmemoized deferred loads, prewarm hint for `defer`, per-region flu
 
 Widgets (`StatsOverview`, chart), global search, infolist entries, file/media assets, themes beyond brand/dark-mode tokens, `embed_migrations!` history + `toasty-cli` standalone.
 
-**Out of scope for v1:** `via` many-to-many in tables, DynamoDB-backed admin, `GROUP BY` aggregates beyond `count` (raw-SQL shim only), WASM admin, SPA mode.
+**Out of scope for v1:** `via` many-to-many in tables, DynamoDB-backed admin, `GROUP BY` aggregates beyond `count` (delegating to Toasty's `GROUP BY`, upstream #118 — the raw-SQL shim was dropped, GH #107), WASM admin, SPA mode.
 
 (The old tracking issue #38 is closed; its remaining future slices are the Now/Next lists above. Open work is tracked per-topic in #88 (unique-check race/scope) and #91 (relationship Select), plus Renovate's `#82`.)
 

@@ -28,4 +28,8 @@ This keeps one tenancy seam, no new `Relation` trait, and no `via` many-to-many 
 
 ## Amendment (2026-09-10)
 
-Group headers read `{key} ({count} on this page)` (page-local counts, GH #92). There is no raw-SQL `trait Aggregate`, and the `sum` summarizer promised by spec #71 is formally dropped rather than pending (GH #107): grouping is page-local by design, so a page-local sum would be a misleading number for exactly the large tables aggregation exists for — the honest limitation is recorded instead, and a real sum waits for upstream `GROUP BY` (#118). Export is capped at 10k viewable rows (visibility before cap, GH #145) and buffered rather than streamed (GH #94). `Panel::brand`/`dark_mode` exist but the showcase leaves them unset. Tenancy remains `Cx`-scoped, but `requires_tenant` defaults false and the `x-tenant-id` fallback is harness-oriented (GH #87 caveat).
+Group headers read `{key} ({count} on this page)` (page-local counts, GH #92). There is no raw-SQL `trait Aggregate` — `sum` summarizers are not implemented (follow-up to #71) — Export is capped at 10k viewable rows (visibility before cap, GH #145) and buffered rather than streamed (GH #94). `Panel::brand`/`dark_mode` exist but the showcase leaves them unset. Tenancy remains `Cx`-scoped, but `requires_tenant` defaults false and the `x-tenant-id` fallback is harness-oriented (GH #87 caveat).
+
+## Amendment (2026-09-15)
+
+The `sum` summarizer and the raw-SQL `trait Aggregate` shim promised by spec #71 are formally dropped from the vocabulary (GH #107), not merely pending: grouping is page-local by design, so a page-local sum would be a misleading number for exactly the large tables aggregation exists for. Counts stay page-local and labelled as such (GH #92); a real sum waits for upstream `GROUP BY` (#118), at which point `Table::group_by` can delegate without changing Resources.
