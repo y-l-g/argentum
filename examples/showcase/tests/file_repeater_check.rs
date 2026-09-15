@@ -64,7 +64,8 @@ async fn posts_create_invalid_fileupload_repeater_shows_errors() {
     let mut db2 = db.clone();
     let authors = Author::all().exec(&mut db2).await.unwrap();
     let first = &authors[0];
-    // Missing image_path and tags (both required)
+    // Missing image_path (a required FileUpload). The optional Tags group is
+    // empty, which is absent — not an error — since GH #147.
     let resp = client
         .csrf(&csrf)
         .post_form(
@@ -84,9 +85,8 @@ async fn posts_create_invalid_fileupload_repeater_shows_errors() {
         html
     );
     assert!(
-        html.contains("is required") || html.contains("required"),
-        "missing required error {}",
-        html
+        html.contains("Image_path is required"),
+        "missing required error for the file field, got {html}"
     );
     // Should not create
     let mut db2 = db.clone();
@@ -126,6 +126,54 @@ async fn posts_create_valid_fileupload_repeater_creates() {
     let post = created.unwrap();
     assert_eq!(post.image_path, "/tmp/valid.jpg");
     assert_eq!(post.tags, "valid,tags");
+}
+
+/// An optional Repeater with a `required` inner input must not fail an empty
+/// submit (GH #147): group-empty means "absent". The shipped `/admin/posts`
+/// form is exactly that shape (optional `Tags` over a required inner input),
+/// so an empty Tags group submits cleanly. A partially filled group still
+/// enforces inner `required` — pinned at the schema level, where the shape is
+/// expressible (a single-entry repeater submits one entry, so the values
+/// cannot distinguish "group absent" from "group present" in this form).
+#[tokio::test]
+async fn posts_create_with_empty_optional_tags_group_submits() {
+    let db = full_db().await;
+    let router = router(db.clone());
+    let client = demo_client(&router).await;
+    let csrf = uuid::Uuid::new_v4().to_string();
+    let mut db2 = db.clone();
+    let authors = Author::all().exec(&mut db2).await.unwrap();
+    let before = Post::all().exec(&mut db2).await.unwrap().len();
+
+    let resp = client
+        .csrf(&csrf)
+        .post_form(
+            "/admin/posts/create",
+            format!(
+                "title=No+Tags&author_id={}&image_path=/tmp/notags.jpg&tags=&csrf_token={csrf}",
+                authors[0].id
+            ),
+        )
+        .await;
+    let status = resp.status();
+    assert!(
+        status.is_redirection(),
+        "an empty optional Tags group must not fail the submit, got {status} {}",
+        body_string(resp).await
+    );
+    let mut db2 = db.clone();
+    assert_eq!(
+        Post::all().exec(&mut db2).await.unwrap().len(),
+        before + 1,
+        "the post is created"
+    );
+    let created = Post::filter(Post::fields().title().eq("No Tags".to_string()))
+        .first()
+        .exec(&mut db2)
+        .await
+        .unwrap()
+        .expect("created post");
+    assert_eq!(created.tags, "", "the empty group stores empty");
 }
 
 #[tokio::test]

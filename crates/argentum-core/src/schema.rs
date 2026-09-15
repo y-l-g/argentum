@@ -5,11 +5,12 @@
 //! combines them. The API mirrors Filament's `Schema::new(( ... ))` tuple
 //! form via the `IntoSchema` trait.
 //!
-//! Bridge note: `lens_field_name_and_label` reaches into `toasty_core` (see
-//! upstream issue #114), alongside the `pk_*` bridge helpers and `cursor.rs`
-//! cursor values; migrate to public `Path::field_name()` when Toasty exposes it.
+//! Bridge note: `lens_field_name_label_and_nullable` reaches into
+//! `toasty_core` (see upstream issue #114), alongside the `pk_*` bridge
+//! helpers and `cursor.rs` cursor values; migrate to public
+//! `Path::field_name()`/nullability when Toasty exposes it (upstream #115).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use argentum_ui::{
     card, card_content, card_header, card_title, input as ui_input, label as ui_label,
@@ -339,18 +340,22 @@ impl Clone for Select {
 impl Select {
     /// Create a `Select` bound to the given field lens (e.g. `Post::fields().author_id()`).
     ///
-    /// A bare `Select` over a foreign-key lens validates only presence (any
-    /// value passes) — prefer [`.relationship()`](Self::relationship), which
-    /// checks existence tenancy-aware, for FK fields (GH #91).
+    /// Required defaults from the lens's nullability (GH #100, GH #147): a
+    /// non-nullable FK (`Post::fields().author_id()`) rejects an empty submit
+    /// inline instead of dying at the driver's `parse::<Uuid>("")`; opt out
+    /// with `.optional()` for nullable columns. A bare `Select` over a
+    /// foreign-key lens validates only presence (any value passes) — prefer
+    /// [`.relationship()`](Self::relationship), which checks existence
+    /// tenancy-aware, for FK fields (GH #91).
     pub fn for_lens<M, T>(path: toasty::stmt::Path<M, T>) -> Self
     where
         M: toasty::schema::Model,
     {
-        let (field_name, label_str) = lens_field_name_and_label(path);
+        let (field_name, label_str, nullable) = lens_field_name_label_and_nullable(path);
         Self {
             name: field_name,
             label: label_str,
-            required: false,
+            required: !nullable,
             searchable: false,
             options_static: Vec::new(),
             relationship: None,
@@ -378,6 +383,16 @@ impl Select {
     /// Mark the field as required.
     pub fn required(mut self) -> Self {
         self.required = true;
+        self
+    }
+
+    /// Opt out of the non-nullable default (GH #100, GH #147): for nullable
+    /// columns where an empty submit is legitimate, or for a non-nullable
+    /// column the form does not collect (a record fn substitutes a value —
+    /// note the browser-side required attribute drops too, and an empty
+    /// submit then reaches the record fn as `""`).
+    pub fn optional(mut self) -> Self {
+        self.required = false;
         self
     }
 
@@ -613,8 +628,9 @@ pub type FieldLens<M, T> = toasty::stmt::Path<M, T>;
 /// Resolve a typed lens to its app-level field name and capitalized label.
 ///
 /// Hides the `Path → toasty_core::stmt::Path → projection → M::schema()` walk
-/// (upstream issue #114). Used by both `TextInput` and
-/// `TextColumn` so the shape is defined once.
+/// (upstream issue #114). Used by `TextColumn` and the other table-side
+/// helpers; the form inputs use [`lens_field_name_label_and_nullable`], which
+/// adds the nullability their required-defaults read (GH #100, GH #147).
 ///
 /// Traversal lenses are rejected (GH #100): a multi-step path has no single
 /// field name, and silently binding its first segment misbinds in release.
@@ -622,32 +638,14 @@ pub(crate) fn lens_field_name_and_label<M, T>(path: FieldLens<M, T>) -> (String,
 where
     M: toasty::schema::Model,
 {
-    let core_path: toasty_core::stmt::Path = path.into();
-    require_single_segment(&core_path, "lens");
-    let idx = core_path
-        .projection
-        .as_slice()
-        .first()
-        .copied()
-        .expect("field lens must have a projection");
-    let model = M::schema();
-    let field_name = model
-        .fields()
-        .get(idx)
-        .map(|f| f.name.app_unwrap().to_string())
-        .unwrap_or_else(|| {
-            panic!(
-                "field index {idx} out of bounds for {}",
-                std::any::type_name::<M>()
-            )
-        });
-    let label_str = capitalize(&field_name);
+    let (field_name, label_str, _nullable) = lens_field_name_label_and_nullable(path);
     (field_name, label_str)
 }
 
 /// Field name, label, and nullability behind a lens in one walk (GH #100) —
-/// the `TextInput` required-default needs all three; walking once keeps the
-/// single `toasty_core` import site obvious.
+/// the required-default needs all three, in `TextInput`, `Select`, and
+/// `FileUpload` (GH #147); walking once keeps the single `toasty_core`
+/// import site obvious.
 pub(crate) fn lens_field_name_label_and_nullable<M, T>(
     path: FieldLens<M, T>,
 ) -> (String, String, bool)
@@ -1004,15 +1002,23 @@ pub struct FileUpload {
 }
 
 impl FileUpload {
+    /// Create a `FileUpload` bound to the given field lens.
+    ///
+    /// Required defaults from the lens's nullability (GH #100, GH #147),
+    /// same as `TextInput`/`Select`. Today the `String` lens type only binds
+    /// non-nullable columns (`Option<String>` fields do not typecheck), so
+    /// the default is always required and `.optional()` is the form-level
+    /// opt-out; the nullability walk stays correct if the lens widens
+    /// upstream (#115).
     pub fn for_lens<M>(path: toasty::stmt::Path<M, String>) -> Self
     where
         M: toasty::schema::Model,
     {
-        let (field_name, label_str) = lens_field_name_and_label(path);
+        let (field_name, label_str, nullable) = lens_field_name_label_and_nullable(path);
         Self {
             name: field_name,
             label: label_str,
-            required: false,
+            required: !nullable,
         }
     }
 
@@ -1025,6 +1031,17 @@ impl FileUpload {
 
     pub fn required(mut self) -> Self {
         self.required = true;
+        self
+    }
+
+    /// Opt out of the required default (GH #147): today `for_lens` only binds
+    /// non-nullable `String` columns (an `Option<String>` field is
+    /// `Path<M, Option<String>>` and does not typecheck), so the default is
+    /// always required and this is the only way to treat a required-backed
+    /// column as form-optional — an empty submit then passes validation and
+    /// the record fn decides what to store.
+    pub fn optional(mut self) -> Self {
+        self.required = false;
         self
     }
 
@@ -1136,7 +1153,7 @@ impl Repeater {
     ) -> Result<BoxView<'a>> {
         let title = self.label.clone();
         let required = self.required;
-        // Own error lives under the label key (see `Schema::validate_repeaters`).
+        // Own error lives under the label key (see `walk_repeater_absence`).
         // Field errors key by field name; repeaters have no field name yet, so the
         // label is the only stable key until repeaters become field-bound (GH #78).
         let own_errors: &[String] = errors.get(&self.label).map(|v| v.as_slice()).unwrap_or(&[]);
@@ -1410,6 +1427,61 @@ pub struct Schema {
     nodes: Vec<Node>,
 }
 
+/// Classify the schema's repeaters against `values` (GH #147, replacing the
+/// GH #75 required-walk and the optional-group skip in one tree walk).
+///
+/// For every Repeater, all its inner field names (as `field_names()` of the
+/// child schema) are checked: an all-empty group is "absent" — an untouched
+/// group submits empty strings or omits the keys, and both count as absent —
+/// so its inner field names go into `skip` (their per-field `required` must
+/// not fire, whatever the group's own requiredness) and its subtree is
+/// walked as absent, suppressing nested required repeaters. A `required`
+/// all-empty group also records its one label-keyed error, unless it sits
+/// inside an already-absent ancestor. A group with any non-empty inner value
+/// counts as present: nothing is skipped, nothing suppressed, and inner
+/// `required` enforces as usual.
+///
+/// On edit, the GH #90 untouched-file backfill runs before validation, so a
+/// group whose stored file path is non-empty counts as present there even if
+/// the browser submitted it empty — a kept file is real group data.
+fn walk_repeater_absence(
+    nodes: &[Node],
+    values: &HashMap<String, String>,
+    skip: &mut HashSet<String>,
+    errors: &mut HashMap<String, Vec<String>>,
+    inside_absent: bool,
+) {
+    for node in nodes {
+        if let Node::Repeater(r) = node {
+            let inner_names = r
+                .children
+                .as_ref()
+                .map(|s| s.field_names())
+                .unwrap_or_default();
+            // `all` on an empty list is true: an inputless group is absent.
+            let all_empty = inner_names
+                .iter()
+                .all(|n| values.get(n).map(|v| v.trim().is_empty()).unwrap_or(true));
+            let absent = inside_absent || all_empty;
+            if all_empty {
+                skip.extend(inner_names);
+                if r.required && !inside_absent {
+                    errors
+                        .entry(r.label.clone())
+                        .or_insert_with(|| vec![format!("{} is required", r.label)]);
+                }
+            }
+            if let Some(child) = node.children() {
+                walk_repeater_absence(&child.nodes, values, skip, errors, absent);
+            }
+            continue;
+        }
+        if let Some(child) = node.children() {
+            walk_repeater_absence(&child.nodes, values, skip, errors, inside_absent);
+        }
+    }
+}
+
 impl Schema {
     /// Build a `Schema` from any `IntoSchema` (single node, tuple, or `Schema`).
     ///
@@ -1544,9 +1616,23 @@ impl Schema {
     /// optional field silently blanks the stored value. Use
     /// [`Self::unknown_keys`] to allow-list POST keys.
     pub fn validate(&self, values: &HashMap<String, String>) -> HashMap<String, Vec<String>> {
-        let inputs = self.text_inputs();
+        // Classify the repeaters first (GH #147): an all-empty group is
+        // "absent" — an untouched group submits empty strings (or omits the
+        // keys), both treated as absent — so its inner inputs must not fail
+        // the submit for any requiredness. A `required` group answers with
+        // its one label-keyed error instead, and required repeaters nested
+        // inside an absent group are suppressed with it. A partially filled
+        // group (any inner value non-empty) enforces inner `required` as
+        // usual. Whitespace-only values count as empty, matching the
+        // codebase-wide trim convention.
         let mut errors: HashMap<String, Vec<String>> = HashMap::new();
+        let mut skip: HashSet<String> = HashSet::new();
+        walk_repeater_absence(&self.nodes, values, &mut skip, &mut errors, false);
+        let inputs = self.text_inputs();
         for (name, input) in inputs {
+            if skip.contains(&name) {
+                continue;
+            }
             let val = values.get(&name).map(|s| s.as_str()).unwrap_or("");
             let errs = input.validate(val);
             if !errs.is_empty() {
@@ -1554,6 +1640,9 @@ impl Schema {
             }
         }
         for (name, sel) in self.select_inputs() {
+            if skip.contains(&name) {
+                continue;
+            }
             let val = values.get(&name).map(|s| s.as_str()).unwrap_or("");
             let errs = sel.validate(val);
             if !errs.is_empty() {
@@ -1561,55 +1650,16 @@ impl Schema {
             }
         }
         for (name, fu) in self.file_uploads() {
+            if skip.contains(&name) {
+                continue;
+            }
             let val = values.get(&name).map(|s| s.as_str()).unwrap_or("");
             let errs = fu.validate(val);
             if !errs.is_empty() {
                 errors.insert(name, errs);
             }
         }
-        // Repeater `required` was stored but never validated (GH #75).
-        self.validate_repeaters(values, &mut errors);
         errors
-    }
-
-    fn validate_repeaters(
-        &self,
-        values: &HashMap<String, String>,
-        errors: &mut HashMap<String, Vec<String>>,
-    ) {
-        fn walk(
-            nodes: &[Node],
-            values: &HashMap<String, String>,
-            errors: &mut HashMap<String, Vec<String>>,
-        ) {
-            for node in nodes {
-                if let Node::Repeater(r) = node
-                    && r.required
-                {
-                    let inner_names = r
-                        .children
-                        .as_ref()
-                        .map(|s| s.field_names())
-                        .unwrap_or_default();
-                    let all_empty = if inner_names.is_empty() {
-                        true
-                    } else {
-                        inner_names
-                            .iter()
-                            .all(|n| values.get(n).map(|v| v.trim().is_empty()).unwrap_or(true))
-                    };
-                    if all_empty {
-                        errors
-                            .entry(r.label.clone())
-                            .or_insert_with(|| vec![format!("{} is required", r.label)]);
-                    }
-                }
-                if let Some(child) = node.children() {
-                    walk(&child.nodes, values, errors);
-                }
-            }
-        }
-        walk(&self.nodes, values, errors);
     }
 
     /// Async validation for Select relationship existence (tenancy-aware).
@@ -1849,6 +1899,24 @@ mod tests {
         name: String,
         #[unique]
         email: String,
+    }
+
+    /// A nullable FK, for the optional-by-default select case.
+    #[derive(Debug, toasty::Model)]
+    struct NullableRef {
+        #[key]
+        #[auto]
+        id: uuid::Uuid,
+        parent_id: Option<uuid::Uuid>,
+    }
+
+    /// A non-nullable foreign key, for the required-by-default FK select.
+    #[derive(Debug, toasty::Model)]
+    struct FkRef {
+        #[key]
+        #[auto]
+        id: uuid::Uuid,
+        author_id: uuid::Uuid,
     }
 
     #[tokio::test]
@@ -2337,6 +2405,178 @@ mod tests {
         assert!(
             !errors.contains_key("Tags"),
             "filled repeater must pass, got {errors:?}"
+        );
+    }
+
+    /// An optional Repeater with a `required` inner input must not fail an
+    /// empty submit (GH #147): group-empty means "absent". A `required`
+    /// repeater answers an empty submit with exactly one label-keyed error,
+    /// and a partially filled optional group still enforces inner `required`.
+    #[test]
+    fn optional_repeater_with_required_inner_allows_empty_group() {
+        // Two inner inputs so "partially filled" is expressible: a required
+        // text field and an optional email field.
+        let optional = Schema::new(
+            Repeater::new("Tags").schema((
+                TextInput::r#for(DummyUser::fields().name())
+                    .required()
+                    .label("Tag"),
+                TextInput::r#for(DummyUser::fields().email())
+                    .optional()
+                    .label("Note"),
+            )),
+        );
+        let required = Schema::new(
+            Repeater::new("Tags").required().schema((
+                TextInput::r#for(DummyUser::fields().name())
+                    .required()
+                    .label("Tag"),
+                TextInput::r#for(DummyUser::fields().email())
+                    .optional()
+                    .label("Note"),
+            )),
+        );
+
+        // Empty submit: the optional group validates clean...
+        let errors = optional.validate(&HashMap::new());
+        assert!(
+            errors.is_empty(),
+            "optional repeater with empty group must validate clean, got {errors:?}"
+        );
+        // ...the required group answers with exactly one label-keyed error —
+        // the inner input's own required error is suppressed with the absent
+        // group, so the label carries the whole story (GH #147).
+        let errors = required.validate(&HashMap::new());
+        assert_eq!(
+            errors.len(),
+            1,
+            "required repeater + empty submit must yield one error, got {errors:?}"
+        );
+        assert_eq!(
+            errors.get("Tags").map(|errs| errs.as_slice()),
+            Some(["Tags is required".to_string()].as_slice()),
+            "the label-keyed error is the only one, got {errors:?}"
+        );
+
+        // A partially filled optional group counts as present: inner
+        // `required` fires for the empty input, not for the optional one.
+        let mut partial = HashMap::new();
+        partial.insert("email".to_string(), "a@b.c".to_string());
+        let errors = optional.validate(&partial);
+        assert!(
+            errors.contains_key("name"),
+            "a partially filled group enforces inner required, got {errors:?}"
+        );
+        assert!(
+            !errors.contains_key("email"),
+            "the optional inner input stays optional, got {errors:?}"
+        );
+    }
+
+    /// `Select`/`FileUpload` follow the same required-default as `TextInput`
+    /// (GH #147): non-nullable lenses default required, `.optional()` opts
+    /// out, `.required()` forces it back.
+    #[test]
+    fn select_and_file_upload_required_defaults_follow_nullability() {
+        // Non-nullable String field: bare Select/FileUpload reject "".
+        let select = Select::r#for(DummyUser::fields().name());
+        assert!(
+            select
+                .validate("")
+                .iter()
+                .any(|e| e.contains("is required")),
+            "non-nullable"
+        );
+        let upload = FileUpload::r#for(DummyUser::fields().name());
+        assert!(
+            upload
+                .validate("")
+                .iter()
+                .any(|e| e.contains("is required")),
+            "non-nullable"
+        );
+
+        // `.optional()` opts out; `.required()` forces it back on.
+        assert!(
+            Select::r#for(DummyUser::fields().name())
+                .optional()
+                .validate("")
+                .is_empty()
+        );
+        assert!(
+            FileUpload::r#for(DummyUser::fields().name())
+                .optional()
+                .validate("")
+                .is_empty()
+        );
+        assert!(
+            Select::r#for(DummyUser::fields().name())
+                .optional()
+                .required()
+                .validate("")
+                .iter()
+                .any(|e| e.contains("is required"))
+        );
+
+        // Nullable lenses default optional (GH #100 parity).
+        let select = Select::r#for(NullableRef::fields().parent_id());
+        assert!(
+            select.validate("").is_empty(),
+            "nullable FK select defaults optional, got {:?}",
+            select.validate("")
+        );
+        // FileUpload's lens type only binds non-nullable `String` columns
+        // (a nullable field is `Option<String>`), so its required default is
+        // always on today; the nullability walk keeps it correct if the lens
+        // widens upstream (#115).
+    }
+
+    /// A bare `Select` over a non-nullable FK must reject an empty submit
+    /// inline (GH #147): previously it passed validation and died at the
+    /// driver's `parse::<Uuid>("")` as a 500.
+    #[test]
+    fn bare_non_nullable_fk_select_rejects_empty_inline() {
+        let select = Select::r#for(FkRef::fields().author_id());
+        let errs = select.validate("");
+        assert!(
+            errs.iter().any(|e| e.contains("is required")),
+            "bare non-nullable FK must reject empty inline, got {errs:?}"
+        );
+        // `.optional()` opts back out.
+        let errs = Select::r#for(FkRef::fields().author_id())
+            .optional()
+            .validate("");
+        assert!(errs.is_empty(), "opt-out must clear required, got {errs:?}");
+    }
+
+    /// A `required` repeater nested inside an all-empty OPTIONAL group is
+    /// suppressed with it (GH #147): an untouched outer group means nothing
+    /// inside it was intended, so the inner label error must not fire.
+    #[test]
+    fn required_repeater_inside_absent_optional_group_is_suppressed() {
+        let schema = Schema::new(
+            Repeater::new("Outer").schema((
+                TextInput::r#for(DummyUser::fields().name()).required(),
+                Repeater::new("Inner")
+                    .required()
+                    .schema(TextInput::r#for(DummyUser::fields().email()).required()),
+            )),
+        );
+        // Empty submit: the outer group is absent, so the inner required
+        // repeater fires no error at all.
+        let errors = schema.validate(&HashMap::new());
+        assert!(
+            errors.is_empty(),
+            "an untouched optional outer group must suppress nested required repeaters, got {errors:?}"
+        );
+        // With the outer group present (a value anywhere in its subtree),
+        // the inner required repeater enforces.
+        let mut present = HashMap::new();
+        present.insert("name".to_string(), "rust".to_string());
+        let errors = schema.validate(&present);
+        assert!(
+            errors.contains_key("Inner"),
+            "a present outer group enforces the inner required repeater, got {errors:?}"
         );
     }
 

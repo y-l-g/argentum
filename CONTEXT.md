@@ -72,7 +72,7 @@ A predicate contributed to a Table's query. A typed wrapper around a Toasty Expr
 _Avoid_: Scope, Constraint, Where
 
 ### Field
-A typed input bound to a Model lens inside a Schema. Bound via its field lens and column name; `required` defaults from Toasty column nullability (GH #100, opt out with `.optional()`), while uniqueness metadata and non-TextInput defaults are future work (upstream gaps #115, #119). Hydrates from the Model into Create/Update projections.
+A typed input bound to a Model lens inside a Schema. Bound via its field lens and column name; `required` defaults from Toasty column nullability (GH #100, GH #147 — `TextInput`, `Select`, `FileUpload` alike, opt out with `.optional()`), while uniqueness metadata is future work (upstream gap #115; non-`TextInput` uniqueness is not declared). Hydrates from the Model into Create/Update projections. A `Repeater` group whose inner values are all empty is "absent": its inner `required` inputs do not fire, and a `required` group yields one label-keyed error (GH #147).
 
 _Avoid_: Input, Control, Widget (in form context), statePath
 
