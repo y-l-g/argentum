@@ -4,12 +4,24 @@
 //! top-level boundary so it survives `Table` swaps. Status + title,
 //! auto-dismissed after ~4s by `argentum-ui/assets/notifications.js`
 //! (manual dismiss via `[data-notification-close]`).
+//!
+//! The flash cookie is Topcoat's `CookieStore` (serde JSON, GH #139) instead
+//! of a hand-rolled wire format; the jar defaults carry the hardened
+//! attributes (HttpOnly, Secure, SameSite=Lax, Path=/ — the `__Host-` name
+//! requires them, GH #149) on writes and removals alike, so set and clear
+//! cannot drift again. The `?notification=` fallback keeps the compact
+//! `status:title` text format (`encode`/`decode`).
 
+use serde::{Deserialize, Serialize};
 use topcoat::context::{Cx, try_request_context};
-use topcoat::cookie::{Cookie, CookieJarCell, Cookies, cookies};
+use topcoat::cookie::{CookieJar, CookieJarCell, Cookies, cookie_store, cookies};
 
 /// The kind of notification (status).
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// The serde tokens are the lowercase `as_str` spellings, so the JSON cookie
+/// and the `?notification=` fallback share one status vocabulary (GH #139).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum NotificationStatus {
     Success,
     Error,
@@ -38,7 +50,7 @@ impl NotificationStatus {
 }
 
 /// A transient message shown after a mutation.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Notification {
     pub status: NotificationStatus,
     pub title: String,
@@ -66,7 +78,9 @@ impl Notification {
         }
     }
 
-    /// Encode to cookie value: `status:title` (title is percent-encoded to avoid `:` issues).
+    /// Encode to the `?notification=` fallback value: `status:title`
+    /// (percent-escaped so `:`/`;`/`%` survive one round trip). The flash
+    /// cookie uses serde JSON via Topcoat's `CookieStore` (GH #139).
     pub(crate) fn encode(&self) -> String {
         // Simple encoding: status + ":" + percent-encoded title (use URL encoding for ":" and ";")
         // For MVP, just replace ":" with "%3A" and ";" with "%3B"
@@ -93,39 +107,51 @@ impl Notification {
 
 pub(crate) const COOKIE_NAME: &str = "__Host-argentum_notification";
 
+/// The jar defaults the flash cookie relies on (GH #139): `CookieStore`
+/// commits a bare cookie, so the hardened attributes live here and apply to
+/// writes *and* removals alike — the `Map` adapter transforms both. The
+/// `__Host-` name requires Secure + Path=/ + no Domain (GH #149); the
+/// session and CSRF cookies set their own attributes and are unaffected
+/// (`default_*` only fills what is unset).
+fn hardened(jar: &CookieJar) -> impl Cookies + '_ {
+    jar.default_path("/")
+        .default_http_only(true)
+        .default_secure(true)
+        .default_same_site(topcoat::cookie::SameSite::Lax)
+}
+
 /// Store a notification for the next request (flash).
-#[allow(clippy::question_mark)]
 pub fn set_notification(cx: &Cx, notification: Notification) {
     if try_request_context::<CookieJarCell>(cx).is_none() {
         return;
     }
-    let value = notification.encode();
-    let cookie = Cookie::build((COOKIE_NAME, value))
-        .path("/")
-        .http_only(true)
-        .secure(true)
-        .same_site(topcoat::cookie::SameSite::Lax)
-        .build();
-    cookies(cx).add(cookie);
+    // `commit` serializes to JSON and queues the Set-Cookie — one hand-rolled
+    // wire format less (GH #139).
+    let _ = cookie_store::<Notification, _>(hardened(cookies(cx)), COOKIE_NAME)
+        .set(notification)
+        .commit();
 }
 
 /// Take the notification from the request (if present) and clear it.
 pub fn take_notification(cx: &Cx) -> Option<Notification> {
     try_request_context::<CookieJarCell>(cx)?;
-    let jar = cookies(cx);
-    let cookie = jar.get(COOKIE_NAME)?;
-    let value = cookie.value().to_string();
-    // Remove the cookie so it doesn't persist. A `__Host-`-named removal must
-    // carry the prefix's required attributes (Secure + Path=/, no Domain) or
-    // browsers ignore the header and the flash survives every navigation
-    // (GH #149; Topcoat's `Prefixed::remove` forces the same attributes).
-    jar.remove(
-        Cookie::build((COOKIE_NAME, ""))
-            .path("/")
-            .secure(true)
-            .build(),
-    );
-    Notification::decode(&value)
+    let unparsed = cookie_store::<Notification, _>(hardened(cookies(cx)), COOKIE_NAME);
+    match unparsed.parse() {
+        // Present and readable: hand it out, then expire it (the removal
+        // carries the same hardened attributes through the jar defaults).
+        Ok(Some(store)) => {
+            let notification = store.get();
+            store.remove();
+            Some(notification)
+        }
+        // Unreadable garbage (a corrupted or foreign value): expire it, no
+        // toast — same fail-open-to-none as the old decode.
+        Err(_) => {
+            cookie_store::<Notification, _>(hardened(cookies(cx)), COOKIE_NAME).remove();
+            None
+        }
+        Ok(None) => None,
+    }
 }
 
 #[cfg(test)]
@@ -170,17 +196,38 @@ mod tests {
         assert_eq!(dec.title, "a:b:c");
     }
 
-    #[tokio::test]
-    async fn take_notification_clears_cookie() {
-        let enc = Notification::success("hello").encode();
+    #[test]
+    fn take_notification_decodes_the_json_cookie() {
+        let enc = serde_json::to_string(&Notification::success("hello")).unwrap();
         let cx = cx_with_cookie(Some(&enc));
         let n = take_notification(&cx);
-        assert!(n.is_some());
+        assert!(n.is_some(), "the JSON flash cookie decodes");
         assert_eq!(n.unwrap().title, "hello");
-        // Second take should be None because cookie was removed (but removal is via jar delta,
-        // not immediate get). In this test jar still has original cookie, so we check that
-        // decode works; actual removal is via Set-Cookie header, not immediate.
-        // Just ensure first take succeeded.
+        // Clearing itself is pinned by
+        // `notification_removal_header_carries_the_host_prefix_contract`.
+    }
+
+    /// Unreadable cookie garbage is expired, not toasted (same fail-open-to-
+    /// none as the old decode), and the removal still satisfies the `__Host-`
+    /// contract (GH #139).
+    #[test]
+    fn unreadable_flash_cookie_is_expired_silently() {
+        let cx = cx_with_cookie(Some("not-json"));
+        assert!(take_notification(&cx).is_none(), "garbage yields no toast");
+        let mut headers = http::HeaderMap::new();
+        topcoat::cookie::write_cookies(&cx, &mut headers);
+        let cleared = headers
+            .get_all(http::header::SET_COOKIE)
+            .iter()
+            .filter_map(|v| v.to_str().ok())
+            .find(|v| v.starts_with(&format!("{COOKIE_NAME}=")))
+            .expect("the garbage cookie must be expired");
+        assert!(
+            cleared.contains("Max-Age=0")
+                && cleared.contains("Secure")
+                && cleared.contains("Path=/"),
+            "the removal carries the __Host- contract: {cleared}"
+        );
     }
 
     /// The flash cookie carries the hardened `__Host-` contract (GH #149):
@@ -193,6 +240,9 @@ mod tests {
             .get(COOKIE_NAME)
             .expect("set_notification set the cookie");
         assert_eq!(cookie.name(), COOKIE_NAME);
+        // The committed value is the JSON wire format (lowercase status
+        // tokens, GH #139).
+        assert_eq!(cookie.value(), r#"{"status":"success","title":"hello"}"#);
         assert!(cookie.secure().unwrap_or(false), "{cookie:?}");
         assert!(cookie.http_only().unwrap_or(false), "{cookie:?}");
         assert_eq!(cookie.path(), Some("/"));
@@ -211,7 +261,7 @@ mod tests {
     fn notification_removal_header_carries_the_host_prefix_contract() {
         use http::header::SET_COOKIE;
 
-        let enc = Notification::success("hello").encode();
+        let enc = serde_json::to_string(&Notification::success("hello")).unwrap();
         let cx = cx_with_cookie(Some(&enc));
         let n = take_notification(&cx);
         assert!(n.is_some(), "the flash cookie must decode");

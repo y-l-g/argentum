@@ -3276,27 +3276,16 @@ fn pluralize(word: &str) -> String {
 
 /// Convert a CamelCase identifier to kebab-case: `BlogPost` → `blog-post`,
 /// `APIKey` → `api-key`.
+///
+/// Delegates to `heck::ToKebabCase` (GH #139; the hand-rolled scanner matched
+/// heck on every Rust-identifier shape — digits, acronym runs — so slugs are
+/// unchanged). Underscores now split words too (`Audit_Log` → `audit-log`,
+/// previously `audit_log`): name resources without underscores or override
+/// [`Resource::slug`](crate::Resource::slug).
 fn kebab_case(name: &str) -> String {
-    let chars: Vec<char> = name.chars().collect();
-    let mut out = String::with_capacity(name.len() + 8);
-    for (i, &current) in chars.iter().enumerate() {
-        if current.is_uppercase() {
-            let boundary = i > 0
-                && (chars[i - 1].is_lowercase()
-                    || chars[i - 1].is_ascii_digit()
-                    || (chars[i - 1].is_uppercase()
-                        && chars.get(i + 1).is_some_and(|next| next.is_lowercase())));
-            if boundary {
-                out.push('-');
-            }
-            out.extend(current.to_lowercase());
-        } else {
-            out.push(current);
-        }
-    }
-    out
+    use heck::ToKebabCase;
+    name.to_kebab_case()
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3376,6 +3365,11 @@ mod tests {
         assert_eq!(kebab_case("Users"), "users");
         assert_eq!(kebab_case("BlogPost"), "blog-post");
         assert_eq!(kebab_case("APIKey"), "api-key");
+        // The heck delegate (GH #139): digit boundaries match the old scanner,
+        // and underscores now split words — pinned so a heck upgrade cannot
+        // silently change slugs.
+        assert_eq!(kebab_case("User2FA"), "user2-fa");
+        assert_eq!(kebab_case("Blog_Post"), "blog-post");
     }
 
     #[test]

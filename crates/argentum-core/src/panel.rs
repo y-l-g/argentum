@@ -1546,10 +1546,11 @@ fn notification_from_query(cx: &Cx) -> Option<Notification> {
 /// mutations write a few bytes.
 const MAX_NOTIFICATION_QUERY: usize = 256;
 
-/// The `?notification=` value for a mutation redirect (GH #148): the cookie
-/// wire format (`status:title`, percent-encoded) so a toast whose cookie
-/// could not flush on the `Err` redirect (upstream topcoat#126) survives the
-/// query with its status, not hardcoded green.
+/// The `?notification=` value for a mutation redirect (GH #148): the compact
+/// `status:title` format the fallback has always used, percent-encoded — a
+/// toast whose cookie could not flush on the `Err` redirect (upstream
+/// topcoat#126) survives the query with its status, not hardcoded green. The
+/// flash *cookie* itself is JSON via Topcoat's `CookieStore` (GH #139).
 fn notification_query_param(notification: &Notification) -> String {
     encode_query_value(&notification.encode())
 }
@@ -4077,7 +4078,7 @@ mod tests {
 
         // GH #97: the shell toast carries the auto-dismiss hooks that
         // notifications.js arms (~4s fade + manual dismiss).
-        let enc = Notification::success("Created").encode();
+        let enc = serde_json::to_string(&Notification::success("Created")).unwrap();
         let mut parts = http::Request::builder()
             .uri("/admin/users")
             .body(())

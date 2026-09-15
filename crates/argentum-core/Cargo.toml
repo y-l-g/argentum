@@ -11,10 +11,12 @@ argentum-macros = { path = "../argentum-macros" }
 argentum-ui = { path = "../argentum-ui" }
 argon2 = { version = "0.5", optional = true, features = ["std"] }
 form_urlencoded = "1.2"
+heck = "0.5"
 http = "1"
 jiff.workspace = true
 password-hash = { version = "0.5", optional = true, features = ["getrandom"] }
 subtle = "2"
+serde.workspace = true
 toasty.workspace = true
 toasty-core.workspace = true
 topcoat = { workspace = true, features = ["view", "router", "discover", "asset", "font", "runtime", "cookie", "multipart"] }
@@ -27,6 +29,7 @@ auth = ["dep:argon2", "dep:password-hash", "topcoat/session"]
 
 [dev-dependencies]
 http-body-util = "0.1"
+serde_json = "1"
 tokio.workspace = true
 
 [lints]
