@@ -258,7 +258,7 @@ Eager `Vec<T>` is for tiny relations only — eager cycles are a compile-time sc
 
 ### 6.5 Aggregates, schema & migrations
 
-Toasty has `count()` but no `GROUP BY / HAVING / SUM / DISTINCT` yet — grouping stays in-memory over the loaded page (`count` only, labelled page-local) and raw SQL is not used in table code. `Db::builder().models(toasty::models!(crate::*)).connect(url).await?; db.push_schema().await` for POC; prod uses `embed_migrations!()` + `history.toml` + `snapshots/*.toml` via `toasty-cli`.
+Toasty has `count()` but no `GROUP BY / HAVING / SUM / DISTINCT` yet — grouping stays in-memory over the loaded page (`count` only, labelled page-local) and raw SQL is not used in table code. The `sum` summarizer / `trait Aggregate` shim once spec'd are deliberately dropped (GH #107, ADR-0012): a page-local sum would misstate large tables; grouping delegating to real `GROUP BY` is the seam when Toasty ships it (#118). `Db::builder().models(toasty::models!(crate::*)).connect(url).await?; db.push_schema().await` for POC; prod uses `embed_migrations!()` + `history.toml` + `snapshots/*.toml` via `toasty-cli`.
 
 ---
 
