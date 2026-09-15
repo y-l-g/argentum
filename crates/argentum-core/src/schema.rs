@@ -17,15 +17,27 @@ use argentum_ui::{
 };
 use topcoat::{Result, context::Cx, view::*};
 
-#[allow(clippy::type_complexity)]
-type RelationshipLoader = std::sync::Arc<
-    dyn Fn(
-            &Cx,
-        ) -> std::pin::Pin<
-            Box<dyn std::future::Future<Output = Result<Vec<(String, String)>>> + Send>,
-        > + Send
-        + Sync,
+/// Why a relationship option load produced no options (GH #108).
+///
+/// Distinguishes a policy denial from a structural/transient failure so
+/// `validate_async` can say "not available" instead of "retry", and so the
+/// render path never re-labels a value the user may not view.
+#[derive(Debug, Clone)]
+pub(crate) enum OptionLoadError {
+    /// The related resource denies `can_view_any` (or has no tenant) for
+    /// this request.
+    Denied,
+    /// The driver failed, or the related table overflows the option cap.
+    LoadFailed,
+}
+
+/// The boxed future a relationship loader returns.
+type RelationshipLoadFuture = std::pin::Pin<
+    Box<dyn std::future::Future<Output = Result<Vec<(String, String)>, OptionLoadError>> + Send>,
 >;
+
+#[allow(clippy::type_complexity)]
+type RelationshipLoader = std::sync::Arc<dyn Fn(&Cx) -> RelationshipLoadFuture + Send + Sync>;
 
 /// Max options a relationship `Select` will load (GH #91): the loader carries
 /// `limit(Self + 1)` and fails past the cap instead of scanning a 10k-row
@@ -287,18 +299,59 @@ impl TextInput {
 /// tenancy isolation never rides on scope resolution. `R::query` stays the
 /// only data seam (tenancy preserved); value and label mapping stay in the
 /// caller so selects with different projections share the hit.
+///
+/// Policy is part of the load (GH #108): `can_view_any` (and the related
+/// resource's tenant gate) denies the whole load — fail closed, never an
+/// empty set that validates as "invalid"; loaded rows are filtered through
+/// `can_view` before any label is rendered.
+///
+/// The cap is checked on the **raw** bounded fetch, before `can_view`
+/// filtering (GH #91): counting filtered rows would let one hidden record
+/// defeat the cap and silently truncate a larger table, misreporting
+/// legitimate FKs as "invalid".
 #[topcoat::context::memoize(as_ref)]
-async fn related_records<R>(cx: &Cx, _tenant: Option<uuid::Uuid>) -> Result<Vec<R::Model>, String>
+async fn related_records<R>(
+    cx: &Cx,
+    _tenant: Option<uuid::Uuid>,
+) -> Result<Vec<R::Model>, OptionLoadError>
 where
     R: crate::resource::Resource + 'static,
     R::Model: Send + Sync + 'static,
 {
+    if !R::can_view_any(cx) {
+        return Err(OptionLoadError::Denied);
+    }
+    if R::requires_tenant() && crate::tenancy::tenant_id(cx).is_none() {
+        // The panel gates every handler through `enforce_tenant::<R>`;
+        // option loads must not be the one tenantless path into `R::query`.
+        return Err(OptionLoadError::Denied);
+    }
     let mut db = crate::db::db(cx);
-    R::query(cx)
+    let mut records = R::query(cx)
         .limit(MAX_RELATIONSHIP_OPTIONS + 1)
         .exec(&mut db)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| {
+            tracing::warn!(
+                resource = R::slug(),
+                error = %e,
+                "relationship option load failed"
+            );
+            OptionLoadError::LoadFailed
+        })?;
+    if records.len() > MAX_RELATIONSHIP_OPTIONS {
+        // Fail visibly (GH #91): validating against a silent truncation
+        // would reject legitimate FKs as "invalid" while rendering a
+        // misleading subset. Counted before policy filtering.
+        tracing::warn!(
+            resource = R::slug(),
+            max = MAX_RELATIONSHIP_OPTIONS,
+            "relationship option table overflows the cap"
+        );
+        return Err(OptionLoadError::LoadFailed);
+    }
+    records.retain(|record| R::can_view(cx, record));
+    Ok(records)
 }
 
 /// Select field bound to a lens (often a foreign key like `author_id`).
@@ -445,14 +498,28 @@ impl Select {
     /// (e.g. `record.author_id.to_string()`), or the stored value renders
     /// unselected.
     ///
+    /// Policy-checked (GH #108): the related resource must allow
+    /// `can_view_any` for the request and, when it declares
+    /// `requires_tenant`, have a resolved tenant; each loaded row is then
+    /// filtered through `can_view` before its label can render. A denial
+    /// fails the whole load closed: the select renders no options and not
+    /// the stored value, the field shows `{label} is not available` on GET,
+    /// and a submit that still carries a value fails with that message. A
+    /// required denied select cannot be submitted at all (the empty control
+    /// fails `required` validation first); on an optional select an
+    /// untouched denied value submits empty, so record fns that must
+    /// preserve an inaccessible FK should treat `""` as "leave unchanged"
+    /// (the framework does not substitute it).
+    ///
     /// Bounded and memoized (GH #91): the loader fetches at most one row
-    /// past `MAX_RELATIONSHIP_OPTIONS` and fails when the related table is
-    /// larger — a 10k-row reference table costs bounded work per submit and
-    /// surfaces `could not load options, retry` instead of silently
-    /// validating against a truncated list. Option records are memoized per
-    /// `(request, tenant)`, so any number of selects over one resource share
-    /// a single load. Suitable for small reference tables only; a
-    /// searchable/paginated dropdown is future work.
+    /// past `MAX_RELATIONSHIP_OPTIONS` (before `can_view` filtering) and
+    /// fails when the related table is larger — a 10k-row reference table
+    /// costs bounded work per submit and surfaces `could not load options,
+    /// retry` instead of silently validating against a truncated list.
+    /// Option records are memoized per `(request, tenant)`, so any number of
+    /// selects over one resource share a single load. Suitable for small
+    /// reference tables only; a searchable/paginated dropdown is future
+    /// work.
     pub fn relationship<R>(
         mut self,
         _query: fn(&Cx) -> toasty::stmt::Query<toasty::stmt::List<R::Model>>,
@@ -471,30 +538,19 @@ impl Select {
             let label = label.clone();
             let cx = cx.clone();
             Box::pin(async move {
-                let records = related_records::<R>(&cx, crate::tenancy::tenant_id(&cx))
-                    .await
-                    .map_err(|e| topcoat::Error::from(std::io::Error::other(e.clone())))?;
-                if records.len() > MAX_RELATIONSHIP_OPTIONS {
-                    // Fail visibly (GH #91): validating against a silent
-                    // truncation would reject legitimate FKs as "invalid"
-                    // while rendering a misleading subset.
-                    return Err(std::io::Error::other(format!(
-                        "too many options (max {MAX_RELATIONSHIP_OPTIONS})"
-                    ))
-                    .into());
-                }
+                let records = match related_records::<R>(&cx, crate::tenancy::tenant_id(&cx)).await
+                {
+                    Ok(records) => records,
+                    // `#[memoize(as_ref)]` hands back a borrow, so clone the
+                    // (small) error back into this future's owned result.
+                    Err(err) => return Err(err.clone()),
+                };
                 let mut opts = Vec::new();
                 for rec in records.iter() {
                     opts.push((value(rec).to_string(), label(rec)));
                 }
                 Ok(opts)
-            })
-                as std::pin::Pin<
-                    Box<
-                        dyn std::future::Future<Output = topcoat::Result<Vec<(String, String)>>>
-                            + Send,
-                    >,
-                >
+            }) as RelationshipLoadFuture
         }) as RelationshipLoader;
         self.relationship = Some(loader);
         self
@@ -517,7 +573,10 @@ impl Select {
     /// Async existence check: if relationship is configured and value non-empty, ensure it matches a loaded option.
     ///
     /// A loader failure surfaces as a form-level error (GH #91) instead of an
-    /// empty-options passthrough that would 500 at FK write time.
+    /// empty-options passthrough that would 500 at FK write time. A policy
+    /// denial (GH #108) is reported as "not available" — retrying cannot fix
+    /// a permission decision, and "invalid" would misattribute it to the
+    /// submitted value.
     pub async fn validate_async(&self, cx: &Cx, value: &str) -> Vec<String> {
         let mut errs = self.validate(value);
         if errs.is_empty() && !value.trim().is_empty() {
@@ -529,7 +588,10 @@ impl Select {
                             errs.push(format!("{} is invalid", self.label));
                         }
                     }
-                    Err(_) => {
+                    Err(OptionLoadError::Denied) => {
+                        errs.push(format!("{} is not available", self.label));
+                    }
+                    Err(OptionLoadError::LoadFailed) => {
                         errs.push(format!("{} could not load options, retry", self.label));
                     }
                 }
@@ -543,7 +605,7 @@ impl Select {
         errs
     }
 
-    async fn load_options(&self, cx: &Cx) -> topcoat::Result<Vec<(String, String)>> {
+    async fn load_options(&self, cx: &Cx) -> Result<Vec<(String, String)>, OptionLoadError> {
         if let Some(loader) = &self.relationship {
             loader(cx).await
         } else {
@@ -561,19 +623,31 @@ impl Select {
         let name = self.name.clone();
         let required = self.required;
         let searchable = self.searchable;
-        let has_error = !errors.is_empty();
-        let error_text = errors.first().cloned().unwrap_or_default();
         let current = value.unwrap_or("").trim().to_string();
         let loaded = self.load_options(cx).await;
-        let load_failed = loaded.is_err();
+        // A policy denial (GH #108) deliberately does not re-render the
+        // stored value: the related rows are not viewable, so neither is
+        // their label — the submit fails closed with "not available". The
+        // denial is also surfaced on GET (when the caller carries no error
+        // yet): the select has no options to pick, so the empty control must
+        // explain itself instead of looking like a requireable empty field.
+        // A failed/over-cap load keeps the stored FK selectable (GH #91): an
+        // edit must not blank the relation into a required-error, and the
+        // submit surfaces `could not load options, retry`.
+        let denied = matches!(&loaded, Err(OptionLoadError::Denied));
+        let keep_current_value = matches!(&loaded, Err(OptionLoadError::LoadFailed));
         let mut options = loaded.unwrap_or_default();
-        if load_failed && !current.is_empty() && !options.iter().any(|(v, _)| v == &current) {
-            // Keep the stored FK selectable when the loader fails or the
-            // table overflows the cap (GH #91): an edit must not blank the
-            // relation into a required-error, and the submit surfaces
-            // `could not load options, retry`.
+        if keep_current_value && !current.is_empty() && !options.iter().any(|(v, _)| v == &current)
+        {
             options.push((current.clone(), current.clone()));
         }
+        let incoming_error = errors.first().cloned().unwrap_or_default();
+        let error_text = if incoming_error.is_empty() && denied {
+            format!("{} is not available", self.label)
+        } else {
+            incoming_error
+        };
+        let has_error = !errors.is_empty() || denied;
         // Build option views.
         let mut option_views: Vec<BoxView<'a>> = Vec::new();
         // Placeholder empty option
@@ -2818,6 +2892,12 @@ mod tests {
         struct RefAuthorResource;
         impl Resource for RefAuthorResource {
             type Model = RefAuthor;
+            fn can_view_any(_cx: &Cx) -> bool {
+                true
+            }
+            fn can_view(_cx: &Cx, _record: &RefAuthor) -> bool {
+                true
+            }
             fn table(cx: &Cx) -> crate::resource::Table<RefAuthor> {
                 crate::resource::Table::r#for(cx)
                     .id(|a: &RefAuthor| a.id.to_string())
@@ -2863,6 +2943,20 @@ mod tests {
             errs.iter().any(|e| e.contains("could not load options")),
             "overflow must surface retry error, got {errs:?}"
         );
+        // An overflowed load keeps the stored FK selectable (GH #91): a
+        // failed load must not blank the relation into a required-error.
+        let html = select
+            .render_with(&cx, Some("stored-fk"), &[])
+            .await
+            .unwrap()
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
+        assert!(
+            html.contains("value=\"stored-fk\""),
+            "over-cap render must keep the stored value: {html}"
+        );
     }
 
     #[tokio::test]
@@ -2882,6 +2976,12 @@ mod tests {
         struct RefAuthorResource;
         impl Resource for RefAuthorResource {
             type Model = RefAuthor;
+            fn can_view_any(_cx: &Cx) -> bool {
+                true
+            }
+            fn can_view(_cx: &Cx, _record: &RefAuthor) -> bool {
+                true
+            }
             fn table(cx: &Cx) -> crate::resource::Table<RefAuthor> {
                 crate::resource::Table::r#for(cx)
                     // Deliberately non-canonical: display key != PK.
@@ -2933,6 +3033,301 @@ mod tests {
         assert!(
             !html.contains("display:Ada"),
             "display key leaked into option values: {html}"
+        );
+    }
+
+    /// Related-resource fixtures shared by the option-policy tests (GH #108).
+    #[derive(Debug, toasty::Model)]
+    struct PolicyAuthor {
+        #[key]
+        #[auto]
+        id: uuid::Uuid,
+        name: String,
+    }
+
+    fn policy_author_table(cx: &Cx) -> crate::resource::Table<PolicyAuthor> {
+        crate::resource::Table::r#for(cx)
+            .id(|a: &PolicyAuthor| a.id.to_string())
+            .columns(crate::resource::TextColumn::r#for(
+                PolicyAuthor::fields().name(),
+                |a: &PolicyAuthor| a.name.clone(),
+            ))
+    }
+
+    struct DenyAllAuthors;
+    impl crate::resource::Resource for DenyAllAuthors {
+        type Model = PolicyAuthor;
+        fn can_view_any(_cx: &Cx) -> bool {
+            false
+        }
+        fn table(cx: &Cx) -> crate::resource::Table<PolicyAuthor> {
+            policy_author_table(cx)
+        }
+    }
+
+    struct HideOneAuthor;
+    impl crate::resource::Resource for HideOneAuthor {
+        type Model = PolicyAuthor;
+        fn can_view_any(_cx: &Cx) -> bool {
+            true
+        }
+        fn can_view(_cx: &Cx, record: &PolicyAuthor) -> bool {
+            record.name != "Hidden"
+        }
+        fn table(cx: &Cx) -> crate::resource::Table<PolicyAuthor> {
+            policy_author_table(cx)
+        }
+    }
+
+    struct TenantScopedAuthors;
+    impl crate::resource::Resource for TenantScopedAuthors {
+        type Model = PolicyAuthor;
+        fn can_view_any(_cx: &Cx) -> bool {
+            true
+        }
+        fn can_view(_cx: &Cx, _record: &PolicyAuthor) -> bool {
+            true
+        }
+        fn requires_tenant() -> bool {
+            true
+        }
+        fn table(cx: &Cx) -> crate::resource::Table<PolicyAuthor> {
+            policy_author_table(cx)
+        }
+    }
+
+    #[tokio::test]
+    async fn relationship_load_fails_closed_when_can_view_any_denies() {
+        // GH #108: a related resource that denies `can_view_any` must not
+        // leak labels or ids through a dependent form, and the error must be
+        // "not available" — retrying cannot fix a permission decision.
+        use crate::resource::Resource;
+
+        let mut db = toasty::Db::builder()
+            .models(toasty::models!(PolicyAuthor))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        let row = toasty::create!(PolicyAuthor {
+            name: "Ada".to_string(),
+        })
+        .exec(&mut db)
+        .await
+        .unwrap();
+        let pk = row.id.to_string();
+        let cx = CxTestBuilder::new().app_context(db).build();
+        let select = Select::r#for(PolicyAuthor::fields().id()).relationship::<DenyAllAuthors>(
+            DenyAllAuthors::query,
+            |a: &PolicyAuthor| a.id,
+            |a: &PolicyAuthor| a.name.clone(),
+        );
+        assert_eq!(
+            select.validate_async(&cx, &pk).await,
+            vec!["Id is not available".to_string()]
+        );
+        let html = select
+            .render_with(&cx, Some(&pk), &[])
+            .await
+            .unwrap()
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
+        assert!(
+            !html.contains("Ada"),
+            "denied labels must not render: {html}"
+        );
+        assert!(
+            !html.contains(&pk),
+            "denied values must not render either: {html}"
+        );
+        // The empty select must explain itself on GET (no incoming error):
+        // otherwise the user sees an unrequireable field with no reason.
+        assert!(
+            html.contains("Id is not available"),
+            "denied render must show the form-level error: {html}"
+        );
+    }
+
+    #[tokio::test]
+    async fn relationship_load_denies_tenantless_requests_for_tenant_scoped_targets() {
+        // GH #108: option loads are another path into `R::query`; a
+        // tenant-scoped related resource must not serve unscoped options
+        // just because the parent form is reachable without a tenant.
+        use crate::resource::Resource;
+
+        let mut db = toasty::Db::builder()
+            .models(toasty::models!(PolicyAuthor))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        let row = toasty::create!(PolicyAuthor {
+            name: "Ada".to_string(),
+        })
+        .exec(&mut db)
+        .await
+        .unwrap();
+        let pk = row.id.to_string();
+        let cx = CxTestBuilder::new().app_context(db).build();
+        let select = Select::r#for(PolicyAuthor::fields().id())
+            .relationship::<TenantScopedAuthors>(
+                TenantScopedAuthors::query,
+                |a: &PolicyAuthor| a.id,
+                |a: &PolicyAuthor| a.name.clone(),
+            );
+        assert_eq!(
+            select.validate_async(&cx, &pk).await,
+            vec!["Id is not available".to_string()]
+        );
+        // A resolved tenant loads normally (a separate memoize key too).
+        let tenanted = cx.with(crate::tenancy::Tenant(uuid::Uuid::new_v4()));
+        assert!(select.validate_async(&tenanted, &pk).await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn relationship_load_filters_rows_by_can_view() {
+        // GH #108: `can_view`-denied rows are absent from options and
+        // validation — a value outside the viewable set is invalid, not
+        // merely unlisted.
+        use crate::resource::Resource;
+
+        let mut db = toasty::Db::builder()
+            .models(toasty::models!(PolicyAuthor))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        let visible = toasty::create!(PolicyAuthor {
+            name: "Visible".to_string(),
+        })
+        .exec(&mut db)
+        .await
+        .unwrap();
+        let hidden = toasty::create!(PolicyAuthor {
+            name: "Hidden".to_string(),
+        })
+        .exec(&mut db)
+        .await
+        .unwrap();
+        let cx = CxTestBuilder::new().app_context(db).build();
+        let select = Select::r#for(PolicyAuthor::fields().id()).relationship::<HideOneAuthor>(
+            HideOneAuthor::query,
+            |a: &PolicyAuthor| a.id,
+            |a: &PolicyAuthor| a.name.clone(),
+        );
+        assert!(
+            select
+                .validate_async(&cx, &visible.id.to_string())
+                .await
+                .is_empty()
+        );
+        assert_eq!(
+            select.validate_async(&cx, &hidden.id.to_string()).await,
+            vec!["Id is invalid".to_string()]
+        );
+        let html = select
+            .render_with(&cx, Some(&visible.id.to_string()), &[])
+            .await
+            .unwrap()
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
+        assert!(html.contains("Visible"), "viewable row must render: {html}");
+        assert!(
+            !html.contains("Hidden"),
+            "can_view-denied row must not render: {html}"
+        );
+    }
+
+    #[tokio::test]
+    async fn relationship_cap_counts_raw_rows_not_viewable_ones() {
+        // GH #91 + #108: the cap is checked on the raw bounded fetch. If it
+        // counted post-`can_view` rows, a single hidden record would defeat
+        // it and silently truncate a larger table, misreporting viewable FKs
+        // as "invalid" — the exact failure the cap exists to prevent.
+        use crate::resource::Resource;
+
+        let mut db = toasty::Db::builder()
+            .models(toasty::models!(PolicyAuthor))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        let mut hidden_pk = String::new();
+        // One past the cap, with one hidden row: the raw fetch overflows
+        // even though the filtered count would fit.
+        for i in 0..=MAX_RELATIONSHIP_OPTIONS {
+            let name = if i == 0 {
+                "Hidden".to_string()
+            } else {
+                format!("author-{i}")
+            };
+            let row = toasty::create!(PolicyAuthor { name })
+                .exec(&mut db)
+                .await
+                .unwrap();
+            if i == 0 {
+                hidden_pk = row.id.to_string();
+            }
+        }
+        let cx = CxTestBuilder::new().app_context(db).build();
+        let select = Select::r#for(PolicyAuthor::fields().id()).relationship::<HideOneAuthor>(
+            HideOneAuthor::query,
+            |a: &PolicyAuthor| a.id,
+            |a: &PolicyAuthor| a.name.clone(),
+        );
+        // The raw fetch sees MAX+1 rows: overflow fails visibly instead of
+        // rendering the 200 viewable rows as if they were the whole table.
+        assert_eq!(
+            select.validate_async(&cx, &hidden_pk).await,
+            vec!["Id could not load options, retry".to_string()]
+        );
+    }
+
+    #[tokio::test]
+    async fn relationship_can_view_filtering_out_every_row_yields_invalid() {
+        // GH #108: `can_view` filtering happens before labels render, so a
+        // row the user may not view is absent from options and does not
+        // validate — and the stored value is not re-rendered on the form.
+        use crate::resource::Resource;
+
+        let mut db = toasty::Db::builder()
+            .models(toasty::models!(PolicyAuthor))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        let hidden = toasty::create!(PolicyAuthor {
+            name: "Hidden".to_string(),
+        })
+        .exec(&mut db)
+        .await
+        .unwrap();
+        let pk = hidden.id.to_string();
+        let cx = CxTestBuilder::new().app_context(db).build();
+        let select = Select::r#for(PolicyAuthor::fields().id()).relationship::<HideOneAuthor>(
+            HideOneAuthor::query,
+            |a: &PolicyAuthor| a.id,
+            |a: &PolicyAuthor| a.name.clone(),
+        );
+        assert_eq!(
+            select.validate_async(&cx, &pk).await,
+            vec!["Id is invalid".to_string()]
+        );
+        let html = select
+            .render_with(&cx, Some(&pk), &[])
+            .await
+            .unwrap()
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
+        assert!(
+            !html.contains("Hidden") && !html.contains(&pk),
+            "filtered-out stored value must not render: {html}"
         );
     }
 
@@ -2993,6 +3388,12 @@ mod tests {
         struct CountingResource;
         impl Resource for CountingResource {
             type Model = Ref;
+            fn can_view_any(_cx: &Cx) -> bool {
+                true
+            }
+            fn can_view(_cx: &Cx, _record: &Ref) -> bool {
+                true
+            }
             fn query(_cx: &Cx) -> toasty::stmt::Query<toasty::stmt::List<Ref>> {
                 OPTION_LOADS.fetch_add(1, Ordering::SeqCst);
                 toasty::stmt::Query::<toasty::stmt::List<Ref>>::all()

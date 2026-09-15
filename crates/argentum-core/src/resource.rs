@@ -2978,6 +2978,9 @@ pub trait Resource: Sized + Send + Sync + 'static {
     type Model: toasty::schema::Model + Send + Sync + 'static;
 
     /// Whether the current user may view the list page.
+    ///
+    /// Also gates relationship option loads (GH #108): a related resource
+    /// that denies this cannot offer its records as options at all.
     fn can_view_any(_cx: &Cx) -> bool {
         false
     }
@@ -2985,13 +2988,17 @@ pub trait Resource: Sized + Send + Sync + 'static {
     /// Whether the current user may view the given record.
     ///
     /// Checked on the edit page (GET), the edit POST (which requires both
-    /// `can_view` and `can_update`, GH #86), and per row in CSV export. The
-    /// list page deliberately checks only `can_view_any` (GH #86): `can_view`
-    /// is an in-memory Rust predicate that cannot run in SQL, and filtering
-    /// rows after cursor pagination would mislabel pages (holes, wrong
-    /// Next/Prev). Row-level visibility that must hold on the list belongs
-    /// in [`Self::query`] (the tenancy seam, ADR-0002), which every loader —
-    /// list, edit, delete, bulk, export — already funnels through.
+    /// `can_view` and `can_update`, GH #86), per row in CSV export, and on
+    /// each record behind a relationship `Select`'s options (GH #108). Note
+    /// both hooks default-deny: a resource used as a relationship target
+    /// must allow `can_view_any` **and** `can_view` (overriding one does not
+    /// imply the other). The list page deliberately checks only
+    /// `can_view_any` (GH #86): `can_view` is an in-memory Rust predicate
+    /// that cannot run in SQL, and filtering rows after cursor pagination
+    /// would mislabel pages (holes, wrong Next/Prev). Row-level visibility
+    /// that must hold on the list belongs in [`Self::query`] (the tenancy
+    /// seam, ADR-0002), which every loader — list, edit, delete, bulk,
+    /// export — already funnels through.
     fn can_view(_cx: &Cx, _record: &Self::Model) -> bool {
         false
     }

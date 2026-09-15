@@ -57,7 +57,7 @@ The base filtered query for a Resource. Returned by Resource::query(cx) and used
 _Avoid_: Scope, EloquentQuery, Builder (as domain term)
 
 ### Policy
-The per-Resource authorization rules (viewAny, view, create, update, delete), implemented as `Resource::can_view_any`/`can_view`/`can_create`/`can_update`/`can_delete` — the one authorization vocabulary. Default-deny; checked in both page and POST handlers.
+The per-Resource authorization rules (viewAny, view, create, update, delete), implemented as `Resource::can_view_any`/`can_view`/`can_create`/`can_update`/`can_delete` — the one authorization vocabulary. Default-deny; checked in both page and POST handlers, and in relationship option loads (`can_view_any` fails the load closed, `can_view` filters rows before labels render, GH #108).
 
 _Avoid_: Guard, Permission, Gate, Ability, Policy trait (the removed parallel vocabulary, GH #109)
 
