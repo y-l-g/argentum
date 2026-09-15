@@ -1437,6 +1437,7 @@ impl<M> Table<M> {
                 table(
                     (head)
                     table_body(
+                        #[key(key.as_str())]
                         for (key, cells) in &row_data {
                             let key_for_row = key.clone();
                             let key_for_action = key.clone();
@@ -1444,7 +1445,6 @@ impl<M> Table<M> {
                             let csrf_for_row = csrf_token.clone();
                             let row_dom_id = row_dom_id(&key_for_row);
                             table_row(
-                                key: key_for_row,
                                 attrs: attributes! { id=(row_dom_id) },
                                 if with_bulk {
                                     table_cell(
@@ -1539,9 +1539,9 @@ impl<M> Table<M> {
                 table(
                     (head)
                     table_body(
+                        #[key(i)]
                         for i in 0..3 {
                             table_row(
-                                key: i,
                                 if with_bulk {
                                     table_cell(
                                         <div
@@ -2146,7 +2146,6 @@ impl<M> Table<M> {
             cx =>
             table_body(
                 table_row(
-                    key: "empty",
                     table_cell(
                         attrs: attributes! { colspan=(colspan) class="px-6 py-16 text-center" },
                         <div class="flex flex-col items-center gap-4">
@@ -2695,7 +2694,7 @@ fn decode_filter_component(s: &str) -> String {
 }
 
 /// Percent-encode a query parameter value (`unreserved` RFC 3986 set passes).
-pub(crate) fn encode_query_value(value: &str) -> String {
+fn encode_query_value(value: &str) -> String {
     let mut out = String::with_capacity(value.len());
     for b in value.bytes() {
         match b {
