@@ -896,6 +896,9 @@ impl<M> Table<M> {
                 Some(_) => {}
             }
         }
+        for segment in &state.malformed_filters {
+            out.push((segment.clone(), "malformed: expected key:value".to_string()));
+        }
         out.sort();
         out
     }
@@ -1287,7 +1290,15 @@ impl<M> Table<M> {
                     .map(|(pair, reason)| format!("{pair} ({reason})"))
                     .collect::<Vec<_>>()
                     .join(", ");
-                let text = format!("Ignored filter(s): {detail} — showing unfiltered results.");
+                // No false tail: when other filters still apply, "unfiltered"
+                // would be a lie (GH #148 — a malformed segment can ride
+                // alongside valid ones).
+                let consequence = if state.filters.is_empty() {
+                    "showing unfiltered results"
+                } else {
+                    "other filter(s) still apply"
+                };
+                let text = format!("Ignored filter(s): {detail} — {consequence}.");
                 let dir = state
                     .sort
                     .as_ref()
@@ -2420,7 +2431,8 @@ pub struct Sort {
 /// real page needs two tables.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TableState {
-    /// `?q=` — trimmed; `None` when absent or blank.
+    /// `?q=` — trimmed and clamped to [`MAX_QUERY_TERM`] chars; `None` when
+    /// absent or blank.
     pub search: Option<String>,
     /// `?sort=` + `?dir=` — `None` when absent or blank.
     pub sort: Option<Sort>,
@@ -2430,8 +2442,24 @@ pub struct TableState {
     pub before: Option<String>,
     /// `?filters=` — `key:value,key2:value2` (comma-separated, colon-delimited).
     pub filters: HashMap<String, String>,
+    /// `?filters=` segments that carry no `key:value` pair (GH #148): kept so
+    /// [`Table::unapplied_filters`] can flag them (list banner, export 400)
+    /// instead of silently dropping them, and so [`Self::filters_param`]
+    /// round-trips them — a link built from this state keeps the warning
+    /// until a valid `?filters=` replaces it.
+    pub malformed_filters: Vec<String>,
     /// `?group_by=` — field name to group by (in-memory, `count` summarizer).
     pub group_by: Option<String>,
+}
+
+/// Longest search term accepted (`?q=` and the shard's `q`, GH #148): bounded
+/// echoed state, matching the live-search shard's clamp.
+pub(crate) const MAX_QUERY_TERM: usize = 128;
+
+/// Clamp a search term to [`MAX_QUERY_TERM`] chars (chars, not bytes, so a
+/// multibyte term truncates on boundaries).
+pub(crate) fn clamp_query_term(term: &str) -> String {
+    term.trim().chars().take(MAX_QUERY_TERM).collect()
 }
 
 impl TableState {
@@ -2455,15 +2483,17 @@ impl TableState {
                 .filter(|t| !t.is_empty())
                 .map(str::to_string)
         };
+        let (filters, malformed_filters) = parse_filters_param(get("filters").unwrap_or_default());
         Self {
-            search: non_empty(get("q")),
+            search: get("q").map(clamp_query_term).filter(|t| !t.is_empty()),
             sort: non_empty(get("sort")).map(|column| Sort {
                 column,
                 descending: get("dir") == Some("desc"),
             }),
             after: non_empty(get("after")),
             before: non_empty(get("before")),
-            filters: get("filters").map(parse_filters_param).unwrap_or_default(),
+            filters,
+            malformed_filters,
             group_by: non_empty(get("group_by")),
         }
     }
@@ -2473,23 +2503,27 @@ impl TableState {
     /// Keys/values escape `%`, `:`, `,` (`%25`/`%3A`/`%2C`, GH #93) so a
     /// free-text value like `a,b` round-trips instead of splitting.
     pub fn filters_param(&self) -> Option<String> {
-        if self.filters.is_empty() {
-            None
-        } else {
-            let mut pairs: Vec<String> = self
-                .filters
-                .iter()
-                .map(|(k, v)| {
-                    format!(
-                        "{}:{}",
-                        encode_filter_component(k),
-                        encode_filter_component(v)
-                    )
-                })
-                .collect();
-            pairs.sort();
-            Some(pairs.join(","))
+        if self.filters.is_empty() && self.malformed_filters.is_empty() {
+            return None;
         }
+        let mut pairs: Vec<String> = self
+            .filters
+            .iter()
+            .map(|(k, v)| {
+                format!(
+                    "{}:{}",
+                    encode_filter_component(k),
+                    encode_filter_component(v)
+                )
+            })
+            .collect();
+        pairs.sort();
+        // Malformed segments ride along verbatim (GH #148): they have no
+        // colon to protect and re-enter `parse_filters_param` as malformed on
+        // the next request, keeping the banner (and export's fail-closed 400)
+        // alive across pagination.
+        pairs.extend(self.malformed_filters.iter().cloned());
+        Some(pairs.join(","))
     }
 
     /// List URL preserving the full table state for the streamed retry link
@@ -2579,12 +2613,14 @@ impl TableState {
                 Some(t.to_string())
             }
         };
+        let (filters, malformed_filters) = parse_filters_param(filters_param);
         Self {
             search,
             sort,
             after: None,
             before: None,
-            filters: parse_filters_param(filters_param),
+            filters,
+            malformed_filters,
             group_by: non_empty(group_by),
         }
     }
@@ -2611,8 +2647,15 @@ fn first_wins_query_params(query: &str) -> HashMap<String, String> {
 /// `,`/`:`/`%` inside keys/values are `%`-escaped by [`TableState::filters_param`]
 /// (GH #93); decoding restores them. Duplicate keys keep the first occurrence
 /// instead of silent last-wins.
-fn parse_filters_param(raw: &str) -> HashMap<String, String> {
+///
+/// Segments that carry no `key:value` pair — colon-less (`foobar`), or an
+/// empty key/value after decoding — are returned separately (GH #148): they
+/// are flagged by [`Table::unapplied_filters`] (list banner, export 400)
+/// instead of being silently dropped, and round-trip through
+/// [`TableState::filters_param`] verbatim.
+fn parse_filters_param(raw: &str) -> (HashMap<String, String>, Vec<String>) {
     let mut map = HashMap::new();
+    let mut malformed = Vec::new();
     for part in raw.split(',') {
         let part = part.trim();
         if part.is_empty() {
@@ -2620,15 +2663,19 @@ fn parse_filters_param(raw: &str) -> HashMap<String, String> {
         }
         // Split on the first *unescaped* colon: `%3A` stays inside the key/value,
         // so a plain `split_once(':')` is correct on the encoded form.
-        if let Some((k_enc, v_enc)) = part.split_once(':') {
-            let k = decode_filter_component(k_enc.trim());
-            let v = decode_filter_component(v_enc.trim());
-            if !k.is_empty() && !v.is_empty() && !map.contains_key(&k) {
-                map.insert(k, v);
-            }
+        let Some((k_enc, v_enc)) = part.split_once(':') else {
+            malformed.push(part.to_string());
+            continue;
+        };
+        let k = decode_filter_component(k_enc.trim());
+        let v = decode_filter_component(v_enc.trim());
+        if k.is_empty() || v.is_empty() {
+            malformed.push(part.to_string());
+        } else {
+            map.entry(k).or_insert(v);
         }
     }
-    map
+    (map, malformed)
 }
 
 /// Escape `%`, `:`, `,` inside a filter key/value (GH #93).
@@ -2648,7 +2695,7 @@ fn decode_filter_component(s: &str) -> String {
 }
 
 /// Percent-encode a query parameter value (`unreserved` RFC 3986 set passes).
-fn encode_query_value(value: &str) -> String {
+pub(crate) fn encode_query_value(value: &str) -> String {
     let mut out = String::with_capacity(value.len());
     for b in value.bytes() {
         match b {
@@ -2891,10 +2938,11 @@ impl NavigationItem {
     ///
     /// If this item was created via `from_href`, delegates to `Href::is_current`
     /// (sorted decoded query + percent-encoding). Otherwise mirrors that
-    /// semantics for string URLs: exact path match, or prefix match with slash
-    /// boundary for non-root items (so `/admin/showcase` does not false-positive
-    /// on `/admin/showcases`), ignoring query. Root `"/admin"` is exact-only
-    /// so the Users list is not active on every sub-page (Filament parity).
+    /// semantics for string URLs: exact path match, or prefix match on a slash
+    /// boundary — uniform for every item, resources and custom links alike
+    /// (GH #39/#148: since resources mount at `{prefix}/{slug}`, no generated
+    /// item points at the bare panel prefix, so the old root-exact special
+    /// case is gone and the doc no longer promises one).
     pub fn is_current(&self, cx: &Cx) -> bool {
         if let Some(check) = &self.href_check {
             return check(cx);
@@ -4503,15 +4551,55 @@ mod tests {
         };
         let param = state.filters_param().expect("must serialize");
         assert!(param.contains("%2C") && param.contains("%3A") && param.contains("%25"));
-        let back = parse_filters_param(&param);
+        let (back, malformed) = parse_filters_param(&param);
+        assert!(
+            malformed.is_empty(),
+            "round-trip must not invent malformed segments, got {malformed:?}"
+        );
         assert_eq!(back.get("q").map(String::as_str), Some("a,b"));
         assert_eq!(back.get("tag").map(String::as_str), Some("x:y%z"));
         // Duplicate keys keep the first, never silent last-wins.
-        let dup = parse_filters_param("k:a,k:b");
+        let (dup, dup_malformed) = parse_filters_param("k:a,k:b");
         assert_eq!(dup.get("k").map(String::as_str), Some("a"));
+        assert!(dup_malformed.is_empty());
         // Legacy plain values still parse.
-        let legacy = parse_filters_param("status:published, featured:true");
+        let (legacy, legacy_malformed) = parse_filters_param("status:published, featured:true");
         assert_eq!(legacy.get("status").map(String::as_str), Some("published"));
+        assert!(legacy_malformed.is_empty());
+        // Blank segments stay silent (the boundary between "skipped" and
+        // "malformed"); space-padded keys still parse.
+        let (blank, blank_bad) = parse_filters_param(",,status:draft");
+        assert!(
+            blank_bad.is_empty(),
+            "blank segments are skipped, got {blank_bad:?}"
+        );
+        assert_eq!(blank.get("status").map(String::as_str), Some("draft"));
+        // Colon-less and empty-value segments are malformed, not dropped (GH #148).
+        let (ok, bad) = parse_filters_param("foobar,:val,key:,status:published");
+        assert_eq!(ok.get("status").map(String::as_str), Some("published"));
+        assert_eq!(
+            bad,
+            ["foobar".to_string(), ":val".to_string(), "key:".to_string()]
+        );
+        // Round-trip keeps them flagged: filters_param re-emits them verbatim
+        // (last, after the sorted pairs), so the next parse flags them again.
+        let state = TableState {
+            filters: ok,
+            malformed_filters: bad.clone(),
+            ..TableState::default()
+        };
+        let param = state.filters_param().expect("must serialize");
+        let (again_ok, again_bad) = parse_filters_param(&param);
+        assert_eq!(again_bad, bad, "malformed segments must round-trip");
+        assert_eq!(
+            again_ok.get("status").map(String::as_str),
+            Some("published")
+        );
+        // Percent-escape round-trips per component (case-insensitive decode).
+        for raw in ["a,b", "x:y%z", "100%", "a:b:c", "%3A%2C%25"] {
+            let enc = encode_filter_component(raw);
+            assert_eq!(decode_filter_component(&enc), raw, "round-trip {raw:?}");
+        }
     }
 
     #[test]

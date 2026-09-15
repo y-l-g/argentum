@@ -79,7 +79,7 @@ impl Notification {
         format!("{}:{}", self.status.as_str(), escaped)
     }
 
-    fn decode(s: &str) -> Option<Self> {
+    pub(crate) fn decode(s: &str) -> Option<Self> {
         let (status_str, title_enc) = s.split_once(':')?;
         let status = NotificationStatus::from_str(status_str);
         let title = title_enc

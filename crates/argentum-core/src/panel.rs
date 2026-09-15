@@ -28,7 +28,7 @@ use topcoat::{
 
 use crate::db::db;
 use crate::notification::{Notification, set_notification, take_notification};
-use crate::resource::{NavigationItem, Resource, Table, TablePage, TableState};
+use crate::resource::{NavigationItem, Resource, Table, TablePage, TableState, encode_query_value};
 use topcoat::router::Path;
 use topcoat::runtime::RouterBuilderRuntimeExt;
 
@@ -939,7 +939,10 @@ pub(crate) async fn table_search(
     rest: String,
 ) -> Result<impl View> {
     let entry = search_entry(cx, &path)?;
-    let q: String = q.trim().chars().take(128).collect();
+    // One shared bound (GH #148): the GET `?q=` path and this shard clamp
+    // through the same helper, so cursor continuity (`q == qi`) compares two
+    // identically-clamped terms.
+    let q: String = crate::resource::clamp_query_term(&q);
     // Snapshots arrive as one encoded bundle (see render_live_invocation).
     let (q_initial, filters, sort, dir, group_by) = crate::resource::decode_live_rest(&rest);
     let mut state = TableState::from_live_args(&q, &filters, &sort, &dir, &group_by);
@@ -947,7 +950,7 @@ pub(crate) async fn table_search(
     // page's query, so the invocation output must match the current page —
     // keep its cursors. The first keystroke diverges and starts a fresh
     // result set instead of paging a stale window into a new query.
-    let qi: String = q_initial.trim().chars().take(128).collect();
+    let qi: String = crate::resource::clamp_query_term(&q_initial);
     if q == qi {
         if !after.trim().is_empty() {
             state.after = Some(after.trim().to_string());
@@ -1512,10 +1515,43 @@ fn notification_from_query(cx: &Cx) -> Option<Notification> {
         if k == "notification" {
             // `form_urlencoded` decodes `+` as space and assembles multi-byte
             // UTF-8 (same contract as `parse_form_values`, GH #75 item 6).
-            return Some(Notification::success(v.into_owned()));
+            let v = v.into_owned();
+            if v.len() > MAX_NOTIFICATION_QUERY {
+                return None;
+            }
+            // The value carries its status (`success:Title`, the cookie
+            // encoding, GH #148) so a lost-cookie error toast does not render
+            // green. Values without a known-status prefix — bare legacy
+            // links (`Created`) and third-party oddities — stay success with
+            // the whole value as the title. Empty titles render no toast.
+            let notification = match Notification::decode(&v) {
+                Some(n) if !n.title.is_empty() => n,
+                _ => {
+                    if v.is_empty() {
+                        return None;
+                    }
+                    Notification::success(v)
+                }
+            };
+            return Some(notification);
         }
     }
     None
+}
+
+/// Longest reflected `?notification=` value in bytes (GH #148): the query
+/// fallback is attacker-reflectable text in the shell (escaped, so spoof not
+/// XSS) — the cap bounds the toast a crafted link can render; a multibyte
+/// title is capped at fewer visible chars (conservative). The shipped
+/// mutations write a few bytes.
+const MAX_NOTIFICATION_QUERY: usize = 256;
+
+/// The `?notification=` value for a mutation redirect (GH #148): the cookie
+/// wire format (`status:title`, percent-encoded) so a toast whose cookie
+/// could not flush on the `Err` redirect (upstream topcoat#126) survives the
+/// query with its status, not hardcoded green.
+fn notification_query_param(notification: &Notification) -> String {
+    encode_query_value(&notification.encode())
 }
 
 /// Shared create/edit page shell (GH #73 multipart enctype, CSRF hidden
@@ -1592,7 +1628,7 @@ fn resource_create<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
 /// Reject POST keys no declared Schema input owns (GH #89 mass-assignment
 /// allow-list). `csrf_token` is a handler key, not a field, so it is filtered
 /// before the check, as are `clear_<field>` flags for declared `FileUpload`
-/// fields (GH #90 explicit-clear convention); absent keys are fine
+/// fields (GH #90 explicit-clear convention — `truthy`, GH #148); absent keys are fine
 /// (present-keys-only updates), unknown keys are a 400 — silently ignoring
 /// `role`/`tenant_id` smuggling is what the old code did, and a generic
 /// record fn iterating `values` would promote them to client-controlled
@@ -1601,17 +1637,11 @@ fn reject_unknown_form_keys(
     schema: &crate::schema::Schema,
     values: &HashMap<String, String>,
 ) -> Result<(), topcoat::Error> {
-    let uploads = schema.file_uploads();
-    let filtered: HashMap<String, String> = values
-        .iter()
-        .filter(|(k, _)| {
-            k.as_str() != crate::csrf::FIELD_NAME
-                && !(k
-                    .strip_prefix("clear_")
-                    .is_some_and(|f| uploads.contains_key(f)))
-        })
-        .map(|(k, v)| (k.clone(), v.clone()))
-        .collect();
+    // One transport-key vocabulary (GH #148): the same `strip_transport_keys`
+    // the record fns benefit from defines which keys the framework owns, so
+    // the allow-list and the strip cannot drift apart.
+    let mut filtered = values.clone();
+    strip_transport_keys(schema, &mut filtered);
     let unknown = schema.unknown_keys(&filtered);
     if unknown.is_empty() {
         Ok(())
@@ -1622,6 +1652,38 @@ fn reject_unknown_form_keys(
         ))
         .into())
     }
+}
+
+/// The one boolean-vocabulary check for framework form flags (GH #148):
+/// `confirm=1|true`, `clear_<field>=1|true`. `yes` used to be a delete-only
+/// extra; one vocabulary instead of two per-handler sets.
+fn truthy(v: &str) -> bool {
+    v == "1" || v == "true"
+}
+
+/// Strip framework transport keys from the submitted values before any
+/// record fn sees them (GH #148): `csrf_token` and the `clear_<field>`
+/// flags are handler keys, not writable fields — a generic `Resource` impl
+/// iterating `values` (the exact threat model in the `unknown_keys` docs)
+/// must not receive them as writes. The framework strips once here, not
+/// per-app convention.
+fn strip_transport_keys(schema: &crate::schema::Schema, values: &mut HashMap<String, String>) {
+    let declared: std::collections::HashSet<String> = schema.field_names().into_iter().collect();
+    // A schema field literally named `csrf_token` (or `clear_<upload>`) is a
+    // misconfiguration that would silently swallow its own value here — the
+    // declared-name check keeps such a field's value flowing (the collision
+    // is a build-time bug, not a transport key).
+    values.retain(|k, _| {
+        if k == crate::csrf::FIELD_NAME {
+            return declared.contains(k.as_str());
+        }
+        match k.strip_prefix("clear_") {
+            Some(field) if schema.file_uploads().contains_key(field) => {
+                declared.contains(k.as_str())
+            }
+            _ => true,
+        }
+    });
 }
 
 /// Create page POST.
@@ -1688,10 +1750,14 @@ fn resource_create_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
         if !R::can_create(cx) {
             return Err(forbidden().into());
         }
-        let values = parse_form_values(cx, body).await?;
+        let mut values = parse_form_values(cx, body).await?;
         crate::csrf::verify(cx, &values)?;
         let schema = R::form(cx);
         reject_unknown_form_keys(&schema, &values)?;
+        // Transport keys never reach the record fn (GH #148): a generic impl
+        // iterating `values` must not see `csrf_token`/`clear_*` as writable
+        // fields — the framework strips them once, not per-app convention.
+        strip_transport_keys(&schema, &mut values);
         let mut errors = schema.validate_async(cx, &values).await;
         // Framework-owned transaction (GH #84): opened only after
         // validation — `validate_async` relationship loaders run on their
@@ -1728,9 +1794,13 @@ fn resource_create_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
             Ok(()) => {
                 tx.commit().await.map_err(topcoat::Error::from)?;
                 let base = list_url(cx, &R::slug());
-                let list_url = format!("{base}?notification=Created");
+                let notification = Notification::success("Created");
+                let list_url = format!(
+                    "{base}?notification={}",
+                    notification_query_param(&notification)
+                );
                 // Also set cookie for Boundary survival (if layer present)
-                set_notification(cx, Notification::success("Created"));
+                set_notification(cx, notification);
                 Err(redirect(list_url).into())
             }
             // A unique violation that slipped past the app-side check (a
@@ -1852,7 +1922,7 @@ fn resource_edit_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
         for name in schema.file_uploads().keys() {
             let cleared = values
                 .get(&format!("clear_{name}"))
-                .is_some_and(|v| v == "1" || v == "true");
+                .is_some_and(|v| truthy(v));
             let empty = values
                 .get(name)
                 .map(|v| v.trim().is_empty())
@@ -1861,6 +1931,8 @@ fn resource_edit_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
                 values.insert(name.clone(), current[name].clone());
             }
         }
+        // Transport keys never reach the record fn (GH #148) — see create.
+        strip_transport_keys(&schema, &mut values);
         let mut errors = schema.validate_async(cx, &values).await;
         // Authoritative load inside the framework transaction (GH #84, #86):
         // policy is checked on this snapshot and the same record flows into
@@ -1894,8 +1966,12 @@ fn resource_edit_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
             Ok(()) => {
                 tx.commit().await.map_err(topcoat::Error::from)?;
                 let base = list_url(cx, &R::slug());
-                let list_url = format!("{base}?notification=Updated");
-                set_notification(cx, Notification::success("Updated"));
+                let notification = Notification::success("Updated");
+                let list_url = format!(
+                    "{base}?notification={}",
+                    notification_query_param(&notification)
+                );
+                set_notification(cx, notification);
                 Err(redirect(list_url).into())
             }
             // A unique violation that slipped past the app-side check (a
@@ -1922,9 +1998,7 @@ fn resource_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
         enforce_tenant::<R>(cx)?;
         let values = parse_form_values(cx, body).await?;
         crate::csrf::verify(cx, &values)?;
-        let confirmed = values
-            .get("confirm")
-            .is_some_and(|v| v == "1" || v == "true" || v == "yes");
+        let confirmed = values.get("confirm").is_some_and(|v| truthy(v));
         if !confirmed {
             // Render confirmation page — no transaction is open yet (GH #144),
             // and the confirmation POST re-enters above once confirmed.
@@ -1981,8 +2055,12 @@ fn resource_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
         R::delete_record(cx, record, &mut tx).await?;
         tx.commit().await.map_err(topcoat::Error::from)?;
         let base = list_url(cx, &R::slug());
-        let list_url = format!("{base}?notification=Deleted");
-        set_notification(cx, Notification::success("Deleted"));
+        let notification = Notification::success("Deleted");
+        let list_url = format!(
+            "{base}?notification={}",
+            notification_query_param(&notification)
+        );
+        set_notification(cx, notification);
         Err(redirect(list_url).into())
     })))
 }
@@ -2053,8 +2131,12 @@ fn resource_bulk_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
             R::bulk_delete_records(cx, rows, &mut tx).await?;
             tx.commit().await.map_err(topcoat::Error::from)?;
             let base = list_url(cx, &R::slug());
-            let list_url = format!("{base}?notification=Bulk+deleted");
-            set_notification(cx, Notification::success("Bulk deleted"));
+            let notification = Notification::success("Bulk deleted");
+            let list_url = format!(
+                "{base}?notification={}",
+                notification_query_param(&notification)
+            );
+            set_notification(cx, notification);
             Err(redirect(list_url).into())
         },
     )))
@@ -3325,6 +3407,223 @@ mod tests {
             !csv.contains("denied"),
             "export must not exceed row visibility (GH #86), got {csv}"
         );
+    }
+
+    /// The GET `?q=` term is clamped like the shard's (GH #148): bounded
+    /// echoed state.
+    #[test]
+    fn from_cx_clamps_the_search_term() {
+        use topcoat::context::CxTestBuilder;
+
+        fn state_for(uri: &str) -> TableState {
+            let (parts, ()) = http::Request::builder()
+                .uri(uri)
+                .body(())
+                .unwrap()
+                .into_parts();
+            let cx = CxTestBuilder::new().request_context(parts).build();
+            TableState::from_cx(&cx)
+        }
+
+        let long = "x".repeat(500);
+        let state = state_for(&format!("/admin/users?q={long}"));
+        assert_eq!(
+            state.search.as_deref().map(str::len),
+            Some(crate::resource::MAX_QUERY_TERM),
+            "the GET term is clamped to the same bound as the shard"
+        );
+        // Blank and absent stay None.
+        let (parts, ()) = http::Request::builder()
+            .uri("/admin/users?q=")
+            .body(())
+            .unwrap()
+            .into_parts();
+        let cx = CxTestBuilder::new().request_context(parts).build();
+        assert!(TableState::from_cx(&cx).search.is_none());
+        let (parts, ()) = http::Request::builder()
+            .uri("/admin/users")
+            .body(())
+            .unwrap()
+            .into_parts();
+        let cx = CxTestBuilder::new().request_context(parts).build();
+        assert!(TableState::from_cx(&cx).search.is_none());
+    }
+
+    /// `?notification=` keeps its status and is capped (GH #148): the query
+    /// fallback parses the cookie wire format, treats legacy bare values as
+    /// success, and ignores over-cap reflections.
+    #[test]
+    fn notification_query_fallback_preserves_status_and_is_capped() {
+        use crate::notification::NotificationStatus;
+        use topcoat::context::CxTestBuilder;
+
+        let status_for = |query: &str| {
+            let (parts, ()) = http::Request::builder()
+                .uri(query)
+                .body(())
+                .unwrap()
+                .into_parts();
+            let cx = CxTestBuilder::new().request_context(parts).build();
+            notification_from_query(&cx).map(|n| n.status)
+        };
+        assert_eq!(
+            status_for("/admin/users?notification=success:Created"),
+            Some(NotificationStatus::Success)
+        );
+        // A lost-cookie error toast renders red, not green (GH #148).
+        assert_eq!(
+            status_for("/admin/users?notification=error:Could+not+save"),
+            Some(NotificationStatus::Error)
+        );
+        // Legacy bare values stay success.
+        assert_eq!(
+            status_for("/admin/users?notification=Created"),
+            Some(NotificationStatus::Success)
+        );
+        // Over-cap reflections are ignored, not rendered.
+        let long = "x".repeat(300);
+        assert_eq!(
+            status_for(&format!("/admin/users?notification={long}")),
+            None
+        );
+
+        // The mutation redirect encodes the cookie format so the fallback
+        // carries the status it mirrors.
+        let param = notification_query_param(&Notification::success("Bulk deleted"));
+        assert!(param.starts_with("success%3A"), "{param}");
+
+        // The trickiest link in the chain: a title containing `:` survives
+        // encode(encode()) → form_urlencoded → decode (split at the FIRST
+        // colon, title keeps its own colons).
+        let (parts, ()) = http::Request::builder()
+            .uri(format!(
+                "/?notification={}",
+                notification_query_param(&Notification::error("saved:a:b"))
+            ))
+            .body(())
+            .unwrap()
+            .into_parts();
+        let cx = CxTestBuilder::new().request_context(parts).build();
+        let n = notification_from_query(&cx).expect("encoded title round-trips");
+        assert!(matches!(n.status, NotificationStatus::Error));
+        assert_eq!(n.title, "saved:a:b");
+    }
+
+    /// One boolean vocabulary for framework form flags (GH #148): `1` and
+    /// `true` are truthy everywhere (`confirm`, `clear_<field>`); `yes` was a
+    /// delete-only extra and is gone.
+    #[test]
+    fn truthy_accepts_one_vocabulary() {
+        assert!(truthy("1") && truthy("true"));
+        assert!(!truthy("yes") && !truthy("") && !truthy("on") && !truthy("TRUE"));
+    }
+
+    /// Record fns never see framework transport keys (GH #148): the create
+    /// POST carries `csrf_token` (and, for file schemas, `clear_<field>`) —
+    /// the framework strips them before `create_record`, so a generic impl
+    /// iterating `values` cannot treat them as writable fields.
+    #[tokio::test]
+    async fn create_record_receives_no_transport_keys() {
+        use crate::schema::{FileUpload, Schema, TextInput};
+        use std::sync::Mutex;
+
+        #[derive(Debug, toasty::Model)]
+        struct Doc {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            path: String,
+            title: String,
+        }
+
+        static RECEIVED: Mutex<Vec<Vec<String>>> = Mutex::new(Vec::new());
+        struct CapturingResource;
+        impl crate::resource::Resource for CapturingResource {
+            type Model = Doc;
+            fn slug() -> String {
+                "docs".to_string()
+            }
+            fn can_view_any(_cx: &Cx) -> bool {
+                true
+            }
+            fn can_create(_cx: &Cx) -> bool {
+                true
+            }
+            fn table(cx: &Cx) -> crate::resource::Table<Doc> {
+                crate::resource::Table::r#for(cx)
+                    .id(|d: &Doc| d.id.to_string())
+                    .columns(crate::resource::TextColumn::r#for(
+                        Doc::fields().title(),
+                        |d: &Doc| d.title.clone(),
+                    ))
+            }
+            fn form(_cx: &Cx) -> Schema {
+                Schema::new((
+                    TextInput::r#for(Doc::fields().title()),
+                    FileUpload::r#for(Doc::fields().path()),
+                ))
+            }
+            async fn create_record(
+                _cx: &Cx,
+                values: HashMap<String, String>,
+                _ex: &mut dyn toasty::Executor,
+            ) -> topcoat::Result<()> {
+                let mut keys = values.keys().cloned().collect::<Vec<_>>();
+                keys.sort();
+                RECEIVED.lock().unwrap().push(keys);
+                Ok(())
+            }
+        }
+
+        let db = Db::builder()
+            .models(toasty::models!(Doc))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        let router = Panel::new("admin")
+            .app_context(db)
+            .resource::<CapturingResource>()
+            .auth(crate::Auth::disabled())
+            .build();
+        let csrf = uuid::Uuid::new_v4().to_string();
+        let resp = router
+            .handle(
+                http::Request::builder()
+                    .method(http::Method::POST)
+                    .uri("/admin/docs/create")
+                    .header(
+                        http::header::CONTENT_TYPE,
+                        "application/x-www-form-urlencoded",
+                    )
+                    .header(
+                        http::header::COOKIE,
+                        format!("{}={csrf}", crate::csrf::COOKIE_NAME),
+                    )
+                    .body(Body::from(format!(
+                        "title=x&path=/tmp/a.bin&csrf_token={csrf}&clear_path=1"
+                    )))
+                    .unwrap(),
+            )
+            .await;
+        assert!(
+            resp.status().is_redirection(),
+            "create succeeds, got {} {}",
+            resp.status(),
+            String::from_utf8_lossy(
+                &http_body_util::BodyExt::collect(resp.into_body())
+                    .await
+                    .unwrap()
+                    .to_bytes()
+            )
+        );
+        let received = RECEIVED.lock().unwrap();
+        let keys = received.last().expect("create_record ran");
+        assert!(
+            !keys.contains(&"csrf_token".to_string()) && !keys.contains(&"clear_path".to_string()),
+            "transport keys must be stripped before the record fn, got {keys:?}"
+        );
+        assert_eq!(keys.len(), 2, "declared fields only, got {keys:?}");
     }
 
     #[test]

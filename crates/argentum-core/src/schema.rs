@@ -1543,9 +1543,12 @@ impl Schema {
     /// handlers (unknown keys → 400): record handlers already whitelist via
     /// per-field `.get(..)`, but a generic impl iterating `values` would
     /// silently promote `role`/`tenant_id`/handler keys (`csrf_token`,
-    /// `confirm`, `ids`) to client-controlled writes. Callers should reject
-    /// or ignore these (at least `debug_assert!` in tests); handler keys must
-    /// be filtered by the caller before calling this.
+    /// `confirm`, `ids`) to client-controlled writes. The transport keys the
+    /// handlers own (`csrf_token`, `clear_<field>`) are stripped before the
+    /// record fns run (GH #148), so a generic impl cannot promote those
+    /// either; `confirm`/`ids` are only read, never written. Callers should
+    /// reject or ignore the rest (at least `debug_assert!` in tests); handler
+    /// keys must be filtered by the caller before calling this.
     pub fn unknown_keys(&self, values: &HashMap<String, String>) -> Vec<String> {
         use std::collections::HashSet;
         let known: HashSet<String> = self.field_names().into_iter().collect();

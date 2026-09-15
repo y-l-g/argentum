@@ -234,6 +234,23 @@ async fn typo_filter_warns_on_list_but_refuses_export() {
         "typo filter must warn, got {html}"
     );
 
+    // Colon-less segments are malformed, not silently dropped (GH #148): the
+    // list banners them, export refuses with 400.
+    let resp = client.get("/admin/posts?filters=foobar").await;
+    assert!(resp.status().is_success(), "malformed filter keeps 200");
+    let html = body_string(resp).await;
+    assert!(
+        html.contains("role=\"alert\"") && html.contains("foobar"),
+        "malformed filter must banner, got {html}"
+    );
+    let resp = client.get("/admin/posts/export?filters=foobar").await;
+    assert_eq!(
+        resp.status(),
+        400,
+        "malformed export must refuse, got {}",
+        resp.status()
+    );
+
     let resp = client
         .get("/admin/posts/export?filters=stauts:published")
         .await;
