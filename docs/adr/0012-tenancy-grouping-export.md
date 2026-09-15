@@ -28,4 +28,4 @@ This keeps one tenancy seam, no new `Relation` trait, and no `via` many-to-many 
 
 ## Amendment (2026-09-10)
 
-Group headers read `{key} ({count} on this page)` (page-local counts, GH #92). There is no raw-SQL `trait Aggregate` — `sum` summarizers are not implemented (follow-up to #71) — and export is capped at 10k rows and buffered rather than streamed (GH #94). `Panel::brand`/`dark_mode` exist but the showcase leaves them unset. Tenancy remains `Cx`-scoped, but `requires_tenant` defaults false and the `x-tenant-id` fallback is harness-oriented (GH #87 caveat).
+Group headers read `{key} ({count} on this page)` (page-local counts, GH #92). There is no raw-SQL `trait Aggregate` — `sum` summarizers are not implemented (follow-up to #71) — and export is capped at 10k viewable rows (visibility before cap, GH #145) and buffered rather than streamed (GH #94). `Panel::brand`/`dark_mode` exist but the showcase leaves them unset. Tenancy remains `Cx`-scoped, but `requires_tenant` defaults false and the `x-tenant-id` fallback is harness-oriented (GH #87 caveat).
