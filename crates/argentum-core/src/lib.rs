@@ -10,7 +10,7 @@ pub mod __macro {
     pub use toasty::stmt;
     pub use topcoat::context::Cx;
 }
-// The toolkit surface: Panel, Resource, Table, Schema, Notification, Policy,
+// The toolkit surface: Panel, Resource, Table, Schema, Notification,
 // Tenancy, CSRF, and the `Db` glue.
 #[cfg(feature = "auth")]
 pub mod auth;
@@ -19,7 +19,6 @@ pub mod cursor;
 pub mod db;
 pub mod notification;
 pub mod panel;
-pub mod policy;
 pub mod resource;
 pub mod schema;
 pub mod tenancy;
@@ -29,7 +28,6 @@ pub use argentum_macros::Resource;
 pub use auth::{Auth, Authenticator, CurrentUser, PasswordAuth};
 pub use notification::{Notification, NotificationStatus};
 pub use panel::{Brand, DarkMode, Panel};
-pub use policy::{AllowAll, DenyAll, Policy};
 pub use resource::{
     Column, DateFilter, Filter, IntoFilters, NavigationItem, Resource, RowKey, SelectFilter,
     Sort, Table, TablePage, TableState, TernaryFilter, TextColumn, VariantFilter,
