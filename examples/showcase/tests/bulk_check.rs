@@ -87,6 +87,42 @@ async fn bulk_delete_deletes_selected() {
 }
 
 #[tokio::test]
+async fn bulk_delete_without_ids_redirects_with_the_reason() {
+    // GH #151: the visible ids input is gone and the submit ships disabled,
+    // so a hand-crafted empty POST is a validation miss — the list comes back
+    // with an error toast, never the raw 400 page.
+    let db = seeded_db().await;
+    let router = router(db.clone());
+    let client = demo_client(&router).await;
+    let csrf = uuid::Uuid::new_v4().to_string();
+    let resp = client
+        .csrf(&csrf)
+        .post_form(
+            "/admin/users/bulk-delete",
+            format!("ids=&csrf_token={csrf}"),
+        )
+        .await;
+    assert_eq!(
+        resp.status(),
+        303,
+        "an empty bulk delete must redirect, not 400, got {}",
+        resp.status()
+    );
+    let loc = resp.headers().get(LOCATION).unwrap().to_str().unwrap();
+    assert!(loc.contains("/admin/users"), "redirect to list, got {loc}");
+    let flash = set_cookie_header(&resp, "__Host-argentum_notification")
+        .expect("the flash cookie carries the reason");
+    assert!(
+        flash.contains("error") && flash.contains("Select"),
+        "the flash must be the selection error, got {flash}"
+    );
+    // Nothing was deleted.
+    let mut db_check = db.clone();
+    let remaining = User::all().exec(&mut db_check).await.unwrap();
+    assert_eq!(remaining.len(), 3, "an empty bulk delete deletes nothing");
+}
+
+#[tokio::test]
 async fn bulk_bar_renders_checkboxes_with_row_keys() {
     let db = seeded_db().await;
     let router = router(db.clone());
@@ -127,11 +163,18 @@ async fn bulk_bar_renders_checkboxes_with_row_keys() {
         "missing select-all in {}",
         html
     );
-    // Bulk form keeps the single ids transport (JS joins checked keys into
-    // it; the text field is the no-JS fallback).
+    // Bulk form keeps the hidden ids transport (GH #151: no visible field)
+    // and a destructive submit that ships disabled until a row is checked.
     assert!(
-        html.contains("data-bulk-form") && html.contains("name=\"ids\""),
+        html.contains("data-bulk-form")
+            && html.contains("name=\"ids\"")
+            && html.contains("data-bulk-ids"),
         "missing bulk form transport in {}",
+        html
+    );
+    assert!(
+        html.contains("data-bulk-submit=\"\"") && html.contains("disabled=\"\""),
+        "the bulk submit must ship disabled in {}",
         html
     );
     // A filtered list shows only the matching row's checkbox.

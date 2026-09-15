@@ -2019,7 +2019,12 @@ fn resource_bulk_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
             let ids_raw = values.get("ids").cloned().unwrap_or_default();
             let ids = parse_bulk_ids(&ids_raw, MAX_BULK_IDS);
             if ids.is_empty() {
-                return Err(topcoat::router::error::bad_request("no ids provided").into());
+                // No ids is a validation miss, not a raw 400 page (GH #151):
+                // the bulk bar disables its submit until a row is checked, so
+                // only a crafted (or stale) POST gets here — answer like any
+                // other mutation, with the list and the reason.
+                set_notification(cx, Notification::error("Select at least one row to delete"));
+                return Err(see_other(list_url(cx, &R::slug())).into());
             }
             if ids.len() > MAX_BULK_IDS {
                 return Err(topcoat::router::error::bad_request(format!(

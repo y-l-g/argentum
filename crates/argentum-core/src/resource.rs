@@ -1248,6 +1248,10 @@ impl<M> Table<M> {
         let bulk_bar_view: BoxView<'_> = if with_bulk {
             let bulk_action = format!("{}/bulk-delete", self.delete_prefix.clone().unwrap());
             let csrf = crate::csrf::current_token(cx);
+            // No visible `ids` field (GH #151): the transport is hidden and
+            // fed by the row checkboxes (`bulk.js`), and the destructive
+            // submit ships disabled so an empty submit cannot be produced
+            // from the UI — the script enables it once a row is checked.
             view! {
                 cx =>
                 <form
@@ -1257,18 +1261,17 @@ impl<M> Table<M> {
                     data-bulk-form=""
                 >
                     <input type="hidden" name="csrf_token" value=(csrf)>
-                    <input
-                        name="ids"
-                        placeholder="ids comma-separated"
-                        aria-label="Bulk delete ids (or tick rows below)"
-                        class="w-64 border border-border rounded px-2 py-1 text-sm"
-                    >
-                    <button
-                        class="inline-flex items-center justify-center rounded-md bg-destructive px-4 py-2 text-sm text-destructive-foreground"
-                        type="submit"
-                    >
+                    <input type="hidden" name="ids" value="" data-bulk-ids="">
+                    button(
+                        variant: ButtonVariant::Destructive,
+                        size: ButtonSize::Md,
+                        attrs: attributes! {
+                            type="submit"
+                            disabled=""
+                            data-bulk-submit=""
+                        },
                         "Bulk Delete"
-                    </button>
+                    )
                 </form>
             }
             .boxed()
@@ -3662,14 +3665,26 @@ mod tests {
             html.contains("data-bulk-select-all"),
             "missing select-all in {html}"
         );
-        // Bulk form keeps the single `ids` transport + no-JS text fallback.
+        // Bulk form keeps the hidden `ids` transport (GH #151 removed the
+        // visible free-text fallback) and a submit that ships disabled until
+        // `bulk.js` sees a checked row.
         assert!(
             html.contains("data-bulk-form"),
             "missing bulk form in {html}"
         );
         assert!(
-            html.contains("name=\"ids\"") && html.contains("Bulk Delete"),
-            "missing ids fallback in {html}"
+            html.contains("name=\"ids\"")
+                && html.contains("data-bulk-ids")
+                && !html.contains("ids comma-separated"),
+            "missing hidden ids transport in {html}"
+        );
+        assert!(
+            html.contains("data-bulk-submit=\"\"") && html.contains("disabled=\"\""),
+            "the bulk submit must ship disabled in {html}"
+        );
+        assert!(
+            html.contains("Bulk Delete"),
+            "missing bulk button in {html}"
         );
         assert!(
             html.contains("data-table-root"),
