@@ -1871,8 +1871,11 @@ impl<M> Table<M> {
         };
         // One typed control per declared filter (GH #74). Controls carry only
         // `data-filter-name` (no `name`, so they never submit on their own);
-        // `filters.js` composes them into the single `filters` text field on
-        // submit, which stays as the no-JS free-text fallback.
+        // `filters.js` composes them into the hidden `filters` transport and
+        // submits on change (GH #151), rewriting it even when every control is
+        // "All" so the stale value can never be resubmitted. The free-text
+        // input and Apply button survive only inside `<noscript>` as the
+        // no-JS fallback.
         let mut controls: Vec<BoxView<'_>> = Vec::with_capacity(self.filters.len());
         for f in &self.filters {
             let current = state.filters.get(f.name()).cloned().unwrap_or_default();
@@ -2027,22 +2030,30 @@ impl<M> Table<M> {
                 for ctl in controls {
                     (ctl)
                 }
-                ui_input(
-                    attrs: attributes! {
-                        type="text"
-                        name="filters"
-                        value=(filters_display)
-                        placeholder="filters e.g. status:published"
-                        aria-label="Filter table (free text)"
-                        class="w-64"
-                    }
-                )
-                button(
-                    variant: ButtonVariant::Secondary,
-                    size: ButtonSize::Md,
-                    attrs: attributes! { type="submit" },
-                    "Apply filters"
-                )
+                <noscript>
+                    ui_input(
+                        attrs: attributes! {
+                            type="text"
+                            name="filters"
+                            value=(filters_display.clone())
+                            placeholder="filters e.g. status:published"
+                            aria-label="Filter table (free text)"
+                            class="w-64"
+                        }
+                    )
+                    button(
+                        variant: ButtonVariant::Secondary,
+                        size: ButtonSize::Md,
+                        attrs: attributes! { type="submit" },
+                        "Apply filters"
+                    )
+                </noscript>
+                <input
+                    type="hidden"
+                    name="filters"
+                    value=(filters_display)
+                    data-filters-transport=""
+                >
                 if let Some(url) = clear_url {
                     <a
                         href=(url)
@@ -3745,10 +3756,18 @@ mod tests {
             html.contains("type=\"date\""),
             "missing date input in {html}"
         );
-        // Free-text fallback keeps the composed value.
+        // The hidden transport carries the composed value for auto-apply; the
+        // free-text input + Apply button survive only as the `<noscript>`
+        // fallback (GH #151).
         assert!(
-            html.contains("name=\"filters\"") && html.contains("status:published"),
-            "missing free-text fallback in {html}"
+            html.contains("data-filters-transport")
+                && html.contains("name=\"filters\"")
+                && html.contains("status:published"),
+            "missing hidden filters transport in {html}"
+        );
+        assert!(
+            html.contains("<noscript>") && html.contains("Apply filters"),
+            "missing no-JS filter fallback in {html}"
         );
     }
 

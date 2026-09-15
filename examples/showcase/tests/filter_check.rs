@@ -12,7 +12,7 @@ async fn posts_filter_widgets_render_typed_controls() {
     assert!(resp.status().is_success());
     let html = body_string(resp).await;
     // One typed control per declared filter, composed by filters.js into the
-    // single filters param (free-text input stays as the fallback).
+    // hidden `filters` transport (the text fallback lives in `<noscript>`).
     for name in ["status", "featured", "created_at"] {
         assert!(
             html.contains(&format!("data-filter-name=\"{name}\"")),
@@ -43,8 +43,10 @@ async fn posts_filter_widgets_render_typed_controls() {
         html
     );
     assert!(
-        html.contains("name=\"filters\"") && html.contains("status:published"),
-        "missing free-text fallback in {}",
+        html.contains("data-filters-transport")
+            && html.contains("name=\"filters\"")
+            && html.contains("status:published"),
+        "missing hidden filters transport in {}",
         html
     );
 }
