@@ -5,7 +5,7 @@ use toasty::Db;
 mod common;
 use common::{
     SESSION_COOKIE, TestClient, body_string, demo_client, login_next, response_cookies, seeded_db,
-    session_cookie_value,
+    session_cookie_value, set_cookie_header,
 };
 
 #[tokio::test]
@@ -94,26 +94,40 @@ async fn manual_create_check() {
         "redirect to list, got {}",
         loc
     );
-    let cookie = resp
+    let cookies: Vec<String> = resp
         .headers()
-        .get(SET_COOKIE)
-        .map(|v| v.to_str().unwrap().to_string())
-        .unwrap_or_default();
-    println!("Cookie header: {}", cookie);
-    // Notification may be via Set-Cookie or via ?notification= query param (fallback when cookie layer doesn't handle error).
-    let has_notification_via =
-        loc.contains("notification") || cookie.contains("__Host-argentum_notification");
+        .get_all(SET_COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok().map(str::to_string))
+        .collect();
+    println!("Cookie headers: {cookies:?}");
+    // Post/Redirect/Get with one-time semantics (GH #97, #126): a completed
+    // create answers 303, the toast rides the flash cookie on that error
+    // response, and the Location query stays clean.
+    assert_eq!(resp.status(), 303, "a completed create is a 303");
     assert!(
-        has_notification_via,
-        "should set notification via cookie or query param, got loc {} cookie {}",
-        loc, cookie
+        !loc.contains("notification"),
+        "the toast must not ride the query, got {loc}"
     );
-    // Follow redirect (use Location URL which may contain ?notification),
-    // carrying whatever cookies the POST set.
+    assert!(
+        cookies
+            .iter()
+            .any(|c| c.contains("__Host-argentum_notification")),
+        "the flash cookie must be set on the redirect, got {cookies:?}"
+    );
+    // Follow the redirect, carrying whatever cookies the POST set (the
+    // flash cookie included — the Location query no longer carries it).
     let resp2 = client.cookies(&response_cookies(&resp)).get(&loc).await;
     assert!(
         resp2.status().is_success(),
         "GET list after create should be 200"
+    );
+    // The shell consumed the one-time flash: the follow-up response clears it.
+    let cleared = set_cookie_header(&resp2, "__Host-argentum_notification")
+        .expect("following the redirect must consume the flash");
+    assert!(
+        cleared.contains("Max-Age=0") || cleared.contains("Expires=Thu, 01 Jan 1970"),
+        "the flash is one-time, got {cleared}"
     );
     let html2 = body_string(resp2).await;
     // Need to check if new user appears on page 1 or 2? Since paginated 2 per page, new user "New User" with name N may be on page 2 (after Grace Hopper? Let's see sort is name asc: Ada, Alan, Grace, New User -> New User is last, so on page 2)
@@ -122,6 +136,11 @@ async fn manual_create_check() {
     assert!(
         html2.contains("fixed top-4 right-4"),
         "missing notification fixed top-4 right-4 in {}",
+        html2
+    );
+    assert!(
+        html2.contains("Created"),
+        "the shell must render the consumed toast in {}",
         html2
     );
     assert!(

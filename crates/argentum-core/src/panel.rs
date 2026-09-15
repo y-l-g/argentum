@@ -20,7 +20,7 @@ use topcoat::{
     font::Font,
     router::{
         Body, PageFn, RouteFn, RouteFuture, Router, RouterBuilderDiscoverExt, Slot,
-        error::{forbidden, redirect},
+        error::{forbidden, redirect, see_other},
         request::{Bytes, FromRequest},
     },
     view::{BoxView, Child, HoistView, View, ViewExt, attributes, suspense, view},
@@ -28,7 +28,7 @@ use topcoat::{
 
 use crate::db::db;
 use crate::notification::{Notification, set_notification, take_notification};
-use crate::resource::{NavigationItem, Resource, Table, TablePage, TableState, encode_query_value};
+use crate::resource::{NavigationItem, Resource, Table, TablePage, TableState};
 use topcoat::router::Path;
 use topcoat::runtime::RouterBuilderRuntimeExt;
 
@@ -606,9 +606,7 @@ impl Panel {
         };
         #[cfg(not(feature = "auth"))]
         let account_view: BoxView<'_> = view! { cx => <span></span> }.boxed();
-        let notification_view: BoxView<'_> = if let Some(notification) =
-            take_notification(cx).or_else(|| notification_from_query(cx))
-        {
+        let notification_view: BoxView<'_> = if let Some(notification) = take_notification(cx) {
             let title = notification.title.clone();
             // Honor status (GH #97): error renders destructive, others default.
             // Matches `notification::render_notification` so the shell and the
@@ -1508,53 +1506,6 @@ fn list_url(cx: &Cx, slug: &str) -> String {
     format!("{prefix}/{slug}")
 }
 
-fn notification_from_query(cx: &Cx) -> Option<Notification> {
-    let query = topcoat::context::try_request_context::<http::request::Parts>(cx)
-        .and_then(|parts| parts.uri.query().map(|q| q.to_string()))?;
-    for (k, v) in form_urlencoded::parse(query.as_bytes()) {
-        if k == "notification" {
-            // `form_urlencoded` decodes `+` as space and assembles multi-byte
-            // UTF-8 (same contract as `parse_form_values`, GH #75 item 6).
-            let v = v.into_owned();
-            if v.len() > MAX_NOTIFICATION_QUERY {
-                return None;
-            }
-            // The value carries its status (`success:Title`, the cookie
-            // encoding, GH #148) so a lost-cookie error toast does not render
-            // green. Values without a known-status prefix — bare legacy
-            // links (`Created`) and third-party oddities — stay success with
-            // the whole value as the title. Empty titles render no toast.
-            let notification = match Notification::decode(&v) {
-                Some(n) if !n.title.is_empty() => n,
-                _ => {
-                    if v.is_empty() {
-                        return None;
-                    }
-                    Notification::success(v)
-                }
-            };
-            return Some(notification);
-        }
-    }
-    None
-}
-
-/// Longest reflected `?notification=` value in bytes (GH #148): the query
-/// fallback is attacker-reflectable text in the shell (escaped, so spoof not
-/// XSS) — the cap bounds the toast a crafted link can render; a multibyte
-/// title is capped at fewer visible chars (conservative). The shipped
-/// mutations write a few bytes.
-const MAX_NOTIFICATION_QUERY: usize = 256;
-
-/// The `?notification=` value for a mutation redirect (GH #148): the compact
-/// `status:title` format the fallback has always used, percent-encoded — a
-/// toast whose cookie could not flush on the `Err` redirect (upstream
-/// topcoat#126) survives the query with its status, not hardcoded green. The
-/// flash *cookie* itself is JSON via Topcoat's `CookieStore` (GH #139).
-fn notification_query_param(notification: &Notification) -> String {
-    encode_query_value(&notification.encode())
-}
-
 /// Shared create/edit page shell (GH #73 multipart enctype, CSRF hidden
 /// input, inline error slot). Title and submit label are the only deltas.
 async fn render_form_page<'a, R: Resource>(
@@ -1794,15 +1745,11 @@ fn resource_create_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
         match R::create_record(cx, values.clone(), &mut tx).await {
             Ok(()) => {
                 tx.commit().await.map_err(topcoat::Error::from)?;
-                let base = list_url(cx, &R::slug());
-                let notification = Notification::success("Created");
-                let list_url = format!(
-                    "{base}?notification={}",
-                    notification_query_param(&notification)
-                );
-                // Also set cookie for Boundary survival (if layer present)
-                set_notification(cx, notification);
-                Err(redirect(list_url).into())
+                // Post/Redirect/Get: the browser follows with a GET, and the
+                // flash cookie rides the error response (Topcoat flushes
+                // `Set-Cookie` on `Err` too, topcoat#408).
+                set_notification(cx, Notification::success("Created"));
+                Err(see_other(list_url(cx, &R::slug())).into())
             }
             // A unique violation that slipped past the app-side check (a
             // concurrent insert) surfaces as an error, not a string-matched
@@ -1966,14 +1913,8 @@ fn resource_edit_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
         match R::update_record(cx, record, values.clone(), &mut tx).await {
             Ok(()) => {
                 tx.commit().await.map_err(topcoat::Error::from)?;
-                let base = list_url(cx, &R::slug());
-                let notification = Notification::success("Updated");
-                let list_url = format!(
-                    "{base}?notification={}",
-                    notification_query_param(&notification)
-                );
-                set_notification(cx, notification);
-                Err(redirect(list_url).into())
+                set_notification(cx, Notification::success("Updated"));
+                Err(see_other(list_url(cx, &R::slug())).into())
             }
             // A unique violation that slipped past the app-side check (a
             // concurrent update) surfaces as an error, not a string-matched
@@ -2055,14 +1996,8 @@ fn resource_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
         }
         R::delete_record(cx, record, &mut tx).await?;
         tx.commit().await.map_err(topcoat::Error::from)?;
-        let base = list_url(cx, &R::slug());
-        let notification = Notification::success("Deleted");
-        let list_url = format!(
-            "{base}?notification={}",
-            notification_query_param(&notification)
-        );
-        set_notification(cx, notification);
-        Err(redirect(list_url).into())
+        set_notification(cx, Notification::success("Deleted"));
+        Err(see_other(list_url(cx, &R::slug())).into())
     })))
 }
 
@@ -2131,14 +2066,8 @@ fn resource_bulk_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
             // deleted, never half-applied.
             R::bulk_delete_records(cx, rows, &mut tx).await?;
             tx.commit().await.map_err(topcoat::Error::from)?;
-            let base = list_url(cx, &R::slug());
-            let notification = Notification::success("Bulk deleted");
-            let list_url = format!(
-                "{base}?notification={}",
-                notification_query_param(&notification)
-            );
-            set_notification(cx, notification);
-            Err(redirect(list_url).into())
+            set_notification(cx, Notification::success("Bulk deleted"));
+            Err(see_other(list_url(cx, &R::slug())).into())
         },
     )))
 }
@@ -3450,66 +3379,6 @@ mod tests {
         assert!(TableState::from_cx(&cx).search.is_none());
     }
 
-    /// `?notification=` keeps its status and is capped (GH #148): the query
-    /// fallback parses the cookie wire format, treats legacy bare values as
-    /// success, and ignores over-cap reflections.
-    #[test]
-    fn notification_query_fallback_preserves_status_and_is_capped() {
-        use crate::notification::NotificationStatus;
-        use topcoat::context::CxTestBuilder;
-
-        let status_for = |query: &str| {
-            let (parts, ()) = http::Request::builder()
-                .uri(query)
-                .body(())
-                .unwrap()
-                .into_parts();
-            let cx = CxTestBuilder::new().request_context(parts).build();
-            notification_from_query(&cx).map(|n| n.status)
-        };
-        assert_eq!(
-            status_for("/admin/users?notification=success:Created"),
-            Some(NotificationStatus::Success)
-        );
-        // A lost-cookie error toast renders red, not green (GH #148).
-        assert_eq!(
-            status_for("/admin/users?notification=error:Could+not+save"),
-            Some(NotificationStatus::Error)
-        );
-        // Legacy bare values stay success.
-        assert_eq!(
-            status_for("/admin/users?notification=Created"),
-            Some(NotificationStatus::Success)
-        );
-        // Over-cap reflections are ignored, not rendered.
-        let long = "x".repeat(300);
-        assert_eq!(
-            status_for(&format!("/admin/users?notification={long}")),
-            None
-        );
-
-        // The mutation redirect encodes the cookie format so the fallback
-        // carries the status it mirrors.
-        let param = notification_query_param(&Notification::success("Bulk deleted"));
-        assert!(param.starts_with("success%3A"), "{param}");
-
-        // The trickiest link in the chain: a title containing `:` survives
-        // encode(encode()) → form_urlencoded → decode (split at the FIRST
-        // colon, title keeps its own colons).
-        let (parts, ()) = http::Request::builder()
-            .uri(format!(
-                "/?notification={}",
-                notification_query_param(&Notification::error("saved:a:b"))
-            ))
-            .body(())
-            .unwrap()
-            .into_parts();
-        let cx = CxTestBuilder::new().request_context(parts).build();
-        let n = notification_from_query(&cx).expect("encoded title round-trips");
-        assert!(matches!(n.status, NotificationStatus::Error));
-        assert_eq!(n.title, "saved:a:b");
-    }
-
     /// One boolean vocabulary for framework form flags (GH #148): `1` and
     /// `true` are truthy everywhere (`confirm`, `clear_<field>`); `yes` was a
     /// delete-only extra and is gone.
@@ -3833,15 +3702,16 @@ mod tests {
         );
     }
 
+    /// Post/Redirect/Get (GH #97, #126): a mutation answers 303, the flash
+    /// cookie rides the error response (Topcoat flushes `Set-Cookie` on `Err`,
+    /// topcoat#408), and nothing rides the `Location` query. Following the
+    /// redirect consumes the cookie, so a reload does not replay the toast.
     #[tokio::test]
-    async fn mutation_redirect_carries_query_until_cookies_flush_on_error() {
-        // Tripwire for the cookie-flush gap (GH #97, upstream #126): Topcoat's
-        // cookie layer skips `Set-Cookie` on `Err`-path responses, and mutation
-        // redirects return via `Err` — so the toast rides `?notification=`
-        // until upstream flushes. If the cookie assertion below starts failing,
-        // implement one-time cookie-only redirects and delete the gap entry.
+    async fn mutation_redirect_carries_the_flash_cookie_instead_of_a_query() {
         use crate::resource::Resource;
         use std::collections::HashMap;
+
+        const COOKIE_NAME: &str = crate::notification::COOKIE_NAME;
 
         #[derive(Debug, toasty::Model)]
         struct Dummy {
@@ -3855,6 +3725,9 @@ mod tests {
             type Model = Dummy;
             fn slug() -> String {
                 "dummies".to_string()
+            }
+            fn can_view_any(_cx: &Cx) -> bool {
+                true
             }
             fn can_create(_cx: &Cx) -> bool {
                 true
@@ -3903,29 +3776,37 @@ mod tests {
                     .unwrap(),
             )
             .await;
-        assert!(resp.status().is_redirection());
-        let loc = resp
+        assert_eq!(
+            resp.status(),
+            http::StatusCode::SEE_OTHER,
+            "a completed mutation is a 303 Post/Redirect/Get"
+        );
+        let location = resp
             .headers()
             .get(http::header::LOCATION)
-            .unwrap()
+            .expect("the redirect names its target")
             .to_str()
-            .unwrap();
+            .unwrap()
+            .to_string();
         assert!(
-            loc.contains("notification"),
-            "query must carry the toast until cookies flush, got {loc}"
+            !location.contains("notification"),
+            "the toast must not ride the query, got {location}"
         );
-        let has_notif_cookie = resp
+        let set_cookie = resp
             .headers()
             .get_all(http::header::SET_COOKIE)
             .iter()
-            .any(|v| {
-                v.to_str()
-                    .unwrap()
-                    .starts_with(&format!("{}=", crate::notification::COOKIE_NAME))
-            });
+            .filter_map(|v| v.to_str().ok())
+            .find(|v| v.starts_with(&format!("{COOKIE_NAME}=")))
+            .expect("the flash cookie flushes on the Err redirect")
+            .to_string();
         assert!(
-            !has_notif_cookie,
-            "cookies now flush on Err redirect: switch to one-time notifications (GH #97)"
+            set_cookie.contains("success") && set_cookie.contains("Created"),
+            "the cookie carries the toast status and title: {set_cookie}"
+        );
+        assert!(
+            set_cookie.contains("Secure") && set_cookie.contains("HttpOnly"),
+            "the flushed cookie keeps the __Host- contract: {set_cookie}"
         );
     }
 

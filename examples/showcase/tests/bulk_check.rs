@@ -4,7 +4,9 @@ use toasty::Db;
 use topcoat::view::ViewExt;
 
 mod common;
-use common::{TestClient, body_string, demo_client, seeded_db};
+use common::{
+    TestClient, body_string, demo_client, response_cookies, seeded_db, set_cookie_header,
+};
 
 #[tokio::test]
 async fn bulk_delete_deletes_selected() {
@@ -51,10 +53,18 @@ async fn bulk_delete_deletes_selected() {
         "redirect to list, got {}",
         loc
     );
+    // Post/Redirect/Get with one-time semantics (GH #97, #126): 303, flash
+    // cookie on the redirect, clean Location.
+    assert_eq!(resp.status(), 303, "a completed bulk delete is a 303 PRG");
     assert!(
-        loc.contains("notification"),
-        "should have notification, got {}",
-        loc
+        !loc.contains("notification"),
+        "the toast must not ride the query, got {loc}"
+    );
+    let flash = set_cookie_header(&resp, "__Host-argentum_notification")
+        .expect("the flash cookie is set on the redirect");
+    assert!(
+        flash.contains("Bulk"),
+        "the flash carries the action, got {flash}"
     );
 
     // Check DB: should have 1 left
@@ -66,11 +76,11 @@ async fn bulk_delete_deletes_selected() {
         "should have 1 after bulk delete 2, got {}",
         remaining.len()
     );
-    // Follow redirect and check notification
-    let resp2 = client.get(loc).await;
+    // Follow redirect carrying the flash cookie and check the toast
+    let resp2 = client.cookies(&response_cookies(&resp)).get(loc).await;
     let html2 = body_string(resp2).await;
     assert!(
-        html2.contains("fixed top-4 right-4"),
+        html2.contains("Bulk deleted"),
         "notification should survive, got {}",
         html2
     );

@@ -22,14 +22,11 @@ async fn query_users(cx: &Cx) -> Result<Vec<User>> {
 }
 
 async fn users(cx: &Cx) -> Result<&Vec<User>> {
-    // #[memoize(as_ref)] caches Result<&T, &Error>, and `topcoat::Error`
-    // (anyhow) is not Clone, so the borrowed error must be converted into an
-    // owned one here — stringification is the workaround. See upstream gap
-    // #120 (Topcoat — memoize(as_ref) error conversion). Use `.map_err(Into::into)`
-    // in non-memoized loaders; do not spread this pattern.
-    query_users(cx)
-        .await
-        .map_err(|e| std::io::Error::other(e.to_string()).into())
+    // `#[memoize(as_ref)]` caches `Result<&T, &Error>`; `topcoat::Error` is
+    // Arc-backed and cheap to clone (Topcoat #396), so the borrowed error
+    // becomes an owned typed copy — no stringification, typed predicates
+    // survive (upstream gap #120 is fixed upstream).
+    query_users(cx).await.map_err(topcoat::Error::clone)
 }
 
 #[page("/admin/showcase/db")]
@@ -77,7 +74,7 @@ async fn db_showcase(cx: &Cx) -> Result<impl View> {
                 </h2>
                 argentum_ui::code_block(
                     lang: "rust",
-                    code: "#[memoize(as_ref)]\nasync fn query_users(cx: &Cx) -> Result<Vec<User>> {\n    UserResource::query(cx).exec(&mut db(cx)).await.map_err(Into::into)\n}\nasync fn users(cx: &Cx) -> Result<&Vec<User>> {\n    query_users(cx).await.map_err(|e| std::io::Error::other(e.to_string()).into())\n}\n// concurrent: 8 tasks calling users(&cx) → body runs once (AtomicUsize == 1)\n// NOTE: stringify only needed because memoize(as_ref) caches &Error; normal pages use `?` or map_err(Into::into) without stringify"
+                    code: "#[memoize(as_ref)]\nasync fn query_users(cx: &Cx) -> Result<Vec<User>> {\n    UserResource::query(cx).exec(&mut db(cx)).await.map_err(Into::into)\n}\nasync fn users(cx: &Cx) -> Result<&Vec<User>> {\n    query_users(cx).await.map_err(topcoat::Error::clone)\n}\n// concurrent: 8 tasks calling users(&cx) → body runs once (AtomicUsize == 1)\n// Error is Arc-backed and Clone (Topcoat #396): the borrowed error becomes owned, no stringify"
                 )
                 <p class="text-sm text-muted-foreground">
                     "This is the same pattern as the former user-list example, now consolidated here to avoid duplication. The dedup guarantee is exercised by the integration test and by concurrent page fragments."

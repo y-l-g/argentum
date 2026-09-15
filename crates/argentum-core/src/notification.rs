@@ -9,8 +9,9 @@
 //! of a hand-rolled wire format; the jar defaults carry the hardened
 //! attributes (HttpOnly, Secure, SameSite=Lax, Path=/ — the `__Host-` name
 //! requires them, GH #149) on writes and removals alike, so set and clear
-//! cannot drift again. The `?notification=` fallback keeps the compact
-//! `status:title` text format (`encode`/`decode`).
+//! cannot drift again. One-time semantics ride the cookie alone: Topcoat
+//! flushes `Set-Cookie` on error responses too (topcoat#408), so the mutation
+//! `Err` redirects no longer need the old `?notification=` fallback.
 
 use serde::{Deserialize, Serialize};
 use topcoat::context::{Cx, try_request_context};
@@ -18,8 +19,7 @@ use topcoat::cookie::{CookieJar, CookieJarCell, Cookies, cookie_store, cookies};
 
 /// The kind of notification (status).
 ///
-/// The serde tokens are the lowercase `as_str` spellings, so the JSON cookie
-/// and the `?notification=` fallback share one status vocabulary (GH #139).
+/// The serde tokens are lowercase so the JSON cookie reads naturally (GH #139).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum NotificationStatus {
@@ -27,26 +27,6 @@ pub enum NotificationStatus {
     Error,
     Info,
     Warning,
-}
-
-impl NotificationStatus {
-    fn as_str(&self) -> &'static str {
-        match self {
-            Self::Success => "success",
-            Self::Error => "error",
-            Self::Info => "info",
-            Self::Warning => "warning",
-        }
-    }
-
-    fn from_str(s: &str) -> Self {
-        match s {
-            "error" => Self::Error,
-            "info" => Self::Info,
-            "warning" => Self::Warning,
-            _ => Self::Success,
-        }
-    }
 }
 
 /// A transient message shown after a mutation.
@@ -76,32 +56,6 @@ impl Notification {
             status: NotificationStatus::Info,
             title: title.into(),
         }
-    }
-
-    /// Encode to the `?notification=` fallback value: `status:title`
-    /// (percent-escaped so `:`/`;`/`%` survive one round trip). The flash
-    /// cookie uses serde JSON via Topcoat's `CookieStore` (GH #139).
-    pub(crate) fn encode(&self) -> String {
-        // Simple encoding: status + ":" + percent-encoded title (use URL encoding for ":" and ";")
-        // For MVP, just replace ":" with "%3A" and ";" with "%3B"
-        let escaped = self
-            .title
-            .replace('%', "%25")
-            .replace(':', "%3A")
-            .replace(';', "%3B")
-            .replace('\n', "%0A");
-        format!("{}:{}", self.status.as_str(), escaped)
-    }
-
-    pub(crate) fn decode(s: &str) -> Option<Self> {
-        let (status_str, title_enc) = s.split_once(':')?;
-        let status = NotificationStatus::from_str(status_str);
-        let title = title_enc
-            .replace("%0A", "\n")
-            .replace("%3B", ";")
-            .replace("%3A", ":")
-            .replace("%25", "%");
-        Some(Self { status, title })
     }
 }
 
@@ -180,23 +134,6 @@ mod tests {
     }
 
     #[test]
-    fn encode_decode_roundtrip() {
-        let n = Notification::success("User created");
-        let enc = n.encode();
-        let dec = Notification::decode(&enc).unwrap();
-        assert_eq!(dec.title, "User created");
-        assert_eq!(dec.status, NotificationStatus::Success);
-    }
-
-    #[test]
-    fn decode_handles_colons() {
-        let n = Notification::success("a:b:c");
-        let enc = n.encode();
-        let dec = Notification::decode(&enc).unwrap();
-        assert_eq!(dec.title, "a:b:c");
-    }
-
-    #[test]
     fn take_notification_decodes_the_json_cookie() {
         let enc = serde_json::to_string(&Notification::success("hello")).unwrap();
         let cx = cx_with_cookie(Some(&enc));
@@ -205,6 +142,15 @@ mod tests {
         assert_eq!(n.unwrap().title, "hello");
         // Clearing itself is pinned by
         // `notification_removal_header_carries_the_host_prefix_contract`.
+    }
+
+    #[test]
+    fn percent_encoded_json_cookie_decodes() {
+        let enc = "%7B%22status%22%3A%22success%22%2C%22title%22%3A%22Created%22%7D";
+        let cx = cx_with_cookie(Some(enc));
+        let n = take_notification(&cx);
+        assert!(n.is_some(), "the percent-encoded flash cookie decodes");
+        assert_eq!(n.unwrap().title, "Created");
     }
 
     /// Unreadable cookie garbage is expired, not toasted (same fail-open-to-
@@ -252,11 +198,9 @@ mod tests {
     /// The consumed flash cookie must be cleared with a `__Host-`-conformant
     /// removal (GH #149): a `__Host-`-named `Set-Cookie` without `Secure` is
     /// ignored by browsers — `Max-Age=0` deletions included — so the flash
-    /// would survive every navigation. Asserted through topcoat's own
-    /// response finalization, because the shipped create/edit flow can't
-    /// exercise it yet: mutation responses don't flush cookies on their `Err`
-    /// redirect until upstream topcoat#126 lands, so the toast travels via
-    /// `?notification=` instead.
+    /// would survive every navigation. Pinned here through topcoat's own
+    /// response finalization; the create/edit flow end-to-end is covered by
+    /// the panel test `mutation_redirect_carries_the_flash_cookie_instead_of_a_query`.
     #[test]
     fn notification_removal_header_carries_the_host_prefix_contract() {
         use http::header::SET_COOKIE;

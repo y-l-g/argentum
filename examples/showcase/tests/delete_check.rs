@@ -3,7 +3,9 @@ use showcase::{app::router_for_tests as router, models::User};
 use toasty::Db;
 
 mod common;
-use common::{TestClient, body_string, demo_client, seeded_db};
+use common::{
+    TestClient, body_string, demo_client, response_cookies, seeded_db, set_cookie_header,
+};
 
 #[tokio::test]
 async fn delete_requires_confirmation_and_deletes() {
@@ -63,10 +65,18 @@ async fn delete_requires_confirmation_and_deletes() {
         "redirect to list, got {}",
         loc
     );
+    // Post/Redirect/Get with one-time semantics (GH #97, #126): 303, flash
+    // cookie on the redirect, clean Location.
+    assert_eq!(resp.status(), 303, "a completed delete is a 303 PRG");
     assert!(
-        loc.contains("notification"),
-        "should have notification, got {}",
-        loc
+        !loc.contains("notification"),
+        "the toast must not ride the query, got {loc}"
+    );
+    let flash = set_cookie_header(&resp, "__Host-argentum_notification")
+        .expect("the flash cookie is set on the redirect");
+    assert!(
+        flash.contains("Deleted"),
+        "the flash carries the action, got {flash}"
     );
 
     // Check DB: user should be gone
@@ -80,11 +90,11 @@ async fn delete_requires_confirmation_and_deletes() {
         .unwrap();
     assert!(gone.is_none(), "deleted user should be gone");
 
-    // Follow redirect and check notification
-    let resp2 = client.get(loc).await;
+    // Follow redirect carrying the flash cookie and check the toast
+    let resp2 = client.cookies(&response_cookies(&resp)).get(loc).await;
     let html2 = body_string(resp2).await;
     assert!(
-        html2.contains("fixed top-4 right-4"),
+        html2.contains("Deleted"),
         "notification should survive, got {}",
         html2
     );

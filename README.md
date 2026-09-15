@@ -184,7 +184,7 @@ There is no `Action` type. Deletes run through panel POST routes driving the `Re
 - `POST {list}/bulk-delete` → `bulk_delete_records`, all-or-nothing: every id is re-fetched via `Resource::query` and policy-checked before anything is deleted.
 - Create/edit POSTs validate inline, check `can_create`/`can_update`, then call `create_record`/`update_record`.
 
-`Notification` (`success`/`error`/`info`) travels via `Set-Cookie` (`__Host-argentum_notification`) with a `?notification=` fallback and renders in a shell-level stack (`fixed top-4 right-4`) that survives table swaps. Policy is `Resource::can_*`, default-deny, enforced in both page and POST handlers — the one authorization vocabulary (GH #109: the parallel `Policy<R>` trait was removed, not wired).
+`Notification` (`success`/`error`/`info`) is a one-time flash cookie (`__Host-argentum_notification`, Topcoat `CookieStore` with hardened jar defaults) set on the 303 Post/Redirect/Get response and rendered in a shell-level stack (`fixed top-4 right-4`) that survives table swaps; following the redirect consumes it, so a reload never replays it. Policy is `Resource::can_*`, default-deny, enforced in both page and POST handlers — the one authorization vocabulary (GH #109: the parallel `Policy<R>` trait was removed, not wired).
 
 ### 4.6 Authentication
 
@@ -271,8 +271,8 @@ let query = signal(cx, String::new); // page-owned; hoists identity for the clie
 <input :value=$(query.get()) @input=$(|e: Event| query.set(e.target.value))>
 ```
 
-- `signal(cx, init)` is an ordinary Rust function returning an owned cheap-to-clone value. It must run inside a page/layout/component body (hand-registered `PageFn`s wrap their body in `HoistView`, exactly what `#[page]` generates). Identity comes from the creating body plus the call site, so a body that repeats (for loop) needs a `key`.
-- Reads in `$(...)` re-run in JS with no server round-trip. Reads in plain Rust via `get()`/`read()` are **tracked** — they emit a dependency marker so a browser change re-runs the page (or the innermost enclosing shard) via the runtime routes, and the result is **morphed** into place (Topcoat #392): elements that still exist update in place so focus, scroll position, and what the user is typing survive; give reorderable list items a stable `id` so the morph follows each item. `get_untracked()`/`read_untracked()` opt out. Every server-read value is untrusted user input.
+- `signal(cx, init)` is an ordinary Rust function returning an owned cheap-to-clone value. It must run inside a page/layout/component body (hand-registered `PageFn`s wrap their body in `HoistView`, exactly what `#[page]` generates). Identity comes from the creating body plus the call site, so a body that repeats (for loop) needs a `#[key(...)]` iteration key.
+- Reads in `$(...)` re-run in JS with no server round-trip. Reads in plain Rust via `get()`/`read()` are **tracked** — they emit a dependency marker so a browser change re-runs the page (or the innermost enclosing shard) via the runtime routes, and the result is **morphed** into place (Topcoat #392): elements that still exist update in place so focus, scroll position, and what the user is typing survive; give reorderable list items a stable `id` and a `#[key(...)]` iteration key (from the row key, never the loop index) so the morph follows each item. `get_untracked()`/`read_untracked()` opt out. Every server-read value is untrusted user input.
 - A shard can also take a signal from its caller through a parameter typed `Signal<T>`, passed as `$(signal)` (Topcoat #393). The handle does not change when its value does, so whether a change re-renders the shard depends on how the shard body reads it — the seam for passing table state without forcing re-renders (see #104).
 - Guards on page/layout **do not run** on shard requests — a shard must authorize itself. Argentum's `table_search` shard does (`requires_tenant` + `can_view_any`, row scoping via `Resource::query`); deletes/creates/edits stay POST `PageFn` handlers, and the hand-registered pages adapt fallible async bodies with an internal view adapter mirroring `#[page]` (upstream gap #123).
 - **Adopted:** `suspense(fallback, child)` for streaming skeletons — first content ships the shell + skeleton, the loaded content swaps in via `<template data-topcoat-swap>` markers, no client library. (Upstream also ships `live!`/`emit!`; Argentum does not use them.) `resource_list` streams rows this way; `Table::render_skeleton` is the shared fallback.
@@ -296,7 +296,7 @@ Testing: `CxTestBuilder` for unit renders, per-resource policy tests, showcase i
 
 ## 9. Validation & errors
 
-Validate in `Schema` (field rules), then in the POST handler, then DB constraints. Return inline field errors (not toast-only). Absent keys validate as `""`, so updates must only write present keys; create/edit POSTs reject unknown keys with 400 via `Schema::unknown_keys` (GH #89 — `role`/`tenant_id` smuggling fails closed at the framework layer, `csrf_token` is the only handler key exempted). DB `#[unique]` violations cannot map to inline errors yet — toasty exposes no unique-violation predicate (upstream gap #117); uniqueness is pre-checked app-side until it lands. Router errors bubble via `Result` + `?` into the router's error→status mapping; a layout can wrap its `Slot<'_>` in `error_boundary` to brand them. Redirects via `Err(redirect("/..."))` — before first content they are `Location` responses; mid-stream they degrade to a `window.location.replace` script.
+Validate in `Schema` (field rules), then in the POST handler, then DB constraints. Return inline field errors (not toast-only). Absent keys validate as `""`, so updates must only write present keys; create/edit POSTs reject unknown keys with 400 via `Schema::unknown_keys` (GH #89 — `role`/`tenant_id` smuggling fails closed at the framework layer, `csrf_token` is the only handler key exempted). DB `#[unique]` violations cannot map to inline errors yet — toasty exposes no unique-violation predicate (upstream gap #117); uniqueness is pre-checked app-side until it lands. Router errors bubble via `Result` + `?` into the router's error→status mapping; a layout can wrap its `Slot<'_>` in `error_boundary` to brand them. Redirects via `Err(redirect("/..."))` (307, method-preserving; for GETs) or `Err(see_other("/..."))` (303 Post/Redirect/Get after mutations, carrying the one-time flash cookie) — before first content they are `Location` responses; mid-stream they degrade to a `window.location.replace` script.
 
 ---
 
@@ -404,9 +404,8 @@ impl Resource for PostResource {
 
 ## 12. Open questions
 
-- Transport for re-runs: runtime page/shard routes landed and results morph in place (#392 — focus/scroll/typing survive, stable `id`s pin reorderable items). Shard `Signal<T>` params landed (#393); the live table search shard landed behind `Table::live_search` (ticket #104). Same seam.
+- Transport for re-runs: runtime page/shard routes landed and results morph in place (#392 — focus/scroll/typing survive, stable `id`s and `#[key(...)]` loop keys pin reorderable items). Shard `Signal<T>` params landed (#393); the live table search shard landed behind `Table::live_search` (ticket #104). Same seam.
 - Prewarm hint for `defer` (start memoized load during skeleton pass) and per-region flushing tradeoffs.
-- `Table` column `key:` stability inside `for row in rows` — enforce `key:` from the row key, never the loop index.
 
 ---
 
@@ -414,5 +413,5 @@ impl Resource for PostResource {
 
 - This repo: `CONTEXT.md` (vocabulary), `docs/adr/` (decisions), the `upstream`-labelled issues (Toasty/Topcoat gaps), `benchmarks/README.md`, `examples/showcase/` (runnable truth).
 - Toasty guide: querying records, filtering with expressions, sorting/limits/pagination, preloading associations, schema management; `toasty-cli` for migrations.
-- Topcoat docs: `runtime`, `memoize`, `view`/`component`, `shard`/`procedure`/`expr`, router (`router`, `module_router`, `error`, sitemaps), cookie/session, `functions_not_middlewares`.
+- Topcoat docs: `runtime`, `memoize`, `view`/`component` (esp. "Views Are Lazy": a view captures by move, may borrow only `cx` and data that outlives the render), `shard`/`procedure`/`expr`, router (`router`, `module_router`, `error`, sitemaps), cookie/session, `functions_not_middlewares`.
 - Filament PHP (spirit, not API): `panels/Resources/Resource.php`, `schemas/Schema.php`, `tables/Table.php`, `actions/Action.php`.

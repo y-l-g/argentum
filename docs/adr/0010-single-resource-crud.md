@@ -33,3 +33,7 @@ Implementation drifted from this record; the code won. There is no `#[procedure]
 ## Amendment (2026-09-15)
 
 The notification flash cookie is `__Host-argentum_notification` with `Secure` (GH #149), matching the session and CSRF cookies' hardened contract — removals carry the same attributes so browsers honor the clear.
+
+## Amendment (2026-09-15, Topcoat bump — GH #120/#124/#126/#139)
+
+Topcoat now flushes pending `Set-Cookie`s on error responses (topcoat#408), so the notification is cookie-only and one-time: the `?notification=` query fallback is gone, and mutations answer `303 See Other` (`see_other`, topcoat#398) with the flash cookie on the redirect — following it consumes the toast, so reloads never replay it (GH #126). The flash value is Topcoat's `CookieStore` JSON under `__Host-argentum_notification` (GH #139) instead of the hand-rolled `status:title` codec. Row identity in `view!` loops is now a loop-level `#[key(...)]` (topcoat#410) — the old per-component `key:` prop is removed; tables key rows from the row key, never the loop index (GH #124). `topcoat::Error` is Arc-backed and `Clone` (topcoat#396), so the memoized loader hands out the typed error without stringification (GH #120).
