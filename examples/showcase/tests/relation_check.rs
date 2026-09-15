@@ -167,10 +167,16 @@ async fn posts_edit_hydrates_author() {
     assert!(resp.status().is_success());
     let html = body_string(resp).await;
     assert!(html.contains("EditMe"), "edit should show title {}", html);
+    // GH #108: the hydrated FK must match the option's canonical PK value and
+    // be preselected — asserting the id appears is not enough (the option
+    // value itself contains it even when nothing is selected).
+    let author_option = html
+        .split("<option")
+        .find(|chunk| chunk.contains(&format!("value=\"{}\"", first.id)))
+        .unwrap_or_else(|| panic!("edit should render an option for the stored author {html}"));
     assert!(
-        html.contains(&first.id.to_string()) || html.contains("selected"),
-        "edit should show selected author {}",
-        html
+        author_option.contains("selected"),
+        "the stored author must be preselected: {author_option}"
     );
 }
 

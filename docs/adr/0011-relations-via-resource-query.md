@@ -31,3 +31,7 @@ This is clean (one seam, no `Macroable`/`statePath`), fast (explicit `include` p
 ## Amendment (2026-09-10)
 
 Loader details the decision left open: the `include` must be bound in two typed steps (`let inc: toasty::stmt::Include<Post, Author> = Post::fields().author().into()`) — chaining `.into()` does not infer. Unloaded relation cells render `"(unloaded)"` with a `debug_assert!` instead of silently reading data (GH #101). `Select::relationship` option values come from the related `Table::id` display key and the loader does not consult the related `Resource`'s `can_view_any` — both tracked separately (see #91).
+
+## Amendment (2026-09-15)
+
+Relationship option identity (GH #108): `Select::relationship` takes a **typed primary-key projection** (`Fn(&R::Model) -> R::Model::PrimaryKey`) whose `Display` string becomes the `<option value>` — this supersedes the two-argument call shown in the Decision section. The related table's `Table::id` row-key projection is no longer consulted for option values; it stays the list's row identity for DOM ids, bulk values and edit/delete URLs. A wrong value projection fails to compile where the projected type differs from the PK. The related PK must be a single primitive implementing `Display` (composite-key and `Bytes`-key models cannot declare relationship selects — use static options). Edit forms must hydrate the FK with the same canonical string the projection produces, or the stored value renders unselected.

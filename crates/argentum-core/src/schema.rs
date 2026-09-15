@@ -32,6 +32,12 @@ type RelationshipLoader = std::sync::Arc<
 /// table per select per submit.
 pub const MAX_RELATIONSHIP_OPTIONS: usize = 200;
 
+/// The related model's primary key type — the identity a relationship option
+/// stores (GH #108). Fully qualified because the `Model` trait is a bound of
+/// `Resource::Model`, not a supertrait of `Resource`.
+pub(crate) type RelatedPrimaryKey<R> =
+    <<R as crate::resource::Resource>::Model as toasty::schema::Model>::PrimaryKey;
+
 // ---------------------------------------------------------------------------
 // Public layout primitives
 // ---------------------------------------------------------------------------
@@ -279,8 +285,8 @@ impl TextInput {
 /// plus re-render scans. `tenant` is an explicit cache key: memoize tracking
 /// alone cannot distinguish header-tenanted callers sharing one `Parts`, so
 /// tenancy isolation never rides on scope resolution. `R::query` stays the
-/// only data seam (tenancy preserved); label mapping stays in the caller so
-/// selects with different labels share the hit.
+/// only data seam (tenancy preserved); value and label mapping stay in the
+/// caller so selects with different projections share the hit.
 #[topcoat::context::memoize(as_ref)]
 async fn related_records<R>(cx: &Cx, _tenant: Option<uuid::Uuid>) -> Result<Vec<R::Model>, String>
 where
@@ -297,10 +303,13 @@ where
 
 /// Select field bound to a lens (often a foreign key like `author_id`).
 ///
-/// `Select::for(Post::fields().author_id()).relationship(AuthorResource::query, |a| a.name.clone())`
-/// loads options via `AuthorResource::query(cx)` (tenancy-aware) and stores `author.id`
-/// as the value. Typos in the lens fail at compile time. The relationship loader
-/// reuses `Resource::query` + `Resource::table` for tenancy and PK extraction (no new seam).
+/// `Select::for(Post::fields().author_id()).relationship(AuthorResource::query, |a| a.id, |a| a.name.clone())`
+/// loads options via `AuthorResource::query(cx)` (tenancy-aware) and stores the
+/// related record's primary key as the value. Typos in the lens fail at compile
+/// time; a wrong value projection fails where the projected type differs from
+/// the PK. Option values are never read from the related table's `Table::id`
+/// row-key projection (GH #108); that projection stays the list's row identity
+/// (DOM ids, bulk values, edit/delete URLs), not a source of FK values.
 pub struct Select {
     name: String,
     label: String,
@@ -414,11 +423,27 @@ impl Select {
         self
     }
 
-    /// Load options via a related `Resource::query` (tenancy-aware) and a label closure.
+    /// Load options via a related `Resource::query` (tenancy-aware), a typed
+    /// primary-key projection, and a label closure.
     ///
     /// The first argument is the resource's `query` fn (e.g. `AuthorResource::query`) — it is
     /// only used for type inference; the loader calls `R::query(cx)` directly so tenancy is
-    /// preserved. The second argument maps the related record to its display label.
+    /// preserved. The second argument projects each related record to the
+    /// model's **primary key**: it is stringified with `Display` and becomes
+    /// the `<option value>`. The third maps the record to its display label.
+    ///
+    /// Option values are typed PKs, never the table's row-key projection
+    /// (GH #108): using `Table::id` as the option value silently stored
+    /// arbitrary display strings in FK columns (or 500'd at write time when
+    /// the record fn parsed them). The projection is
+    /// `Fn(&R::Model) -> R::Model::PrimaryKey`, so a wrong field fails to
+    /// compile where the types differ. The related PK must be a single
+    /// primitive implementing `Display` — its canonical string is what
+    /// round-trips through the form; composite-key and `Bytes`-key models
+    /// cannot declare relationship selects (use `options_with_labels` for
+    /// those). Edit forms must hydrate the FK with that same canonical string
+    /// (e.g. `record.author_id.to_string()`), or the stored value renders
+    /// unselected.
     ///
     /// Bounded and memoized (GH #91): the loader fetches at most one row
     /// past `MAX_RELATIONSHIP_OPTIONS` and fails when the related table is
@@ -431,14 +456,18 @@ impl Select {
     pub fn relationship<R>(
         mut self,
         _query: fn(&Cx) -> toasty::stmt::Query<toasty::stmt::List<R::Model>>,
+        value: impl Fn(&R::Model) -> RelatedPrimaryKey<R> + Send + Sync + 'static,
         label: impl Fn(&R::Model) -> String + Send + Sync + 'static,
     ) -> Self
     where
         R: crate::resource::Resource + 'static,
         R::Model: Send + Sync + 'static,
+        RelatedPrimaryKey<R>: std::fmt::Display,
     {
+        let value = std::sync::Arc::new(value);
         let label = std::sync::Arc::new(label);
         let loader = std::sync::Arc::new(move |cx: &Cx| {
+            let value = value.clone();
             let label = label.clone();
             let cx = cx.clone();
             Box::pin(async move {
@@ -454,12 +483,9 @@ impl Select {
                     ))
                     .into());
                 }
-                let table = R::table(&cx);
                 let mut opts = Vec::new();
                 for rec in records.iter() {
-                    if let Some(k) = table.key_for(rec) {
-                        opts.push((k, label(rec)));
-                    }
+                    opts.push((value(rec).to_string(), label(rec)));
                 }
                 Ok(opts)
             })
@@ -2825,15 +2851,88 @@ mod tests {
         }
         let cx = CxTestBuilder::new().app_context(db).build();
         let select = Select::r#for(RefPost::fields().author_id())
-            .relationship::<RefAuthorResource>(RefAuthorResource::query, |a: &RefAuthor| {
-                a.name.clone()
-            });
+            .relationship::<RefAuthorResource>(
+                RefAuthorResource::query,
+                |a: &RefAuthor| a.id,
+                |a: &RefAuthor| a.name.clone(),
+            );
         // Over the cap: bounded work, visible retry error — never an
         // empty-options passthrough (GH #91).
         let errs = select.validate_async(&cx, "whatever").await;
         assert!(
             errs.iter().any(|e| e.contains("could not load options")),
             "overflow must surface retry error, got {errs:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn relationship_option_values_are_primary_keys_not_table_ids() {
+        // GH #108: `Table::id` is a display projection (GH #85) — option
+        // values must come from the record's typed PK, or a non-canonical
+        // table key silently stores a label in the FK column.
+        use crate::resource::Resource;
+
+        #[derive(Debug, toasty::Model)]
+        struct RefAuthor {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            name: String,
+        }
+        struct RefAuthorResource;
+        impl Resource for RefAuthorResource {
+            type Model = RefAuthor;
+            fn table(cx: &Cx) -> crate::resource::Table<RefAuthor> {
+                crate::resource::Table::r#for(cx)
+                    // Deliberately non-canonical: display key != PK.
+                    .id(|a: &RefAuthor| format!("display:{}", a.name))
+                    .columns(crate::resource::TextColumn::r#for(
+                        RefAuthor::fields().name(),
+                        |a: &RefAuthor| a.name.clone(),
+                    ))
+            }
+        }
+
+        let mut db = toasty::Db::builder()
+            .models(toasty::models!(RefAuthor))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        let row = toasty::create!(RefAuthor {
+            name: "Ada".to_string(),
+        })
+        .exec(&mut db)
+        .await
+        .unwrap();
+        let pk = row.id.to_string();
+        let cx = CxTestBuilder::new().app_context(db).build();
+        let select = Select::r#for(RefAuthor::fields().name()).relationship::<RefAuthorResource>(
+            RefAuthorResource::query,
+            |a: &RefAuthor| a.id,
+            |a: &RefAuthor| a.name.clone(),
+        );
+        // The PK validates; the display key never does.
+        assert!(select.validate_async(&cx, &pk).await.is_empty());
+        assert_eq!(
+            select.validate_async(&cx, "display:Ada").await,
+            vec!["Name is invalid".to_string()]
+        );
+        let html = select
+            .render_with(&cx, Some(&pk), &[])
+            .await
+            .unwrap()
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
+        assert!(
+            html.contains(&format!("value=\"{pk}\"")),
+            "option value must be the PK, got {html}"
+        );
+        assert!(
+            !html.contains("display:Ada"),
+            "display key leaked into option values: {html}"
         );
     }
 
@@ -2924,12 +3023,16 @@ mod tests {
         let cx = CxTestBuilder::new().app_context(db).build();
 
         // Two selects, different labels, same resource.
-        let s1 = Select::r#for(Ref::fields().name())
-            .relationship::<CountingResource>(CountingResource::query, |r: &Ref| r.name.clone());
-        let s2 = Select::r#for(Ref::fields().name())
-            .relationship::<CountingResource>(CountingResource::query, |r: &Ref| {
-                format!("{}!", r.name)
-            });
+        let s1 = Select::r#for(Ref::fields().name()).relationship::<CountingResource>(
+            CountingResource::query,
+            |r: &Ref| r.id,
+            |r: &Ref| r.name.clone(),
+        );
+        let s2 = Select::r#for(Ref::fields().name()).relationship::<CountingResource>(
+            CountingResource::query,
+            |r: &Ref| r.id,
+            |r: &Ref| format!("{}!", r.name),
+        );
 
         OPTION_LOADS.store(0, Ordering::SeqCst);
         assert!(s1.validate_async(&cx, &id).await.is_empty());

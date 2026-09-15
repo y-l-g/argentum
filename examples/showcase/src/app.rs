@@ -478,9 +478,11 @@ impl Resource for PostResource {
             Section::new("Post Details").schema((
                 TextInput::r#for(Post::fields().title()).required(),
                 Select::r#for(Post::fields().author_id())
-                    .relationship::<AuthorResource>(AuthorResource::query, |a: &Author| {
-                        a.name.clone()
-                    })
+                    .relationship::<AuthorResource>(
+                        AuthorResource::query,
+                        |a: &Author| a.id,
+                        |a: &Author| a.name.clone(),
+                    )
                     .required()
                     .searchable()
                     .label("Author"),
