@@ -324,11 +324,11 @@ Dev lint for unmemoized deferred loads, prewarm hint for `defer`, per-region flu
 
 ### Next
 
-Widgets (`StatsOverview`, chart), global search, infolist entries, file/media assets, themes beyond brand/dark-mode tokens, `embed_migrations!` history + `toasty-cli` standalone.
+Widgets (`StatsOverview`, chart), global search, infolist entries, file/media assets, themes beyond brand/dark-mode tokens, server-side relationship option search for tables above the cap (#150), `embed_migrations!` history + `toasty-cli` standalone.
 
 **Out of scope for v1:** `via` many-to-many in tables, DynamoDB-backed admin, `GROUP BY` aggregates beyond `count` (delegating to Toasty's `GROUP BY`, upstream #118 — the raw-SQL shim was dropped, GH #107), WASM admin, SPA mode.
 
-(The old tracking issue #38 is closed; its remaining future slices are the Now/Next lists above. Open work is tracked per-topic in #88 (unique-check race/scope) and #91 (relationship Select), plus Renovate's `#82`.)
+(The old tracking issue #38 is closed; its remaining future slices are the Now/Next lists above. Open work is tracked per-topic in #88 (unique-check race/scope) and #150 (relationship option search), plus Renovate's `#82`.)
 
 ---
 

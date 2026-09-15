@@ -428,7 +428,8 @@ impl Select {
     /// select that narrows options by label substring (delegated JS, no
     /// re-render). Covers the bounded option set (relationship loads are
     /// capped); over-cap tables still fail visibly, and server-side option
-    /// search for huge tables is future work. No-JS keeps the plain select.
+    /// search for huge tables is future work (#150). No-JS keeps the plain
+    /// select.
     pub fn searchable(mut self) -> Self {
         self.searchable = true;
         self
