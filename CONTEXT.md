@@ -27,7 +27,7 @@ A server-side `AuthSession` row keyed by the SHA-256 hash of a client token carr
 _Avoid_: Token (the client half), SessionStore, Login, Cookie
 
 ### Resource
-A type that maps one Toasty Model to its admin UI. Defines the base query, the table, the form (and infolist stub), its pages, navigation entry, and policy. One Model → one Resource.
+A type that maps one Toasty Model to its admin UI. Defines the base query, the table, the form (and infolist stub), navigation entry, and policy. One Model → one Resource; its routes (list/create/edit/delete) come from the Panel registration, not a `pages()` declaration.
 
 _Avoid_: Model, Entity, Collection, AdminModel, CRUD
 

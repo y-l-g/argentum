@@ -1,7 +1,7 @@
 //! `Resource` — maps one Toasty [`Model`] to its admin UI.
 //!
 //! One `Model` → one `Resource`. The trait is the single seam for query
-//! scoping (`query`), form/table stubs, pages, and navigation. See
+//! scoping (`query`), form/table stubs, and navigation. See
 //! `CONTEXT.md` and ADR-0002.
 
 use std::marker::PhantomData;
@@ -2757,21 +2757,6 @@ pub(crate) fn build_url(path: &str, params: &[(&str, Option<&str>)]) -> String {
     }
 }
 
-/// Which pages a `Resource` exposes.
-#[derive(Debug, Default)]
-pub struct Pages<R> {
-    _marker: PhantomData<R>,
-}
-
-impl<R> Pages<R> {
-    /// The conventional CRUD set (list / create / edit / view). Phase 1: stub.
-    pub fn crud() -> Self {
-        Self {
-            _marker: PhantomData,
-        }
-    }
-}
-
 /// Predicate deciding whether a [`NavigationItem`] matches the request URI —
 /// factored out of `NavigationItem` so the field signature stays readable.
 pub type HrefCheck = Arc<dyn Fn(&Cx) -> bool + Send + Sync>;
@@ -3050,11 +3035,6 @@ pub trait Resource: Sized + Send + Sync + 'static {
     /// Description of the form/infolist. Phase 1: stub.
     fn form(_cx: &Cx) -> Schema {
         Schema::empty()
-    }
-
-    /// Which pages the resource exposes. Phase 1: the CRUD stub.
-    fn pages() -> Pages<Self> {
-        Pages::crud()
     }
 
     /// Sidebar entry for the resource.

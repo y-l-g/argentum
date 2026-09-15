@@ -96,7 +96,6 @@ pub trait Resource: Sized + Send + Sync + 'static {
     }
     fn table(_cx: &Cx) -> Table<Self::Model> { Table::new() } // default: empty, not renderable until columns + id
     fn form(_cx: &Cx) -> Schema { Schema::empty() }
-    fn pages() -> Pages<Self> { Pages::crud() } // Phase 1 stub: Panel does not consume this yet (#106)
     fn navigation() -> NavigationItem { NavigationItem::from_resource::<Self>() }
 
     // Record operations driven by the create/edit/delete POST handlers.

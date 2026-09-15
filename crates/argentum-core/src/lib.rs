@@ -31,7 +31,7 @@ pub use notification::{Notification, NotificationStatus};
 pub use panel::{Brand, DarkMode, Panel};
 pub use policy::{AllowAll, DenyAll, Policy};
 pub use resource::{
-    Column, DateFilter, Filter, IntoFilters, NavigationItem, Pages, Resource, RowKey, SelectFilter,
+    Column, DateFilter, Filter, IntoFilters, NavigationItem, Resource, RowKey, SelectFilter,
     Sort, Table, TablePage, TableState, TernaryFilter, TextColumn, VariantFilter,
 };
 pub use schema::{
