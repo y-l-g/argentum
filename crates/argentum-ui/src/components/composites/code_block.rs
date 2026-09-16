@@ -338,7 +338,7 @@ mod tests {
         let cx = CxTestBuilder::new().build();
         let cx_ref = &cx;
         let code = "// POST /admin/showcase/dialog/notify\nset_notification(\n    cx,\n    Notification::success(\"User created\").description(\"Ada Lovelace was added successfully.\"),\n);\nErr(see_other(\"/admin/showcase/dialog\").into()) // PRG";
-        let html = view! { cx_ref => code_block(lang: "rust", code: (code)) }
+        let html = view! { cx_ref => code_block(lang: "rust", code: code) }
             .single()
             .await
             .unwrap()
