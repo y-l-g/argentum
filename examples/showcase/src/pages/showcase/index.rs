@@ -4,6 +4,50 @@ use topcoat::{
     view::{View, view},
 };
 
+/// The showcased pages: link target, label, and what each one demonstrates.
+const FEATURES: &[(&str, &str, &str)] = &[
+    (
+        "/admin/showcase/ui",
+        "UI",
+        "argentum-ui seam: card, button, badge with Tokens (proves the Tailwind seam)",
+    ),
+    (
+        "/admin/showcase/dialog",
+        "Dialog",
+        "shadcn/Sonner toast stack (fixed bottom-right) + alert_dialog with Destructive/Outline buttons",
+    ),
+    (
+        "/admin/showcase/panel",
+        "Panel",
+        "app shell, prefix, Db in app_context, Router discover",
+    ),
+    (
+        "/admin/showcase/resource",
+        "Resource",
+        "#[derive(Resource)] model + query override, navigation",
+    ),
+    (
+        "/admin/showcase/schema",
+        "Schema",
+        "Section / Group / Grid / TextInput + composition variants",
+    ),
+    (
+        "/admin/showcase/table",
+        "Table",
+        "TextColumn searchable/sortable, Table::for + columns (static previews; /admin/users is live)",
+    ),
+    (
+        "/admin/showcase/db",
+        "Db + memoize",
+        "db(cx) glue and per-request memoization",
+    ),
+    (
+        "/admin/users",
+        "Admin list (/admin/users)",
+        "real app page (Panel + Resource → table)",
+    ),
+];
+
 #[page("/admin/showcase")]
 async fn showcase_index() -> Result<impl View> {
     Ok(view! {
@@ -21,40 +65,34 @@ async fn showcase_index() -> Result<impl View> {
                 <h2 class="text-lg font-semibold tracking-tight text-foreground">
                     "Features"
                 </h2>
-                <ul>
-                    <li>
-                        <a href="/admin/showcase/ui">"UI"</a>
-                        " — argentum-ui seam: card, button, badge with Tokens (proves Tailwind seam)"
-                    </li>
-                    <li>
-                        <a href="/admin/showcase/dialog">"Dialog"</a>
-                        " — shadcn/Sonner toast stack (fixed bottom-right) + alert_dialog with Destructive/Outline buttons"
-                    </li>
-                    <li>
-                        <a href="/admin/showcase/panel">"Panel"</a>
-                        " — app shell, prefix, Db in app_context, Router discover"
-                    </li>
-                    <li>
-                        <a href="/admin/showcase/resource">"Resource"</a>
-                        " — #[derive(Resource)] model + query override, navigation"
-                    </li>
-                    <li>
-                        <a href="/admin/showcase/schema">"Schema"</a>
-                        " — Section / Group / Grid / TextInput + composition variants"
-                    </li>
-                    <li>
-                        <a href="/admin/showcase/table">"Table"</a>
-                        " — TextColumn searchable/sortable, Table::for + columns (static previews; /admin/users is live)"
-                    </li>
-                    <li>
-                        <a href="/admin/showcase/db">"Db + memoize"</a>
-                        " — db(cx) glue and per-request memoization"
-                    </li>
-                    <li>
-                        <a href="/admin/users">"Admin list (/admin/users)"</a>
-                        " — real app page (Panel + Resource → table)"
-                    </li>
-                </ul>
+                argentum_ui::table(
+                    argentum_ui::table_header(
+                        argentum_ui::table_row(
+                            argentum_ui::table_head("Page")
+                            argentum_ui::table_head("What it shows")
+                        )
+                    )
+                    argentum_ui::table_body(
+                        for (href, label, description) in FEATURES {
+                            argentum_ui::table_row(
+                                argentum_ui::table_cell(
+                                    <a
+                                        href=(*href)
+                                        class="font-medium text-primary hover:underline"
+                                    >
+                                        (*label)
+                                    </a>
+                                )
+                                argentum_ui::table_cell(
+                                    // `table_cell` is `whitespace-nowrap`;
+                                    // descriptions need to wrap or the table
+                                    // scrolls sideways (GH #151 §4).
+                                    <span class="whitespace-normal">(*description)</span>
+                                )
+                            )
+                        }
+                    )
+                )
             </section>
 
             <section

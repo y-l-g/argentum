@@ -109,6 +109,16 @@ async fn showcase_index_lists_features() {
     ] {
         assert!(html.contains(path), "missing link {path} in {html}");
     }
+    // The feature list is a table (GH #151 §4): headers plus a description
+    // cell, not the old `<ul>`.
+    assert!(
+        html.contains(">Page</th>") && html.contains(">What it shows</th>"),
+        "feature list should render as a table with headers: {html}"
+    );
+    assert!(
+        html.contains("per-request memoization"),
+        "feature table should carry the page descriptions: {html}"
+    );
 }
 
 #[tokio::test]
@@ -300,6 +310,12 @@ async fn showcase_panel_renders_normalization() {
     assert!(
         html.contains("/admin") && html.contains("/showcase"),
         "missing prefix variants in {html}"
+    );
+    // The prefix mapping is a real table, not the old raw `<table>` with
+    // unstyled cells (GH #151 §7).
+    assert!(
+        html.contains(">input</th>") && html.contains(">prefix()</th>"),
+        "prefix mapping should render as a table with headers: {html}"
     );
 }
 

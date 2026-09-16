@@ -54,36 +54,36 @@ async fn panel_showcase() -> Result<impl View> {
                     code: "Panel::new(\"admin\").prefix()    // \"/admin\"\nPanel::new(\"/admin\").prefix()   // \"/admin\"\nPanel::new(\"admin/\").prefix()   // \"/admin\"\nPanel::new(\"\").prefix()         // \"/admin\"\nPanel::new(\"showcase\").prefix() // \"/showcase\""
                 )
                 <div class="rounded-lg border border-border bg-background p-4">
-                    <table class="w-full caption-bottom border-collapse text-sm">
-                        <thead>
-                            <tr>
-                                <th>"input"</th>
-                                <th>"prefix()"</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr>
-                                <td>"\"admin\""</td>
-                                <td>(p_admin)</td>
-                            </tr>
-                            <tr>
-                                <td>"\"/admin\""</td>
-                                <td>(p_slash)</td>
-                            </tr>
-                            <tr>
-                                <td>"\"admin/\""</td>
-                                <td>(p_slash_trail)</td>
-                            </tr>
-                            <tr>
-                                <td>"\"\""</td>
-                                <td>(p_empty)</td>
-                            </tr>
-                            <tr>
-                                <td>"\"showcase\""</td>
-                                <td>(p_custom)</td>
-                            </tr>
-                        </tbody>
-                    </table>
+                    argentum_ui::table(
+                        argentum_ui::table_header(
+                            argentum_ui::table_row(
+                                argentum_ui::table_head("input")
+                                argentum_ui::table_head("prefix()")
+                            )
+                        )
+                        argentum_ui::table_body(
+                            argentum_ui::table_row(
+                                argentum_ui::table_cell("\"admin\"")
+                                argentum_ui::table_cell((p_admin))
+                            )
+                            argentum_ui::table_row(
+                                argentum_ui::table_cell("\"/admin\"")
+                                argentum_ui::table_cell((p_slash))
+                            )
+                            argentum_ui::table_row(
+                                argentum_ui::table_cell("\"admin/\"")
+                                argentum_ui::table_cell((p_slash_trail))
+                            )
+                            argentum_ui::table_row(
+                                argentum_ui::table_cell("\"\"")
+                                argentum_ui::table_cell((p_empty))
+                            )
+                            argentum_ui::table_row(
+                                argentum_ui::table_cell("\"showcase\"")
+                                argentum_ui::table_cell((p_custom))
+                            )
+                        )
+                    )
                 </div>
             </section>
 
