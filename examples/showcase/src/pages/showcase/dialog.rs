@@ -1,20 +1,48 @@
+use std::collections::HashMap;
+
+use argentum_core::{Notification, csrf, notification::set_notification};
 use topcoat::{
     Result,
     context::Cx,
-    icon::icon,
-    router::{page, query_params},
+    router::{content::Form, error::see_other, page, query_params},
     view::{View, attributes, view},
 };
+
+use super::example::example;
 
 #[query_params]
 struct DialogQuery {
     open: Option<bool>,
 }
 
+/// Flash one Notification and land back on the dialog page (POST/Redirect/Get).
+///
+/// `status` picks the variant; the shell's toaster renders it on the next GET.
+/// `Result<()>` is the documented shape for a page that always redirects:
+/// the redirect rides `Err`, so there is no `Ok` view to infer.
+#[page(POST "/admin/showcase/dialog/notify")]
+async fn dialog_notify(cx: &Cx, Form(values): Form<HashMap<String, String>>) -> Result<()> {
+    csrf::verify(cx, &values)?;
+    let notification = match values.get("status").map(String::as_str) {
+        Some("success") => Notification::success("User created")
+            .description("Ada Lovelace was added successfully."),
+        Some("warning") => {
+            Notification::warning("Careful").description("This action changes stored data.")
+        }
+        Some("error") => {
+            Notification::error("Something failed").description("Nothing was changed.")
+        }
+        _ => Notification::info("Heads up").description("The record already exists."),
+    };
+    set_notification(cx, notification);
+    Err(see_other("/admin/showcase/dialog").into())
+}
+
 #[page("/admin/showcase/dialog")]
 async fn dialog_showcase(cx: &Cx) -> Result<impl View> {
     // Prove Notification and Dialog chrome — all Token-only, no ac-*
-    // Notification: the shadcn/Sonner toast surface in a fixed bottom-right stack
+    // Notification: the shadcn/Sonner toast surface in a fixed bottom-right
+    // stack, flashed by the POST above and rendered by the shell.
     // Dialog: alert_dialog driven by ?open= — Cancel/Delete are links back to
     // the plain page (SSR close), dialog.js adds Escape/backdrop dismissal
     // without reload.
@@ -22,6 +50,9 @@ async fn dialog_showcase(cx: &Cx) -> Result<impl View> {
         .ok()
         .and_then(|q| q.open)
         .unwrap_or(false);
+    // `ensure_token` sets the CSRF cookie when the form is (re)rendered, so
+    // `dialog_notify` can verify it — the same contract as every real form.
+    let csrf_token = csrf::ensure_token(cx);
     let dialog = view! {
         cx =>
         argentum_ui::alert_dialog(
@@ -76,84 +107,55 @@ async fn dialog_showcase(cx: &Cx) -> Result<impl View> {
                 )
             )
 
-            <section
-                class="flex flex-col gap-4 rounded-xl border border-border bg-background p-6 shadow-sm"
-            >
-                <h2 class="text-lg font-semibold tracking-tight text-foreground">
-                    "Toast (shadcn/Sonner)"
-                </h2>
-                argentum_ui::code_block(
-                    lang: "rust",
-                    code: "// Panel::render_shell owns the toaster (Sonner surface):\n//   <ol data-sonner-toaster class=\"fixed right-4 bottom-4 ... w-[356px] flex-col gap-3.5\">\n//     <li data-sonner-toast data-type=\"success\">icon + title + description + close</li>\n//   </ol>"
-                )
-                <div class="rounded-lg border border-border bg-background p-4">
-                    <p class="text-sm text-muted-foreground">
-                        "Toasts stack bottom-right, auto-dismiss after 4s (paused on hover/focus), and close from the circular button. A mutation flashes the same markup through the shell's toaster and it survives Boundary swaps."
-                    </p>
-                    // Static visual proof of the toast surface; the shell's
-                    // real toast (armed by notifications.js) is the live one.
-                    <div
-                        class="mt-4 flex max-w-full items-center gap-1.5 rounded-lg border border-border bg-background p-4 text-[13px] text-foreground shadow-lg sm:w-[356px]"
-                    >
-                        <span class="flex size-4 shrink-0 items-center justify-center">
-                            icon(
-                                data: argentum_ui::icons::CIRCLE_CHECK,
-                                attrs: attributes! { class="size-4" }
-                            )
-                        </span>
-                        <div class="flex min-w-0 flex-1 flex-col gap-0.5">
-                            <div class="font-medium leading-normal">"User created"</div>
-                            <div class="leading-snug text-muted-foreground">
-                                "Ada Lovelace was added successfully."
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </section>
-
-            <section
-                class="flex flex-col gap-4 rounded-xl border border-border bg-background p-6 shadow-sm"
-            >
-                <h2 class="text-lg font-semibold tracking-tight text-foreground">
-                    "Dialog / AlertDialog"
-                </h2>
-                argentum_ui::code_block(
-                    lang: "rust",
-                    code: "// GET /admin/showcase/dialog?open=true\nlet open = query_params::<DialogQuery>(cx).ok().and_then(|q| q.open).unwrap_or(false);\nalert_dialog(open: open,\n    dialog_content(\n        dialog_header(dialog_title(\"Delete user?\"))\n        dialog_footer(<a href=\"/admin/showcase/dialog\" data-dialog-close class=(button_variants(Outline, Md))>\"Cancel\"</a> <a href=\"...\" data-dialog-close class=(button_variants(Destructive, Md))>\"Delete\"</a>)\n    )\n)"
-                )
-                <div class="rounded-lg border border-border bg-background p-4">
-                    <p class="text-sm text-muted-foreground">
-                        "Destructive actions that require confirmation open alert_dialog with card_header/card_footer and Outline/Destructive answers. Cancel and Delete are links back to the plain page; with dialog.js, Escape, the backdrop, and the same links close without a reload."
-                    </p>
-                    <a
-                        href="/admin/showcase/dialog?open=true"
-                        class=(argentum_ui::button_variants(
-                            argentum_ui::ButtonVariant::Primary,
-                            argentum_ui::ButtonSize::Md,
-                        ))
-                    >
-                        "Open dialog"
-                    </a>
-                    // The dialog is open only when the query says so, so the page is
-                    // readable and exitable; the state survives a reload and a link.
-                    (dialog)
-                </div>
-            </section>
-
-            <section
-                class="flex flex-col gap-4 rounded-xl border border-border bg-background p-6 shadow-sm"
-            >
-                <h2 class="text-lg font-semibold tracking-tight text-foreground">
-                    "Token-only customization"
-                </h2>
+            example(
+                title: "Toast (shadcn/Sonner)",
+                description: "A handler flashes a Notification; the shell's toaster mounts it, shows it bottom-right, and notifications.js auto-dismisses it after 4s (paused on hover or focus). The stack lives outside the streamed region, so a grid swap cannot drop it.",
+                code: "// POST /admin/showcase/dialog/notify\nset_notification(\n    cx,\n    Notification::success(\"User created\").description(\"Ada Lovelace was added successfully.\"),\n);\nErr(see_other(\"/admin/showcase/dialog\").into()) // PRG",
                 <p class="text-sm text-muted-foreground">
-                    "Edit Tokens in styles.css :root/.dark (--background, --foreground, --primary, --border, --ring, etc.) to re-theme the whole diceboard. Additive class is allowed only on Panel::shell and Section/card containers (narrow seam, no per-cell attrs in v1)."
+                    "Trigger a real toast — it lands in the shell's toaster, bottom-right."
                 </p>
-                argentum_ui::code_block(
-                    lang: "rust",
-                    code: "Section::new(\"Account\").class(\"max-w-2xl\").schema(...)\nPanel::render_shell(cx, nav, current, slot, Some(\"bg-muted\"))\n/* :root { --primary: oklch(...); } .dark { --primary: ...; } */"
-                )
-            </section>
+                <div class="flex flex-wrap items-center gap-2">
+                    for (status, label) in [
+                        ("success", "Success"),
+                        ("info", "Info"),
+                        ("warning", "Warning"),
+                        ("error", "Error"),
+                    ] {
+                        <form method="post" action="/admin/showcase/dialog/notify">
+                            <input
+                                type="hidden"
+                                name=(csrf::FIELD_NAME)
+                                value=(csrf_token.clone())
+                            >
+                            <input type="hidden" name="status" value=(status)>
+                            argentum_ui::button(
+                                variant: argentum_ui::ButtonVariant::Outline,
+                                attrs: attributes! { type="submit" },
+                                (label)
+                            )
+                        </form>
+                    }
+                </div>
+            )
+
+            example(
+                title: "Dialog / AlertDialog",
+                description: "Destructive actions that require confirmation open alert_dialog with Outline/Destructive answers. Cancel and Delete are links back to the plain page; with dialog.js, Escape, the backdrop, and the same links close without a reload.",
+                code: "// GET /admin/showcase/dialog?open=true\nlet open = query_params::<DialogQuery>(cx).ok().and_then(|q| q.open).unwrap_or(false);\nalert_dialog(\n    open: open,\n    dialog_content(\n        dialog_header(dialog_title(\"Delete user?\"))\n        dialog_footer(\n            <a href=\"/admin/showcase/dialog\" data-dialog-close class=(button_variants(Outline, Md))>\"Cancel\"</a>\n            <a href=\"/admin/showcase/dialog\" data-dialog-close class=(button_variants(Destructive, Md))>\"Delete\"</a>\n        )\n    )\n)",
+                <a
+                    href="/admin/showcase/dialog?open=true"
+                    class=(argentum_ui::button_variants(
+                        argentum_ui::ButtonVariant::Primary,
+                        argentum_ui::ButtonSize::Md,
+                    ))
+                >
+                    "Open dialog"
+                </a>
+                // The dialog is open only when the query says so, so the page
+                // is readable and exitable; the state survives a reload and a
+                // link.
+                (dialog)
+            )
 
             <p>
                 <a href="/admin/showcase" class="text-sm text-primary hover:underline">

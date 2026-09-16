@@ -59,6 +59,21 @@ async fn ui_showcase(cx: &Cx) -> Result<impl View> {
                 )
                 (card_view)
             </section>
+            <section
+                class="flex flex-col gap-4 rounded-xl border border-border bg-background p-6 shadow-sm"
+            >
+                <h2 class="text-lg font-semibold tracking-tight text-foreground">
+                    "Token-only customization"
+                </h2>
+                <p class="text-sm text-muted-foreground">
+                    "Edit Tokens in styles.css :root/.dark (--background, --foreground, --primary, --border, --ring, etc.) to re-theme the whole diceboard. Additive class is allowed only on Panel::shell and Section/card containers (narrow seam, no per-cell attrs in v1)."
+                </p>
+                argentum_ui::code_block(
+                    lang: "rust",
+                    code: "Section::new(\"Account\").class(\"max-w-2xl\").schema(...)\nPanel::render_shell(cx, nav, current, slot, Some(\"bg-muted\"))\n/* :root { --primary: oklch(...); } .dark { --primary: ...; } */"
+                )
+            </section>
+
             <p>
                 <a href="/admin/showcase" class="text-sm text-primary hover:underline">
                     "← back to showcase"

@@ -3,7 +3,7 @@ use topcoat::view::ViewExt;
 use showcase::app::router_for_tests as router;
 
 mod common;
-use common::{body_string, demo_client, seeded_db};
+use common::{body_string, demo_client, form_body, input_value, response_cookies, seeded_db};
 
 #[tokio::test]
 async fn admin_resource_list_page_serve_seeded_users() {
@@ -192,11 +192,70 @@ async fn showcase_dialog_renders_notification_and_dialog_with_tokens() {
         html.contains("Primary") || html.contains("Cancel"),
         "missing Primary/Outline button in {html}"
     );
-    // Ensure no ac-* remains in this showcase
+    // Ensure no ac-* remains in this showcase. Match the class attribute
+    // (not bare "ac-"), because the CSRF token is a random UUID that can
+    // contain the same substring and flake the assertion.
     assert!(
-        !html.contains("ac-showcase") && !html.contains("ac-"),
+        !html.contains("ac-showcase") && !html.contains("class=\"ac-"),
         "ac-* should not remain in dialog showcase, got {html}"
     );
+}
+
+/// The dialog page's toast demo is a real POST: it verifies CSRF, flashes a
+/// Notification, redirects (PRG), and the next GET renders the toast in the
+/// shell's toaster (GH #151 §6).
+#[tokio::test]
+async fn showcase_dialog_toast_demo_flashes_a_real_notification() {
+    let db = seeded_db().await;
+    let router = router(db);
+    let client = demo_client(&router).await;
+    let page = client.get("/admin/showcase/dialog").await;
+    let cookies = response_cookies(&page);
+    let html = body_string(page).await;
+    assert!(
+        !html.contains("data-type="),
+        "no toast should be present before the demo runs: {html}"
+    );
+    let csrf = input_value(&html, "csrf_token")
+        .unwrap_or_else(|| panic!("toast demo must embed a csrf_token input: {html}"));
+    for (status, title) in [
+        ("success", "User created"),
+        ("info", "Heads up"),
+        ("warning", "Careful"),
+        ("error", "Something failed"),
+    ] {
+        let posted = client
+            .cookies(&cookies)
+            .post_form(
+                "/admin/showcase/dialog/notify",
+                form_body(&[("csrf_token", &csrf), ("status", status)]),
+            )
+            .await;
+        assert_eq!(posted.status(), 303, "notify redirects (POST/Redirect/Get)");
+        assert_eq!(
+            posted.headers().get("location").unwrap(),
+            "/admin/showcase/dialog",
+            "the demo lands back on the dialog page"
+        );
+        let flash = response_cookies(&posted);
+        assert!(
+            flash
+                .iter()
+                .any(|(name, _)| name == "__Host-argentum_notification"),
+            "the notification must ride the flash cookie: {flash:?}"
+        );
+        let followed = client
+            .cookies(&cookies)
+            .cookies(&flash)
+            .get("/admin/showcase/dialog")
+            .await;
+        let html = body_string(followed).await;
+        assert!(
+            html.contains(&format!("data-type=\"{status}\""))
+                && html.contains(&format!("data-title=\"\">{title}")),
+            "the flashed notification should render as a {status} toast: {html}"
+        );
+    }
 }
 
 #[tokio::test]
