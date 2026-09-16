@@ -219,6 +219,22 @@ impl<'a> TestClient<'a> {
         self.router.handle(request).await
     }
 
+    /// POST a JSON body to a runtime endpoint (a shard or procedure), with the
+    /// page identity header the browser runtime sends (GH #154 §2 tests).
+    pub async fn post_json(&self, uri: &str, body: String, identity: &str) -> http::Response<Body> {
+        let mut request = self.request(http::Method::POST, uri);
+        request.headers_mut().insert(
+            CONTENT_TYPE,
+            http::HeaderValue::from_static("application/json"),
+        );
+        request.headers_mut().insert(
+            topcoat::router::request::IDENTITY_HEADER,
+            http::HeaderValue::from_str(identity).expect("identity header"),
+        );
+        *request.body_mut() = Body::from(body);
+        self.router.handle(request).await
+    }
+
     /// Build a request carrying this client's cookies and tenant.
     fn request(&self, method: http::Method, uri: &str) -> http::Request<Body> {
         let mut builder = http::Request::builder().method(method).uri(uri);

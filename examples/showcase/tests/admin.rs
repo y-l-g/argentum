@@ -558,21 +558,105 @@ async fn showcase_table_renders_variants() {
         html.contains("text-muted-foreground"),
         "missing table header Token in {html}"
     );
-    // The demos are static previews (GH #151): labels and rows, with no sort
-    // links or search chrome that would promise an interaction the page
-    // ignores. The declarations live in the snippets.
-    assert!(
-        !html.contains("aria-sort") && !html.contains("Prefix search matches this column"),
-        "showcase table demos must stay static, got {html}"
+    // The demos are live (GH #154 §2): the searchable and composition
+    // sections each render the signal-backed input, and the grid of every
+    // interactive demo arrives through the `table_demo` shard.
+    assert_eq!(
+        html.matches("data-live-search").count(),
+        2,
+        "searchable + composition demos must render the live input: {html}"
+    );
+    assert_eq!(
+        html.matches("::topcoat::shard::start").count(),
+        3,
+        "the searchable, sortable, and composition demos render a shard: {html}"
+    );
+    // Sortable columns render real sort controls: the inactive pointer and
+    // aria-sort="none" on the two tables that declare them.
+    assert_eq!(
+        html.matches("aria-sort=\"none\"").count(),
+        2,
+        "sortable demos must render clickable headers: {html}"
     );
     assert!(
-        !html.contains("data-live-search"),
-        "showcase table demos must not render the live host, got {html}"
+        html.contains("sort=name&amp;dir=asc"),
+        "missing sort link in {html}"
     );
     assert!(
         html.contains("Ada Lovelace") || html.contains("Name"),
         "missing table rows in {html}"
     );
+}
+
+/// The page-level live seam (GH #154 §2): the `table_demo` shard reloads and
+/// re-renders one demo grid from the page-owned signals — search filters,
+/// sort orders, and the swapped controls stay bound to the same signals.
+#[tokio::test]
+async fn showcase_table_demo_shard_filters_and_sorts_in_place() {
+    use showcase::pages::showcase::table::table_demo;
+    let db = seeded_db().await;
+    let router = router(db);
+    let client = demo_client(&router).await;
+    let identity = "A".repeat(22);
+    let shard = topcoat::runtime::Shard::id(&table_demo);
+    let uri = format!("/_topcoat/runtime/shards/{}", shard.as_str());
+    let sig = |n: u8, v: &str| format!(r#"{{"t":"Signal","id":"{:032x}","v":"{v}"}}"#, n);
+    let args = |kind: &str, q: &str, sort: &str, dir: &str| {
+        format!(
+            r#"{{"args":["{kind}",{}, {}, {}],"signals":{{}}}}"#,
+            sig(1, q),
+            sig(2, sort),
+            sig(3, dir)
+        )
+    };
+
+    // Search filters the grid; the page's toolbar stays out of the swapped
+    // region (the page owns it).
+    let response = client
+        .post_json(&uri, args("searchable", "Ada", "", "asc"), &identity)
+        .await;
+    assert_eq!(response.status(), 200, "shard render");
+    let html = body_string(response).await;
+    assert!(
+        html.contains("Ada Lovelace") && !html.contains("Grace Hopper"),
+        "search must filter rows: {html}"
+    );
+    assert!(
+        !html.contains("name=\"q\""),
+        "the swapped grid must not duplicate the page's search input: {html}"
+    );
+
+    // A term with no matches renders the honest empty state.
+    let response = client
+        .post_json(&uri, args("searchable", "zzz", "", "asc"), &identity)
+        .await;
+    let html = body_string(response).await;
+    assert!(
+        html.contains("No prefix matches"),
+        "empty search must say so: {html}"
+    );
+
+    // Sort orders rows and keeps the header control bound to the signals.
+    let response = client
+        .post_json(&uri, args("sortable", "", "name", "desc"), &identity)
+        .await;
+    assert_eq!(response.status(), 200);
+    let html = body_string(response).await;
+    let grace = html.find("Grace Hopper").expect("Grace row");
+    let ada = html.find("Ada Lovelace").expect("Ada row");
+    assert!(grace < ada, "descending sort must lead with Grace: {html}");
+    assert!(
+        html.contains("aria-sort=\"descending\"")
+            && html.contains("data-topcoat-on:click")
+            && html.contains("sort=name"),
+        "live header must carry its bound sort link: {html}"
+    );
+
+    // An unknown kind is client input: reject it, never fall back.
+    let response = client
+        .post_json(&uri, args("nope", "", "", "asc"), &identity)
+        .await;
+    assert_eq!(response.status(), 400, "unknown demo kind");
 }
 
 #[tokio::test]

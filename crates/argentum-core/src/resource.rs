@@ -1274,6 +1274,100 @@ impl<M> Table<M> {
             .await
     }
 
+    /// Resolve and execute this table's query for `state` — search, filters,
+    /// ordering, and cursor pagination — and return the rows.
+    ///
+    /// The loader half of the live-table seam (GH #154 §2): a page that owns
+    /// its own table (the showcase demos) can hand its shard a query and this
+    /// hook applies the same declaration pipeline `panel::load_table_page`
+    /// applies to `Resource::query`, so a page-level shard does not
+    /// reimplement filtering, ordering, or cursor validation.
+    pub async fn load(
+        &self,
+        cx: &Cx,
+        mut query: toasty::stmt::Query<List<M>>,
+        state: &TableState,
+    ) -> Result<TablePage<M>>
+    where
+        M: toasty::schema::Model + Send + Sync + 'static,
+    {
+        if self.page_size == Some(0) {
+            return Err(std::io::Error::other(
+                "Table::load: paginate requires per_page > 0 (GH #96)",
+            )
+            .into());
+        }
+        if let Some(term) = &state.search
+            && let Some(expr) = self.search_expr(term)
+        {
+            query = query.filter(expr);
+        }
+        if let Some(expr) = self.filter_expr(state) {
+            query = query.filter(expr);
+        }
+        for ord in self.order_bys_for_state(state) {
+            query = query.order_by(ord);
+        }
+        let mut db = crate::db::db(cx);
+        match self.page_size {
+            Some(per_page) => {
+                // Keep a cursor-free copy of the filtered+ordered query for
+                // cursor validation. Toasty's `Page` sets `next_cursor` when
+                // `len == page_size` and `prev_cursor` when `has_previous_page`,
+                // which leaves phantom cursors when the page sits exactly at a
+                // boundary (e.g. a `before` fetch that lands on the first page
+                // returns `len == page_size` so `prev_cursor` is set even though
+                // `before(prev_cursor)` is empty). Validate such cursors with a
+                // cheap `LIMIT 1` probe and hide phantoms.
+                let base_query = query.clone();
+                let mut paginated = toasty::stmt::Paginate::new(query, per_page);
+                if let Some(cursor) = &state.after {
+                    paginated = paginated.after(crate::cursor::decode(cursor)?);
+                } else if let Some(cursor) = &state.before {
+                    paginated = paginated.before(crate::cursor::decode(cursor)?);
+                }
+                let loaded = paginated
+                    .exec(&mut db)
+                    .await
+                    .map_err(topcoat::Error::from)?;
+                let mut page = TablePage::from_toasty_page(loaded)?;
+                // Only probe for phantom cursors when the page is full
+                // (`len == per_page`); a short page cannot have a next page
+                // and probing would be a wasted round-trip (GH #75).
+                if page.rows.len() == per_page {
+                    if let Some(cursor) = page.next_cursor.clone() {
+                        let probe = toasty::stmt::Paginate::new(base_query.clone(), 1)
+                            .after(crate::cursor::decode(&cursor)?)
+                            .exec(&mut db)
+                            .await
+                            .map_err(topcoat::Error::from)?;
+                        if probe.items.is_empty() {
+                            page.next_cursor = None;
+                        }
+                    }
+                    if let Some(cursor) = page.prev_cursor.clone() {
+                        let probe = toasty::stmt::Paginate::new(base_query.clone(), 1)
+                            .before(crate::cursor::decode(&cursor)?)
+                            .exec(&mut db)
+                            .await
+                            .map_err(topcoat::Error::from)?;
+                        if probe.items.is_empty() {
+                            page.prev_cursor = None;
+                        }
+                    }
+                } else {
+                    // Short page → no next, keep prev as-is (has_previous already correct).
+                    page.next_cursor = None;
+                }
+                Ok(page)
+            }
+            None => {
+                let rows: Vec<M> = query.exec(&mut db).await.map_err(topcoat::Error::from)?;
+                Ok(rows.into())
+            }
+        }
+    }
+
     async fn render_inner<'a>(
         &self,
         cx: &'a Cx,
@@ -1976,7 +2070,11 @@ impl<M> Table<M> {
     ///
     /// Typing writes `q` and clears the cursors (a new term is a new result
     /// set); the shard re-renders in place (GH #151).
-    pub(crate) async fn render_live_search_bar<'a>(
+    ///
+    /// Public so a page owning its own signals can render the same toolbar
+    /// above its own shard (the showcase demos, GH #154 §2); resource lists
+    /// reach it through `panel::resource_list_live`.
+    pub async fn render_live_search_bar<'a>(
         &self,
         cx: &'a Cx,
         state: &TableState,

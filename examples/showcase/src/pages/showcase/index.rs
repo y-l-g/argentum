@@ -34,7 +34,7 @@ const FEATURES: &[(&str, &str, &str)] = &[
     (
         "/admin/showcase/table",
         "Table",
-        "TextColumn searchable/sortable, Table::for + columns (static previews; /admin/users is live)",
+        "TextColumn searchable/sortable, live page-owned signals + a shard; /admin/users is the Resource seam",
     ),
     (
         "/admin/showcase/db",
