@@ -708,7 +708,7 @@ async fn render_login_page<'a>(
                     </div>
                     argentum_ui::button(
                         variant: argentum_ui::ButtonVariant::Primary,
-                        attrs: topcoat::view::attributes! { r#type="submit" class="w-full" },
+                        attrs: topcoat::view::attributes! { type="submit" class="w-full" },
                         "Sign in"
                     )
                 </form>

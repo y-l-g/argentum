@@ -1580,7 +1580,7 @@ async fn render_form_page<'a, R: Resource>(
                     <div class="flex gap-2">
                         argentum_ui::button(
                             variant: argentum_ui::ButtonVariant::Primary,
-                            attrs: attributes! { r#type="submit" },
+                            attrs: attributes! { type="submit" },
                             (submit_label)
                         )
                         <a

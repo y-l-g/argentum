@@ -272,7 +272,7 @@ impl TextInput {
                 ui_input(
                     attrs: attributes! {
                         id=(name.clone())
-                        r#type=(input_type)
+                        type=(input_type)
                         name=(name.clone())
                         value=(value_owned.clone())
                         placeholder=(placeholder.clone())
@@ -2153,9 +2153,12 @@ mod tests {
             .await
             .unwrap()
             .render(&cx);
+        // `r#type` would still contain the substring `type=`, so pin the
+        // attribute name itself (GH #151: the raw identifier leaked into the
+        // rendered HTML and made every email input a plain text input).
         assert!(
-            html_email.contains("type=\"email\""),
-            "email should render type=email in {html_email}"
+            html_email.contains("type=\"email\"") && !html_email.contains("r#type"),
+            "email should render type=email, not r#type=email, in {html_email}"
         );
         let html_text = Schema::new(TextInput::r#for(DummyUser::fields().name()))
             .render(&cx)
@@ -2166,8 +2169,8 @@ mod tests {
             .unwrap()
             .render(&cx);
         assert!(
-            html_text.contains("type=\"text\""),
-            "plain should render type=text in {html_text}"
+            html_text.contains("type=\"text\"") && !html_text.contains("r#type"),
+            "plain should render type=text, not r#type=text, in {html_text}"
         );
         // reserved error slot
         assert!(
