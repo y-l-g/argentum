@@ -789,8 +789,8 @@ async fn admin_list_filters_via_q_param() {
         "filtered table should still render via Table chrome in {html}"
     );
     assert!(
-        html.contains("Prefix search matches this column"),
-        "filtered table should have searchable indicator in {html}"
+        !html.contains("Prefix search matches this column"),
+        "searchable headers must not carry a loupe, got {html}"
     );
 }
 

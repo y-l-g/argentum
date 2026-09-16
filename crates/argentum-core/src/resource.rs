@@ -1013,8 +1013,7 @@ impl<M> Table<M> {
     /// Force the search toolbar on or off.
     ///
     /// Defaults to showing the toolbar whenever at least one column is
-    /// `searchable()` — the header indicators never promise a search the
-    /// page does not have.
+    /// `searchable()`, so the toolbar and the query stay in step.
     pub fn search(mut self, enabled: bool) -> Self {
         self.search_ui = Some(enabled);
         self
@@ -2616,11 +2615,10 @@ impl<M> Table<M> {
     }
 
     /// The shared column-header row — the single source of the `<thead>`
-    /// markup: labels, a Lucide loupe with a native hint on searchable
-    /// columns, and **links** on sortable columns that toggle `?sort=`/`?dir=`
-    /// (a Lucide arrow with `aria-sort` when active, `arrow-up-down` when
-    /// inactive). Every render branch (skeleton / empty / rows) composes it,
-    /// so an a11y or styling change happens once.
+    /// markup: labels and **links** on sortable columns that toggle
+    /// `?sort=`/`?dir=` (a Lucide arrow with `aria-sort` when active,
+    /// `arrow-up-down` when inactive). Every render branch (skeleton / empty
+    /// / rows) composes it, so an a11y or styling change happens once.
     ///
     /// With `signals` (a live table) the link also writes the sort signals and
     /// clears the cursors; its `href` stays the no-JS fallback.
@@ -2647,7 +2645,6 @@ impl<M> Table<M> {
             let label = col.label().to_string();
             // A static preview renders plain labels: no link to an interaction
             // the page does not honor (GH #151).
-            let searchable = self.interactive && col.is_searchable();
             let sortable = self.interactive && col.is_sortable();
             let (head_class, aria_sort, header) = if sortable {
                 let (aria, sort_icon, next_desc) = match active {
@@ -2734,25 +2731,6 @@ impl<M> Table<M> {
                     table_head(
                         attrs: attributes! { class=(head_class) aria-sort=(aria_sort) },
                         (header)
-                        if searchable {
-                            // Native `title`, not the tooltip primitive: that
-                            // primitive keys its bubble on an unnamed `.group`
-                            // hover/focus, and `sidebar_provider` tags the
-                            // whole page `group`, so the bubble would show on
-                            // any page hover (GH #151). The label keeps the
-                            // hint available without hover.
-                            <span
-                                role="img"
-                                aria-label="Prefix search matches this column"
-                                title="Prefix search matches this column"
-                                class="ml-2 inline-flex size-4 items-center justify-center align-middle text-muted-foreground"
-                            >
-                                icon(
-                                    data: icons::SEARCH,
-                                    attrs: attributes! { class="size-4" }
-                                )
-                            </span>
-                        }
                     )
                 }
                 .boxed(),
@@ -3995,13 +3973,12 @@ mod tests {
             html.contains("border-border") && html.contains("text-muted-foreground"),
             "missing Token classes in {html}"
         );
-        // Searchable columns carry the Lucide loupe with its native hint
-        // (GH #151); sortable ones the inactive `arrow-up-down` with
-        // `aria-sort="none"`.
+        // Searchable columns render no extra header chrome (GH #154): the
+        // search input is the affordance. Sortable ones carry the inactive
+        // `arrow-up-down` with `aria-sort="none"`.
         assert!(
-            html.contains("aria-label=\"Prefix search matches this column\"")
-                && html.contains("title=\"Prefix search matches this column\""),
-            "missing searchable indicator in {html}"
+            !html.contains("Prefix search matches this column"),
+            "searchable headers must not render a loupe, got {html}"
         );
         assert!(
             html.contains("aria-sort=\"none\""),
@@ -4050,8 +4027,7 @@ mod tests {
         assert!(
             !html.contains("name=\"q\"")
                 && !html.contains("aria-sort")
-                && !html.contains("sort=name")
-                && !html.contains("Prefix search matches this column"),
+                && !html.contains("sort=name"),
             "static preview must not render interactive chrome, got {html}"
         );
         assert!(
