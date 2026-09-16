@@ -331,6 +331,29 @@ mod tests {
         assert!(html.contains("font-weight:bold"));
     }
 
+    /// Multi-line snippets mixing comments and code keep every token: the
+    /// comment re-coloring must not swallow the following lines.
+    #[tokio::test]
+    async fn multiline_snippets_keep_every_token() {
+        let cx = CxTestBuilder::new().build();
+        let cx_ref = &cx;
+        let code = "// POST /admin/showcase/dialog/notify\nset_notification(\n    cx,\n    Notification::success(\"User created\").description(\"Ada Lovelace was added successfully.\"),\n);\nErr(see_other(\"/admin/showcase/dialog\").into()) // PRG";
+        let html = view! { cx_ref => code_block(lang: "rust", code: (code)) }
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
+        for needle in [
+            "set_notification",
+            "Notification::success",
+            "Ada Lovelace",
+            "see_other",
+            "PRG",
+        ] {
+            assert!(html.contains(needle), "lost {needle}: {html}");
+        }
+    }
+
     #[tokio::test]
     async fn equal_style_runs_stay_contiguous() {
         // Parser ops split `Schema::new(Text::new(..))` into many ranges; the
