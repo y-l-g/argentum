@@ -13,7 +13,7 @@ use argentum_ui::{
     ButtonSize, ButtonVariant, alert_dialog, button, button_variants, dialog_content,
     dialog_description, dialog_footer, dialog_header, dialog_title, icons, input as ui_input,
     pagination, pagination_content, pagination_item, pagination_next, pagination_previous, table,
-    table_body, table_cell, table_head, table_header, table_row, tooltip, tooltip_content,
+    table_body, table_cell, table_head, table_header, table_row,
 };
 use toasty::stmt::{Expr, List, OrderByExpr};
 use topcoat::context::Cx;
@@ -2363,9 +2363,9 @@ impl<M> Table<M> {
     }
 
     /// The shared column-header row — the single source of the `<thead>`
-    /// markup: labels, a Lucide loupe with a tooltip on searchable columns,
-    /// and **links** on sortable columns that toggle `?sort=`/`?dir=` (a
-    /// Lucide arrow with `aria-sort` when active, `arrow-up-down` when
+    /// markup: labels, a Lucide loupe with a native hint on searchable
+    /// columns, and **links** on sortable columns that toggle `?sort=`/`?dir=`
+    /// (a Lucide arrow with `aria-sort` when active, `arrow-up-down` when
     /// inactive). Every render branch (skeleton / empty / rows) composes it,
     /// so an a11y or styling change happens once.
     async fn render_thead<'a>(
@@ -2452,15 +2452,23 @@ impl<M> Table<M> {
                         attrs: attributes! { class=(head_class) aria-sort=(aria_sort) },
                         (header)
                         if searchable {
-                            tooltip(
-                                attrs: attributes! { class="ml-2 align-middle" },
+                            // Native `title`, not the tooltip primitive: that
+                            // primitive keys its bubble on an unnamed `.group`
+                            // hover/focus, and `sidebar_provider` tags the
+                            // whole page `group`, so the bubble would show on
+                            // any page hover (GH #151). The label keeps the
+                            // hint available without hover.
+                            <span
+                                role="img"
+                                aria-label="Prefix search matches this column"
+                                title="Prefix search matches this column"
+                                class="ml-2 inline-flex size-4 items-center justify-center align-middle text-muted-foreground"
+                            >
                                 icon(
                                     data: icons::SEARCH,
-                                    label: "Prefix search matches this column",
-                                    attrs: attributes! { class="size-4 text-muted-foreground" }
+                                    attrs: attributes! { class="size-4" }
                                 )
-                                tooltip_content("Prefix search matches this column")
-                            )
+                            </span>
                         }
                     )
                 }
@@ -3745,10 +3753,12 @@ mod tests {
             html.contains("border-border") && html.contains("text-muted-foreground"),
             "missing Token classes in {html}"
         );
-        // Searchable columns carry the Lucide loupe + tooltip (GH #151);
-        // sortable ones the inactive `arrow-up-down` with `aria-sort="none"`.
+        // Searchable columns carry the Lucide loupe with its native hint
+        // (GH #151); sortable ones the inactive `arrow-up-down` with
+        // `aria-sort="none"`.
         assert!(
-            html.contains("Prefix search matches this column") && html.contains("role=\"tooltip\""),
+            html.contains("aria-label=\"Prefix search matches this column\"")
+                && html.contains("title=\"Prefix search matches this column\""),
             "missing searchable indicator in {html}"
         );
         assert!(

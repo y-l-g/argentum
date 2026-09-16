@@ -12,6 +12,12 @@ use crate::components::primitives::separator::{SeparatorOrientation, separator};
 // Provider & Inset — shadcn parity (ADR-0009)
 // ---------------------------------------------------------------------------
 
+/// The provider carries the bare `group` that scopes the unnamed
+/// `group-data-[collapsible=…]` variants used by the sidebar, its gap, and the
+/// mobile sheet. That makes it an ancestor for **every** unnamed
+/// `group-hover:` / `group-focus-within:` inside the shell, so such hints fire
+/// on any page hover — use a named group (`group/thing`) for hover hints, as
+/// the table header's loupe hint learned the hard way (GH #151).
 const PROVIDER: StaticClass = class!("group group/sidebar-wrapper flex min-h-svh w-full");
 
 /// The sidebar's persisted state from the `sidebar_state` cookie, defaulting

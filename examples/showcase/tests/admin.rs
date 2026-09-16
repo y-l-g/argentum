@@ -350,10 +350,10 @@ async fn showcase_table_renders_variants() {
         html.contains("text-muted-foreground"),
         "missing table header Token in {html}"
     );
-    // The searchable marker is a Lucide loupe with a tooltip explaining the
-    // prefix search (GH #151); sortable columns keep `aria-sort` on the `th`.
+    // The searchable marker is a Lucide loupe with a native hint (GH #151);
+    // sortable columns keep `aria-sort` on the `th`.
     assert!(
-        html.contains("Prefix search matches this column") && html.contains("role=\"tooltip\""),
+        html.contains("Prefix search matches this column"),
         "missing searchable indicator in {html}"
     );
     assert!(

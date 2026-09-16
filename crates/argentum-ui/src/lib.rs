@@ -32,7 +32,6 @@ pub use components::primitives::skeleton::skeleton;
 pub use components::primitives::table::{
     table, table_body, table_caption, table_cell, table_footer, table_head, table_header, table_row,
 };
-pub use components::primitives::tooltip::{tooltip, tooltip_content};
 // Composites — owned Argentum components (ADR-0007). Re-exported here for
 // ergonomic `argentum_ui::page` etc.; they live in `components/composites/`.
 pub use components::composites::code_block::code_block;
