@@ -76,11 +76,10 @@ impl Resource for UserResource {
         // Proves both Resource entry points are wired; showcase pages use this
         // indirectly via Schema::new, but resource owners declare forms here.
         Schema::new((
-            TextInput::r#for(User::fields().name()).required(),
-            TextInput::r#for(User::fields().email())
-                .required()
-                .email()
-                .unique(),
+            // Required is inferred from the non-nullable columns (GH #100);
+            // no redundant `.required()` call.
+            TextInput::r#for(User::fields().name()),
+            TextInput::r#for(User::fields().email()).email().unique(),
         ))
     }
 
@@ -251,11 +250,8 @@ impl Resource for AuthorResource {
 
     fn form(_cx: &Cx) -> Schema {
         Schema::new((
-            TextInput::r#for(Author::fields().name()).required(),
-            TextInput::r#for(Author::fields().email())
-                .required()
-                .email()
-                .unique(),
+            TextInput::r#for(Author::fields().name()),
+            TextInput::r#for(Author::fields().email()).email().unique(),
         ))
     }
 
@@ -476,24 +472,19 @@ impl Resource for PostResource {
     fn form(_cx: &Cx) -> Schema {
         Schema::new((
             Section::new("Post Details").schema((
-                TextInput::r#for(Post::fields().title()).required(),
+                TextInput::r#for(Post::fields().title()),
                 Select::r#for(Post::fields().author_id())
                     .relationship::<AuthorResource>(
                         AuthorResource::query,
                         |a: &Author| a.id,
                         |a: &Author| a.name.clone(),
                     )
-                    .required()
                     .searchable()
                     .label("Author"),
             )),
             Grid::new(2).schema((
-                FileUpload::r#for(Post::fields().image_path()).required(),
-                Repeater::new("Tags").schema(
-                    TextInput::r#for(Post::fields().tags())
-                        .required()
-                        .label("Tag"),
-                ),
+                FileUpload::r#for(Post::fields().image_path()),
+                Repeater::new("Tags").schema(TextInput::r#for(Post::fields().tags()).label("Tag")),
             )),
         ))
     }

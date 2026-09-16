@@ -354,10 +354,93 @@ async fn showcase_schema_renders_variants() {
         html.contains("text-sm text-destructive"),
         "missing error slot in {html}"
     );
-    // Composition and empty
+    // Required is inferred, not called: exactly the four non-optional
+    // fields (two demos + two form fields) carry `aria-required`, and the
+    // `.optional()` demos carry none.
+    assert_eq!(
+        html.matches("aria-required=\"true\"").count(),
+        4,
+        "required should be inferred for the non-optional fields only: {html}"
+    );
+    // The live-validation form is a real POST with a CSRF token, and
+    // `novalidate` lets the server errors render in the browser.
     assert!(
-        html.contains("Schema::empty"),
-        "missing empty snippet in {html}"
+        html.contains("action=\"/admin/showcase/schema\"")
+            && html.contains("csrf_token")
+            && html.contains("novalidate")
+            && html.contains("Live validation"),
+        "missing validation form in {html}"
+    );
+}
+
+/// §8's validation demo is a real form: an empty required field and an
+/// invalid email come back inline, and a valid submit redirects with a toast.
+#[tokio::test]
+async fn showcase_schema_validation_form_reports_errors_and_flashes_success() {
+    let db = seeded_db().await;
+    let router = router(db);
+    let client = demo_client(&router).await;
+    let page = client.get("/admin/showcase/schema").await;
+    let cookies = response_cookies(&page);
+    let html = body_string(page).await;
+    let csrf = input_value(&html, "csrf_token")
+        .unwrap_or_else(|| panic!("validation form must embed a csrf_token input: {html}"));
+    let invalid = client
+        .cookies(&cookies)
+        .post_form(
+            "/admin/showcase/schema",
+            form_body(&[
+                ("csrf_token", &csrf),
+                ("name", ""),
+                ("email", "not-an-email"),
+            ]),
+        )
+        .await;
+    assert_eq!(invalid.status(), 200, "invalid submits re-render the page");
+    let html = body_string(invalid).await;
+    assert!(
+        html.contains("Name is required") && html.contains("Email must be a valid email"),
+        "inline errors should render: {html}"
+    );
+    assert!(
+        html.contains("value=\"not-an-email\"") && html.contains("aria-invalid=\"true\""),
+        "invalid submits should preserve values and mark the field: {html}"
+    );
+    assert!(
+        html.contains("type=\"email\""),
+        "the email field should render as an email input: {html}"
+    );
+    // CSRF stays fail-closed on the demo form too.
+    let no_csrf = client
+        .cookies(&cookies)
+        .post_form(
+            "/admin/showcase/schema",
+            form_body(&[("name", "Ada"), ("email", "ada@example.com")]),
+        )
+        .await;
+    assert_eq!(no_csrf.status(), 403, "a missing CSRF token is forbidden");
+    let valid = client
+        .cookies(&cookies)
+        .post_form(
+            "/admin/showcase/schema",
+            form_body(&[
+                ("csrf_token", &csrf),
+                ("name", "Ada Lovelace"),
+                ("email", "ada@example.com"),
+            ]),
+        )
+        .await;
+    assert_eq!(valid.status(), 303, "valid submit redirects (PRG)");
+    let flash = response_cookies(&valid);
+    let followed = client
+        .cookies(&cookies)
+        .cookies(&flash)
+        .get("/admin/showcase/schema")
+        .await;
+    let html = body_string(followed).await;
+    assert!(
+        html.contains("data-type=\"success\"") && html.contains("\">Validated</div>"),
+        "valid submit should flash a success toast: {html}"
     );
 }
 
