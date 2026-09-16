@@ -20,12 +20,24 @@ async fn delete_requires_confirmation_and_deletes() {
     let csrf = uuid::Uuid::new_v4().to_string();
 
     // The list renders a Delete link that opens the confirmation dialog
-    // (`?delete=<key>`) — no per-row POST form, no dialog until asked.
+    // (`?delete=<key>`) — no per-row POST form, no dialog until asked. The
+    // row action is destructive (GH #154 §6), matching the bulk Delete and
+    // the dialog's confirm.
     let resp = client.get("/admin/users").await;
     let html = body_string(resp).await;
     assert!(
         html.contains(&format!("delete={id}")),
         "list should link the delete dialog for the row, got {html}"
+    );
+    let row_delete = {
+        let at = html.find(&format!("delete={id}")).unwrap();
+        let start = html[..at].rfind("<a ").unwrap();
+        let end = html[at..].find('>').unwrap() + at;
+        &html[start..end]
+    };
+    assert!(
+        row_delete.contains("bg-destructive"),
+        "row Delete must be destructive, got {row_delete}"
     );
     assert!(
         !html.contains("role=\"alertdialog\""),

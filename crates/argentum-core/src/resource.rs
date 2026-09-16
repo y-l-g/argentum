@@ -1591,7 +1591,10 @@ impl<M> Table<M> {
                                     table_cell(
                                         <a
                                             href=(url)
-                                            class=(button_variants(ButtonVariant::Ghost, ButtonSize::Md))
+                                            class=(button_variants(
+                                                ButtonVariant::Destructive,
+                                                ButtonSize::Md,
+                                            ))
                                         >
                                             "Delete"
                                         </a>
