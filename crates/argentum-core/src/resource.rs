@@ -10,12 +10,13 @@ use std::sync::Arc;
 use std::collections::HashMap;
 
 use argentum_ui::{
-    ButtonSize, ButtonVariant, button, input as ui_input, pagination, pagination_content,
+    ButtonSize, ButtonVariant, button, icons, input as ui_input, pagination, pagination_content,
     pagination_item, pagination_next, pagination_previous, table, table_body, table_cell,
-    table_head, table_header, table_row,
+    table_head, table_header, table_row, tooltip, tooltip_content,
 };
 use toasty::stmt::{Expr, List, OrderByExpr};
 use topcoat::context::Cx;
+use topcoat::icon::icon;
 use topcoat::router::{Href, HrefParams, HrefQueries, HrefTarget};
 use topcoat::{Result, view::*};
 
@@ -2251,10 +2252,11 @@ impl<M> Table<M> {
     }
 
     /// The shared column-header row — the single source of the `<thead>`
-    /// markup: labels, `⌕` on searchable columns, and **links** on sortable
-    /// columns that toggle `?sort=`/`?dir=` (↑/↓ with `aria-sort` when active,
-    /// ↕ when inactive). Every render branch (skeleton / empty / rows)
-    /// composes it, so an a11y or styling change happens once.
+    /// markup: labels, a Lucide loupe with a tooltip on searchable columns,
+    /// and **links** on sortable columns that toggle `?sort=`/`?dir=` (a
+    /// Lucide arrow with `aria-sort` when active, `arrow-up-down` when
+    /// inactive). Every render branch (skeleton / empty / rows) composes it,
+    /// so an a11y or styling change happens once.
     async fn render_thead<'a>(
         &self,
         cx: &'a Cx,
@@ -2277,18 +2279,22 @@ impl<M> Table<M> {
             let label = col.label().to_string();
             let searchable = col.is_searchable();
             let (head_class, aria_sort, header) = if col.is_sortable() {
-                let (aria, glyph, next_desc) = match active {
+                let (aria, sort_icon, next_desc) = match active {
                     Some(s) if s.column == col.name() => (
                         if s.descending {
                             "descending"
                         } else {
                             "ascending"
                         },
-                        if s.descending { "\u{2193}" } else { "\u{2191}" },
+                        if s.descending {
+                            icons::ARROW_DOWN
+                        } else {
+                            icons::ARROW_UP
+                        },
                         // toggling the active column flips the direction
                         !s.descending,
                     ),
-                    _ => ("none", "\u{2195}", false),
+                    _ => ("none", icons::ARROW_UP_DOWN, false),
                 };
                 let group_name = self.effective_group_name(state);
                 let href = build_url(
@@ -2317,13 +2323,10 @@ impl<M> Table<M> {
                             class="inline-flex items-center gap-1 hover:text-foreground"
                         >
                             (label.clone())
-                            <span
-                                role="img"
-                                aria-hidden="true"
-                                class="inline-flex size-4 items-center justify-center align-middle text-base leading-none text-muted-foreground"
-                            >
-                                (glyph)
-                            </span>
+                            icon(
+                                data: sort_icon,
+                                attrs: attributes! { class="size-4 shrink-0 text-muted-foreground" }
+                            )
                         </a>
                     }
                     .boxed(),
@@ -2331,23 +2334,27 @@ impl<M> Table<M> {
             } else {
                 ("", None, view! { cx => (label.clone()) }.boxed())
             };
-            heads.push(view! {
-                cx =>
-                table_head(
-                    attrs: attributes! { class=(head_class) aria-sort=(aria_sort) },
-                    (header)
-                    if searchable {
-                        <span
-                            role="img"
-                            aria-label="Searchable column"
-                            class="ml-2 inline-flex size-4 items-center justify-center align-middle text-base leading-none text-muted-foreground"
-                        >
-                            "\u{2315}"
-                        </span>
-                    }
-                )
-            }
-            .boxed());
+            heads.push(
+                view! {
+                    cx =>
+                    table_head(
+                        attrs: attributes! { class=(head_class) aria-sort=(aria_sort) },
+                        (header)
+                        if searchable {
+                            tooltip(
+                                attrs: attributes! { class="ml-2 align-middle" },
+                                icon(
+                                    data: icons::SEARCH,
+                                    label: "Prefix search matches this column",
+                                    attrs: attributes! { class="size-4 text-muted-foreground" }
+                                )
+                                tooltip_content("Prefix search matches this column")
+                            )
+                        }
+                    )
+                }
+                .boxed(),
+            );
         }
         if with_delete {
             heads.push(view! { cx => table_head("Actions") }.boxed());
@@ -3605,9 +3612,16 @@ mod tests {
             html.contains("border-border") && html.contains("text-muted-foreground"),
             "missing Token classes in {html}"
         );
-        // searchable indicator ⌕ and inactive-sort indicator ↕
-        assert!(html.contains("⌕"), "missing searchable indicator in {html}");
-        assert!(html.contains("↕"), "missing sortable indicator in {html}");
+        // Searchable columns carry the Lucide loupe + tooltip (GH #151);
+        // sortable ones the inactive `arrow-up-down` with `aria-sort="none"`.
+        assert!(
+            html.contains("Prefix search matches this column") && html.contains("role=\"tooltip\""),
+            "missing searchable indicator in {html}"
+        );
+        assert!(
+            html.contains("aria-sort=\"none\""),
+            "missing sortable indicator in {html}"
+        );
         assert!(
             html.contains("cursor-pointer"),
             "missing sortable cursor-pointer in {html}"

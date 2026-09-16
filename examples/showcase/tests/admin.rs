@@ -346,12 +346,14 @@ async fn showcase_table_renders_variants() {
         html.contains("text-muted-foreground"),
         "missing table header Token in {html}"
     );
+    // The searchable marker is a Lucide loupe with a tooltip explaining the
+    // prefix search (GH #151); sortable columns keep `aria-sort` on the `th`.
     assert!(
-        html.contains("⌕") || html.contains("search"),
+        html.contains("Prefix search matches this column") && html.contains("role=\"tooltip\""),
         "missing searchable indicator in {html}"
     );
     assert!(
-        html.contains("↕") || html.contains("aria-sort"),
+        html.contains("aria-sort"),
         "missing sortable indicator in {html}"
     );
     assert!(
@@ -574,7 +576,7 @@ async fn admin_list_filters_via_q_param() {
         "filtered table should still render via Table chrome in {html}"
     );
     assert!(
-        html.contains("text-muted-foreground") || html.contains("⌕"),
+        html.contains("Prefix search matches this column"),
         "filtered table should have searchable indicator in {html}"
     );
 }

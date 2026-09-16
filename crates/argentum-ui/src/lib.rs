@@ -5,6 +5,7 @@
 //! depend on this crate and get the components as a library. See ADR-0006.
 
 pub mod components;
+pub mod icons;
 
 // Primitives — verbatim mirror of `topcoat-ui-registry`, synced via
 // `cargo xtask sync-topcoat-ui` (ADR-0007). Re-exported at the crate root for
@@ -31,6 +32,7 @@ pub use components::primitives::skeleton::skeleton;
 pub use components::primitives::table::{
     table, table_body, table_caption, table_cell, table_footer, table_head, table_header, table_row,
 };
+pub use components::primitives::tooltip::{tooltip, tooltip_content};
 // Composites — owned Argentum components (ADR-0007). Re-exported here for
 // ergonomic `argentum_ui::page` etc.; they live in `components/composites/`.
 pub use components::composites::code_block::code_block;
