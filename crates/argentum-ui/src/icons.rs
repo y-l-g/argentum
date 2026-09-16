@@ -15,3 +15,13 @@ pub const ARROW_UP: IconData = iconify_icon!("lucide:arrow-up");
 pub const ARROW_DOWN: IconData = iconify_icon!("lucide:arrow-down");
 /// Searchable column: the prefix search covers it.
 pub const SEARCH: IconData = iconify_icon!("lucide:search");
+/// Toast success.
+pub const CIRCLE_CHECK: IconData = iconify_icon!("lucide:circle-check");
+/// Toast info.
+pub const INFO: IconData = iconify_icon!("lucide:info");
+/// Toast warning.
+pub const TRIANGLE_ALERT: IconData = iconify_icon!("lucide:triangle-alert");
+/// Toast error.
+pub const OCTAGON_X: IconData = iconify_icon!("lucide:octagon-x");
+/// Toast close button.
+pub const X: IconData = iconify_icon!("lucide:x");

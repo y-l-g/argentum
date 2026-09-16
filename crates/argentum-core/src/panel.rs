@@ -543,8 +543,8 @@ impl Panel {
     /// a single Navigation group, active highlight (`bg-sidebar-accent` + `aria-current="page"`),
     /// and `sidebar_trigger` for responsive `sheet` drawer.
     /// Includes dark-mode toggle (Ghost button, persists via cookie/session) and
-    /// notification stack (fixed top-right). Additive `class` is allowed on the
-    /// outer container only (narrow seam).
+    /// the toast stack (shadcn/Sonner surface, fixed bottom-right). Additive
+    /// `class` is allowed on the outer container only (narrow seam).
     pub async fn render_shell<'a>(
         cx: &'a Cx,
         nav_items: &[NavigationItem],
@@ -607,31 +607,7 @@ impl Panel {
         #[cfg(not(feature = "auth"))]
         let account_view: BoxView<'_> = view! { cx => <span></span> }.boxed();
         let notification_view: BoxView<'_> = if let Some(notification) = take_notification(cx) {
-            let title = notification.title.clone();
-            // Honor status (GH #97): error renders destructive, others default.
-            // Matches `notification::render_notification` so the shell and the
-            // helper never diverge again.
-            let card_class = match notification.status {
-                crate::notification::NotificationStatus::Error => {
-                    "rounded-xl border border-destructive bg-background shadow-sm p-4"
-                }
-                _ => "rounded-xl border border-border bg-background shadow-sm p-4",
-            };
-            view! {
-                cx =>
-                <div class=(card_class) data-notification="">
-                    <p class="text-sm font-medium text-foreground">(title)</p>
-                    <button
-                        type="button"
-                        class="text-xs text-muted-foreground underline"
-                        aria-label="Dismiss notification"
-                        data-notification-close=""
-                    >
-                        "Dismiss"
-                    </button>
-                </div>
-            }
-            .boxed()
+            crate::notification::render_notification(cx, notification).await?
         } else {
             view! { cx => <span></span> }.boxed()
         };
@@ -702,15 +678,10 @@ impl Panel {
                     </header>
                     <main class="flex-1 mx-auto max-w-7xl w-full p-6">(slot)</main>
                 )
-                // Notification stack — fixed top-right, survives Boundary swaps
-                // (GH #98: polite live region so streamed swaps are announced).
-                <div
-                    class="fixed top-4 right-4 z-50 flex flex-col gap-2"
-                    role="status"
-                    aria-live="polite"
-                >
-                    (notification_view)
-                </div>
+                // Toast stack — the shadcn/Sonner surface, fixed bottom-right
+                // and a polite live region so streamed swaps are announced
+                // (GH #98, GH #151).
+                argentum_ui::toaster((notification_view))
             ) // Scripts are owned by the document (layout_shell).
         }
         .boxed())
@@ -3935,15 +3906,50 @@ mod tests {
 
     #[tokio::test]
     async fn shell_notification_carries_dismiss_hooks() {
+        // GH #97/#151: the shell toast is the shadcn/Sonner surface, carrying
+        // the auto-dismiss hooks notifications.js arms (mount + 4s + close).
         use crate::notification::Notification;
+
+        let enc = serde_json::to_string(&Notification::success("Created")).unwrap();
+        let html = shell_html_with_flash(&enc).await;
+        assert!(
+            html.contains("data-sonner-toast") && html.contains("data-type=\"success\""),
+            "shell toast must be the Sonner surface, got {html}"
+        );
+        assert!(
+            html.contains("data-close-button"),
+            "shell toast must carry the Sonner close button, got {html}"
+        );
+        assert!(
+            html.contains("data-title") && html.contains("Created"),
+            "shell toast must carry the title, got {html}"
+        );
+        assert!(
+            !html.contains("data-description"),
+            "a title-only toast renders no description, got {html}"
+        );
+
+        // Error + description: the destructive icon and the supporting line.
+        let enc = serde_json::to_string(&Notification::error("Boom").description("What happened"))
+            .unwrap();
+        let html = shell_html_with_flash(&enc).await;
+        assert!(
+            html.contains("data-type=\"error\"") && html.contains("text-destructive"),
+            "an error toast must carry its type and destructive icon, got {html}"
+        );
+        assert!(
+            html.contains("data-description") && html.contains("What happened"),
+            "the description must render, got {html}"
+        );
+    }
+
+    /// Render the shell once with a flash cookie carrying `enc`.
+    async fn shell_html_with_flash(enc: &str) -> String {
         use crate::resource::NavigationItem;
         use topcoat::context::CxTestBuilder;
         use topcoat::cookie::CookieJarCell;
         use topcoat::view::view;
 
-        // GH #97: the shell toast carries the auto-dismiss hooks that
-        // notifications.js arms (~4s fade + manual dismiss).
-        let enc = serde_json::to_string(&Notification::success("Created")).unwrap();
         let mut parts = http::Request::builder()
             .uri("/admin/users")
             .body(())
@@ -3968,21 +3974,13 @@ mod tests {
         }];
         let cx_ref = &cx;
         let slot = view! { cx_ref => "hello" }.boxed().into();
-        let html = Panel::render_shell(&cx, &nav_items, "/admin/users", slot, None)
+        Panel::render_shell(&cx, &nav_items, "/admin/users", slot, None)
             .await
             .unwrap()
             .single()
             .await
             .unwrap()
-            .render(&cx);
-        assert!(
-            html.contains("data-notification"),
-            "shell toast must carry data-notification, got {html}"
-        );
-        assert!(
-            html.contains("data-notification-close"),
-            "shell toast must carry dismiss button, got {html}"
-        );
+            .render(&cx)
     }
 
     #[tokio::test]

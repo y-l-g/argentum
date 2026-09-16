@@ -48,6 +48,9 @@ pub use components::composites::sidebar::{
     sidebar_rail, sidebar_separator, sidebar_trigger,
 };
 pub use components::composites::theme::theme_init_script;
+pub use components::composites::toast::{
+    toast, toast_close, toast_content, toast_description, toast_icon, toast_title, toaster,
+};
 
 // Assets for shell JS — via `asset!` + `AssetBundle` + `topcoat::runtime::script()` (ADR-0009 / T28.5)
 pub const SIDEBAR_JS: topcoat::asset::Asset = topcoat::asset::asset!("../assets/sidebar.js");

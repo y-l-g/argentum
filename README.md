@@ -184,7 +184,7 @@ There is no `Action` type. Deletes run through panel POST routes driving the `Re
 - `POST {list}/bulk-delete` → `bulk_delete_records`, all-or-nothing: every id is re-fetched via `Resource::query` and policy-checked before anything is deleted.
 - Create/edit POSTs validate inline, check `can_create`/`can_update`, then call `create_record`/`update_record`.
 
-`Notification` (`success`/`error`/`info`) is a one-time flash cookie (`__Host-argentum_notification`, Topcoat `CookieStore` with hardened jar defaults) set on the 303 Post/Redirect/Get response and rendered in a shell-level stack (`fixed top-4 right-4`) that survives table swaps; following the redirect consumes it, so a reload never replays it. Policy is `Resource::can_*`, default-deny, enforced in both page and POST handlers — the one authorization vocabulary (GH #109: the parallel `Policy<R>` trait was removed, not wired).
+`Notification` (`success`/`error`/`info`/`warning`, with an optional description) is a one-time flash cookie (`__Host-argentum_notification`, Topcoat `CookieStore` with hardened jar defaults) set on the 303 Post/Redirect/Get response and rendered as a shadcn/Sonner toast in the shell's fixed bottom-right stack, which survives table swaps; following the redirect consumes it, so a reload never replays it. Policy is `Resource::can_*`, default-deny, enforced in both page and POST handlers — the one authorization vocabulary (GH #109: the parallel `Policy<R>` trait was removed, not wired).
 
 ### 4.6 Authentication
 

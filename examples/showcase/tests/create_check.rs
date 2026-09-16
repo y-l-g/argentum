@@ -134,8 +134,8 @@ async fn manual_create_check() {
     // So we need to fetch page 2 via pagination? Or increase page size? But list page default shows page 1 (Ada, Alan). New User not on page1.
     // Let's check DB directly that user was created, and also check that notification appears.
     assert!(
-        html2.contains("fixed top-4 right-4"),
-        "missing notification fixed top-4 right-4 in {}",
+        html2.contains("data-sonner-toaster") && html2.contains("bottom-4"),
+        "missing the bottom-right toast stack in {}",
         html2
     );
     assert!(
@@ -144,10 +144,11 @@ async fn manual_create_check() {
         html2
     );
     assert!(
-        html2.contains("border-border")
-            && html2.contains("bg-background")
-            && html2.contains("shadow-sm"),
-        "missing notification card tokens"
+        html2.contains("data-sonner-toast")
+            && html2.contains("data-type=\"success\"")
+            && html2.contains("shadow-lg"),
+        "missing the shadcn/Sonner toast surface, got {}",
+        html2
     );
     let mut db_check2 = db.clone();
     let count2 = User::all().exec(&mut db_check2).await.unwrap().len();

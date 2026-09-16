@@ -82,9 +82,9 @@ A `suspense` region of the page whose content swaps in after the first render. T
 _Avoid_: Shard (as domain term), Region, Island, Boundary (pre-#373 topcoat component, removed upstream)
 
 ### Notification
-A transient user-visible message (status + title, auto-dismissed after ~4s by `notifications.js` with manual dismiss) produced by a record operation's result, rendered in a shell-level stack owned by the Panel layout so it survives table swaps.
+A transient user-visible message (status + title + optional description, rendered as a shadcn/Sonner toast, auto-dismissed after ~4s by `notifications.js` with a close button) produced by a record operation's result, rendered in a shell-level stack owned by the Panel layout so it survives table swaps.
 
-_Avoid_: Toast, Flash, Alert (as domain term)
+_Avoid_: Toast (as domain term; the shadcn UI surface is a toast), Flash, Alert
 
 ### EmptyState
 The Table's zero-rows rendering (icon + title + optional action), shown for "no records" and "no search results".

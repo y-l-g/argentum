@@ -1,9 +1,10 @@
 //! `Notification` — transient user-visible message (CONTEXT.md).
 //!
 //! Produced by an `Action`'s result and rendered in the `Panel` shell's
-//! top-level boundary so it survives `Table` swaps. Status + title,
-//! auto-dismissed after ~4s by `argentum-ui/assets/notifications.js`
-//! (manual dismiss via `[data-notification-close]`).
+//! top-level boundary so it survives `Table` swaps. Status + title (plus an
+//! optional description), auto-dismissed after ~4s by
+//! `argentum-ui/assets/notifications.js` and dismissible through the toast's
+//! close button — the shadcn/Sonner toast surface (GH #151).
 //!
 //! The flash cookie is Topcoat's `CookieStore` (serde JSON, GH #139) instead
 //! of a hand-rolled wire format; the jar defaults carry the hardened
@@ -16,6 +17,12 @@
 use serde::{Deserialize, Serialize};
 use topcoat::context::{Cx, try_request_context};
 use topcoat::cookie::{CookieJar, CookieJarCell, Cookies, cookie_store, cookies};
+use topcoat::icon::icon;
+use topcoat::view::{BoxView, ViewExt, attributes, view};
+
+use argentum_ui::{
+    icons, toast, toast_close, toast_content, toast_description, toast_icon, toast_title,
+};
 
 /// The kind of notification (status).
 ///
@@ -29,33 +36,59 @@ pub enum NotificationStatus {
     Warning,
 }
 
+impl NotificationStatus {
+    /// The lowercase token, shared with the flash cookie and `data-type`.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Success => "success",
+            Self::Error => "error",
+            Self::Info => "info",
+            Self::Warning => "warning",
+        }
+    }
+}
+
 /// A transient message shown after a mutation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Notification {
     pub status: NotificationStatus,
     pub title: String,
+    /// Optional supporting line under the title, rendered as the toast
+    /// description. Absent (`None`) keeps the GH #139 cookie wire format, so
+    /// cookies written before the field existed still decode.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
 }
 
 impl Notification {
     pub fn success(title: impl Into<String>) -> Self {
-        Self {
-            status: NotificationStatus::Success,
-            title: title.into(),
-        }
+        Self::new(NotificationStatus::Success, title)
     }
 
     pub fn error(title: impl Into<String>) -> Self {
-        Self {
-            status: NotificationStatus::Error,
-            title: title.into(),
-        }
+        Self::new(NotificationStatus::Error, title)
     }
 
     pub fn info(title: impl Into<String>) -> Self {
+        Self::new(NotificationStatus::Info, title)
+    }
+
+    pub fn warning(title: impl Into<String>) -> Self {
+        Self::new(NotificationStatus::Warning, title)
+    }
+
+    fn new(status: NotificationStatus, title: impl Into<String>) -> Self {
         Self {
-            status: NotificationStatus::Info,
+            status,
             title: title.into(),
+            description: None,
         }
+    }
+
+    /// Attach the supporting line under the title.
+    pub fn description(mut self, description: impl Into<String>) -> Self {
+        self.description = Some(description.into());
+        self
     }
 }
 
@@ -106,6 +139,49 @@ pub fn take_notification(cx: &Cx) -> Option<Notification> {
         }
         Ok(None) => None,
     }
+}
+
+/// Render one notification as the shadcn/Sonner toast (GH #151).
+///
+/// The status picks Sonner's icon under shadcn's theming (`circle-check`,
+/// `info`, `triangle-alert`, `octagon-x`); the error icon reads
+/// `text-destructive` so a failure cannot look like an info toast.
+pub(crate) async fn render_notification<'a>(
+    cx: &'a Cx,
+    notification: Notification,
+) -> topcoat::Result<BoxView<'a>> {
+    let Notification {
+        status,
+        title,
+        description,
+    } = notification;
+    let icon_data = match status {
+        NotificationStatus::Success => icons::CIRCLE_CHECK,
+        NotificationStatus::Error => icons::OCTAGON_X,
+        NotificationStatus::Info => icons::INFO,
+        NotificationStatus::Warning => icons::TRIANGLE_ALERT,
+    };
+    let icon_class = if status == NotificationStatus::Error {
+        "size-4 text-destructive"
+    } else {
+        "size-4"
+    };
+    let status = status.as_str();
+    Ok(view! {
+        cx =>
+        toast(
+            attrs: attributes! { data-type=(status) },
+            toast_icon(icon(data: icon_data, attrs: attributes! { class=(icon_class) }))
+            toast_content(
+                toast_title((title))
+                if let Some(description) = description {
+                    toast_description((description))
+                }
+            )
+            toast_close()
+        )
+    }
+    .boxed())
 }
 
 #[cfg(test)]
@@ -174,6 +250,34 @@ mod tests {
                 && cleared.contains("Path=/"),
             "the removal carries the __Host- contract: {cleared}"
         );
+    }
+
+    #[test]
+    fn notification_description_round_trips() {
+        // The description is optional and absent from the wire format when
+        // unset (GH #139 compatibility); old cookies still decode.
+        assert_eq!(
+            serde_json::to_string(&Notification::success("hello")).unwrap(),
+            r#"{"status":"success","title":"hello"}"#
+        );
+        let enc = serde_json::to_string(&Notification::warning("Careful").description("Low disk"))
+            .unwrap();
+        assert!(
+            enc.contains("\"status\":\"warning\"") && enc.contains("\"description\":\"Low disk\"")
+        );
+        let back = take_notification(&cx_with_cookie(Some(&enc))).expect("decodes");
+        assert_eq!(back.description.as_deref(), Some("Low disk"));
+        let old = take_notification(&cx_with_cookie(Some(
+            r#"{"status":"success","title":"hi"}"#,
+        )))
+        .expect("a pre-description cookie decodes");
+        assert!(old.description.is_none());
+
+        // The status token is shared with the cookie and `data-type`.
+        assert_eq!(NotificationStatus::Success.as_str(), "success");
+        assert_eq!(NotificationStatus::Error.as_str(), "error");
+        assert_eq!(NotificationStatus::Info.as_str(), "info");
+        assert_eq!(NotificationStatus::Warning.as_str(), "warning");
     }
 
     /// The flash cookie carries the hardened `__Host-` contract (GH #149):

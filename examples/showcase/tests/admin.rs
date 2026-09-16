@@ -154,10 +154,14 @@ async fn showcase_dialog_renders_notification_and_dialog_with_tokens() {
         response.status()
     );
     let html = body_string(response).await;
-    // Notification stack: fixed top-4 right-4, card with border-border bg-background shadow-sm
+    // Toast stack: the shadcn/Sonner surface, fixed bottom-right.
     assert!(
-        html.contains("fixed top-4 right-4") || html.contains("top-4 right-4"),
-        "missing notification stack in {html}"
+        html.contains("data-sonner-toaster") && html.contains("bottom-4"),
+        "missing toast stack in {html}"
+    );
+    assert!(
+        html.contains("aria-live=\"polite\""),
+        "missing polite live region in {html}"
     );
     assert!(
         html.contains("border-border")

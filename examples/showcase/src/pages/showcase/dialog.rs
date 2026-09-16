@@ -1,6 +1,7 @@
 use topcoat::{
     Result,
     context::Cx,
+    icon::icon,
     router::{page, query_params},
     view::{View, attributes, view},
 };
@@ -13,7 +14,7 @@ struct DialogQuery {
 #[page("/admin/showcase/dialog")]
 async fn dialog_showcase(cx: &Cx) -> Result<impl View> {
     // Prove Notification and Dialog chrome — all Token-only, no ac-*
-    // Notification: card with border-border bg-background shadow-sm, fixed stack
+    // Notification: the shadcn/Sonner toast surface in a fixed bottom-right stack
     // Dialog: alert_dialog driven by ?open= — Cancel/Delete are links back to
     // the plain page (SSR close), dialog.js adds Escape/backdrop dismissal
     // without reload.
@@ -71,7 +72,7 @@ async fn dialog_showcase(cx: &Cx) -> Result<impl View> {
             argentum_ui::page_header(
                 argentum_ui::page_title("Dialog & Notification — diceboard polish")
                 argentum_ui::page_description(
-                    "Notifications render in a top-level Boundary owned by the Panel Shell (fixed top-4 right-4), each a card with border-border bg-background shadow-sm. Dialogs use alert_dialog driven by ?open= — open it from the button below; Cancel/Delete/Escape/backdrop close it."
+                    "Notifications render as shadcn/Sonner toasts in a top-level stack owned by the Panel Shell (fixed bottom-right). Dialogs use alert_dialog driven by ?open= — open it from the button below; Cancel/Delete/Escape/backdrop close it."
                 )
             )
 
@@ -79,26 +80,33 @@ async fn dialog_showcase(cx: &Cx) -> Result<impl View> {
                 class="flex flex-col gap-4 rounded-xl border border-border bg-background p-6 shadow-sm"
             >
                 <h2 class="text-lg font-semibold tracking-tight text-foreground">
-                    "Notification (card in fixed stack)"
+                    "Toast (shadcn/Sonner)"
                 </h2>
                 argentum_ui::code_block(
                     lang: "rust",
-                    code: "// Panel::render_shell owns: <div class=\"fixed top-4 right-4 z-50 flex flex-col gap-2\">\n//   card(border-border bg-background shadow-sm, \"User created\")\n// </div>"
+                    code: "// Panel::render_shell owns the toaster (Sonner surface):\n//   <ol data-sonner-toaster class=\"fixed right-4 bottom-4 ... w-[356px] flex-col gap-3.5\">\n//     <li data-sonner-toast data-type=\"success\">icon + title + description + close</li>\n//   </ol>"
                 )
                 <div class="rounded-lg border border-border bg-background p-4">
                     <p class="text-sm text-muted-foreground">
-                        "Notification stack is fixed top-right, survives Boundary swaps (Panel Shell top-level Boundary)."
+                        "Toasts stack bottom-right, auto-dismiss after 4s (paused on hover/focus), and close from the circular button. A mutation flashes the same markup through the shell's toaster and it survives Boundary swaps."
                     </p>
-                    // Render a sample notification card inline for visual proof
+                    // Static visual proof of the toast surface; the shell's
+                    // real toast (armed by notifications.js) is the live one.
                     <div
-                        class="mt-4 flex flex-col gap-2 rounded-xl border border-border bg-background p-4 shadow-sm"
+                        class="mt-4 flex max-w-full items-center gap-1.5 rounded-lg border border-border bg-background p-4 text-[13px] text-foreground shadow-lg sm:w-[356px]"
                     >
-                        <p class="text-sm font-medium text-foreground">
-                            "User created"
-                        </p>
-                        <p class="text-sm text-muted-foreground">
-                            "Ada Lovelace was added successfully."
-                        </p>
+                        <span class="flex size-4 shrink-0 items-center justify-center">
+                            icon(
+                                data: argentum_ui::icons::CIRCLE_CHECK,
+                                attrs: attributes! { class="size-4" }
+                            )
+                        </span>
+                        <div class="flex min-w-0 flex-1 flex-col gap-0.5">
+                            <div class="font-medium leading-normal">"User created"</div>
+                            <div class="leading-snug text-muted-foreground">
+                                "Ada Lovelace was added successfully."
+                            </div>
+                        </div>
                     </div>
                 </div>
             </section>

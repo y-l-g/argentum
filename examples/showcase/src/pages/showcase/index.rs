@@ -28,7 +28,7 @@ async fn showcase_index() -> Result<impl View> {
                     </li>
                     <li>
                         <a href="/admin/showcase/dialog">"Dialog"</a>
-                        " — notification stack (fixed top-4 right-4, card) + alert_dialog with Primary/Destructive buttons"
+                        " — shadcn/Sonner toast stack (fixed bottom-right) + alert_dialog with Destructive/Outline buttons"
                     </li>
                     <li>
                         <a href="/admin/showcase/panel">"Panel"</a>
