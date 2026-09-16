@@ -19,6 +19,31 @@ const PRE: StaticClass = class!(
 );
 const CODE: StaticClass = class!("font-mono whitespace-pre text-foreground");
 
+/// The line-number gutter (GH #154 §1): one number per source line, right
+/// aligned and muted, in its own column beside the `<code>`.
+///
+/// The gutter is a sibling of the `<code>`, never part of it: the copy button
+/// reads the code element's text, so the numbers stay chrome. It shares the
+/// code's font metrics (mono, same size and line-height) so each number sits
+/// on its source line, and `whitespace-pre` keeps one number per line.
+const GUTTER: StaticClass = class!(
+    "shrink-0 select-none whitespace-pre pr-4 text-right font-mono text-muted-foreground \
+     tabular-nums"
+);
+
+/// The numbers of the gutter, one per source line (`""` for empty code).
+fn line_numbers(code: &str) -> String {
+    let count = code.lines().count();
+    let mut out = String::new();
+    for n in 1..=count {
+        if n > 1 {
+            out.push('\n');
+        }
+        let _ = write!(out, "{n}");
+    }
+    out
+}
+
 /// The theme-aware color comments are rendered with (GH #151 §4).
 ///
 /// syntect's light/dark themes both pick low-contrast greys for comments,
@@ -192,10 +217,13 @@ fn highlight_pair(code: &str) -> Option<(String, String)> {
 }
 
 /// Code block — `overflow-x-auto` + a subtle `bg-muted/50` surface +
-/// `border-border` + `font-mono` + `whitespace-pre`.
+/// `border-border` + `font-mono` + `whitespace-pre`, with a muted line-number
+/// gutter down the left (GH #154 §1).
 ///
-/// Long lines never overflow the parent `card`. Server-side highlighting via
-/// `syntect` (not Shiki) renders Rust spans with inline colors for light
+/// Long lines never overflow the parent `card`; the numbers live outside the
+/// `<code>` element (the copy button's source), in a flex row that scrolls
+/// with the code so each number stays on its line. Server-side highlighting
+/// via `syntect` (not Shiki) renders Rust spans with inline colors for light
 /// (`InspiredGitHub`) and dark (`base16-ocean.dark`); `html.dark` is client
 /// state so both variants ship and CSS picks one. Comments ignore the themes'
 /// low-contrast greys and render with `var(--muted-foreground)` instead, so
@@ -223,6 +251,9 @@ pub async fn code_block(
     } else {
         None
     };
+    // One gutter per source line, shared by every branch; it stays outside
+    // the `<code>` so the copy button copies the raw snippet (GH #154 §1).
+    let numbers = line_numbers(&code);
     // Deduplicated copy button — shared between highlighted + plain branches.
     // `data-copy-button` is handled by `assets/code_block.js` (clipboard write).
     let copy_button_class = "absolute right-2 top-2 rounded-md border border-border bg-background px-2 py-1 text-xs text-muted-foreground hover:bg-foreground/5";
@@ -240,13 +271,23 @@ pub async fn code_block(
                     class=(class!(PRE, "shiki dark:hidden", extra_class.clone()))
                     data-lang=(lang.clone())
                 >
-                    <code class=(CODE)>(Unescaped::new_unchecked(light))</code>
+                    <div class="flex w-max min-w-full">
+                        <span class=(GUTTER) aria-hidden="true" data-line-numbers="">
+                            (numbers.clone())
+                        </span>
+                        <code class=(CODE)>(Unescaped::new_unchecked(light))</code>
+                    </div>
                 </pre>
                 <pre
                     class=(class!(PRE, "shiki hidden dark:block", extra_class))
                     data-lang=(lang.clone())
                 >
-                    <code class=(CODE)>(Unescaped::new_unchecked(dark))</code>
+                    <div class="flex w-max min-w-full">
+                        <span class=(GUTTER) aria-hidden="true" data-line-numbers="">
+                            (numbers.clone())
+                        </span>
+                        <code class=(CODE)>(Unescaped::new_unchecked(dark))</code>
+                    </div>
                 </pre>
                 <button
                     class=(copy_button_class)
@@ -266,7 +307,12 @@ pub async fn code_block(
                     data-lang=(lang)
                     (attrs)
                 >
-                    <code class=(CODE)>(code)</code>
+                    <div class="flex w-max min-w-full">
+                        <span class=(GUTTER) aria-hidden="true" data-line-numbers="">
+                            (numbers)
+                        </span>
+                        <code class=(CODE)>(code)</code>
+                    </div>
                 </pre>
                 <button
                     class=(copy_button_class)
@@ -352,6 +398,62 @@ mod tests {
         ] {
             assert!(html.contains(needle), "lost {needle}: {html}");
         }
+        // The six-line snippet numbers every line in both paint branches
+        // (GH #154 §1); the gutter must not disturb the token stream.
+        assert_eq!(
+            html.matches("1\n2\n3\n4\n5\n6").count(),
+            2,
+            "expected a numbered gutter per theme branch: {html}"
+        );
+    }
+
+    /// The line-number gutter (GH #154 §1): one muted number per source line,
+    /// in its own column outside the `<code>` so the copy button's source
+    /// stays raw.
+    #[tokio::test]
+    async fn line_number_gutter_counts_source_lines_outside_the_code() {
+        let cx = CxTestBuilder::new().build();
+        let cx_ref = &cx;
+        let code = "fn a() {}\nfn b() {}\nfn c() {}";
+        let html = view! { cx_ref => code_block(lang: "rust", code: code) }
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
+        // Both theme branches carry their own gutter.
+        assert_eq!(
+            html.matches("data-line-numbers=\"\"").count(),
+            2,
+            "expected one gutter per theme branch: {html}"
+        );
+        assert_eq!(
+            html.matches(">1\n2\n3</span>").count(),
+            2,
+            "each gutter must number the source lines: {html}"
+        );
+        // The numbers are chrome: the first `<code>` (the copy source) must
+        // not contain the gutter run.
+        let code_start = html.find("<code").unwrap();
+        let code_end = html[code_start..].find("</code>").unwrap() + code_start;
+        assert!(
+            !html[code_start..code_end].contains("1\n2\n3"),
+            "gutter text must stay outside <code>: {html}"
+        );
+    }
+
+    #[tokio::test]
+    async fn plain_branch_renders_the_gutter_too() {
+        let cx = CxTestBuilder::new().build();
+        let cx_ref = &cx;
+        let html = view! { cx_ref => code_block(lang: "text", code: "one\ntwo") }
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
+        assert!(
+            html.contains(">1\n2</span>"),
+            "plain branch must number its lines: {html}"
+        );
     }
 
     #[tokio::test]
