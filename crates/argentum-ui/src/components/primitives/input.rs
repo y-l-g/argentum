@@ -1,4 +1,4 @@
-// SYNC: topcoat-ui-registry@0.8.1 sha256:a2c94942999ae16bba591554f7a242192e43d9ce2648ade3e67f69bfe0f82828 — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
+// SYNC: topcoat-ui-registry@0.8.1 sha256:2d46c835a1761ffd503d08add31a30bc167f028c96b9841eb3febdebf6df316b — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
 use topcoat::{
     Result,
     view::{Attributes, StaticClass, View, class, component, view},
@@ -15,6 +15,7 @@ const INPUT: StaticClass = class!(
      placeholder:text-muted-foreground \
      file:mr-3 file:h-full file:border-0 file:bg-transparent file:text-sm file:font-medium \
      focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 \
+     aria-invalid:border-destructive aria-invalid:focus-visible:ring-destructive \
      focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50",
 );
 
@@ -24,6 +25,7 @@ const INPUT: StaticClass = class!(
 /// handlers) are forwarded to the underlying `<input>`; a `class` among them
 /// is appended to the computed classes. The input fills its container, so
 /// size it through the container or with a width class.
+/// Set `aria-invalid="true"` to use the error border and focus ring.
 ///
 /// ```ignore
 /// view! {

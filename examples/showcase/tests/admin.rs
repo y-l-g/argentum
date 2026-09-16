@@ -331,8 +331,8 @@ async fn showcase_schema_renders_variants() {
         "missing Section card chrome in {html}"
     );
     assert!(
-        html.contains("flex flex-col gap-4"),
-        "missing Group Token in {html}"
+        html.contains("@container/field-group"),
+        "missing field_group Token in {html}"
     );
     assert!(html.contains("grid"), "missing grid in {html}");
     assert!(html.contains("grid-cols-2"), "missing grid cols in {html}");
@@ -342,8 +342,8 @@ async fn showcase_schema_renders_variants() {
         "missing TextInput snippet in {html}"
     );
     assert!(
-        html.contains("grid gap-1.5"),
-        "missing TextInput grid gap-1.5 in {html}"
+        html.contains("data-slot=\"field\""),
+        "missing TextInput field wrapper in {html}"
     );
     assert!(
         html.contains("border-border"),
@@ -810,8 +810,8 @@ async fn admin_form_via_resource_renders_text_inputs() {
         .unwrap()
         .render(&cx);
     assert!(
-        html.contains("grid gap-1.5"),
-        "Resource::form should render TextInput(s) with grid gap-1.5 in {html}"
+        html.contains("data-slot=\"field\""),
+        "Resource::form should render TextInput field wrappers in {html}"
     );
     assert!(
         html.contains("border-border")
@@ -828,7 +828,7 @@ async fn admin_form_via_resource_renders_text_inputs() {
         "Resource::form should have error slot in {html}"
     );
     assert!(
-        html.matches("grid gap-1.5").count() >= 2,
+        html.matches("data-slot=\"field\"").count() >= 2,
         "Resource::form should have at least 2 fields (name, email) in {html}"
     );
 }

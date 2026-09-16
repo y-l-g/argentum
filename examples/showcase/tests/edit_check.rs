@@ -39,7 +39,10 @@ async fn edit_page_hydrates_and_updates() {
         html.contains(&user.email),
         "edit should contain hydrated email"
     );
-    assert!(html.contains("grid gap-1.5"), "missing form chrome");
+    assert!(
+        html.contains("data-slot=\"field\""),
+        "missing field wrapper"
+    );
     assert!(
         html.contains("for=\"name\"") || html.contains("for="),
         "missing for/id"

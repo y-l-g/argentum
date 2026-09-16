@@ -13,7 +13,9 @@
 use std::collections::{HashMap, HashSet};
 
 use argentum_ui::{
-    card, card_content, card_header, card_title, input as ui_input, label as ui_label,
+    FieldLegendVariant, card, card_content, card_header, card_title, field as ui_field,
+    field_error as ui_field_error, field_group as ui_field_group, field_label as ui_field_label,
+    field_legend as ui_field_legend, field_set as ui_field_set, input as ui_input,
 };
 use topcoat::{Result, context::Cx, view::*};
 
@@ -250,19 +252,25 @@ impl TextInput {
         let has_error = !errors.is_empty();
         let error_text = errors.first().cloned().unwrap_or_default();
         let value_owned = value.map(|s| s.to_string());
-        // Beautiful rendering via argentum-ui `label` + `input` with Token classes,
-        // proper for/id linking, required star, type branching, and reserved error slot.
-        // `ac-field` / `ac-field--error` / `ac-error` are kept for spec compat (GH #12)
-        // alongside the Tailwind `grid gap-1.5` + `text-destructive` styling.
+        // Beautiful rendering via the upstream `field` family (topcoat#420):
+        // label + control + reserved error slot, the label following the
+        // field's invalid state, and `aria-invalid` driving the control's
+        // error border/ring. `ac-field` / `ac-field--error` / `ac-error` are
+        // kept for spec compat (GH #12).
         let field_class = if has_error {
-            "ac-field ac-field--error grid gap-1.5"
+            "ac-field ac-field--error"
         } else {
-            "ac-field grid gap-1.5"
+            "ac-field"
         };
+        let error_id = format!("{name}-error");
         Ok(view! {
             cx =>
-            <div class=(field_class)>
-                ui_label(
+            ui_field(
+                attrs: attributes! {
+                    class=(field_class)
+                    data-invalid=(has_error.then_some("true"))
+                },
+                ui_field_label(
                     attrs: attributes! { for=(name.clone()) },
                     (label_text.clone())
                     if required {
@@ -279,12 +287,18 @@ impl TextInput {
                         required=(required)
                         aria-required=(required.then_some("true"))
                         aria-invalid=(if has_error { "true" } else { "false" })
+                        aria-describedby=(has_error.then_some(error_id.clone()))
                     }
                 )
-                <p class="ac-error text-sm text-destructive" aria-live="polite">
+                ui_field_error(
+                    attrs: attributes! {
+                        id=(error_id.clone())
+                        class="ac-error"
+                        aria-live="polite"
+                    },
                     (error_text)
-                </p>
-            </div>
+                )
+            )
         }
         .boxed())
     }
@@ -672,16 +686,25 @@ impl Select {
                 .boxed(),
             );
         }
+        // The upstream `field` family (topcoat#420) with the reserved error
+        // slot kept for spec compat (GH #12). The raw control carries the
+        // same `aria-invalid` error styling as the `input` primitive.
         let field_class = if has_error {
-            "ac-field ac-field--error grid gap-1.5"
+            "ac-field ac-field--error"
         } else {
-            "ac-field grid gap-1.5"
+            "ac-field"
         };
+        let error_id = format!("{name}-error");
         let filter_label = format!("Filter {label_text} options");
         Ok(view! {
             cx =>
-            <div class=(field_class) data-select-filterable="">
-                argentum_ui::label(
+            ui_field(
+                attrs: attributes! {
+                    class=(field_class)
+                    data-select-filterable=""
+                    data-invalid=(has_error.then_some("true"))
+                },
+                ui_field_label(
                     attrs: attributes! { for=(name.clone()) },
                     (label_text.clone())
                     if required {
@@ -705,16 +728,22 @@ impl Select {
                     required=(required)
                     aria-required=(required.then_some("true"))
                     aria-invalid=(if has_error { "true" } else { "false" })
-                    class="flex h-9 w-full rounded-md border border-border bg-background px-3 py-1 text-sm shadow-xs"
+                    aria-describedby=(has_error.then_some(error_id.clone()))
+                    class="flex h-9 w-full rounded-md border border-border bg-background px-3 py-1 text-sm shadow-xs aria-invalid:border-destructive aria-invalid:focus-visible:ring-destructive"
                 >
                     for opt in option_views {
                         (opt)
                     }
                 </select>
-                <p class="ac-error text-sm text-destructive" aria-live="polite">
+                ui_field_error(
+                    attrs: attributes! {
+                        id=(error_id.clone())
+                        class="ac-error"
+                        aria-live="polite"
+                    },
                     (error_text)
-                </p>
-            </div>
+                )
+            )
         }
         .boxed())
     }
@@ -829,8 +858,8 @@ where
         return None;
     }
     let fid = root.primary_key.fields.first().copied()?;
-    let field = app_model.fields().get(fid.index)?;
-    let toasty_core::schema::app::FieldTy::Primitive(prim) = &field.ty else {
+    let model_field = app_model.fields().get(fid.index)?;
+    let toasty_core::schema::app::FieldTy::Primitive(prim) = &model_field.ty else {
         return None;
     };
     let value = match prim.ty {
@@ -1029,9 +1058,9 @@ impl Group {
     ) -> Result<BoxView<'a>> {
         if let Some(schema) = &self.children {
             let child_view = schema.render_with(cx, values, errors).await?;
-            Ok(view! { cx => <div class="flex flex-col gap-4">(child_view)</div> }.boxed())
+            Ok(view! { cx => ui_field_group((child_view)) }.boxed())
         } else {
-            Ok(view! { cx => <div class="flex flex-col gap-4"></div> }.boxed())
+            Ok(view! { cx => ui_field_group() }.boxed())
         }
     }
 }
@@ -1176,33 +1205,47 @@ impl FileUpload {
         let has_error = !errors.is_empty();
         let error_text = errors.first().cloned().unwrap_or_default();
         let field_class = if has_error {
-            "ac-field ac-field--error grid gap-1.5"
+            "ac-field ac-field--error"
         } else {
-            "ac-field grid gap-1.5"
+            "ac-field"
         };
+        let error_id = format!("{name}-error");
         Ok(view! {
             cx =>
-            <div class=(field_class)>
-                ui_label(
+            ui_field(
+                attrs: attributes! {
+                    class=(field_class)
+                    data-invalid=(has_error.then_some("true"))
+                },
+                ui_field_label(
                     attrs: attributes! { for=(name.clone()) },
                     (label_text.clone())
                     if required {
                         <span class="text-destructive" aria-hidden="true">"*"</span>
                     }
                 )
-                <input
-                    id=(name.clone())
-                    type="file"
-                    name=(name.clone())
-                    required=(required)
-                    aria-required=(required.then_some("true"))
-                    aria-invalid=(if has_error { "true" } else { "false" })
-                    class="flex h-9 w-full rounded-md border border-border bg-background px-3 py-1 text-sm shadow-xs"
-                >
-                <p class="ac-error text-sm text-destructive" aria-live="polite">
+                // The `input` primitive styles `type="file"` through its
+                // `file:` classes and carries the `aria-invalid` error styling.
+                ui_input(
+                    attrs: attributes! {
+                        id=(name.clone())
+                        type="file"
+                        name=(name.clone())
+                        required=(required)
+                        aria-required=(required.then_some("true"))
+                        aria-invalid=(if has_error { "true" } else { "false" })
+                        aria-describedby=(has_error.then_some(error_id.clone()))
+                    }
+                )
+                ui_field_error(
+                    attrs: attributes! {
+                        id=(error_id.clone())
+                        class="ac-error"
+                        aria-live="polite"
+                    },
                     (error_text)
-                </p>
-            </div>
+                )
+            )
         }
         .boxed())
     }
@@ -1261,42 +1304,48 @@ impl Repeater {
         let has_error = !own_errors.is_empty();
         let error_text = own_errors.first().cloned().unwrap_or_default();
         let container_class = if has_error {
-            "ac-field ac-field--error rounded-md border border-border p-4 flex flex-col gap-4"
+            "ac-field ac-field--error rounded-md border border-border p-4"
         } else {
-            "ac-field rounded-md border border-border p-4 flex flex-col gap-4"
+            "ac-field rounded-md border border-border p-4"
         };
         if let Some(schema) = &self.children {
             let child_view = schema.render_with(cx, values, errors).await?;
             Ok(view! {
                 cx =>
-                <div class=(container_class)>
-                    <h4 class="font-medium text-foreground">
+                ui_field_set(
+                    attrs: attributes! { class=(container_class) },
+                    ui_field_legend(
+                        variant: FieldLegendVariant::Label,
                         (title)
                         if required {
                             <span class="text-destructive" aria-hidden="true">"*"</span>
                         }
-                    </h4>
+                    )
                     <div class="grid gap-4">(child_view)</div>
-                    <p class="ac-error text-sm text-destructive" aria-live="polite">
+                    ui_field_error(
+                        attrs: attributes! { class="ac-error" aria-live="polite" },
                         (error_text)
-                    </p>
-                </div>
+                    )
+                )
             }
             .boxed())
         } else {
             Ok(view! {
                 cx =>
-                <div class=(container_class)>
-                    <h4 class="font-medium text-foreground">
+                ui_field_set(
+                    attrs: attributes! { class=(container_class) },
+                    ui_field_legend(
+                        variant: FieldLegendVariant::Label,
                         (title)
                         if required {
                             <span class="text-destructive" aria-hidden="true">"*"</span>
                         }
-                    </h4>
-                    <p class="ac-error text-sm text-destructive" aria-live="polite">
+                    )
+                    ui_field_error(
+                        attrs: attributes! { class="ac-error" aria-live="polite" },
                         (error_text)
-                    </p>
-                </div>
+                    )
+                )
             }
             .boxed())
         }
@@ -2035,10 +2084,11 @@ mod tests {
             .await
             .unwrap()
             .render(&cx);
-        // Beautiful: grid gap-1.5 wrapper, label + input with Token classes
+        // Beautiful: the upstream field wrapper + field_label, and the input
+        // with Token classes
         assert!(
-            html.contains("grid gap-1.5"),
-            "missing grid gap-1.5 in {html}"
+            html.contains("data-slot=\"field\"") && html.contains("data-slot=\"field-label\""),
+            "missing field/field-label markup in {html}"
         );
         assert!(
             html.contains("border-border"),
@@ -2064,6 +2114,42 @@ mod tests {
         );
         // label derived from lens: DummyUser::fields().name() → "name" → "Name"
         assert!(html.contains(">Name"), "missing label in {html}");
+    }
+
+    #[tokio::test]
+    async fn text_input_error_marks_the_field_invalid() {
+        // topcoat#420: `aria-invalid` drives the input's error border/ring and
+        // the label's destructive color; the reserved slot carries the id the
+        // control describes itself with.
+        let cx = cx();
+        let schema = Schema::new(TextInput::r#for(DummyUser::fields().name()).required());
+        let mut errors = HashMap::new();
+        errors.insert("name".to_string(), vec!["name is required".to_string()]);
+        let html = schema
+            .render_with(&cx, &HashMap::new(), &errors)
+            .await
+            .unwrap()
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
+        assert!(
+            html.contains("data-invalid=\"true\"") && html.contains("ac-field--error"),
+            "missing invalid field state in {html}"
+        );
+        assert!(
+            html.contains("aria-invalid=\"true\"")
+                && html.contains("aria-describedby=\"name-error\""),
+            "missing aria invalid/described-by in {html}"
+        );
+        assert!(
+            html.contains("aria-invalid:border-destructive"),
+            "missing error border styling in {html}"
+        );
+        assert!(
+            html.contains("id=\"name-error\"") && html.contains("name is required"),
+            "missing error slot content in {html}"
+        );
     }
 
     #[test]
@@ -2257,8 +2343,8 @@ mod tests {
             .unwrap()
             .render(&cx);
         assert!(
-            html.matches("grid gap-1.5").count() >= 2,
-            "expected 2 fields (grid gap-1.5) in {html}"
+            html.matches("data-slot=\"field\"").count() >= 2,
+            "expected 2 fields (data-slot=field) in {html}"
         );
         assert!(
             html.matches("text-sm text-destructive").count() >= 2,
@@ -2289,7 +2375,10 @@ mod tests {
         assert!(html.contains("bg-card"), "missing card bg in {html}");
         assert!(html.contains("shadow-sm"), "missing card shadow in {html}");
         assert!(html.contains("grid grid-cols-2"), "missing grid in {html}");
-        assert!(html.contains("grid gap-1.5"), "missing field in {html}");
+        assert!(
+            html.contains("data-slot=\"field\""),
+            "missing field in {html}"
+        );
     }
 
     #[tokio::test]
@@ -2335,8 +2424,8 @@ mod tests {
             .render(&cx);
         assert!(html.contains("inside group"), "missing child in {html}");
         assert!(
-            html.contains("flex flex-col gap-4"),
-            "missing group class flex flex-col gap-4 in {html}"
+            html.contains("@container/field-group"),
+            "missing field_group markup in {html}"
         );
     }
 
@@ -2444,7 +2533,7 @@ mod tests {
             "missing section card in {html}"
         );
         assert!(
-            html.contains("flex flex-col gap-4"),
+            html.contains("@container/field-group"),
             "missing group in {html}"
         );
     }

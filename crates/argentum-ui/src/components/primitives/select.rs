@@ -1,4 +1,4 @@
-// SYNC: topcoat-ui-registry@0.8.1 sha256:f10ee1476854c574abc8e735f82eb9bfa2bb1237024bada6b753745bacdd075d — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
+// SYNC: topcoat-ui-registry@0.8.1 sha256:3a1ff362c7daa536d04c41a567aadcf07cba7e5738d9f0fcebd4e5df5762917a — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
 use topcoat::{
     Result,
     context::Cx,
@@ -16,6 +16,7 @@ const SELECT: StaticClass = class!(
     "h-9 w-full appearance-none items-center rounded-lg border border-border \
      bg-transparent pr-8 pl-3 text-left text-sm transition-colors outline-none \
      focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 \
+     aria-invalid:border-destructive aria-invalid:focus-visible:ring-destructive \
      focus-visible:ring-offset-background disabled:pointer-events-none",
 );
 
@@ -88,6 +89,7 @@ fn checkmark_style(cx: &Cx) -> String {
 /// handlers) are forwarded to the `<select>`; a `class` among them is appended
 /// to the wrapping element's classes, so width utilities size the whole
 /// control. Like the input, it fills its container by default.
+/// Set `aria-invalid="true"` to use the error border and focus ring.
 /// For a styled group heading, add a `<legend>` as the first child of the
 /// `<optgroup>`. Keep its `label` attribute for native picker fallbacks.
 ///

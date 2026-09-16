@@ -1,4 +1,4 @@
-// SYNC: topcoat-ui-registry@0.8.1 sha256:d25bbbcf3a575930cbfacbfa62bb4816944c19bfd3b462721347aab34f4f0c05 — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
+// SYNC: topcoat-ui-registry@0.8.1 sha256:058b7cf87e15056c6e8a351ac51bf561d3304c80051be1378c4f03b439abd55c — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
 use topcoat::{
     Result,
     view::{Attributes, Child, StaticClass, View, class, component, view},
@@ -15,6 +15,7 @@ const TEXTAREA: StaticClass = class!(
      bg-transparent px-3 py-2 text-sm transition-colors outline-none \
      placeholder:text-muted-foreground \
      focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 \
+     aria-invalid:border-destructive aria-invalid:focus-visible:ring-destructive \
      focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50",
 );
 
@@ -26,6 +27,7 @@ const TEXTAREA: StaticClass = class!(
 /// initial value. The textarea fills its container, so size it through the
 /// container or with a width class; it grows with its content from a
 /// two-line minimum.
+/// Set `aria-invalid="true"` to use the error border and focus ring.
 ///
 /// ```ignore
 /// view! {

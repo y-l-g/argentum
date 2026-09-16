@@ -20,6 +20,10 @@ pub use components::primitives::card::{
 pub use components::primitives::dialog::{
     dialog, dialog_content, dialog_description, dialog_footer, dialog_header, dialog_title,
 };
+pub use components::primitives::field::{
+    FieldLegendVariant, FieldOrientation, field, field_content, field_description, field_error,
+    field_group, field_label, field_legend, field_separator, field_set, field_title,
+};
 pub use components::primitives::input::input;
 pub use components::primitives::label::label;
 pub use components::primitives::pagination::{

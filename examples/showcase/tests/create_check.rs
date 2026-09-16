@@ -20,8 +20,8 @@ async fn manual_create_check() {
     assert!(resp.status().is_success(), "GET create should be 200");
     let html = body_string(resp).await;
     assert!(
-        html.contains("grid gap-1.5"),
-        "missing grid gap-1.5 in {}",
+        html.contains("data-slot=\"field\""),
+        "missing field wrapper in {}",
         html
     );
     assert!(html.contains("border-border"), "missing border-border");

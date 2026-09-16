@@ -189,21 +189,49 @@ async fn ui_showcase(cx: &Cx) -> Result<impl View> {
             )
 
             example(
-                title: "Form controls",
-                description: "Input, textarea, select, checkbox, switch, radio group, toggle group, label and kbd — native controls styled with Tokens.",
-                code: "input(attrs: attributes! { type=\"email\" placeholder=\"you@example.com\" })\nselect(attrs: attributes! { name=\"region\" }, <option>...</option>)\ncheckbox(attrs: attributes! { id=\"terms\" checked=\"\" })\nswitch(attrs: attributes! { id=\"airplane\" checked=\"\" })",
+                title: "Form fields & controls",
+                description: "field wraps a label, control and supporting text; field_label follows the field's disabled/invalid state, and field_error carries the message while aria-invalid colors the control. Input, textarea, select, checkbox, switch, radio group, toggle group and kbd stay Token-styled.",
+                code: "field(\n    field_label(attrs: attributes! { for=\"email\" }, \"Email\")\n    input(attrs: attributes! { id=\"email\" aria-describedby=\"email-help\" })\n    field_description(attrs: attributes! { id=\"email-help\" }, \"We only use it for release notes.\")\n)\nfield(\n    field_label(attrs: attributes! { for=\"work-email\" }, \"Work email\")\n    input(attrs: attributes! { id=\"work-email\" aria-invalid=\"true\" })\n    field_error(\"Enter a valid email address.\")\n)",
                 <div class="grid gap-4 sm:grid-cols-2">
-                    <div class="grid gap-1.5">
-                        argentum_ui::label(
+                    argentum_ui::field(
+                        argentum_ui::field_label(
                             attrs: attributes! { for="ui-email" },
                             "Email"
                         )
                         argentum_ui::input(
-                            attrs: attributes! { id="ui-email" type="email" placeholder="you@example.com" }
+                            attrs: attributes! {
+                                id="ui-email"
+                                type="email"
+                                placeholder="you@example.com"
+                                aria-describedby="ui-email-description"
+                            }
                         )
-                    </div>
-                    <div class="grid gap-1.5">
-                        argentum_ui::label(
+                        argentum_ui::field_description(
+                            attrs: attributes! { id="ui-email-description" },
+                            "We only use it for release notes."
+                        )
+                    )
+                    argentum_ui::field(
+                        argentum_ui::field_label(
+                            attrs: attributes! { for="ui-work-email" },
+                            "Work email"
+                        )
+                        argentum_ui::input(
+                            attrs: attributes! {
+                                id="ui-work-email"
+                                type="email"
+                                value="not-an-email"
+                                aria-invalid="true"
+                                aria-describedby="ui-work-email-error"
+                            }
+                        )
+                        argentum_ui::field_error(
+                            attrs: attributes! { id="ui-work-email-error" },
+                            "Enter a valid email address."
+                        )
+                    )
+                    argentum_ui::field(
+                        argentum_ui::field_label(
                             attrs: attributes! { for="ui-region" },
                             "Region"
                         )
@@ -212,7 +240,7 @@ async fn ui_showcase(cx: &Cx) -> Result<impl View> {
                             <option>"eu-central-1"</option>
                             <option selected="">"us-east-1"</option>
                         )
-                    </div>
+                    )
                     <div class="flex items-center gap-2">
                         checkbox(attrs: attributes! { id="ui-terms" checked="" })
                         argentum_ui::label(
@@ -270,24 +298,26 @@ async fn ui_showcase(cx: &Cx) -> Result<impl View> {
                             )
                         )
                     </div>
-                    <div class="grid gap-1.5 sm:col-span-2">
-                        argentum_ui::label(
-                            attrs: attributes! { for="ui-notes" },
-                            "Notes"
-                        )
-                        textarea(
-                            attrs: attributes! { id="ui-notes" name="notes" placeholder="Tell us more" }
+                    <div class="sm:col-span-2">
+                        argentum_ui::field(
+                            argentum_ui::field_label(
+                                attrs: attributes! { for="ui-notes" },
+                                "Notes"
+                            )
+                            textarea(
+                                attrs: attributes! { id="ui-notes" name="notes" placeholder="Tell us more" }
+                            )
                         )
                     </div>
-                    <div class="grid gap-1.5">
-                        argentum_ui::label(
+                    argentum_ui::field(
+                        argentum_ui::field_label(
                             attrs: attributes! { for="ui-disabled" },
                             "Disabled"
                         )
                         argentum_ui::input(
                             attrs: attributes! { id="ui-disabled" value="Read only" disabled="" }
                         )
-                    </div>
+                    )
                     <div class="flex items-center gap-3">
                         <span class="text-sm text-muted-foreground">"Shortcut"</span>
                         kbd_group(
