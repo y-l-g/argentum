@@ -10,9 +10,10 @@ use std::sync::Arc;
 use std::collections::HashMap;
 
 use argentum_ui::{
-    ButtonSize, ButtonVariant, button, icons, input as ui_input, pagination, pagination_content,
-    pagination_item, pagination_next, pagination_previous, table, table_body, table_cell,
-    table_head, table_header, table_row, tooltip, tooltip_content,
+    ButtonSize, ButtonVariant, alert_dialog, button, button_variants, dialog_content,
+    dialog_description, dialog_footer, dialog_header, dialog_title, icons, input as ui_input,
+    pagination, pagination_content, pagination_item, pagination_next, pagination_previous, table,
+    table_body, table_cell, table_head, table_header, table_row, tooltip, tooltip_content,
 };
 use toasty::stmt::{Expr, List, OrderByExpr};
 use topcoat::context::Cx;
@@ -1266,11 +1267,7 @@ impl<M> Table<M> {
                     button(
                         variant: ButtonVariant::Destructive,
                         size: ButtonSize::Md,
-                        attrs: attributes! {
-                            type="submit"
-                            disabled=""
-                            data-bulk-submit=""
-                        },
+                        attrs: attributes! { type="submit" disabled="" data-bulk-submit="" },
                         "Bulk Delete"
                     )
                 </form>
@@ -1280,7 +1277,6 @@ impl<M> Table<M> {
             view! { cx => <span></span> }.boxed()
         };
         let pager = self.render_pager(cx, state, path, &page).await?;
-        let csrf_token = crate::csrf::current_token(cx);
         // Fail-visible filters (GH #93): requested filters that produced no
         // predicate render as a `role=alert` banner; the list keeps a 200
         // while the export refuses with 400 (see `resource_export`).
@@ -1336,7 +1332,16 @@ impl<M> Table<M> {
         // Precompute the row presentation so template bodies capture only
         // owned data — the lazy view outlives this call, so it must never
         // borrow `self` or `page`.
-        let row_data: Vec<(String, Vec<String>)> = page
+        //
+        // The per-row delete URL (GH #151) opens the confirmation dialog on
+        // the list page (`?delete=<key>`) instead of posting straight away.
+        let dialog_dir = state
+            .sort
+            .as_ref()
+            .map(|s| if s.descending { "desc" } else { "asc" });
+        let dialog_filters = state.filters_param();
+        let dialog_group = self.effective_group_name(state);
+        let row_data: Vec<(String, Vec<String>, Option<String>)> = page
             .rows
             .iter()
             .map(|row| {
@@ -1346,7 +1351,22 @@ impl<M> Table<M> {
                     .iter()
                     .map(|col| col.render_cell(row))
                     .collect();
-                (key, cells)
+                let open_url = delete_prefix.is_some().then(|| {
+                    build_url(
+                        path,
+                        &[
+                            ("q", state.search.as_deref()),
+                            ("sort", state.sort.as_ref().map(|s| s.column.as_str())),
+                            ("dir", dialog_dir),
+                            ("filters", dialog_filters.as_deref()),
+                            ("group_by", dialog_group.as_deref()),
+                            ("after", state.after.as_deref()),
+                            ("before", state.before.as_deref()),
+                            ("delete", Some(key.as_str())),
+                        ],
+                    )
+                });
+                (key, cells, open_url)
             })
             .collect();
         // Row keys must be injective within a page (GH #96): duplicates corrupt
@@ -1354,10 +1374,13 @@ impl<M> Table<M> {
         debug_assert!(
             {
                 let mut seen = std::collections::HashSet::new();
-                row_data.iter().all(|(k, _)| seen.insert(k.clone()))
+                row_data.iter().all(|(k, _, _)| seen.insert(k.clone()))
             },
             "duplicate Table::id keys in one page: Table::id must be injective"
         );
+        // The confirmation dialog lives with the delete chrome (GH #151); the
+        // live-search page renders it outside the shard region instead.
+        let delete_dialog = self.render_delete_dialog(cx, state, path).await?;
 
         if page.rows.is_empty() {
             let empty_cell = self
@@ -1383,6 +1406,9 @@ impl<M> Table<M> {
                         (head)
                         (empty_cell)
                     )
+                    if let Some(dialog) = delete_dialog {
+                        (dialog)
+                    }
                 </div>
             };
             return Ok(if is_boundary {
@@ -1442,11 +1468,10 @@ impl<M> Table<M> {
                     (head)
                     table_body(
                         #[key(key.as_str())]
-                        for (key, cells) in &row_data {
+                        for (key, cells, open_url) in &row_data {
                             let key_for_row = key.clone();
-                            let key_for_action = key.clone();
                             let key_for_select = key.clone();
-                            let csrf_for_row = csrf_token.clone();
+                            let open_for_row = open_url.clone();
                             let row_dom_id = row_dom_id(&key_for_row);
                             table_row(
                                 attrs: attributes! { id=(row_dom_id) },
@@ -1463,28 +1488,14 @@ impl<M> Table<M> {
                                 for cell in cells {
                                     table_cell((cell.clone()))
                                 }
-                                if let Some(prefix) = &delete_prefix {
+                                if let Some(url) = open_for_row {
                                     table_cell(
-                                        <form
-                                            method="post"
-                                            action=(format!(
-                                                "{}/{}/delete",
-                                                prefix,
-                                                encode_path_segment(&key_for_action),
-                                            ))
+                                        <a
+                                            href=(url)
+                                            class=(button_variants(ButtonVariant::Ghost, ButtonSize::Md))
                                         >
-                                            <input
-                                                type="hidden"
-                                                name="csrf_token"
-                                                value=(csrf_for_row)
-                                            >
-                                            button(
-                                                variant: ButtonVariant::Ghost,
-                                                size: ButtonSize::Md,
-                                                attrs: attributes! { r#type="submit" },
-                                                "Delete"
-                                            )
-                                        </form>
+                                            "Delete"
+                                        </a>
                                     )
                                 }
                             )
@@ -1494,6 +1505,9 @@ impl<M> Table<M> {
                 for p in pager {
                     (p)
                 }
+                if let Some(dialog) = delete_dialog {
+                    (dialog)
+                }
             </div>
         };
         Ok(if is_boundary {
@@ -1501,6 +1515,103 @@ impl<M> Table<M> {
         } else {
             inner.boxed()
         })
+    }
+
+    /// The row-delete confirmation dialog (GH #151), rendered when the URL
+    /// asks for one and [`Self::with_delete`] wired the delete route.
+    ///
+    /// `?delete=<row key>` opens the alert dialog on the list page; the
+    /// dialog's form POSTs to `{prefix}/{key}/delete` with `confirm=1` — the
+    /// same two-step route as the old confirmation page, now with a
+    /// Destructive confirm. Cancel is a link back to the list state without
+    /// `?delete=`; `dialog.js` adds Escape/backdrop dismissal and mirrors it
+    /// as `?open=false` ([`TableState::open`]), so a reload stays closed.
+    ///
+    /// [`Self::render_with_state`] renders it with the grid; the live-search
+    /// page (`panel::resource_list_live`) calls this separately because the
+    /// shard swaps the grid per keystroke and must not carry dialog state.
+    pub async fn render_delete_dialog<'a>(
+        &self,
+        cx: &'a Cx,
+        state: &TableState,
+        path: &str,
+    ) -> Result<Option<BoxView<'a>>> {
+        let Some(prefix) = self.delete_prefix.as_deref() else {
+            return Ok(None);
+        };
+        let Some(key) = state.delete.as_deref() else {
+            return Ok(None);
+        };
+        if state.open == Some(false) {
+            return Ok(None);
+        }
+        let action = format!("{}/{}/delete", prefix, encode_path_segment(key));
+        let csrf = crate::csrf::current_token(cx);
+        let dir = state
+            .sort
+            .as_ref()
+            .map(|s| if s.descending { "desc" } else { "asc" });
+        let filters = state.filters_param();
+        let group = self.effective_group_name(state);
+        let cancel_url = build_url(
+            path,
+            &[
+                ("q", state.search.as_deref()),
+                ("sort", state.sort.as_ref().map(|s| s.column.as_str())),
+                ("dir", dir),
+                ("filters", filters.as_deref()),
+                ("group_by", group.as_deref()),
+                ("after", state.after.as_deref()),
+                ("before", state.before.as_deref()),
+            ],
+        );
+        Ok(Some(
+            view! {
+                cx =>
+                alert_dialog(
+                    open: true,
+                    attrs: attributes! {
+                        aria-labelledby="delete-dialog-title"
+                        aria-describedby="delete-dialog-description"
+                    },
+                    dialog_content(
+                        dialog_header(
+                            dialog_title(
+                                attrs: attributes! { id="delete-dialog-title" },
+                                "Delete this record?"
+                            )
+                            dialog_description(
+                                attrs: attributes! { id="delete-dialog-description" },
+                                "This action cannot be undone."
+                            )
+                        )
+                        dialog_footer(
+                            <form method="post" action=(action) class="contents">
+                                <a
+                                    href=(cancel_url)
+                                    data-dialog-close=""
+                                    class=(button_variants(
+                                        ButtonVariant::Outline,
+                                        ButtonSize::Md,
+                                    ))
+                                >
+                                    "Cancel"
+                                </a>
+                                <input type="hidden" name="confirm" value="1">
+                                <input type="hidden" name="csrf_token" value=(csrf)>
+                                button(
+                                    variant: ButtonVariant::Destructive,
+                                    size: ButtonSize::Md,
+                                    attrs: attributes! { type="submit" },
+                                    "Delete"
+                                )
+                            </form>
+                        )
+                    )
+                )
+            }
+            .boxed(),
+        ))
     }
 
     /// The skeleton placeholder grid — three pulsing rows under the real
@@ -2470,6 +2581,14 @@ pub struct TableState {
     pub malformed_filters: Vec<String>,
     /// `?group_by=` — field name to group by (in-memory, `count` summarizer).
     pub group_by: Option<String>,
+    /// `?delete=` — the row key whose delete confirmation dialog opens on the
+    /// list page (GH #151). The dialog's confirmed POST re-enters the delete
+    /// route; the parameter itself is never a write.
+    pub delete: Option<String>,
+    /// `?open=false` — set by `dialog.js` when Escape/backdrop dismisses the
+    /// delete dialog, so the next render stays closed. Absent (or `true`)
+    /// renders it open.
+    pub open: Option<bool>,
 }
 
 /// Longest search term accepted (`?q=` and the shard's `q`, GH #148): bounded
@@ -2515,6 +2634,15 @@ impl TableState {
             filters,
             malformed_filters,
             group_by: non_empty(get("group_by")),
+            // The delete dialog is opt-in through `?delete=`; `?open=false`
+            // is the dismissal mirror `dialog.js` writes (GH #151). Any other
+            // `open` value stays neutral (open).
+            delete: non_empty(get("delete")),
+            open: match get("open") {
+                Some("false") => Some(false),
+                Some("true") => Some(true),
+                _ => None,
+            },
         }
     }
 
@@ -2642,6 +2770,11 @@ impl TableState {
             filters,
             malformed_filters,
             group_by: non_empty(group_by),
+            // Live search resets the delete dialog with pagination: a
+            // keystroke is a new result set, and the panel renders the dialog
+            // outside the shard region for live tables (GH #151).
+            delete: None,
+            open: None,
         }
     }
 }

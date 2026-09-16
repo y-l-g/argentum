@@ -1080,6 +1080,11 @@ fn resource_list_live<R: Resource>(
             .render_live_search_bar(cx, &state, &list_path, q.clone())
             .await?;
         let skeleton = table.render_skeleton(cx).await?;
+        // The delete confirmation dialog is not part of the swapped grid
+        // region: a keystroke starts a new result set and must never carry
+        // (or re-open) a dialog, so the live page renders it eagerly once
+        // (GH #151).
+        let delete_dialog = table.render_delete_dialog(cx, &state, &list_path).await?;
         // The swap payload must be rows even when the declared table sets
         // `.defer(true)` (GH #98 trap).
         let table = table.without_skeleton();
@@ -1115,6 +1120,9 @@ fn resource_list_live<R: Resource>(
                     <div class="flex flex-col gap-4">
                         (host)
                         suspense(fallback: skeleton, (lazy_rows.boxed()))
+                        if let Some(dialog) = delete_dialog {
+                            (dialog)
+                        }
                     </div>
                 )
             )
@@ -1924,81 +1932,52 @@ fn resource_edit_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
     })))
 }
 
-/// Delete action POST — requires confirmation, re-checks Policy, runs in the
+/// Delete action POST — confirmation-marked, policy-checked, and run in the
 /// framework transaction (GH #84): the checked record flows into the write.
 ///
-/// Authentication comes before any DB work (GH #144): the CSRF check and the
-/// confirmation parse run first, so a forged POST answers 403 without opening
-/// a transaction, holding a pooled connection across the body read, or
-/// probing record existence (create/bulk-delete ordering, GH #84). The
-/// confirmation page is deliberately fetch-free and policy-blind: it carries
+/// The confirmation is the row's alert dialog on the list page (GH #151): the
+/// Delete link opens `?delete=<key>` and the dialog's form POSTs here with
+/// `confirm=1`. Authentication comes before any DB work (GH #144): the CSRF
+/// check and the confirmation marker run first, so a forged POST answers 403
+/// without opening a transaction, holding a pooled connection across the body
+/// read, or probing record existence (create/bulk-delete ordering, GH #84).
+/// The dialog itself is deliberately fetch-free and policy-blind: it carries
 /// no record data and embeds only the caller's own CSRF token, and the
-/// policy/tenancy checks run against the loaded record on the confirmed POST.
+/// policy/tenancy checks run against the loaded record here.
 fn resource_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
-    Box::pin(HoistView::new(ThenView::new(async move {
-        enforce_auth(cx)?;
-        enforce_tenant::<R>(cx)?;
-        let values = parse_form_values(cx, body).await?;
-        crate::csrf::verify(cx, &values)?;
-        let confirmed = values.get("confirm").is_some_and(|v| truthy(v));
-        if !confirmed {
-            // Render confirmation page — no transaction is open yet (GH #144),
-            // and the confirmation POST re-enters above once confirmed.
-            let csrf = crate::csrf::current_token(cx);
-            let html = view! {
-                cx =>
-                argentum_ui::page(
-                    argentum_ui::page_header(argentum_ui::page_title("Confirm delete"))
-                    argentum_ui::page_content(
-                        <div
-                            class="rounded-xl border border-border bg-background p-6 shadow-sm flex flex-col gap-4"
-                        >
-                            <p class="text-sm text-foreground">
-                                "Are you sure you want to delete this record? This action cannot be undone."
-                            </p>
-                            <form
-                                method="post"
-                                action=(topcoat::router::request::uri(cx)
-                                    .path()
-                                    .to_string())
-                                class="flex gap-2"
-                            >
-                                <input type="hidden" name="confirm" value="1">
-                                <input type="hidden" name="csrf_token" value=(csrf)>
-                                argentum_ui::button(
-                                    variant: argentum_ui::ButtonVariant::Primary,
-                                    attrs: attributes! { r#type="submit" },
-                                    "Confirm"
-                                )
-                                <a
-                                    href=(list_url(cx, &R::slug()))
-                                    class="inline-flex items-center justify-center rounded-md border border-border bg-background px-4 py-2 text-sm"
-                                >
-                                    "Cancel"
-                                </a>
-                            </form>
-                        </div>
-                    )
-                )
-            };
-            return Ok(html);
-        }
-        // Confirmed and authenticated: open the transaction only now (GH
-        // #144), fetch through the tenancy seam, check Policy against the
-        // loaded record, and delete inside the tx — commit makes the checked
-        // delete durable, any error rolls it back (GH #84).
-        let mut db = db(cx);
-        let mut tx = db.transaction().await.map_err(topcoat::Error::from)?;
-        let id = topcoat::router::path_param_segment(cx, "id").to_string();
-        let record = find_by_key::<R>(cx, &id, &mut tx).await?;
-        if !R::can_delete(cx, &record) {
-            return Err(forbidden().into());
-        }
-        R::delete_record(cx, record, &mut tx).await?;
-        tx.commit().await.map_err(topcoat::Error::from)?;
-        set_notification(cx, Notification::success("Deleted"));
-        Err(see_other(list_url(cx, &R::slug())).into())
-    })))
+    Box::pin(HoistView::new(ThenView::<_, BoxView<'_>>::new(
+        async move {
+            enforce_auth(cx)?;
+            enforce_tenant::<R>(cx)?;
+            let values = parse_form_values(cx, body).await?;
+            crate::csrf::verify(cx, &values)?;
+            let confirmed = values.get("confirm").is_some_and(|v| truthy(v));
+            if !confirmed {
+                // The confirmation UI is the list-page alert dialog (GH #151):
+                // the row link opens `?delete=<key>` and the dialog's form carries
+                // `confirm=1`. This route only accepts that confirmed POST, so a
+                // missing marker is a malformed client, not a user path.
+                return Err(
+                    topcoat::router::error::bad_request("delete requires confirmation").into(),
+                );
+            }
+            // Confirmed and authenticated: open the transaction only now (GH
+            // #144), fetch through the tenancy seam, check Policy against the
+            // loaded record, and delete inside the tx — commit makes the checked
+            // delete durable, any error rolls it back (GH #84).
+            let mut db = db(cx);
+            let mut tx = db.transaction().await.map_err(topcoat::Error::from)?;
+            let id = topcoat::router::path_param_segment(cx, "id").to_string();
+            let record = find_by_key::<R>(cx, &id, &mut tx).await?;
+            if !R::can_delete(cx, &record) {
+                return Err(forbidden().into());
+            }
+            R::delete_record(cx, record, &mut tx).await?;
+            tx.commit().await.map_err(topcoat::Error::from)?;
+            set_notification(cx, Notification::success("Deleted"));
+            Err(see_other(list_url(cx, &R::slug())).into())
+        },
+    )))
 }
 
 /// Bulk delete POST — ids via `ids` form field (comma-separated).

@@ -19,34 +19,58 @@ async fn delete_requires_confirmation_and_deletes() {
     let delete_url = format!("/admin/users/{}/delete", id);
     let csrf = uuid::Uuid::new_v4().to_string();
 
-    // Check that list page contains Delete button
+    // The list renders a Delete link that opens the confirmation dialog
+    // (`?delete=<key>`) — no per-row POST form, no dialog until asked.
     let resp = client.get("/admin/users").await;
     let html = body_string(resp).await;
     assert!(
-        html.contains("Delete"),
-        "list should contain Delete button, got {}",
-        html
+        html.contains(&format!("delete={id}")),
+        "list should link the delete dialog for the row, got {html}"
     );
     assert!(
-        html.contains(&format!("/admin/users/{}/delete", id)),
-        "Delete form action should contain id"
+        !html.contains("role=\"alertdialog\""),
+        "no dialog without ?delete=, got {html}"
     );
 
-    // POST without confirm should re-render confirmation (200 with Confirm)
+    // ?delete=<id> renders the alert dialog on the list page: destructive
+    // confirm, Cancel, and the confirmed POST target (GH #151).
+    let resp = client.get(&format!("/admin/users?delete={id}")).await;
+    assert!(resp.status().is_success());
+    let html = body_string(resp).await;
+    let action = format!("action=\"/admin/users/{id}/delete\"");
+    for needle in [
+        "role=\"alertdialog\"",
+        "Delete this record?",
+        "data-dialog-close",
+        "bg-destructive",
+        action.as_str(),
+        "name=\"confirm\"",
+    ] {
+        assert!(html.contains(needle), "dialog missing {needle} in {html}");
+    }
+
+    // dialog.js mirrors Escape/backdrop dismissal into the URL; the server
+    // honors it so a reload stays closed.
+    let resp = client
+        .get(&format!("/admin/users?delete={id}&open=false"))
+        .await;
+    let html = body_string(resp).await;
+    assert!(
+        !html.contains("role=\"alertdialog\""),
+        "?open=false must keep the dialog closed, got {html}"
+    );
+
+    // POST without the dialog's confirmation marker is malformed now that
+    // the confirmation page is gone.
     let resp = client
         .csrf(&csrf)
         .post_form(&delete_url, format!("csrf_token={csrf}"))
         .await;
-    assert!(
-        resp.status().is_success(),
-        "POST without confirm should be 200 confirmation, got {}",
+    assert_eq!(
+        resp.status(),
+        400,
+        "an unconfirmed delete POST must refuse, got {}",
         resp.status()
-    );
-    let html = body_string(resp).await;
-    assert!(
-        html.contains("Confirm") || html.contains("Are you sure"),
-        "confirmation page should have Confirm, got {}",
-        html
     );
 
     // POST with confirm should delete and redirect with notification
