@@ -44,7 +44,7 @@ async fn showcase_index() -> Result<impl View> {
                     </li>
                     <li>
                         <a href="/admin/showcase/table">"Table"</a>
-                        " — TextColumn searchable/sortable, Table::for + columns"
+                        " — TextColumn searchable/sortable, Table::for + columns (static previews; /admin/users is live)"
                     </li>
                     <li>
                         <a href="/admin/showcase/db">"Db + memoize"</a>

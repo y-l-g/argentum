@@ -17,22 +17,31 @@ async fn table_showcase(cx: &Cx) -> Result<impl View> {
     let rows = UserResource::query(cx).exec(&mut conn).await?;
     let page: TablePage<User> = rows.into();
 
-    // Variants for snippet display
+    // Variants for snippet display. `.interactive(false)` renders each demo
+    // as a static preview: these tables exist for the declarations in the
+    // snippet, and a click must not promise search/sort the page does not
+    // honor (GH #151). `/admin/users` is the live list.
     let plain = Table::<User>::r#for(cx)
         .id(|u| u.id.to_string())
-        .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()));
+        .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()))
+        .interactive(false);
     let searchable = Table::<User>::r#for(cx)
         .id(|u| u.id.to_string())
-        .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()).searchable());
+        .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()).searchable())
+        .interactive(false);
     let sortable = Table::<User>::r#for(cx)
         .id(|u| u.id.to_string())
-        .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()).sortable());
-    let both = Table::<User>::r#for(cx).id(|u| u.id.to_string()).columns((
-        TextColumn::r#for(User::fields().name(), |u| u.name.clone())
-            .searchable()
-            .sortable(),
-        TextColumn::r#for(User::fields().email(), |u| u.email.clone()),
-    ));
+        .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()).sortable())
+        .interactive(false);
+    let both = Table::<User>::r#for(cx)
+        .id(|u| u.id.to_string())
+        .interactive(false)
+        .columns((
+            TextColumn::r#for(User::fields().name(), |u| u.name.clone())
+                .searchable()
+                .sortable(),
+            TextColumn::r#for(User::fields().email(), |u| u.email.clone()),
+        ));
     let plain_html = plain.render(cx, page.clone()).await?;
     let searchable_html = searchable.render(cx, page.clone()).await?;
     let sortable_html = sortable.render(cx, page.clone()).await?;
@@ -54,7 +63,7 @@ async fn table_showcase(cx: &Cx) -> Result<impl View> {
             argentum_ui::page_header(
                 argentum_ui::page_title("Table")
                 argentum_ui::page_description(
-                    "Declarative list view — columns declare how to query (searchable → starts_with, sortable → order_by) and how to render. Table owns the query."
+                    "Declarative list view — columns declare how to query (searchable → starts_with, sortable → order_by) and how to render. Table owns the query. The previews below are static; /admin/users is the live list, where search, sort, filters, and pagination re-render in place."
                 )
             )
 

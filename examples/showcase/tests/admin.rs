@@ -350,15 +350,16 @@ async fn showcase_table_renders_variants() {
         html.contains("text-muted-foreground"),
         "missing table header Token in {html}"
     );
-    // The searchable marker is a Lucide loupe with a native hint (GH #151);
-    // sortable columns keep `aria-sort` on the `th`.
+    // The demos are static previews (GH #151): labels and rows, with no sort
+    // links or search chrome that would promise an interaction the page
+    // ignores. The declarations live in the snippets.
     assert!(
-        html.contains("Prefix search matches this column"),
-        "missing searchable indicator in {html}"
+        !html.contains("aria-sort") && !html.contains("Prefix search matches this column"),
+        "showcase table demos must stay static, got {html}"
     );
     assert!(
-        html.contains("aria-sort"),
-        "missing sortable indicator in {html}"
+        !html.contains("data-live-search"),
+        "showcase table demos must not render the live host, got {html}"
     );
     assert!(
         html.contains("Ada Lovelace") || html.contains("Name"),

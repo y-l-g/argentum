@@ -19,9 +19,38 @@ use toasty::stmt::{Expr, List, OrderByExpr};
 use topcoat::context::Cx;
 use topcoat::icon::icon;
 use topcoat::router::{Href, HrefParams, HrefQueries, HrefTarget};
+use topcoat::runtime::{Event, Signal};
 use topcoat::{Result, view::*};
 
 use crate::schema::{FieldLens, Schema, capitalize, lens_field_name_and_label};
+
+/// The live table's browser state (GH #151).
+///
+/// The page owns these signals and hands their handles to the `table_search`
+/// shard through [`Table::render_live_with_state`]; each tracked read inside
+/// the shard becomes a `dep` marker the browser watches, so writing any signal
+/// re-renders the grid in place — no navigation, no scroll jump. Sort links,
+/// the pager, the filter transport, and the clear links rendered by the table
+/// write them.
+///
+/// `q`/`filters`/`sort`/`dir` reset the cursors when they change; `after` and
+/// `before` page within the current result set. All values are untrusted by
+/// the time the shard reads them back (the client owns the signal).
+#[derive(Clone)]
+pub struct TableSignals {
+    /// `?q=` — the prefix search term.
+    pub q: Signal<String>,
+    /// `?filters=` — the composed `key:value,key2:value2` transport.
+    pub filters: Signal<String>,
+    /// `?sort=` — the active sort column name (`""` = the table default).
+    pub sort: Signal<String>,
+    /// `?dir=` — `asc`/`desc` for [`Self::sort`].
+    pub dir: Signal<String>,
+    /// `?after=` — the forward cursor.
+    pub after: Signal<String>,
+    /// `?before=` — the backward cursor.
+    pub before: Signal<String>,
+}
 
 /// Select filter — exact match on a `String` field (e.g. `status = "published"`).
 pub struct SelectFilter<M> {
@@ -770,6 +799,7 @@ pub struct Table<M> {
     delete_prefix: Option<String>,
     bulk_delete: bool,
     live_search: bool,
+    interactive: bool,
     _marker: PhantomData<M>,
 }
 
@@ -788,6 +818,7 @@ impl<M> std::fmt::Debug for Table<M> {
             .field("delete_prefix", &self.delete_prefix)
             .field("bulk_delete", &self.bulk_delete)
             .field("live_search", &self.live_search)
+            .field("interactive", &self.interactive)
             .finish()
     }
 }
@@ -821,8 +852,22 @@ impl<M> Table<M> {
             delete_prefix: None,
             bulk_delete: false,
             live_search: false,
+            interactive: true,
             _marker: PhantomData,
         }
+    }
+
+    /// Render the list as a static preview: no search toolbar, no sort links,
+    /// no pager links — just labels and rows.
+    ///
+    /// Demo pages that show a `Table` for its declaration (`searchable()` /
+    /// `sortable()`) rather than its behavior use this, so a click cannot
+    /// promise an interaction the page does not honor (GH #151: the showcase
+    /// demos used to navigate to query strings the page ignored). Real
+    /// resource lists keep the default.
+    pub fn interactive(mut self, enabled: bool) -> Self {
+        self.interactive = enabled;
+        self
     }
 
     /// Create a table for the given model. `cx` is reserved for future tenancy/policy scoping.
@@ -1205,6 +1250,42 @@ impl<M> Table<M> {
     where
         M: toasty::schema::Model + Send + Sync + 'static,
     {
+        self.render_inner(cx, page, state, path, None).await
+    }
+
+    /// Render the interactive grid for a live table (GH #151): the same
+    /// presentation as [`Self::render_with_state`], with the sort links, the
+    /// pager, the filter transport, and the empty-state clear links bound to
+    /// `signals` — each interaction writes a signal and the browser morphs the
+    /// shard's new output in place, without a navigation or a scroll jump.
+    /// Every bound control keeps its real `href`/form, so a page without JS
+    /// still navigates as before.
+    pub async fn render_live_with_state<'a>(
+        &self,
+        cx: &'a Cx,
+        page: TablePage<M>,
+        state: &TableState,
+        path: &str,
+        signals: TableSignals,
+    ) -> Result<BoxView<'a>>
+    where
+        M: toasty::schema::Model + Send + Sync + 'static,
+    {
+        self.render_inner(cx, page, state, path, Some(signals))
+            .await
+    }
+
+    async fn render_inner<'a>(
+        &self,
+        cx: &'a Cx,
+        page: TablePage<M>,
+        state: &TableState,
+        path: &str,
+        signals: Option<TableSignals>,
+    ) -> Result<BoxView<'a>>
+    where
+        M: toasty::schema::Model + Send + Sync + 'static,
+    {
         if self.page_size == Some(0) {
             return Err(std::io::Error::other(
                 "Table::render: paginate requires per_page > 0 (GH #96)",
@@ -1233,7 +1314,14 @@ impl<M> Table<M> {
         let delete_prefix = self.delete_prefix.clone();
         let with_bulk = self.bulk_enabled();
         let head = self
-            .render_thead(cx, state, path, delete_prefix.is_some(), with_bulk)
+            .render_thead(
+                cx,
+                state,
+                path,
+                delete_prefix.is_some(),
+                with_bulk,
+                signals.as_ref(),
+            )
             .await?;
         let show_search = self.search_enabled();
         let search_bar = if show_search {
@@ -1243,7 +1331,10 @@ impl<M> Table<M> {
         };
         let show_filters = !self.filters.is_empty();
         let filter_bar = if show_filters {
-            Some(self.render_filter_bar(cx, state, path).await?)
+            Some(
+                self.render_filter_bar(cx, state, path, signals.as_ref())
+                    .await?,
+            )
         } else {
             None
         };
@@ -1276,7 +1367,9 @@ impl<M> Table<M> {
         } else {
             view! { cx => <span></span> }.boxed()
         };
-        let pager = self.render_pager(cx, state, path, &page).await?;
+        let pager = self
+            .render_pager(cx, state, path, &page, signals.as_ref())
+            .await?;
         // Fail-visible filters (GH #93): requested filters that produced no
         // predicate render as a `role=alert` banner; the list keeps a 200
         // while the export refuses with 400 (see `resource_export`).
@@ -1384,7 +1477,14 @@ impl<M> Table<M> {
 
         if page.rows.is_empty() {
             let empty_cell = self
-                .render_empty_cell(cx, state, path, delete_prefix.is_some(), with_bulk)
+                .render_empty_cell(
+                    cx,
+                    state,
+                    path,
+                    delete_prefix.is_some(),
+                    with_bulk,
+                    signals.as_ref(),
+                )
                 .await?;
             let inner = view! {
                 cx =>
@@ -1636,6 +1736,7 @@ impl<M> Table<M> {
                 &path,
                 self.delete_prefix.is_some(),
                 self.bulk_enabled(),
+                None,
             )
             .await?;
         let column_count = self.columns.len();
@@ -1750,13 +1851,16 @@ impl<M> Table<M> {
     }
 
     /// Whether the search toolbar renders: the explicit `search(bool)` value,
-    /// or auto — at least one `searchable()` column.
-    fn search_enabled(&self) -> bool
+    /// or auto — at least one `searchable()` column. A non-interactive
+    /// preview never renders it (GH #151).
+    pub(crate) fn search_enabled(&self) -> bool
     where
         M: toasty::schema::Model,
     {
-        self.search_ui
-            .unwrap_or_else(|| self.columns.iter().any(|c| c.is_searchable()))
+        self.interactive
+            && self
+                .search_ui
+                .unwrap_or_else(|| self.columns.iter().any(|c| c.is_searchable()))
     }
 
     /// The search toolbar (GET form); live tables instead render the host
@@ -1867,16 +1971,19 @@ impl<M> Table<M> {
     /// above the streamed region; the shard invocation that fills the grid
     /// lives in the streamed region ([`Self::render_live_invocation`]) so the
     /// grid can only ever render once per response.
+    ///
+    /// Typing writes `q` and clears the cursors (a new term is a new result
+    /// set); the shard re-renders in place (GH #151).
     pub(crate) async fn render_live_search_bar<'a>(
         &self,
         cx: &'a Cx,
         state: &TableState,
         path: &str,
-        q: topcoat::runtime::Signal<String>,
+        signals: &TableSignals,
     ) -> Result<BoxView<'a>> {
-        use topcoat::runtime::Event;
-
         let fallback = self.render_search_bar(cx, state, path).await?;
+        let q = signals.q.clone();
+        let (after, before) = (signals.after.clone(), signals.before.clone());
         Ok(view! {
             cx =>
             <div
@@ -1885,7 +1992,11 @@ impl<M> Table<M> {
             >
                 <input
                     :value=$(q.get())
-                    @input=$(|e: Event| q.set(e.target.value))
+                    @input=$(|e: Event| {
+                        q.set(e.target.value);
+                        after.set("".to_owned());
+                        before.set("".to_owned());
+                    })
                     type="search"
                     placeholder="Prefix search…"
                     aria-label="Live prefix search table"
@@ -1898,63 +2009,56 @@ impl<M> Table<M> {
     }
 
     /// The `table_search` shard invocation filling a live table's streamed
-    /// region (GH #104). Static snapshots (path, filters, sort, cursors)
-    /// travel as constants; only `q` re-renders. Unchanged queries keep the
-    /// page cursor so the inline output matches the current page; the first
-    /// keystroke starts a fresh result set.
+    /// region (GH #104). The signal handles travel as arguments; every
+    /// tracked read inside the shard becomes a `dep` marker the browser
+    /// watches, so sort/filter/pager/search changes re-render the grid in
+    /// place (GH #151).
     pub(crate) async fn render_live_invocation<'a>(
         &self,
         cx: &'a Cx,
         state: &TableState,
         path: &str,
-        q: topcoat::runtime::Signal<String>,
+        signals: TableSignals,
     ) -> Result<BoxView<'a>> {
         use crate::panel::table_search;
 
         let live_path = path.to_string();
-        let initial_q = state.search.clone().unwrap_or_default();
-        let live_after = state.after.clone().unwrap_or_default();
-        let live_before = state.before.clone().unwrap_or_default();
-        let live_filters = state.filters_param().unwrap_or_default();
-        let live_sort = state
-            .sort
-            .as_ref()
-            .map(|s| s.column.clone())
-            .unwrap_or_default();
-        let live_dir = state
-            .sort
-            .as_ref()
-            .map(|s| if s.descending { "desc" } else { "asc" })
-            .unwrap_or("asc")
-            .to_string();
         let live_group = self.effective_group_name(state).unwrap_or_default();
-        // Snapshots travel as one encoded bundle (GH #104): it keeps the
-        // shard arity small and lets future state fields ride free.
-        let live_rest = encode_live_rest(
-            &initial_q,
-            &live_filters,
-            &live_sort,
-            &live_dir,
-            &live_group,
-        );
+        let TableSignals {
+            q,
+            filters,
+            sort,
+            dir,
+            after,
+            before,
+        } = signals;
         Ok(view! {
             cx =>
             table_search(
                 path: $(live_path.clone()),
-                q: $(q.get()),
-                after: $(live_after.clone()),
-                before: $(live_before.clone()),
-                rest: $(live_rest.clone())
+                q: $(q),
+                filters: $(filters),
+                sort: $(sort),
+                dir: $(dir),
+                after: $(after),
+                before: $(before),
+                group_by: $(live_group.clone())
             )
         }
         .boxed())
     }
 
+    /// The typed filter bar. For live tables (`signals`) the hidden `filters`
+    /// transport is bound to the `filters` signal and `filters.js` dispatches
+    /// a `change` into it instead of submitting, so the shard re-renders the
+    /// grid in place; the GET form stays as the no-JS fallback and `href`s
+    /// remain real.
     async fn render_filter_bar<'a>(
         &self,
         cx: &'a Cx,
         state: &TableState,
         path: &str,
+        signals: Option<&TableSignals>,
     ) -> Result<BoxView<'a>>
     where
         M: toasty::schema::Model,
@@ -2122,14 +2226,76 @@ impl<M> Table<M> {
                 }
             }
         }
+        let form_attrs = attributes! {
+            cx =>
+            method="get"
+            action=(action)
+            class="flex flex-wrap items-center gap-2 border-b border-border p-3"
+            data-filters-form=""
+            if signals.is_some() {
+                data-filters-live=""
+            }
+        };
+        // Live tables bind the transport to the `filters` signal: `filters.js`
+        // composes and dispatches, the shard re-renders in place. Static
+        // tables keep the server-rendered value the GET form submits.
+        let transport_attrs = if let Some(signals) = signals {
+            let (filters, after, before) = (
+                signals.filters.clone(),
+                signals.after.clone(),
+                signals.before.clone(),
+            );
+            attributes! {
+                cx =>
+                name="filters"
+                :value=$(filters.get())
+                @change=$(|e: Event| {
+                    filters.set(e.target.value);
+                    after.set("".to_owned());
+                    before.set("".to_owned());
+                })
+                data-filters-transport=""
+            }
+        } else {
+            attributes! {
+                cx =>
+                name="filters"
+                value=(filters_display.clone())
+                data-filters-transport=""
+            }
+        };
+        let clear_link: Option<BoxView<'a>> = clear_url.map(|url| {
+            let attrs = match signals {
+                Some(signals) => {
+                    let (filters, after, before) = (
+                        signals.filters.clone(),
+                        signals.after.clone(),
+                        signals.before.clone(),
+                    );
+                    attributes! {
+                        cx =>
+                        href=(url.clone())
+                        @click=$(|e: Event| {
+                            e.prevent_default();
+                            filters.set("".to_owned());
+                            after.set("".to_owned());
+                            before.set("".to_owned());
+                        })
+                    }
+                }
+                None => attributes! { cx => href=(url) },
+            };
+            view! {
+                cx =>
+                <a class="text-sm text-muted-foreground hover:text-foreground" (attrs)>
+                    "Clear filters"
+                </a>
+            }
+            .boxed()
+        });
         Ok(view! {
             cx =>
-            <form
-                method="get"
-                action=(action)
-                class="flex flex-wrap items-center gap-2 border-b border-border p-3"
-                data-filters-form=""
-            >
+            <form (form_attrs)>
                 if let Some(q) = q_hidden {
                     <input type="hidden" name="q" value=(q)>
                 }
@@ -2150,7 +2316,7 @@ impl<M> Table<M> {
                         attrs: attributes! {
                             type="text"
                             name="filters"
-                            value=(filters_display.clone())
+                            value=(filters_display)
                             placeholder="filters e.g. status:published"
                             aria-label="Filter table (free text)"
                             class="w-64"
@@ -2163,19 +2329,9 @@ impl<M> Table<M> {
                         "Apply filters"
                     )
                 </noscript>
-                <input
-                    type="hidden"
-                    name="filters"
-                    value=(filters_display)
-                    data-filters-transport=""
-                >
-                if let Some(url) = clear_url {
-                    <a
-                        href=(url)
-                        class="text-sm text-muted-foreground hover:text-foreground"
-                    >
-                        "Clear filters"
-                    </a>
+                <input type="hidden" (transport_attrs)>
+                if let Some(link) = clear_link {
+                    (link)
                 }
             </form>
         }
@@ -2186,7 +2342,8 @@ impl<M> Table<M> {
     /// when unfiltered, "no results" with a Clear link when a search is
     /// active. The dead Create button is gone (create pages are not wired
     /// yet). Wrapped in a single cell spanning the table so it sits inside
-    /// the grid.
+    /// the grid. For live tables (`signals`) the clear/back links write the
+    /// signals instead of navigating; `href` stays the fallback.
     async fn render_empty_cell<'a>(
         &self,
         cx: &'a Cx,
@@ -2194,6 +2351,7 @@ impl<M> Table<M> {
         path: &str,
         with_delete: bool,
         with_bulk: bool,
+        signals: Option<&TableSignals>,
     ) -> Result<BoxView<'a>>
     where
         M: toasty::schema::Model,
@@ -2268,6 +2426,67 @@ impl<M> Table<M> {
                 ],
             )
         });
+        // Live links write the signals in place (keeping the state the link
+        // does not name); `href` stays the no-JS fallback.
+        let clear_link: Option<BoxView<'a>> = clear_url.map(|url| {
+            let attrs = match signals {
+                Some(signals) => {
+                    let (q, filters, after, before) = (
+                        signals.q.clone(),
+                        signals.filters.clone(),
+                        signals.after.clone(),
+                        signals.before.clone(),
+                    );
+                    let clearing_search = state.search.is_some();
+                    attributes! {
+                        cx =>
+                        href=(url)
+                        @click=$(|e: Event| {
+                            e.prevent_default();
+                            if clearing_search {
+                                q.set("".to_owned());
+                            } else {
+                                filters.set("".to_owned());
+                            }
+                            after.set("".to_owned());
+                            before.set("".to_owned());
+                        })
+                    }
+                }
+                None => attributes! { cx => href=(url) },
+            };
+            view! {
+                cx =>
+                <a class="text-sm text-primary hover:underline" (attrs)>
+                    (clear_label)
+                </a>
+            }
+            .boxed()
+        });
+        let first_page_link: Option<BoxView<'a>> = first_page_url.map(|url| {
+            let attrs = match signals {
+                Some(signals) => {
+                    let (after, before) = (signals.after.clone(), signals.before.clone());
+                    attributes! {
+                        cx =>
+                        href=(url)
+                        @click=$(|e: Event| {
+                            e.prevent_default();
+                            after.set("".to_owned());
+                            before.set("".to_owned());
+                        })
+                    }
+                }
+                None => attributes! { cx => href=(url) },
+            };
+            view! {
+                cx =>
+                <a class="text-sm text-primary hover:underline" (attrs)>
+                    "Back to first page"
+                </a>
+            }
+            .boxed()
+        });
         Ok(view! {
             cx =>
             table_body(
@@ -2276,15 +2495,11 @@ impl<M> Table<M> {
                         attrs: attributes! { colspan=(colspan) class="px-6 py-16 text-center" },
                         <div class="flex flex-col items-center gap-4">
                             <p class="text-sm text-muted-foreground">(message)</p>
-                            if let Some(url) = clear_url {
-                                <a href=(url) class="text-sm text-primary hover:underline">
-                                    (clear_label)
-                                </a>
+                            if let Some(link) = clear_link {
+                                (link)
                             }
-                            if let Some(url) = first_page_url {
-                                <a href=(url) class="text-sm text-primary hover:underline">
-                                    "Back to first page"
-                                </a>
+                            if let Some(link) = first_page_link {
+                                (link)
                             }
                         </div>
                     )
@@ -2298,14 +2513,18 @@ impl<M> Table<M> {
     /// Empty when the table is not paginated or the page has no neighbors —
     /// no invented page numbers. Links preserve the search and sort state;
     /// cursors travel via `?after=`/`?before=`.
+    ///
+    /// With `signals` (a live table) each link also writes its cursor signal
+    /// and clears the opposite one; `href` stays the no-JS fallback.
     async fn render_pager<'a>(
         &self,
         cx: &'a Cx,
         state: &TableState,
         path: &str,
         page: &TablePage<M>,
+        signals: Option<&TableSignals>,
     ) -> Result<Vec<BoxView<'a>>> {
-        if self.page_size.is_none() {
+        if self.page_size.is_none() || !self.interactive {
             return Ok(Vec::new());
         }
         // Cursors only carry ordering values; the loader re-applies search and
@@ -2340,20 +2559,54 @@ impl<M> Table<M> {
         if prev_href.is_none() && next_href.is_none() {
             return Ok(Vec::new());
         }
+        let prev_item: Option<BoxView<'a>> = prev_href.map(|href| {
+            let attrs = match (signals, page.prev_cursor.as_deref()) {
+                (Some(signals), Some(cursor)) => {
+                    let (after, before) = (signals.after.clone(), signals.before.clone());
+                    let cursor = cursor.to_owned();
+                    attributes! {
+                        cx =>
+                        href=(href.clone())
+                        @click=$(|e: Event| {
+                            e.prevent_default();
+                            before.set(cursor.clone());
+                            after.set("".to_owned());
+                        })
+                    }
+                }
+                _ => attributes! { cx => href=(href) },
+            };
+            view! { cx => pagination_item(pagination_previous(attrs: attrs)) }.boxed()
+        });
+        let next_item: Option<BoxView<'a>> = next_href.map(|href| {
+            let attrs = match (signals, page.next_cursor.as_deref()) {
+                (Some(signals), Some(cursor)) => {
+                    let (after, before) = (signals.after.clone(), signals.before.clone());
+                    let cursor = cursor.to_owned();
+                    attributes! {
+                        cx =>
+                        href=(href.clone())
+                        @click=$(|e: Event| {
+                            e.prevent_default();
+                            after.set(cursor.clone());
+                            before.set("".to_owned());
+                        })
+                    }
+                }
+                _ => attributes! { cx => href=(href) },
+            };
+            view! { cx => pagination_item(pagination_next(attrs: attrs)) }.boxed()
+        });
         let pager = view! {
             cx =>
             <div class="border-t border-border p-3">
                 pagination(
                     pagination_content(
-                        if let Some(href) = prev_href {
-                            pagination_item(
-                                pagination_previous(attrs: attributes! { href=(href) })
-                            )
+                        if let Some(item) = prev_item {
+                            (item)
                         }
-                        if let Some(href) = next_href {
-                            pagination_item(
-                                pagination_next(attrs: attributes! { href=(href) })
-                            )
+                        if let Some(item) = next_item {
+                            (item)
                         }
                     )
                 )
@@ -2368,6 +2621,9 @@ impl<M> Table<M> {
     /// (a Lucide arrow with `aria-sort` when active, `arrow-up-down` when
     /// inactive). Every render branch (skeleton / empty / rows) composes it,
     /// so an a11y or styling change happens once.
+    ///
+    /// With `signals` (a live table) the link also writes the sort signals and
+    /// clears the cursors; its `href` stays the no-JS fallback.
     async fn render_thead<'a>(
         &self,
         cx: &'a Cx,
@@ -2375,6 +2631,7 @@ impl<M> Table<M> {
         path: &str,
         with_delete: bool,
         with_bulk: bool,
+        signals: Option<&TableSignals>,
     ) -> Result<BoxView<'a>>
     where
         M: toasty::schema::Model,
@@ -2388,8 +2645,11 @@ impl<M> Table<M> {
         let mut heads: Vec<BoxView<'_>> = Vec::with_capacity(self.columns.len());
         for col in &self.columns {
             let label = col.label().to_string();
-            let searchable = col.is_searchable();
-            let (head_class, aria_sort, header) = if col.is_sortable() {
+            // A static preview renders plain labels: no link to an interaction
+            // the page does not honor (GH #151).
+            let searchable = self.interactive && col.is_searchable();
+            let sortable = self.interactive && col.is_sortable();
+            let (head_class, aria_sort, header) = if sortable {
                 let (aria, sort_icon, next_desc) = match active {
                     Some(s) if s.column == col.name() => (
                         if s.descending {
@@ -2423,15 +2683,38 @@ impl<M> Table<M> {
                     label,
                     if next_desc { "descending" } else { "ascending" }
                 );
+                let link_attrs = if let Some(signals) = signals {
+                    let (sort, dir, after, before) = (
+                        signals.sort.clone(),
+                        signals.dir.clone(),
+                        signals.after.clone(),
+                        signals.before.clone(),
+                    );
+                    let column = col.name().to_string();
+                    let next_dir = if next_desc { "desc" } else { "asc" }.to_owned();
+                    attributes! {
+                        cx =>
+                        href=(href)
+                        aria-label=(aria_label)
+                        @click=$(|e: Event| {
+                            e.prevent_default();
+                            sort.set(column.clone());
+                            dir.set(next_dir.clone());
+                            after.set("".to_owned());
+                            before.set("".to_owned());
+                        })
+                    }
+                } else {
+                    attributes! { cx => href=(href) aria-label=(aria_label) }
+                };
                 (
                     "cursor-pointer hover:bg-foreground/5",
                     Some(aria),
                     view! {
                         cx =>
                         <a
-                            href=(href)
-                            aria-label=(aria_label)
                             class="inline-flex items-center gap-1 hover:text-foreground"
+                            (link_attrs)
                         >
                             (label.clone())
                             icon(
@@ -2908,47 +3191,6 @@ fn row_dom_id(key: &str) -> String {
     }
     out.push_str(&format!("-{:08x}", fnv1a_32(key)));
     out
-}
-
-/// Encode live-search snapshot args into one bundle string (GH #104):
-/// filters/sort/dir/group_by snapshots travel as a single shard arg so the
-/// wire arity stays small. Decoded by [`decode_live_rest`] with the same
-/// urlencoding the list toolbar speaks (delimiters round-trip).
-pub(crate) fn encode_live_rest(
-    q_initial: &str,
-    filters: &str,
-    sort: &str,
-    dir: &str,
-    group_by: &str,
-) -> String {
-    let mut ser = form_urlencoded::Serializer::new(String::new());
-    ser.append_pair("q", q_initial);
-    ser.append_pair("filters", filters);
-    ser.append_pair("sort", sort);
-    ser.append_pair("dir", dir);
-    ser.append_pair("group_by", group_by);
-    ser.finish()
-}
-
-/// Decode an [`encode_live_rest`] bundle. Unknown keys are ignored; missing
-/// keys decode as empty (matching [`TableState::from_live_args`] blanks).
-pub(crate) fn decode_live_rest(rest: &str) -> (String, String, String, String, String) {
-    let mut q_initial = String::new();
-    let mut filters = String::new();
-    let mut sort = String::new();
-    let mut dir = String::new();
-    let mut group_by = String::new();
-    for (k, v) in form_urlencoded::parse(rest.as_bytes()) {
-        match &*k {
-            "q" => q_initial = v.into_owned(),
-            "filters" => filters = v.into_owned(),
-            "sort" => sort = v.into_owned(),
-            "dir" => dir = v.into_owned(),
-            "group_by" => group_by = v.into_owned(),
-            _ => {}
-        }
-    }
-    (q_initial, filters, sort, dir, group_by)
 }
 
 /// Build `path?k=v&…` from ordered optional parameters, skipping `None`.
@@ -3777,6 +4019,45 @@ mod tests {
                 row.name
             );
         }
+    }
+
+    #[tokio::test]
+    async fn interactive_false_renders_a_static_preview() {
+        // GH #151: a demo/preview table renders declarations, not the
+        // interactions — no search toolbar, no sort link, no sort state.
+        let cx = CxTestBuilder::new().build();
+        let preview = Table::<User>::r#for(&cx)
+            .id(|u| u.id.to_string())
+            .columns(
+                TextColumn::r#for(User::fields().name(), |u| u.name.clone())
+                    .searchable()
+                    .sortable(),
+            )
+            .interactive(false);
+        let rows = vec![User {
+            id: uuid::Uuid::new_v4(),
+            name: "Ada".to_string(),
+        }];
+        let page: TablePage<User> = rows.into();
+        let html = preview
+            .render(&cx, page)
+            .await
+            .unwrap()
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
+        assert!(
+            !html.contains("name=\"q\"")
+                && !html.contains("aria-sort")
+                && !html.contains("sort=name")
+                && !html.contains("Prefix search matches this column"),
+            "static preview must not render interactive chrome, got {html}"
+        );
+        assert!(
+            html.contains("Name") && html.contains("Ada"),
+            "static preview must still render labels and rows, got {html}"
+        );
     }
 
     #[tokio::test]
@@ -4791,30 +5072,6 @@ mod tests {
             let enc = encode_filter_component(raw);
             assert_eq!(decode_filter_component(&enc), raw, "round-trip {raw:?}");
         }
-    }
-
-    #[test]
-    fn live_rest_bundle_round_trips_delimiters() {
-        // GH #104: snapshot args (incl. `% : ,` filter delimiters) survive
-        // the shard wire format.
-        let rest = encode_live_rest("Ada", "status:a,b", "name", "desc", "status");
-        let (q, filters, sort, dir, group_by) = decode_live_rest(&rest);
-        assert_eq!(q, "Ada");
-        assert_eq!(filters, "status:a,b");
-        assert_eq!(sort, "name");
-        assert_eq!(dir, "desc");
-        assert_eq!(group_by, "status");
-        let empty = decode_live_rest("");
-        assert_eq!(
-            empty,
-            (
-                "".to_string(),
-                "".to_string(),
-                "".to_string(),
-                "".to_string(),
-                "".to_string()
-            )
-        );
     }
 
     fn status_table(cx: &Cx) -> Table<Task> {

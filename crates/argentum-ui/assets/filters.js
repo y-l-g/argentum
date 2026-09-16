@@ -3,14 +3,19 @@
 // The filter form keeps one hidden `input[name=filters]` transport
 // (`key:value,key2:value2`, parsed by `TableState`). Typed controls carry only
 // `data-filter-name` (no `name`, so they never submit on their own): on change
-// this listener composes every control into the transport and submits the
-// form, so filters apply immediately without an Apply button. The transport is
-// rewritten even when no control has a value, so selecting "All" clears the
-// filter instead of resubmitting the stale server-rendered value (GH #151).
-// Without JS the free-text input + Apply button inside `<noscript>` keep the
-// old path.
+// the control values are composed into the transport.
 //
-// Document-level delegation (like sidebar.js) so streamed/shard swaps that
+// A form marked `data-filters-live` belongs to a live table: the transport is
+// bound to the runtime's `filters` signal, so this script composes the value
+// and dispatches a bubbling `change` into the transport, which the runtime
+// turns into a signal write — the shard re-renders the grid in place, no
+// navigation and no scroll jump. The rewritten transport is unconditional, so
+// selecting "All" clears the filter instead of resubmitting the stale value.
+// Without a live marker the composed transport is submitted as a GET form (a
+// full navigation, the no-JS behaviour), and the `<noscript>` free-text
+// fallback stays for scriptless readers.
+//
+// Document-level delegation (like bulk.js) so streamed/shard swaps that
 // replace table markup need no re-installation.
 function composeFilters(form) {
   const parts = [];
@@ -21,8 +26,7 @@ function composeFilters(form) {
       parts.push(name + ':' + value);
     }
   });
-  const transport = form.querySelector('input[data-filters-transport]');
-  if (transport) transport.value = parts.join(',');
+  return parts.join(',');
 }
 
 document.addEventListener('change', (e) => {
@@ -30,7 +34,12 @@ document.addEventListener('change', (e) => {
   if (!control) return;
   const form = control.closest('form[data-filters-form]');
   if (!form) return;
-  composeFilters(form);
+  const transport = form.querySelector('input[data-filters-transport]');
+  if (transport) transport.value = composeFilters(form);
+  if (form.hasAttribute('data-filters-live')) {
+    if (transport) transport.dispatchEvent(new Event('change', { bubbles: true }));
+    return;
+  }
   if (typeof form.requestSubmit === 'function') {
     form.requestSubmit();
   } else {
@@ -43,5 +52,6 @@ document.addEventListener('change', (e) => {
 document.addEventListener('submit', (e) => {
   const form = e.target.closest('form[data-filters-form]');
   if (!form) return;
-  composeFilters(form);
+  const transport = form.querySelector('input[data-filters-transport]');
+  if (transport) transport.value = composeFilters(form);
 });
