@@ -171,8 +171,8 @@ Table::r#for(cx)
 
 Columns/filters declare **how to query**, not just how to render: `searchable()` marks a column for portable `starts_with` search, `sortable()` maps to `order_by` (toasty appends PK tie-breakers internally for deterministic cursors), and the URL is the one truth — `?q=`, `?sort=`, `?dir=`, `?after=`, `?before=`, `?filters=`, `?group_by=` parsed once into `TableState`.
 
-- **Filters:** the `Filter` enum (`SelectFilter`/`TernaryFilter`/`DateFilter`/`VariantFilter`) over `IntoFilters` tuples. `Table::filter_expr` ANDs the active `?filters=` expressions into the loader. `VariantFilter` holds prebuilt `(label, Expr<bool>)` options (e.g. `is_variant()` predicates) for embedded-enum fields. Every declared filter renders a typed control composed into the single `?filters=` param (free-text input stays as fallback). Unknown keys and rejected values never fail silently: the list renders a `role=alert` banner (`Table::unapplied_filters`) while export refuses with 400.
-- **Bulk selection** is a leading checkbox column with select-all whose JS joins keys into the single `ids` transport (text field stays as fallback).
+- **Filters:** the `Filter` enum (`SelectFilter`/`TernaryFilter`/`DateFilter`/`VariantFilter`) over `IntoFilters` tuples. `Table::filter_expr` ANDs the active `?filters=` expressions into the loader. `VariantFilter` holds prebuilt `(label, Expr<bool>)` options (e.g. `is_variant()` predicates) for embedded-enum fields. Every declared filter renders a typed control composed into the single `?filters=` transport (`filters.js` rewrites and submits it on change; `<noscript>` keeps the free-text field + Apply button as the no-JS fallback). Unknown keys and rejected values never fail silently: the list renders a `role=alert` banner (`Table::unapplied_filters`) while export refuses with 400.
+- **Bulk selection** is a leading checkbox column with select-all whose JS joins the checked keys into the single hidden `ids` transport; the destructive submit stays disabled until a row is checked.
 - **Grouping/export:** in-memory named `group_by` + `count` summarizer + `Table::to_csv()` (RFC4180, OWASP formula-defused) via `GET /admin/{slug}/export` (`text/csv; charset=utf-8` + `Content-Disposition`), reusing `Resource::query` + filters/sort, capped at 10k **viewable** rows — visibility runs before the cap (GH #145), so 413 reflects what the caller may receive, never the invisible-row count (`?bom=1` opts into an Excel BOM). Unknown `?group_by=` values render no headers and drop from nav links. Grouping is page-local by design (Toasty has no `GROUP BY` yet — upstream gap #118); export renders the ungrouped full filtered set.
 - **Rendering:** `Table` is a boundary by default (`data-boundary="table"` wrapper) with an eager-render `defer` demo hook; the streamed list uses the skeleton as its `suspense` fallback, and failed loads render the branded `ErrorState` in-region.
 
@@ -180,7 +180,7 @@ Columns/filters declare **how to query**, not just how to render: `searchable()`
 
 There is no `Action` type. Deletes run through panel POST routes driving the `Resource` record fns:
 
-- `POST {list}/{id}/delete` → `delete_record`, with confirmation UI and a per-row `can_delete` re-check inside the handler.
+- `POST {list}/{id}/delete` → `delete_record`, confirmed by a Destructive alert dialog on the list page (`?delete=` opens it; the dialog's form POSTs with `confirm=1`), with a per-row `can_delete` re-check inside the handler.
 - `POST {list}/bulk-delete` → `bulk_delete_records`, all-or-nothing: every id is re-fetched via `Resource::query` and policy-checked before anything is deleted.
 - Create/edit POSTs validate inline, check `can_create`/`can_update`, then call `create_record`/`update_record`.
 
