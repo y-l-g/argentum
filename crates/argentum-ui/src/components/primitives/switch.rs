@@ -1,4 +1,4 @@
-// SYNC: topcoat-ui-registry@0.8.1 sha256:a8d0ee8100d64302938a84385abf6e8825cb8a5c19a6228ea757a4b7d1b24222 — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
+// SYNC: topcoat-ui-registry@0.8.1 sha256:ec5890035af4d3d2eb05f04ae0154818df5687359209ad75243961c1483b9ede — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
 use topcoat::{
     Result,
     view::{Attributes, StaticClass, View, class, component, view},
@@ -52,7 +52,7 @@ pub async fn switch(#[default] mut attrs: Attributes) -> Result<impl View> {
     Ok(view! {
         <span
             class=(class!(
-                "relative inline-flex shrink-0 has-[:disabled]:opacity-50",
+                "peer relative inline-flex shrink-0 has-[:disabled]:opacity-50",
                 attrs.remove("class"),
             ))
         >

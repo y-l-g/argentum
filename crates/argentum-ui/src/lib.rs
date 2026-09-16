@@ -28,6 +28,15 @@ pub use components::primitives::pagination::{
 };
 pub use components::primitives::separator::{SeparatorOrientation, separator};
 pub use components::primitives::sheet::{SheetSide, sheet, sheet_content};
+pub use components::primitives::sidebar::{
+    SidebarCollapsible, SidebarMenuButtonSize, SidebarMenuButtonVariant, SidebarSide,
+    SidebarVariant, sidebar, sidebar_content, sidebar_footer, sidebar_group, sidebar_group_action,
+    sidebar_group_content, sidebar_group_label, sidebar_header, sidebar_input, sidebar_inset,
+    sidebar_menu, sidebar_menu_action, sidebar_menu_badge, sidebar_menu_button,
+    sidebar_menu_button_variants, sidebar_menu_item, sidebar_menu_skeleton, sidebar_menu_sub,
+    sidebar_menu_sub_button, sidebar_menu_sub_item, sidebar_provider, sidebar_rail,
+    sidebar_separator, sidebar_trigger,
+};
 pub use components::primitives::skeleton::skeleton;
 pub use components::primitives::table::{
     table, table_body, table_caption, table_cell, table_footer, table_head, table_header, table_row,
@@ -38,13 +47,6 @@ pub use components::composites::code_block::code_block;
 pub use components::composites::error_state::error_state;
 pub use components::composites::page::{
     page, page_content, page_description, page_header, page_title,
-};
-pub use components::composites::sidebar::{
-    SidebarSide, SidebarVariant, sidebar, sidebar_content, sidebar_footer, sidebar_group,
-    sidebar_group_content, sidebar_group_label, sidebar_header, sidebar_inset, sidebar_menu,
-    sidebar_menu_action, sidebar_menu_badge, sidebar_menu_button, sidebar_menu_item,
-    sidebar_menu_sub, sidebar_menu_sub_button, sidebar_menu_sub_item, sidebar_provider,
-    sidebar_rail, sidebar_separator, sidebar_trigger,
 };
 pub use components::composites::theme::theme_init_script;
 pub use components::composites::toast::{

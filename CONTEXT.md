@@ -104,7 +104,7 @@ The top-level layout that frames every admin page. Owns the Sidebar, topbar, and
 _Avoid_: Layout, Wrapper, Chrome
 
 ### Sidebar
-The persistent navigation region inside the Shell. Composes header, content, footer, groups and menus, collapsing to an icon rail or sheet drawer on small viewports.
+The persistent navigation region inside the Shell. The upstream Topcoat `sidebar` primitive (synced into `argentum-ui`, topcoat#419): header, content, footer, groups and menus, collapsing to offcanvas on desktop and to its own sheet drawer below `md`. Its open state is runtime signals — `Panel::render_shell` seeds `open` from the `sidebar_state` cookie, the trigger pair carries `@click` handlers, and `assets/sidebar.js` mirrors changes back to the cookie.
 
 _Avoid_: Nav, Menu, Drawer
 
@@ -129,6 +129,6 @@ A re-exported Topcoat UI component (button, card, badge, table, input...) vendor
 _Avoid_: Component (when meaning synced primitive), Widget
 
 ### Component
-An owned Topcoat `#[component]` in `argentum-ui/src/components/composites/` (Sidebar, Page, CodeBlock) that composes Primitives and Tokens. Hand-written, never overwritten by sync.
+An owned Topcoat `#[component]` in `argentum-ui/src/components/composites/` (Page, CodeBlock, ErrorState, Theme, Toast) that composes Primitives and Tokens. Hand-written, never overwritten by sync.
 
 _Avoid_: Primitive, Widget, Element, View

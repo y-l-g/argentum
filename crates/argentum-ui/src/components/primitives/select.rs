@@ -1,4 +1,4 @@
-// SYNC: topcoat-ui-registry@0.8.1 sha256:eb0ed5c328954fa26759d66cddce6abe329ff5bece8b72cd41372892a1c7b576 — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
+// SYNC: topcoat-ui-registry@0.8.1 sha256:f10ee1476854c574abc8e735f82eb9bfa2bb1237024bada6b753745bacdd075d — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
 use topcoat::{
     Result,
     context::Cx,
@@ -14,7 +14,7 @@ use topcoat::{
 /// space.
 const SELECT: StaticClass = class!(
     "h-9 w-full appearance-none items-center rounded-lg border border-border \
-     bg-background pr-8 pl-3 text-left text-sm shadow-xs transition-colors outline-none \
+     bg-transparent pr-8 pl-3 text-left text-sm transition-colors outline-none \
      focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 \
      focus-visible:ring-offset-background disabled:pointer-events-none",
 );
@@ -34,9 +34,13 @@ const PICKER: StaticClass = class!(
     "[&::picker(select)]:[appearance:base-select] \
      [&::picker(select)]:mt-1 [&::picker(select)]:rounded-lg \
      [&::picker(select)]:border [&::picker(select)]:border-border \
-     [&::picker(select)]:bg-background [&::picker(select)]:p-1 \
-     [&::picker(select)]:text-foreground [&::picker(select)]:shadow-sm \
+     [&::picker(select)]:bg-popover [&::picker(select)]:p-1 \
+     [&::picker(select)]:text-popover-foreground [&::picker(select)]:shadow-sm \
      [&::picker-icon]:hidden \
+     [&_optgroup>legend]:px-2 [&_optgroup>legend]:py-1.5 \
+     [&_optgroup>legend]:text-xs [&_optgroup>legend]:font-medium \
+     [&_optgroup>legend]:text-muted-foreground [&_optgroup>legend]:cursor-default \
+     [&_optgroup>legend]:select-none \
      [&_option]:flex [&_option]:items-center [&_option]:gap-2 [&_option]:rounded-md \
      [&_option]:px-2 [&_option]:py-1.5 [&_option]:text-sm [&_option]:outline-none \
      [&_option:hover]:bg-foreground/5 [&_option:focus]:bg-foreground/5 \
@@ -84,6 +88,8 @@ fn checkmark_style(cx: &Cx) -> String {
 /// handlers) are forwarded to the `<select>`; a `class` among them is appended
 /// to the wrapping element's classes, so width utilities size the whole
 /// control. Like the input, it fills its container by default.
+/// For a styled group heading, add a `<legend>` as the first child of the
+/// `<optgroup>`. Keep its `label` attribute for native picker fallbacks.
 ///
 /// On browsers with customizable select support the drop-down picker is
 /// restyled to match the dropdown menu component, and the chevron flips while

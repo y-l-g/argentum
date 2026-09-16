@@ -2045,10 +2045,9 @@ mod tests {
             "missing border-border in {html}"
         );
         assert!(
-            html.contains("bg-background"),
-            "missing bg-background in {html}"
+            html.contains("bg-transparent") && html.contains("focus-visible:ring-ring"),
+            "missing Token input classes in {html}"
         );
-        assert!(html.contains("shadow-xs"), "missing shadow-xs in {html}");
         assert!(
             html.contains("name=\"name\""),
             "missing name attr in {html}"
@@ -2287,7 +2286,7 @@ mod tests {
             html.contains("border-border"),
             "missing card border in {html}"
         );
-        assert!(html.contains("bg-background"), "missing card bg in {html}");
+        assert!(html.contains("bg-card"), "missing card bg in {html}");
         assert!(html.contains("shadow-sm"), "missing card shadow in {html}");
         assert!(html.contains("grid grid-cols-2"), "missing grid in {html}");
         assert!(html.contains("grid gap-1.5"), "missing field in {html}");

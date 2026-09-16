@@ -9,13 +9,14 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
+use http::header::COOKIE;
 use toasty::Db;
-use topcoat::runtime::shard;
+use topcoat::runtime::{Event, Signal, shard, signal};
 use topcoat::view::internal::ThenView;
 use topcoat::{
     Result,
     asset::{Asset, AssetConfig, RouterBuilderAssetExt},
-    context::{Cx, app_context},
+    context::{Cx, app_context, try_request_context},
     cookie::RouterBuilderCookieExt,
     font::Font,
     router::{
@@ -498,6 +499,7 @@ impl Panel {
         cx: &'a Cx,
         nav_items: &[NavigationItem],
         current_path: &str,
+        mobile_open: Signal<bool>,
     ) -> Result<BoxView<'a>> {
         use argentum_ui::{
             sidebar_group, sidebar_group_content, sidebar_group_label, sidebar_menu,
@@ -524,9 +526,15 @@ impl Panel {
                             };
                             sidebar_menu_item(
                                 sidebar_menu_button(
-                                    is_active: is_active,
-                                    attrs: attributes! { href=(item.url.clone()) },
-                                    (item.label.clone())
+                                    active: is_active,
+                                    href: Some(item.url.as_str()),
+                                    tooltip: Some(item.label.as_str()),
+                                    attrs: attributes! {
+                                        // Tapping a link in the mobile sheet closes
+                                        // it; on desktop the navigation is the effect.
+                                        @click=$(|_e: Event| mobile_open.set(false))
+                                    },
+                                    <span>(item.label.clone())</span>
                                 )
                             )
                         }
@@ -537,14 +545,36 @@ impl Panel {
         .boxed())
     }
 
+    /// Whether the persisted `sidebar_state` cookie asks for an expanded
+    /// desktop sidebar (default: expanded).
+    ///
+    /// Parsed from the raw `Cookie` header on purpose: `topcoat::cookie::cookies`
+    /// panics when the cookie router layer is absent (tests, minimal routers),
+    /// and the shell must render everywhere. The value only seeds the runtime
+    /// signal's initial `data-state`; after hydration the browser owns the
+    /// state, and `assets/sidebar.js` mirrors changes back to the cookie.
+    fn sidebar_starts_open(cx: &Cx) -> bool {
+        !try_request_context::<http::request::Parts>(cx)
+            .and_then(|parts| parts.headers.get(COOKIE))
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|cookie| {
+                cookie
+                    .split(';')
+                    .any(|part| part.trim().strip_prefix("sidebar_state=") == Some("collapsed"))
+            })
+    }
+
     /// Render the Filament-grade Shell that frames every admin page.
     ///
-    /// Composes `argentum-ui` `sidebar` + main `max-w-7xl p-6` area with
-    /// a single Navigation group, active highlight (`bg-sidebar-accent` + `aria-current="page"`),
-    /// and `sidebar_trigger` for responsive `sheet` drawer.
-    /// Includes dark-mode toggle (Ghost button, persists via cookie/session) and
-    /// the toast stack (shadcn/Sonner surface, fixed bottom-right). Additive
-    /// `class` is allowed on the outer container only (narrow seam).
+    /// Composes Topcoat's upstream `sidebar` primitives (ADR-0007): the
+    /// desktop panel and the mobile sheet share one navigation rendering, and
+    /// the open state lives in runtime signals — `open` seeds from the
+    /// `sidebar_state` cookie for the first paint, the triggers carry
+    /// `@click` handlers, and `assets/sidebar.js` persists changes back to
+    /// the cookie. Includes dark-mode toggle (Ghost button, persists via
+    /// cookie/session) and the toast stack (shadcn/Sonner surface, fixed
+    /// bottom-right). Additive `class` is allowed on the outer container only
+    /// (narrow seam).
     pub async fn render_shell<'a>(
         cx: &'a Cx,
         nav_items: &[NavigationItem],
@@ -552,24 +582,40 @@ impl Panel {
         slot: Child<'a>,
         extra_class: Option<String>,
     ) -> Result<BoxView<'a>> {
+        // A hoisting body: the sidebar signals are declared while this view
+        // resolves, and a page re-run resumes them from the client. The owned
+        // copies pin the caller's navigation to the lazy body's lifetime.
+        let nav_items = nav_items.to_vec();
+        let current_path = current_path.to_string();
+        Ok(Box::pin(HoistView::new(ThenView::new(async move {
+            Self::render_shell_body(cx, &nav_items, &current_path, slot, extra_class).await
+        }))))
+    }
+
+    async fn render_shell_body<'a>(
+        cx: &'a Cx,
+        nav_items: &[NavigationItem],
+        current_path: &str,
+        slot: Child<'a>,
+        extra_class: Option<String>,
+    ) -> Result<BoxView<'a>> {
         use argentum_ui::{
-            SheetSide, sheet, sheet_content, sidebar, sidebar_content, sidebar_footer,
-            sidebar_header, sidebar_inset, sidebar_provider, sidebar_trigger,
+            SeparatorOrientation, SidebarCollapsible, separator, sidebar, sidebar_content,
+            sidebar_footer, sidebar_header, sidebar_inset, sidebar_provider, sidebar_trigger,
         };
 
+        let sidebar_open = signal(cx, || Self::sidebar_starts_open(cx));
+        let mobile_open = signal(cx, || false);
         let outer_class = extra_class.clone().unwrap_or_default();
         let header_title = topcoat::context::try_app_context::<Brand>(cx)
             .map(|b| b.name.clone())
             .unwrap_or_else(|| "Admin".to_string());
-        // Build both containers from the same navigation helper. The mobile
-        // sheet intentionally has its own rendered View, but not its own nav
-        // tree to maintain.
-        let desktop_navigation = Self::sidebar_navigation(cx, nav_items, current_path).await?;
-        let mobile_navigation = Self::sidebar_navigation(cx, nav_items, current_path).await?;
+        // One navigation tree: the upstream sidebar renders its children once
+        // and shares them between the desktop panel and the mobile sheet.
+        let navigation =
+            Self::sidebar_navigation(cx, nav_items, current_path, mobile_open.clone()).await?;
         let sidebar_brand = Self::render_brand(cx).await?;
-        let mobile_brand = Self::render_brand(cx).await?;
         let sidebar_theme_toggle = Self::theme_toggle(cx).await?;
-        let mobile_theme_toggle = Self::theme_toggle(cx).await?;
         let header_theme_toggle = Self::theme_toggle(cx).await?;
         // Signed-in identity + logout control, present only with a session
         // (ADR-0013). `ensure_token` runs before any streaming starts so the
@@ -616,66 +662,61 @@ impl Panel {
             cx =>
             sidebar_provider(
                 attrs: attributes! { class=(outer_class) },
-                // Sidebar — fixed inset-y-0 h-svh w-(--sidebar-width), hidden on mobile
-                // `sidebar_rail` is intentionally not rendered here: the footer
-                // `sidebar_trigger` (small ghost icon) is the explicit toggle.
-                // The rail is an edge hit-area (`w-4` with `hover:after:bg-sidebar-border`)
-                // per shadcn `sidebar.tsx:282` — it looks like a big vertical line
-                // on hover and is confusing as a primary toggle. Keep the
-                // component available (`argentum_ui::sidebar_rail`) for opt-in
-                // `variant=inset`/`floating` layouts, but don't render it by default.
+                // `sidebar_rail` is intentionally not rendered: the header
+                // `sidebar_trigger` is the explicit toggle, and the rail's
+                // edge hit-area reads as stray chrome as a primary toggle.
+                // Keep the component available (`argentum_ui::sidebar_rail`)
+                // for opt-in `variant=inset`/`floating` layouts.
                 sidebar(
+                    open: $(sidebar_open.get()),
+                    mobile_open: $(mobile_open.get()),
+                    collapsible: SidebarCollapsible::Offcanvas,
+                    sheet_attrs: attributes! {
+                        id="mobile-sidebar-sheet"
+                        aria-label="Navigation"
+                        @keydown=$(|e: Event| {
+                            if e.key == "Escape" {
+                                mobile_open.set(false);
+                            }
+                        })
+                        @click=$(|e: Event| {
+                            if e.target.id == "mobile-sidebar-sheet" {
+                                mobile_open.set(false);
+                            }
+                        })
+                    },
                     sidebar_header((sidebar_brand))
-                    sidebar_content((desktop_navigation))
-                    sidebar_footer(
-                        <div class="flex items-center gap-2">
-                            sidebar_trigger()
-                            (sidebar_theme_toggle)
-                        </div>
-                    )
+                    sidebar_content((navigation))
+                    sidebar_footer((sidebar_theme_toggle))
                 )
-                // Mobile Sheet drawer — hidden on lg, w-(--sidebar-width-mobile) when open
-                sheet(
-                    open: false,
-                    attrs: attributes! { id="mobile-sidebar-sheet" class="lg:hidden" },
-                    sheet_content(
-                        side: SheetSide::Left,
-                        attrs: attributes! {
-                            class="w-(--sidebar-width-mobile) p-0"
-                            data-sidebar="sidebar"
-                            data-mobile="true"
-                        },
-                        sidebar_header((mobile_brand))
-                        sidebar_content((mobile_navigation))
-                        sidebar_footer(
-                            <div class="flex items-center gap-2">
-                                sidebar_trigger()
-                                (mobile_theme_toggle)
-                            </div>
-                        )
-                    )
-                )
-                // Gap for fixed sidebar — hidden on mobile, w-(--sidebar-width) on lg, collapses to 0 when offcanvas
-                <div
-                    class="hidden w-(--sidebar-width) shrink-0 transition-[width] duration-200 group-data-[collapsible=offcanvas]:w-0 lg:block"
-                    aria-hidden="true"
-                ></div>
                 sidebar_inset(
-                    // Main content area — sticky header per shadcn. The trigger is
-                    // always visible (shadcn SidebarTrigger): below lg it opens the
-                    // mobile Sheet, on lg it collapses the rail. It must carry no
-                    // `hidden`/`lg:flex` pair — the Ghost base's `inline-flex` comes
-                    // after `hidden` in the utilities layer and would win anyway.
-                    <header
-                        class="sticky top-0 z-10 flex h-16 items-center gap-4 border-b border-border bg-background px-6"
-                    >
-                        sidebar_trigger(attrs: attributes! { class="-ml-1" })
+                    sidebar_header(
+                        // The desktop trigger collapses the rail; below md the
+                        // mobile trigger opens the sheet instead (shadcn
+                        // SidebarTrigger pair, upstream `examples/ui`).
+                        sidebar_trigger(
+                            open: $(sidebar_open.get()),
+                            attrs: attributes! {
+                                class="max-md:hidden"
+                                aria-controls="mobile-sidebar-sheet"
+                                @click=$(|_e: Event| sidebar_open.toggle())
+                            }
+                        )
+                        sidebar_trigger(
+                            open: $(mobile_open.get()),
+                            attrs: attributes! {
+                                class="md:hidden"
+                                aria-controls="mobile-sidebar-sheet"
+                                @click=$(|_e: Event| mobile_open.toggle())
+                            }
+                        )
+                        separator(orientation: SeparatorOrientation::Vertical)
                         <div class="font-semibold text-foreground">(header_title)</div>
                         <div class="ml-auto flex items-center gap-2">
                             (account_view)
                             (header_theme_toggle)
                         </div>
-                    </header>
+                    )
                     <main class="flex-1 mx-auto max-w-7xl w-full p-6">(slot)</main>
                 )
                 // Toast stack — the shadcn/Sonner surface, fixed bottom-right
@@ -4154,10 +4195,12 @@ mod tests {
             .await
             .unwrap()
             .render(&cx);
-        // Sidebar chrome with Token classes
+        // Sidebar chrome with Token classes — the upstream sidebar palette.
         assert!(
-            html.contains("border-border") && html.contains("bg-background"),
-            "missing Token border/bg in {html}"
+            html.contains("border-border")
+                && html.contains("bg-background")
+                && html.contains("text-sidebar-foreground"),
+            "missing Token border/bg/sidebar tokens in {html}"
         );
         assert!(
             html.contains("data-sidebar=\"sidebar\""),
@@ -4175,25 +4218,27 @@ mod tests {
             html.contains("data-sidebar=\"group\"") || html.contains("Navigation"),
             "missing sidebar group in {html}"
         );
-        // Shadcn parity: fixed + h-svh + w-(--sidebar-width) + gap
+        // Shadcn parity: sticky h-svh w-(--sidebar-width) panel
         assert!(
-            html.contains("fixed") && html.contains("inset-y-0"),
-            "missing fixed inset-y-0 in {html}"
+            html.contains("md:sticky") && html.contains("md:top-0"),
+            "missing md:sticky md:top-0 in {html}"
         );
-        assert!(html.contains("h-svh"), "missing h-svh in {html}");
+        assert!(html.contains("md:h-svh"), "missing md:h-svh in {html}");
         assert!(
             html.contains("w-(--sidebar-width)") || html.contains("--sidebar-width"),
             "missing --sidebar-width var in {html}"
         );
-        // Header sticky
+        // Header sticky (the inset's child selector)
         assert!(
             html.contains("sticky") && html.contains("top-0"),
             "missing sticky top-0 in {html}"
         );
-        // Data-state for collapsible
+        // Data-state for collapsible, seeded by the signal (cookie default:
+        // expanded) and bound for the browser runtime.
         assert!(
-            html.contains("data-state=\"expanded\"") || html.contains("data-state"),
-            "missing data-state in {html}"
+            html.contains("data-state=\"expanded\"")
+                && html.contains("data-topcoat-bind:data-state"),
+            "missing bound data-state in {html}"
         );
         // No separator: the dead "Resources" placeholder group it divided
         // is gone (GH #102), and a trailing rule with no following group is
@@ -4202,20 +4247,28 @@ mod tests {
             !html.contains("Managed via Resource::query seam"),
             "dead placeholder must be gone, got {html}"
         );
-        // Sheet trigger hook
-        assert!(
-            html.contains("data-sidebar=\"trigger\""),
-            "missing sidebar_trigger hook in {html}"
+        // The desktop/mobile trigger pair, wired to the runtime signals.
+        assert_eq!(
+            html.matches("data-sidebar=\"trigger\"").count(),
+            2,
+            "expected the desktop + mobile trigger pair in {html}"
         );
-        // Active highlight
         assert!(
-            html.contains("bg-foreground/5") && html.contains("aria-current=\"page\""),
+            html.contains("data-topcoat-on:click"),
+            "missing runtime click bindings in {html}"
+        );
+        assert!(
+            html.contains("max-md:hidden") && html.contains("md:hidden"),
+            "missing responsive trigger pair in {html}"
+        );
+        // Active highlight + real navigation links (the href prop, not attrs)
+        assert!(
+            html.contains("data-active=\"true\"") && html.contains("aria-current=\"page\""),
             "missing active highlight in {html}"
         );
-        // Responsive hook
         assert!(
-            html.contains("hidden") && html.contains("lg:flex"),
-            "missing responsive hidden lg:flex in {html}"
+            html.contains("<a") && html.contains("href=\"/admin/users\""),
+            "navigation must render as links in {html}"
         );
         // Main container
         assert!(
@@ -4233,6 +4286,45 @@ mod tests {
                 && !html.contains("ac-main")
                 && !html.contains("ac-nav-item"),
             "ac-* should not remain in shell, got {html}"
+        );
+    }
+
+    #[tokio::test]
+    async fn collapsed_sidebar_cookie_seeds_the_signal() {
+        // The persisted `sidebar_state` cookie seeds the runtime signal's
+        // initial value, so the first paint matches the last choice; from
+        // hydration on, the browser owns the state (assets/sidebar.js mirrors
+        // it back).
+        use crate::resource::NavigationItem;
+        use topcoat::context::CxTestBuilder;
+        use topcoat::view::view;
+
+        let (parts, ()) = http::Request::builder()
+            .uri("/admin/users")
+            .header(http::header::COOKIE, "theme=dark; sidebar_state=collapsed")
+            .body(())
+            .unwrap()
+            .into_parts();
+        let cx = CxTestBuilder::new().request_context(parts).build();
+        let cx_ref = &cx;
+        let nav_items = vec![NavigationItem {
+            label: "Users".to_string(),
+            url: "/admin/users".to_string(),
+            href_check: None,
+            order: 0,
+        }];
+        let slot = view! { cx_ref => "hello" }.boxed().into();
+        let html = Panel::render_shell(&cx, &nav_items, "/admin/users", slot, None)
+            .await
+            .unwrap()
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
+        assert!(
+            html.contains("data-state=\"collapsed\"")
+                && html.contains("data-collapsible=\"offcanvas\""),
+            "collapsed cookie must seed the collapsed state in {html}"
         );
     }
 

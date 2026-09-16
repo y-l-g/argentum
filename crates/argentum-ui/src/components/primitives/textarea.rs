@@ -1,4 +1,4 @@
-// SYNC: topcoat-ui-registry@0.8.1 sha256:9cf7ce740191227bde90bf6e085abacca6e90e3b16385c6ace7d455fc032709d — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
+// SYNC: topcoat-ui-registry@0.8.1 sha256:d25bbbcf3a575930cbfacbfa62bb4816944c19bfd3b462721347aab34f4f0c05 — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
 use topcoat::{
     Result,
     view::{Attributes, Child, StaticClass, View, class, component, view},
@@ -6,13 +6,13 @@ use topcoat::{
 
 /// The classes for the [`textarea`] control.
 ///
-/// The text size, radius, shadow, and focus ring match the input control.
+/// The text size, radius, and focus ring match the input control.
 /// `field-sizing-content` lets the control grow with its content, from the
 /// two-line minimum height; browsers without support keep the fixed minimum
 /// and scroll.
 const TEXTAREA: StaticClass = class!(
     "field-sizing-content min-h-16 w-full rounded-lg border border-border \
-     bg-background px-3 py-2 text-sm shadow-xs transition-colors outline-none \
+     bg-transparent px-3 py-2 text-sm transition-colors outline-none \
      placeholder:text-muted-foreground \
      focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 \
      focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50",

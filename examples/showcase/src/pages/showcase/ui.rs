@@ -11,6 +11,7 @@ use argentum_ui::components::primitives::{
         dropdown_menu_separator, dropdown_menu_sub, dropdown_menu_sub_content,
         dropdown_menu_sub_trigger, dropdown_menu_trigger,
     },
+    hover_card::{hover_card, hover_card_content},
     kbd::{kbd, kbd_group},
     progress::progress,
     radio_group::{radio_group, radio_group_item},
@@ -21,6 +22,7 @@ use argentum_ui::components::primitives::{
     tabs::{tabs, tabs_content, tabs_list, tabs_trigger},
     textarea::textarea,
     toggle::{ToggleKind, ToggleSize, toggle, toggle_group},
+    tooltip::{tooltip, tooltip_content},
 };
 use topcoat::{
     Result,
@@ -526,7 +528,7 @@ async fn ui_showcase(cx: &Cx) -> Result<impl View> {
 
             example(
                 title: "Overlays: dialog, sheet, toast",
-                description: "Heavy overlays are driven by the shell assets rather than inline demos here: the Dialog page has a live alert_dialog and four toast triggers, and the sidebar's mobile navigation uses the sheet. Tooltip and hover_card are included below because their code is part of the surface.",
+                description: "Heavy overlays are driven by the shell assets rather than inline demos here: the Dialog page has a live alert_dialog and four toast triggers, and the sidebar's mobile navigation is the upstream sidebar's own sheet drawer. Tooltip and hover_card are live below now that the upstream provider no longer tags the page with an unnamed `group`.",
                 code: "alert_dialog(open: open, dialog_content(dialog_header(dialog_title(\"Delete user?\")) dialog_footer(...)))\nsheet(open: false, sheet_content(side: SheetSide::Left, ...))\ntoaster(toast(attrs: attributes! { data-type=\"success\" }, toast_icon(...) toast_content(toast_title(\"Created\")) toast_close()))\ntooltip(button(...) tooltip_content(\"Copy link\"))\nhover_card(<a href=\"/admin/users\">\"@ada\"</a> hover_card_content(...))",
                 <div class="flex flex-wrap items-center gap-2">
                     <a
@@ -547,9 +549,31 @@ async fn ui_showcase(cx: &Cx) -> Result<impl View> {
                     >
                         "Toast triggers (Dialog page)"
                     </a>
+                    tooltip(
+                        argentum_ui::button(
+                            variant: argentum_ui::ButtonVariant::Outline,
+                            size: argentum_ui::ButtonSize::Md,
+                            "Copy link"
+                        )
+                        tooltip_content("Copied to the clipboard")
+                    )
+                    hover_card(
+                        <a
+                            href="/admin/users"
+                            class="text-sm font-medium text-primary underline"
+                        >
+                            "@ada"
+                        </a>
+                        hover_card_content(
+                            <span class="text-sm font-medium">"Ada Lovelace"</span>
+                            <span class="text-sm text-muted-foreground">
+                                "Owner — joined in 2024."
+                            </span>
+                        )
+                    )
                 </div>
                 <p class="text-sm text-muted-foreground">
-                    "Tooltip and hover_card cannot be demoed inside the shell: both key their bubble on an unnamed `.group` hover, and the sidebar provider tags the whole page `group` (GH #151). They need a named group in the registry first, so only their code is shown."
+                    "Tooltip and hover_card are live here: the upstream sidebar provider no longer tags the page with an unnamed `group`, so each bubble shows on its own trigger's hover instead of any page hover (the old shell workaround, GH #151)."
                 </p>
             )
 
@@ -566,25 +590,25 @@ async fn ui_showcase(cx: &Cx) -> Result<impl View> {
 
             example(
                 title: "CodeBlock, Page, Sidebar & theme",
-                description: "Composites the shell builds from. Page owns the max-width, padding and rhythm of every showcase page; code_block is server-highlighted syntect with a copy button; sidebar_provider + sidebar are the shell, shown here as a static menu preview; theme_init_script runs pre-paint.",
-                code: "page(page_header(page_title(\"UI\")) page_content(...))\ncode_block(lang: \"rust\", code: \"// comments use the theme token\")\nsidebar_provider(sidebar(sidebar_menu(sidebar_menu_item(...))) sidebar_inset(...))\ntheme_init_script() // blocking <script> in <head>",
+                description: "Composites the shell builds from plus the upstream sidebar primitives it composes (ADR-0007). Page owns the max-width, padding and rhythm of every showcase page; code_block is server-highlighted syntect with a copy button; the shell's sidebar binds open/mobile_open to runtime signals and shares one navigation rendering between the desktop panel and the mobile sheet; theme_init_script runs pre-paint.",
+                code: "page(page_header(page_title(\"UI\")) page_content(...))\ncode_block(lang: \"rust\", code: \"// comments use the theme token\")\nsidebar_provider(sidebar(\n    open: $(open.get()),\n    mobile_open: $(mobile.get()),\n    sidebar_menu(sidebar_menu_item(sidebar_menu_button(href: Some(\"/admin/users\"), ...)))\n    sidebar_inset(...)\n))\ntheme_init_script() // blocking <script> in <head>",
                 <div class="flex flex-col gap-4">
                     argentum_ui::code_block(
                         lang: "rust",
                         code: "// Comments render with var(--muted-foreground) on both themes,\n// not the highlighter's low-contrast grey.\nlet table = Table::for::<User>(cx)\n    .columns(TextColumn::for(User::fields().name()).searchable());"
                     )
-                    <div class="w-56 rounded-lg border border-border bg-background p-2">
+                    <div class="w-56 rounded-lg border border-border bg-sidebar p-2">
                         argentum_ui::sidebar_menu(
                             argentum_ui::sidebar_menu_item(
                                 argentum_ui::sidebar_menu_button(
-                                    attrs: attributes! { href="/admin/users" },
-                                    "Users"
+                                    href: Some("/admin/users"),
+                                    <span>"Users"</span>
                                 )
                             )
                             argentum_ui::sidebar_menu_item(
                                 argentum_ui::sidebar_menu_button(
-                                    attrs: attributes! { href="/admin/posts" },
-                                    "Posts"
+                                    href: Some("/admin/posts"),
+                                    <span>"Posts"</span>
                                 )
                             )
                         )

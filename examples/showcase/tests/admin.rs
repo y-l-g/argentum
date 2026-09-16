@@ -814,7 +814,9 @@ async fn admin_form_via_resource_renders_text_inputs() {
         "Resource::form should render TextInput(s) with grid gap-1.5 in {html}"
     );
     assert!(
-        html.contains("border-border") && html.contains("bg-background"),
+        html.contains("border-border")
+            && html.contains("bg-transparent")
+            && html.contains("focus-visible:ring-ring"),
         "Resource::form should have Token input chrome in {html}"
     );
     assert!(

@@ -1,4 +1,4 @@
-// SYNC: topcoat-ui-registry@0.8.1 sha256:d3d877b061dc66831afe9185bcdd76a6fcb4a830d42c19079369b807d75f5cb4 — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
+// SYNC: topcoat-ui-registry@0.8.1 sha256:a2c94942999ae16bba591554f7a242192e43d9ce2648ade3e67f69bfe0f82828 — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
 use topcoat::{
     Result,
     view::{Attributes, StaticClass, View, class, component, view},
@@ -6,12 +6,12 @@ use topcoat::{
 
 /// The classes for the [`input`] control.
 ///
-/// The height, text size, radius, shadow, and focus ring match the `Md`
+/// The height, text size, radius, and focus ring match the `Md`
 /// button, so an input and a button sit flush in a row. File inputs restyle
 /// the browser's upload button into quiet, borderless text.
 const INPUT: StaticClass = class!(
-    "h-9 w-full min-w-0 rounded-lg border border-border bg-background px-3 \
-     text-sm shadow-xs transition-colors outline-none \
+    "h-9 w-full min-w-0 rounded-lg border border-border bg-transparent px-3 \
+     text-sm transition-colors outline-none \
      placeholder:text-muted-foreground \
      file:mr-3 file:h-full file:border-0 file:bg-transparent file:text-sm file:font-medium \
      focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 \
