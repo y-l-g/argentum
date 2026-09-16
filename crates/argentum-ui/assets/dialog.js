@@ -1,7 +1,13 @@
 // Dialog dismissal for SSR dialogs — the server renders `<dialog open>`, so
 // the closed state is normally a navigation (Cancel/Delete are links). This
 // script adds Escape, backdrop, and `[data-dialog-close]` dismissal without a
-// reload, mirroring the closed state into the URL so a reload stays closed.
+// reload.
+//
+// A dialog whose open state is URL-driven mirrors the dismissal back into the
+// URL (`?open=false`, named by `data-dialog-open-param`) so a reload stays
+// closed. A dialog driven by a runtime signal carries no such marker — its
+// element's own `@close` handler keeps the signal in step — so dismissing it
+// leaves the URL alone (GH #154 §3).
 //
 // Document-level delegation (like bulk.js) so a dialog that arrives in
 // streamed or shard-swapped markup dismisses too — binding at
@@ -9,8 +15,10 @@
 function dismissDialog(dialog) {
   if (!dialog.open) return;
   dialog.close();
+  const param = dialog.dataset.dialogOpenParam;
+  if (!param) return;
   const url = new URL(window.location.href);
-  url.searchParams.set('open', 'false');
+  url.searchParams.set(param, 'false');
   window.history.pushState(window.history.state, '', url);
 }
 

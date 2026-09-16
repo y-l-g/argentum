@@ -18,7 +18,8 @@ use serde::{Deserialize, Serialize};
 use topcoat::context::{Cx, try_request_context};
 use topcoat::cookie::{CookieJar, CookieJarCell, Cookies, cookie_store, cookies};
 use topcoat::icon::icon;
-use topcoat::view::{BoxView, ViewExt, attributes, view};
+use topcoat::runtime::{Signal, shard, signal};
+use topcoat::view::{Attributes, BoxView, View, ViewExt, attributes, view};
 
 use argentum_ui::{
     icons, toast, toast_close, toast_content, toast_description, toast_icon, toast_title,
@@ -146,9 +147,15 @@ pub fn take_notification(cx: &Cx) -> Option<Notification> {
 /// The status picks Sonner's icon under shadcn's theming (`circle-check`,
 /// `info`, `triangle-alert`, `octagon-x`); the error icon reads
 /// `text-destructive` so a failure cannot look like an info toast.
-pub(crate) async fn render_notification<'a>(
+///
+/// `attrs` are merged onto the toast surface. The shell's flash stack passes
+/// an empty set; the live transport ([`live_toaster`]) adds a per-mount `id`
+/// so re-rendering the same variant replaces the mounted toast instead of
+/// re-syncing its `data-mounted` state (GH #154 §3).
+pub async fn render_notification<'a>(
     cx: &'a Cx,
     notification: Notification,
+    attrs: Attributes,
 ) -> topcoat::Result<BoxView<'a>> {
     let Notification {
         status,
@@ -170,7 +177,7 @@ pub(crate) async fn render_notification<'a>(
     Ok(view! {
         cx =>
         toast(
-            attrs: attributes! { data-type=(status) },
+            attrs: attributes! { data-type=(status) (attrs) },
             toast_icon(icon(data: icon_data, attrs: attributes! { class=(icon_class) }))
             toast_content(
                 toast_title((title))
@@ -182,6 +189,98 @@ pub(crate) async fn render_notification<'a>(
         )
     }
     .boxed())
+}
+
+/// The signals a page owns to mount a [`Notification`] in place (GH #154 §3).
+///
+/// [`live_toast`] creates them; a click handler writes a procedure's returned
+/// `(status, title, description)` into them and bumps `serial` (a repeat of
+/// the same variant must still be a change), and the shell's [`live_toaster`]
+/// shard reads them and mounts the real Sonner surface — no navigation, no
+/// scroll reset. Every value is client input by the time the shard reads it.
+#[derive(Clone)]
+pub struct LiveToast {
+    /// The Sonner status token (`success`/`info`/`warning`/`error`); empty
+    /// means "no toast mounted".
+    pub status: Signal<String>,
+    /// The toast title.
+    pub title: Signal<String>,
+    /// The optional supporting line; empty renders no description.
+    pub description: Signal<String>,
+    /// Bumped on every mount so an identical repeat still re-renders.
+    pub serial: Signal<u64>,
+}
+
+/// The live toast signals for this request (call once per page).
+///
+/// The signals are created here, so both the page's handlers and the shell's
+/// [`live_toaster`] resolve the same handles in one request.
+pub fn live_toast(cx: &Cx) -> LiveToast {
+    LiveToast {
+        status: signal(cx, String::new),
+        title: signal(cx, String::new),
+        description: signal(cx, String::new),
+        serial: signal(cx, || 0u64),
+    }
+}
+
+/// The shell's live toaster shard (GH #154 §3): reads the page's
+/// [`LiveToast`] signals and mounts the toast in place when one is set.
+///
+/// A shard rather than an eager read, so writing the signals re-renders only
+/// this stack — the page, its scroll, and its focus stay put. The mount `id`
+/// carries the serial: the browser's morph matches by id, so a new mount is a
+/// fresh toast node (with `data-mounted="false"`) that `notifications.js`
+/// arms, instead of rewriting the already-mounted one.
+///
+/// The body lives in [`render_live_toaster`]: the shard macro's generated
+/// handler cannot name the request lifetime its `impl View` would capture, so
+/// the helper resolves the boxed view and the shard only forwards it.
+#[shard]
+pub async fn live_toaster(
+    cx: &Cx,
+    status: Signal<String>,
+    title: Signal<String>,
+    description: Signal<String>,
+    serial: Signal<u64>,
+) -> topcoat::Result<impl View> {
+    render_live_toaster(cx, &status, &title, &description, &serial).await
+}
+
+async fn render_live_toaster<'a>(
+    cx: &'a Cx,
+    status: &Signal<String>,
+    title: &Signal<String>,
+    description: &Signal<String>,
+    serial: &Signal<u64>,
+) -> topcoat::Result<BoxView<'a>> {
+    // Runtime endpoints bypass page guards (topcoat shard contract), so the
+    // shard restates the panel gate; a slot with no live toast needs no auth
+    // to render empty, but a direct POST must not mount toasts unauthenticated.
+    #[cfg(feature = "auth")]
+    if crate::auth::enforced(cx) {
+        crate::auth::require_authenticated(cx)?;
+    }
+    let status = status.get();
+    let mount = serial.get();
+    if status.is_empty() {
+        return Ok(view! { cx => <span></span> }.boxed());
+    }
+    let title = title.get();
+    let description = description.get();
+    let notification = match status.as_str() {
+        "success" => Notification::success(title),
+        "warning" => Notification::warning(title),
+        "error" => Notification::error(title),
+        _ => Notification::info(title),
+    };
+    let notification = if description.is_empty() {
+        notification
+    } else {
+        notification.description(description)
+    };
+    let mount_id = format!("live-toast-{mount}");
+    render_notification(cx, notification, attributes! { cx => id=(mount_id) }).await
 }
 
 #[cfg(test)]

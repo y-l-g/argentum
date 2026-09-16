@@ -54,6 +54,9 @@ async fn delete_requires_confirmation_and_deletes() {
         "role=\"alertdialog\"",
         "Delete this record?",
         "data-dialog-close",
+        // URL-driven dialogs carry the marker dialog.js mirrors `?open=`
+        // through (GH #154 §3); signal-driven dialogs do not.
+        "data-dialog-open-param=\"open\"",
         "bg-destructive",
         action.as_str(),
         "name=\"confirm\"",

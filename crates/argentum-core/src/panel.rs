@@ -28,7 +28,9 @@ use topcoat::{
 };
 
 use crate::db::db;
-use crate::notification::{Notification, set_notification, take_notification};
+use crate::notification::{
+    LiveToast, Notification, live_toast, live_toaster, set_notification, take_notification,
+};
 use crate::resource::{NavigationItem, Resource, Table, TablePage, TableState};
 use topcoat::router::Path;
 use topcoat::runtime::RouterBuilderRuntimeExt;
@@ -653,10 +655,19 @@ impl Panel {
         #[cfg(not(feature = "auth"))]
         let account_view: BoxView<'_> = view! { cx => <span></span> }.boxed();
         let notification_view: BoxView<'_> = if let Some(notification) = take_notification(cx) {
-            crate::notification::render_notification(cx, notification).await?
+            crate::notification::render_notification(cx, notification, Default::default()).await?
         } else {
             view! { cx => <span></span> }.boxed()
         };
+        // The page owns the live-toast signals; resolve the same handles here
+        // (same helper, same request identity) and hand them to the shard
+        // (GH #154 §3).
+        let LiveToast {
+            status: toast_status,
+            title: toast_title,
+            description: toast_description,
+            serial: toast_serial,
+        } = live_toast(cx);
 
         Ok(view! {
             cx =>
@@ -721,8 +732,18 @@ impl Panel {
                 )
                 // Toast stack — the shadcn/Sonner surface, fixed bottom-right
                 // and a polite live region so streamed swaps are announced
-                // (GH #98, GH #151).
-                argentum_ui::toaster((notification_view))
+                // (GH #98, GH #151). `live_toaster` is the page-owned
+                // in-place transport (GH #154 §3); the flash cookie's toast
+                // rides beside it.
+                argentum_ui::toaster(
+                    (notification_view)
+                    live_toaster(
+                        status: $(toast_status),
+                        title: $(toast_title),
+                        description: $(toast_description),
+                        serial: $(toast_serial)
+                    )
+                )
             ) // Scripts are owned by the document (layout_shell).
         }
         .boxed())

@@ -214,7 +214,8 @@ async fn showcase_dialog_renders_notification_and_dialog_with_tokens() {
         response.status()
     );
     let html = body_string(response).await;
-    // Toast stack: the shadcn/Sonner surface, fixed bottom-right.
+    // Toast stack: the shadcn/Sonner surface, fixed bottom-right, with the
+    // live shard mounted inside (GH #154 §3).
     assert!(
         html.contains("data-sonner-toaster") && html.contains("bottom-4"),
         "missing toast stack in {html}"
@@ -229,7 +230,8 @@ async fn showcase_dialog_renders_notification_and_dialog_with_tokens() {
             && html.contains("shadow-sm"),
         "missing notification/dialog card Token in {html}"
     );
-    // Dialog: alert_dialog with Primary/Destructive buttons
+    // Dialog: alert_dialog with Primary/Destructive buttons, opened through a
+    // bound signal and kept in step by the element's `@close` handler.
     assert!(
         html.contains("Delete user?") || html.contains("alert_dialog"),
         "missing dialog title in {html}"
@@ -242,6 +244,10 @@ async fn showcase_dialog_renders_notification_and_dialog_with_tokens() {
         html.contains("Primary") || html.contains("Cancel"),
         "missing Primary/Outline button in {html}"
     );
+    assert!(
+        html.contains("data-topcoat-bind:open") && html.contains("data-topcoat-on:close"),
+        "dialog must open from a signal and sync on close: {html}"
+    );
     // Ensure no ac-* remains in this showcase. Match the class attribute
     // (not bare "ac-"), because the CSRF token is a random UUID that can
     // contain the same substring and flake the assertion.
@@ -251,61 +257,102 @@ async fn showcase_dialog_renders_notification_and_dialog_with_tokens() {
     );
 }
 
-/// The dialog page's toast demo is a real POST: it verifies CSRF, flashes a
-/// Notification, redirects (PRG), and the next GET renders the toast in the
-/// shell's toaster (GH #151 §6).
+/// The dialog page's toast demo is in-place now (GH #154 §3): the buttons
+/// call a procedure that returns the real notification payload, and the
+/// shell's `live_toaster` shard renders it — no form POST, no redirect, no
+/// flash cookie.
 #[tokio::test]
-async fn showcase_dialog_toast_demo_flashes_a_real_notification() {
+async fn showcase_dialog_toast_demo_mounts_a_notification_in_place() {
+    use topcoat::runtime::{Shard, ShardId};
+
     let db = seeded_db().await;
     let router = router(db);
     let client = demo_client(&router).await;
+    let identity = "A".repeat(22);
     let page = client.get("/admin/showcase/dialog").await;
-    let cookies = response_cookies(&page);
     let html = body_string(page).await;
+    // The old transport is gone: no notify form, and each variant is a
+    // button whose handler writes the procedure result into a signal.
     assert!(
-        !html.contains("data-type="),
-        "no toast should be present before the demo runs: {html}"
+        !html.contains("action=\"/admin/showcase/dialog/notify\""),
+        "the PRG toast form must be gone: {html}"
     );
-    let csrf = input_value(&html, "csrf_token")
-        .unwrap_or_else(|| panic!("toast demo must embed a csrf_token input: {html}"));
-    for (status, title) in [
-        ("success", "User created"),
-        ("info", "Heads up"),
-        ("warning", "Careful"),
-        ("error", "Something failed"),
+    assert!(
+        html.matches("data-topcoat-on:click").count() >= 4,
+        "every toast button must carry a click handler: {html}"
+    );
+    // The procedure reference is embedded in those handlers; `ProcedureId`
+    // has no accessor, so read it from the page.
+    let procedure_id: String = {
+        let needle = "&quot;t&quot;:&quot;Procedure&quot;,&quot;id&quot;:&quot;";
+        let at = html.find(needle).expect("procedure reference") + needle.len();
+        let end = at + html[at..].find('&').expect("procedure id end");
+        html[at..end].to_string()
+    };
+    for (status, title, description) in [
+        (
+            "success",
+            "User created",
+            "Ada Lovelace was added successfully.",
+        ),
+        ("info", "Heads up", "The record already exists."),
+        ("warning", "Careful", "This action changes stored data."),
+        ("error", "Something failed", "Nothing was changed."),
     ] {
-        let posted = client
-            .cookies(&cookies)
-            .post_form(
-                "/admin/showcase/dialog/notify",
-                form_body(&[("csrf_token", &csrf), ("status", status)]),
+        let response = client
+            .post_json(
+                &format!("/_topcoat/runtime/procedures/{procedure_id}"),
+                format!(r#"["{status}"]"#),
+                &identity,
             )
             .await;
-        assert_eq!(posted.status(), 303, "notify redirects (POST/Redirect/Get)");
+        assert_eq!(response.status(), 200, "{status} procedure");
+        let body = body_string(response).await;
         assert_eq!(
-            posted.headers().get("location").unwrap(),
-            "/admin/showcase/dialog",
-            "the demo lands back on the dialog page"
-        );
-        let flash = response_cookies(&posted);
-        assert!(
-            flash
-                .iter()
-                .any(|(name, _)| name == "__Host-argentum_notification"),
-            "the notification must ride the flash cookie: {flash:?}"
-        );
-        let followed = client
-            .cookies(&cookies)
-            .cookies(&flash)
-            .get("/admin/showcase/dialog")
-            .await;
-        let html = body_string(followed).await;
-        assert!(
-            html.contains(&format!("data-type=\"{status}\""))
-                && html.contains(&format!("\">{title}</div>")),
-            "the flashed notification should render as a {status} toast: {html}"
+            body,
+            format!(r#"["{status}","{title}","{description}"]"#),
+            "the procedure must return the notification fields"
         );
     }
+
+    // The shell's live toaster renders the payload the page writes into its
+    // signals, with a per-mount id so a repeat remounts.
+    let shard: ShardId = Shard::id(&argentum_core::notification::live_toaster);
+    let signal =
+        |id: u128, value: &str| format!(r#"{{"t":"Signal","id":"{id:032x}","v":"{value}"}}"#);
+    let serial = |value: &str| {
+        format!(
+            r#"{{"t":"Signal","id":"{:032x}","v":{{"t":"u64","bits":64,"v":"{value}"}}}}"#,
+            9u128
+        )
+    };
+    let args = format!(
+        r#"{{"args":[{}, {}, {}, {}],"signals":{{}}}}"#,
+        signal(1, "success"),
+        signal(2, "User created"),
+        signal(3, "Ada Lovelace was added successfully."),
+        serial("4"),
+    );
+    let response = client
+        .post_json(
+            &format!("/_topcoat/runtime/shards/{}", shard.as_str()),
+            args,
+            &identity,
+        )
+        .await;
+    assert_eq!(response.status(), 200, "live toaster shard");
+    let html = body_string(response).await;
+    assert!(
+        html.contains("data-type=\"success\"")
+            && html.contains(">User created</div>")
+            && html.contains(">Ada Lovelace was added successfully.</div>")
+            && html.contains("id=\"live-toast-4\""),
+        "the shard must mount the real Sonner toast: {html}"
+    );
+    assert!(
+        !html.contains("data-removed=\"true\""),
+        "a fresh mount starts unmounted for the enter transition: {html}"
+    );
 }
 
 #[tokio::test]
@@ -566,9 +613,8 @@ async fn showcase_table_renders_variants() {
         2,
         "searchable + composition demos must render the live input: {html}"
     );
-    assert_eq!(
-        html.matches("::topcoat::shard::start").count(),
-        3,
+    assert!(
+        html.matches("::topcoat::shard::start").count() >= 3,
         "the searchable, sortable, and composition demos render a shard: {html}"
     );
     // Sortable columns render real sort controls: the inactive pointer and

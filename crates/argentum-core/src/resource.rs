@@ -1769,6 +1769,7 @@ impl<M> Table<M> {
                     attrs: attributes! {
                         aria-labelledby="delete-dialog-title"
                         aria-describedby="delete-dialog-description"
+                        data-dialog-open-param="open"
                     },
                     dialog_content(
                         dialog_header(

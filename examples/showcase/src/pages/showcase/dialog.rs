@@ -1,65 +1,67 @@
-use std::collections::HashMap;
-
-use argentum_core::{Notification, csrf, notification::set_notification};
+use argentum_core::{Notification, notification::live_toast};
 use topcoat::{
     Result,
     context::Cx,
-    router::{content::Form, error::see_other, page, query_params},
+    router::page,
+    runtime::{Event, procedure, signal},
     view::{View, attributes, view},
 };
 
 use super::example::example;
 
-#[query_params]
-struct DialogQuery {
-    open: Option<bool>,
-}
-
-/// Flash one Notification and land back on the dialog page (POST/Redirect/Get).
+/// The server side of the toast transport (GH #154 §3): builds the real
+/// [`Notification`] and returns its fields.
 ///
-/// `status` picks the variant; the shell's toaster renders it on the next GET.
-/// `Result<()>` is the documented shape for a page that always redirects:
-/// the redirect rides `Err`, so there is no `Ok` view to infer.
-#[page(POST "/admin/showcase/dialog/notify")]
-async fn dialog_notify(cx: &Cx, Form(values): Form<HashMap<String, String>>) -> Result<()> {
-    csrf::verify(cx, &values)?;
-    let notification = match values.get("status").map(String::as_str) {
-        Some("success") => Notification::success("User created")
+/// A procedure's return must belong to the shared vocabulary, so the toast
+/// crosses as `(status, title, description)`; the click handler writes them
+/// into the page's [`live_toast`] signals and the shell's live toaster mounts
+/// the surface in place — no POST/Redirect/Get, no scroll reset.
+#[procedure]
+pub async fn showcase_notify(status: String) -> Result<(String, String, String)> {
+    let notification = match status.as_str() {
+        "success" => Notification::success("User created")
             .description("Ada Lovelace was added successfully."),
-        Some("warning") => {
+        "warning" => {
             Notification::warning("Careful").description("This action changes stored data.")
         }
-        Some("error") => {
-            Notification::error("Something failed").description("Nothing was changed.")
-        }
+        "error" => Notification::error("Something failed").description("Nothing was changed."),
         _ => Notification::info("Heads up").description("The record already exists."),
     };
-    set_notification(cx, notification);
-    Err(see_other("/admin/showcase/dialog").into())
+    Ok((
+        notification.status.as_str().to_string(),
+        notification.title,
+        notification.description.unwrap_or_default(),
+    ))
 }
 
 #[page("/admin/showcase/dialog")]
 async fn dialog_showcase(cx: &Cx) -> Result<impl View> {
-    // Prove Notification and Dialog chrome — all Token-only, no ac-*
-    // Notification: the shadcn/Sonner toast surface in a fixed bottom-right
-    // stack, flashed by the POST above and rendered by the shell.
-    // Dialog: alert_dialog driven by ?open= — Cancel/Delete are links back to
-    // the plain page (SSR close), dialog.js adds Escape/backdrop dismissal
-    // without reload.
-    let open = query_params::<DialogQuery>(cx)
-        .ok()
-        .and_then(|q| q.open)
-        .unwrap_or(false);
-    // `ensure_token` sets the CSRF cookie when the form is (re)rendered, so
-    // `dialog_notify` can verify it — the same contract as every real form.
-    let csrf_token = csrf::ensure_token(cx);
+    // All in-place (GH #154 §3): the toast buttons call `showcase_notify` and
+    // write its result into the page's live-toast signals (the shell's
+    // `live_toaster` shard mounts the real Sonner surface); the dialog's open
+    // state is a signal, so the trigger opens it without a navigation and
+    // Cancel/Delete/Escape/backdrop just flip it back.
+    let toast = live_toast(cx);
+    let toast_status = toast.status.clone();
+    let toast_title = toast.title.clone();
+    let toast_description = toast.description.clone();
+    let toast_serial = toast.serial.clone();
+    let dialog_open = signal(cx, || false);
+    // The dialog's `open` binding captures its own handle; the trigger below
+    // keeps the original.
+    let dialog_open_view = dialog_open.clone();
+    // `dialog.js` closes the `<dialog>` itself on Escape/backdrop; the
+    // element's `@close` event keeps the signal in step, so the trigger can
+    // reopen it afterwards.
+    let close_signal = dialog_open.clone();
     let dialog = view! {
         cx =>
         argentum_ui::alert_dialog(
-            open: open,
+            open: $(dialog_open_view.get()),
             attrs: attributes! {
                 aria-labelledby="showcase-dialog-title"
                 aria-describedby="showcase-dialog-description"
+                @close=$(|_e: Event| close_signal.set(false))
             },
             argentum_ui::dialog_content(
                 argentum_ui::dialog_header(
@@ -73,26 +75,16 @@ async fn dialog_showcase(cx: &Cx) -> Result<impl View> {
                     )
                 )
                 argentum_ui::dialog_footer(
-                    <a
-                        href="/admin/showcase/dialog"
-                        data-dialog-close=""
-                        class=(argentum_ui::button_variants(
-                            argentum_ui::ButtonVariant::Outline,
-                            argentum_ui::ButtonSize::Md,
-                        ))
-                    >
+                    argentum_ui::button(
+                        variant: argentum_ui::ButtonVariant::Outline,
+                        attrs: attributes! { type="button" data-dialog-close="" },
                         "Cancel"
-                    </a>
-                    <a
-                        href="/admin/showcase/dialog"
-                        data-dialog-close=""
-                        class=(argentum_ui::button_variants(
-                            argentum_ui::ButtonVariant::Destructive,
-                            argentum_ui::ButtonSize::Md,
-                        ))
-                    >
+                    )
+                    argentum_ui::button(
+                        variant: argentum_ui::ButtonVariant::Destructive,
+                        attrs: attributes! { type="button" data-dialog-close="" },
                         "Delete"
-                    </a>
+                    )
                 )
             )
         )
@@ -103,16 +95,16 @@ async fn dialog_showcase(cx: &Cx) -> Result<impl View> {
             argentum_ui::page_header(
                 argentum_ui::page_title("Dialog & Notification — diceboard polish")
                 argentum_ui::page_description(
-                    "Notifications render as shadcn/Sonner toasts in a top-level stack owned by the Panel Shell (fixed bottom-right). Dialogs use alert_dialog driven by ?open= — open it from the button below; Cancel/Delete/Escape/backdrop close it."
+                    "Notifications render as shadcn/Sonner toasts in the shell's stack (fixed bottom-right). Dialogs use alert_dialog driven by a signal — open it from the button below; Cancel/Delete/Escape/backdrop close it. Both interactions stay on the page: no reload, no scroll jump."
                 )
             )
 
             example(
                 title: "Toast (shadcn/Sonner)",
-                description: "A handler flashes a Notification; the shell's toaster mounts it, shows it bottom-right, and notifications.js auto-dismisses it after 4s (paused on hover or focus). The stack lives outside the streamed region, so a grid swap cannot drop it.",
-                code: "// POST /admin/showcase/dialog/notify\nset_notification(\n    cx,\n    Notification::success(\"User created\").description(\"Ada Lovelace was added successfully.\"),\n);\nErr(see_other(\"/admin/showcase/dialog\").into()) // PRG",
+                description: "Each button calls a #[procedure] that builds the real Notification server-side; the handler writes the result into the page's live-toast signals and the shell's toaster mounts the surface in place, bottom-right. notifications.js auto-dismisses it after 4s (paused on hover or focus). No POST, no redirect, no reload.",
+                code: "#[procedure] showcase_notify(status) -> (status, title, description)\nlet n = showcase_notify(status).await;\ntoast.status.set(n.0); // the shell's live_toaster shard re-renders\ntoast.title.set(n.1); // the real Sonner toast, in place\ntoast.serial.increment();",
                 <p class="text-sm text-muted-foreground">
-                    "Trigger a real toast — it lands in the shell's toaster, bottom-right."
+                    "Trigger a real toast — it mounts in the shell's toaster, bottom-right, without leaving the page."
                 </p>
                 <div class="flex flex-wrap items-center gap-2">
                     for (status, label) in [
@@ -121,39 +113,38 @@ async fn dialog_showcase(cx: &Cx) -> Result<impl View> {
                         ("warning", "Warning"),
                         ("error", "Error"),
                     ] {
-                        <form method="post" action="/admin/showcase/dialog/notify">
-                            <input
-                                type="hidden"
-                                name=(csrf::FIELD_NAME)
-                                value=(csrf_token.clone())
-                            >
-                            <input type="hidden" name="status" value=(status)>
-                            argentum_ui::button(
-                                variant: argentum_ui::ButtonVariant::Outline,
-                                attrs: attributes! { type="submit" },
-                                (label)
-                            )
-                        </form>
+                        argentum_ui::button(
+                            variant: argentum_ui::ButtonVariant::Outline,
+                            attrs: attributes! {
+                                type="button"
+                                @click=$(async |_e: Event| {
+                                    let n = showcase_notify(status.to_owned()).await;
+                                    toast_status.set(n.0);
+                                    toast_title.set(n.1);
+                                    toast_description.set(n.2);
+                                    toast_serial.increment();
+                                })
+                            },
+                            (label)
+                        )
                     }
                 </div>
             )
 
             example(
                 title: "Dialog / AlertDialog",
-                description: "Destructive actions that require confirmation open alert_dialog with Outline/Destructive answers. Cancel and Delete are links back to the plain page; with dialog.js, Escape, the backdrop, and the same links close without a reload.",
-                code: "// GET /admin/showcase/dialog?open=true\nlet open = query_params::<DialogQuery>(cx).ok().and_then(|q| q.open).unwrap_or(false);\nalert_dialog(\n    open: open,\n    dialog_content(\n        dialog_header(dialog_title(\"Delete user?\"))\n        dialog_footer(\n            <a href=\"/admin/showcase/dialog\" data-dialog-close class=(button_variants(Outline, Md))>\"Cancel\"</a>\n            <a href=\"/admin/showcase/dialog\" data-dialog-close class=(button_variants(Destructive, Md))>\"Delete\"</a>\n        )\n    )\n)",
-                <a
-                    href="/admin/showcase/dialog?open=true"
-                    class=(argentum_ui::button_variants(
-                        argentum_ui::ButtonVariant::Primary,
-                        argentum_ui::ButtonSize::Md,
-                    ))
-                >
+                description: "Destructive actions that require confirmation open alert_dialog from a signal. Cancel and Delete close it through dialog.js; Escape and the backdrop dismiss it the same way, and the dialog's @close handler keeps the signal in step so it can be reopened.",
+                code: "let open = signal(cx, || false);\n// Open\nbutton(variant: Primary, attrs: attributes! { @click=$(|_e| open.set(true)) }, \"Open dialog\")\n// The dialog binds the signal; Cancel/Delete dismiss through dialog.js\nalert_dialog(open: $(open.get()), attrs: attributes! { @close=$(|_e| open.set(false)) }, ...)",
+                argentum_ui::button(
+                    variant: argentum_ui::ButtonVariant::Primary,
+                    attrs: attributes! {
+                        type="button"
+                        @click=$(|_e: Event| dialog_open.set(true))
+                    },
                     "Open dialog"
-                </a>
-                // The dialog is open only when the query says so, so the page
-                // is readable and exitable; the state survives a reload and a
-                // link.
+                )
+                // The dialog is closed on first paint and opens only from the
+                // signal; `dialog.js` adds Escape/backdrop dismissal.
                 (dialog)
             )
 
