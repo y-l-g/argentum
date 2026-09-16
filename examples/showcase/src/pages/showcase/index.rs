@@ -9,7 +9,7 @@ const FEATURES: &[(&str, &str, &str)] = &[
     (
         "/admin/showcase/ui",
         "UI",
-        "argentum-ui seam: card, button, badge with Tokens (proves the Tailwind seam)",
+        "argentum-ui seam: every component family, with Tokens (proves the Tailwind seam)",
     ),
     (
         "/admin/showcase/dialog",

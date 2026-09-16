@@ -122,7 +122,7 @@ async fn showcase_index_lists_features() {
 }
 
 #[tokio::test]
-async fn showcase_ui_renders_card_and_button_with_tokens() {
+async fn showcase_ui_renders_every_component_family() {
     let db = seeded_db().await;
     let router = router(db);
     let client = demo_client(&router).await;
@@ -150,6 +150,56 @@ async fn showcase_ui_renders_card_and_button_with_tokens() {
         "missing card shadow/rounded in {html}"
     );
     assert!(html.contains("Primary"), "missing Primary button in {html}");
+    // Every component family is on the page: native controls, disclosure,
+    // loading shapes, and the composite previews (GH #151 §5). The needles
+    // are page-specific IDs/markup so shell chrome cannot satisfy them.
+    for needle in [
+        "id=\"ui-email\"",
+        "id=\"ui-region\"",
+        "id=\"ui-terms\"",
+        "id=\"ui-airplane\"",
+        "id=\"ui-weekly\"",
+        "id=\"ui-tabs\"",
+        "name=\"ui-faq\"",
+        "<progress",
+        "<textarea",
+        "<select",
+        "role=\"radiogroup\"",
+        "Couldn't load Users</p>",
+        "Token-only customization",
+    ] {
+        assert!(html.contains(needle), "missing {needle} in {html}");
+    }
+}
+
+/// The tabs demo is server state, not a dead control: `?tab=` picks the
+/// panel and the active trigger is marked current (GH #151 §5).
+#[tokio::test]
+async fn showcase_ui_tabs_reflect_the_url() {
+    let db = seeded_db().await;
+    let router = router(db);
+    let client = demo_client(&router).await;
+    let default = client.get("/admin/showcase/ui").await;
+    let default_html = body_string(default).await;
+    assert!(
+        default_html.contains("Overview panel — rendered from ?tab=overview (the default)."),
+        "the overview panel is the default: {default_html}"
+    );
+    let response = client.get("/admin/showcase/ui?tab=activity").await;
+    assert!(response.status().is_success());
+    let html = body_string(response).await;
+    assert!(
+        html.contains("Activity panel — rendered from ?tab=activity."),
+        "the activity tab should be the rendered panel: {html}"
+    );
+    assert!(
+        !html.contains("Overview panel — rendered from ?tab=overview"),
+        "only one tab panel should render: {html}"
+    );
+    assert!(
+        html.contains("href=\"?tab=activity#ui-tabs\"") && html.contains("aria-current=\"page\""),
+        "the active trigger should be marked current and land back on the demo: {html}"
+    );
 }
 
 #[tokio::test]
@@ -252,7 +302,7 @@ async fn showcase_dialog_toast_demo_flashes_a_real_notification() {
         let html = body_string(followed).await;
         assert!(
             html.contains(&format!("data-type=\"{status}\""))
-                && html.contains(&format!("data-title=\"\">{title}")),
+                && html.contains(&format!("\">{title}</div>")),
             "the flashed notification should render as a {status} toast: {html}"
         );
     }
