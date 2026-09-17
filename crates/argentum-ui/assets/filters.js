@@ -22,7 +22,9 @@ function composeFilters(form) {
   form.querySelectorAll('[data-filter-name]').forEach((el) => {
     const name = el.getAttribute('data-filter-name');
     const value = (el.value || '').trim();
-    if (name && value && value !== 'all') {
+    // The All option is `value=""`, so the empty skip is the whole rule: a
+    // genuine filter value of `"all"` must round-trip (GH #160).
+    if (name && value) {
       parts.push(name + ':' + value);
     }
   });

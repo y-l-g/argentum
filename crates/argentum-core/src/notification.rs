@@ -264,7 +264,10 @@ async fn render_live_toaster<'a>(
     let status = status.get();
     let mount = serial.get();
     if status.is_empty() {
-        return Ok(view! { cx => <span></span> }.boxed());
+        // No `<span>` placeholder (GH #160): the shell mounts this slot inside
+        // the toaster `<ol>`, which permits only `li`/`script`/`template`
+        // children — the empty view renders nothing.
+        return Ok(().boxed());
     }
     let title = title.get();
     let description = description.get();

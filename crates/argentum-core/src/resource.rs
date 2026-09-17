@@ -1879,7 +1879,9 @@ impl<M> Table<M> {
             </div>
         };
         Ok(if self.is_boundary {
-            view! { cx => <div data-boundary="table">(inner)</div> }.boxed()
+            // The busy state rides on the morph boundary (GH #160) so assistive
+            // tech sees the live region, not just the swapped root below it.
+            view! { cx => <div data-boundary="table" aria-busy="true">(inner)</div> }.boxed()
         } else {
             inner.boxed()
         })
@@ -5578,6 +5580,11 @@ mod tests {
         assert!(
             html.contains("aria-busy"),
             "skeleton must announce loading, got {html}"
+        );
+        assert_eq!(
+            html.matches("aria-busy=\"true\"").count(),
+            2,
+            "busy must ride on the morph boundary and the table root (GH #160), got {html}"
         );
         assert!(
             html.contains("aria-hidden"),

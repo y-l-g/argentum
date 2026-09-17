@@ -654,10 +654,15 @@ impl Panel {
         };
         #[cfg(not(feature = "auth"))]
         let account_view: BoxView<'_> = view! { cx => <span></span> }.boxed();
-        let notification_view: BoxView<'_> = if let Some(notification) = take_notification(cx) {
-            crate::notification::render_notification(cx, notification, Default::default()).await?
-        } else {
-            view! { cx => <span></span> }.boxed()
+        let notification_view: BoxView<'_> = match take_notification(cx) {
+            Some(notification) => {
+                crate::notification::render_notification(cx, notification, Default::default())
+                    .await?
+            }
+            // No `<span>` placeholder (GH #160): the toaster renders an `<ol>`,
+            // which permits only `li`/`script`/`template` children — the empty
+            // view renders nothing.
+            None => ().boxed(),
         };
         // The page owns the live-toast signals; resolve the same handles here
         // (same helper, same request identity) and hand them to the shard
@@ -4433,6 +4438,38 @@ mod tests {
                 && !html.contains("ac-main")
                 && !html.contains("ac-nav-item"),
             "ac-* should not remain in shell, got {html}"
+        );
+    }
+
+    #[tokio::test]
+    async fn toaster_renders_no_stray_span_when_empty() {
+        // GH #160: the toaster renders an `<ol>`, which permits only
+        // `li`/`script`/`template` children — with no flash notification and
+        // no live toast, neither slot may strand a `<span>` in the list.
+        use crate::resource::NavigationItem;
+        use topcoat::context::CxTestBuilder;
+        use topcoat::view::view;
+
+        let cx = CxTestBuilder::new().build();
+        let cx_ref = &cx;
+        let nav_items: Vec<NavigationItem> = vec![];
+        let slot = view! { cx_ref => "hello" }.boxed().into();
+        let html = Panel::render_shell(&cx, &nav_items, "/admin/users", slot, None)
+            .await
+            .unwrap()
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
+        let ol = &html[html.find("<ol").expect("toaster list")..];
+        let ol = &ol[..ol.find("</ol>").expect("toaster close") + "</ol>".len()];
+        assert!(
+            ol.contains("data-sonner-toaster"),
+            "sliced the toaster list, got {ol}"
+        );
+        assert!(
+            !ol.contains("<span"),
+            "empty toaster must not strand a span in the list, got {ol}"
         );
     }
 

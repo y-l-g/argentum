@@ -16,8 +16,17 @@
 // `[data-table-root]` so multiple tables never cross-talk.
 function updateBulkSubmit(root) {
   const submit = root.querySelector('[data-bulk-submit]');
-  if (!submit) return;
-  submit.disabled = root.querySelector('input[data-row-select]:checked') === null;
+  const boxes = Array.from(root.querySelectorAll('input[data-row-select]'));
+  const checked = boxes.filter((cb) => cb.checked);
+  if (submit) submit.disabled = checked.length === 0;
+  // Tri-state header (GH #160): checked only when every row is checked,
+  // indeterminate on a partial selection — otherwise a select-all followed
+  // by one uncheck leaves the header lying checked.
+  const all = root.querySelector('input[data-bulk-select-all]');
+  if (all) {
+    all.checked = boxes.length > 0 && checked.length === boxes.length;
+    all.indeterminate = checked.length > 0 && checked.length < boxes.length;
+  }
 }
 
 document.addEventListener('change', (e) => {
