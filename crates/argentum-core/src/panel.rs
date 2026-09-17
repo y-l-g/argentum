@@ -1052,7 +1052,8 @@ pub(crate) use shard_body::table_search;
 
 /// Retry link for a failed streamed grid load (GH #110).
 ///
-/// A malformed `?after=`/`?before=` cursor is the failure itself: retrying the
+/// A malformed `?after=`/`?before=` cursor — or a conflicting `after` +
+/// `before` pair (GH #155) — is the failure itself: retrying the
 /// identical URL loops forever, so drop pagination from the link and keep the
 /// rest of the state (search/sort/filters/grouping). Every other failure keeps
 /// pagination too (GH #98) so a transient blip retries the same evidence.
@@ -5077,6 +5078,111 @@ mod tests {
         assert!(
             !body.contains("after="),
             "a malformed cursor must not travel into the retry link: {body}"
+        );
+    }
+
+    #[tokio::test]
+    async fn both_cursors_render_error_state_without_cursors() {
+        // GH #155: `?after=` + `?before=` together must fail loudly instead of
+        // silently preferring `after`. Both tokens below are valid — the old
+        // code rendered the `after` page with a 200 and no error.
+        use topcoat::router::Body;
+
+        #[derive(Debug, toasty::Model)]
+        struct Subscriber {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            #[unique]
+            email: String,
+        }
+        struct SubscriberResource;
+        impl Resource for SubscriberResource {
+            type Model = Subscriber;
+
+            fn can_view_any(_cx: &Cx) -> bool {
+                true
+            }
+
+            fn table(_cx: &Cx) -> Table<Self::Model> {
+                Table::<Subscriber>::new()
+                    .id(|s| s.id.to_string())
+                    .columns(crate::resource::TextColumn::r#for(
+                        Subscriber::fields().email(),
+                        |s: &Subscriber| s.email.clone(),
+                    ))
+                    .paginate(1)
+            }
+        }
+
+        let mut db = Db::builder()
+            .models(toasty::models!(Subscriber))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        for email in ["a@b.c", "d@e.f"] {
+            toasty::create!(Subscriber {
+                email: email.to_string()
+            })
+            .exec(&mut db)
+            .await
+            .unwrap();
+        }
+        let router = Panel::new("admin")
+            .app_context(db.clone())
+            .resource::<SubscriberResource>()
+            .auth(crate::Auth::disabled())
+            .build();
+
+        // A valid cursor token: the first page of two rows has a next page.
+        let (parts, ()) = http::Request::builder()
+            .uri("/admin/subscribers")
+            .body(())
+            .unwrap()
+            .into_parts();
+        let cx = topcoat::context::CxTestBuilder::new()
+            .request_context(parts)
+            .app_context(db)
+            .build();
+        let table = SubscriberResource::table(&cx);
+        let first = load_table_page::<SubscriberResource>(&cx, &table, &TableState::default())
+            .await
+            .unwrap();
+        let cursor = first
+            .next_cursor
+            .clone()
+            .expect("page 1 must have a cursor");
+
+        let response = router
+            .handle(
+                http::Request::builder()
+                    .uri(format!("/admin/subscribers?after={cursor}&before={cursor}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await;
+        assert!(
+            response.status().is_success(),
+            "page still streams, got status {}",
+            response.status()
+        );
+        let bytes = http_body_util::BodyExt::collect(response.into_body())
+            .await
+            .unwrap()
+            .to_bytes();
+        let body = String::from_utf8(bytes.to_vec()).unwrap();
+        assert!(
+            body.contains("Couldn't load Subscribers"),
+            "conflicting cursors must render the error state, not a page: {body}"
+        );
+        assert!(
+            body.contains("href=\"/admin/subscribers\""),
+            "retry link must target the bare list (cursors dropped): {body}"
+        );
+        assert!(
+            !body.contains("after=") && !body.contains("before="),
+            "conflicting cursors must not travel into the retry link: {body}"
         );
     }
 

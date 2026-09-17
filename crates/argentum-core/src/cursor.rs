@@ -55,14 +55,27 @@ pub fn encode(value: &Value) -> Result<String> {
     Ok(hex_encode(&payload))
 }
 
-/// A malformed cursor token — the `?after=`/`?before=` value itself is bad.
+/// A malformed cursor token — the `?after=`/`?before=` value itself is bad —
+/// or a conflicting cursor pair (`?after=` + `?before=` together, GH #155).
 ///
 /// Distinguishable from any other load failure so the list page can drop the
 /// cursor from its retry link (GH #110): retrying the identical URL can never
 /// succeed, while a transient failure must retry the same evidence (GH #98).
-/// The message is the decode error's own `cursor: …` text.
+/// The message is the decode error's own `cursor: …` text, or the conflict
+/// message's.
 #[derive(Debug)]
 pub(crate) struct CursorDecodeError(String);
+
+impl CursorDecodeError {
+    /// `?after=` and `?before=` together: Toasty cursor pagination takes
+    /// exactly one cursor, so the pair can never resolve — the same retry
+    /// contract as a malformed token (drop pagination, keep the rest).
+    pub(crate) fn conflicting_cursors() -> topcoat::Error {
+        topcoat::Error::from(CursorDecodeError(
+            "cursor: after and before are mutually exclusive".to_string(),
+        ))
+    }
+}
 
 impl std::fmt::Display for CursorDecodeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

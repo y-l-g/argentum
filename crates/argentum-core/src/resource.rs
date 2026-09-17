@@ -1340,6 +1340,14 @@ impl<M> Table<M> {
                 // cheap `LIMIT 1` probe and hide phantoms.
                 let base_query = query.clone();
                 let mut paginated = toasty::stmt::Paginate::new(query, per_page);
+                // Toasty cursor pagination takes exactly one cursor (GH #155):
+                // a URL carrying both `?after=` and `?before=` must fail loudly
+                // instead of silently preferring `after` (the GH #93 fail-open
+                // family). The `CursorDecodeError` marker gives the failure the
+                // drop-pagination retry contract (GH #110).
+                if state.after.is_some() && state.before.is_some() {
+                    return Err(crate::cursor::CursorDecodeError::conflicting_cursors());
+                }
                 if let Some(cursor) = &state.after {
                     paginated = paginated.after(crate::cursor::decode(cursor)?);
                 } else if let Some(cursor) = &state.before {
@@ -2999,8 +3007,9 @@ impl TableState {
     /// first occurrence: the previous serde decode rejected duplicates, and
     /// swallowing that error as empty state silently dropped every filter —
     /// including export's fail-closed guard (GH #93). Cursor errors still
-    /// surface later, at decode time, where they are precise. Renders
-    /// without a request context (e.g. unit tests) get neutral state.
+    /// surface later, at decode time, where they are precise — including the
+    /// conflicting `after` + `before` pair, which fails at load time (GH #155).
+    /// Renders without a request context (e.g. unit tests) get neutral state.
     pub fn from_cx(cx: &Cx) -> Self {
         let Some(parts) = topcoat::context::try_request_context::<http::request::Parts>(cx) else {
             return Self::default();
@@ -3072,8 +3081,9 @@ impl TableState {
     }
 
     /// Retry URL for a failure whose cause is the cursor itself (GH #110): the
-    /// malformed `after`/`before` token can never decode, so retrying the
-    /// identical URL would loop forever. Drop pagination and keep the rest of
+    /// malformed `after`/`before` token can never decode — nor can a conflicting
+    /// `after` + `before` pair resolve (GH #155) — so retrying the identical
+    /// URL would loop forever. Drop pagination and keep the rest of
     /// the evidence (search/sort/filters/grouping).
     pub(crate) fn retry_url_without_cursor(&self, path: &str) -> String {
         self.retry_url_inner(path, false)
@@ -4569,6 +4579,74 @@ mod tests {
         // Empty term → None
         assert!(col.to_search_expr("").is_none());
         assert!(col.to_search_expr("   ").is_none());
+    }
+
+    #[tokio::test]
+    async fn table_load_rejects_both_cursors() {
+        // GH #155: `?after=` + `?before=` together must fail loudly instead of
+        // silently preferring `after` (the GH #93 fail-open family). The
+        // failure carries the `CursorDecodeError` marker so the retry link
+        // drops pagination (GH #110).
+        let mut db = Db::builder()
+            .models(toasty::models!(User))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        for name in ["Ada", "Bob"] {
+            toasty::create!(User {
+                name: name.to_string()
+            })
+            .exec(&mut db)
+            .await
+            .unwrap();
+        }
+        let cx = CxTestBuilder::new().app_context(db).build();
+        let tbl = Table::<User>::new()
+            .id(|u| u.id.to_string())
+            .columns(TextColumn::r#for(User::fields().name(), |u: &User| {
+                u.name.clone()
+            }))
+            .paginate(1);
+        // A valid cursor token: the first page of two rows has a next page.
+        let first = tbl
+            .load(
+                &cx,
+                toasty::stmt::Query::<List<User>>::all(),
+                &TableState::default(),
+            )
+            .await
+            .unwrap();
+        let cursor = first
+            .next_cursor
+            .clone()
+            .expect("page 1 must have a cursor");
+        // Sanity: a single cursor still loads.
+        let state = TableState {
+            after: Some(cursor.clone()),
+            ..TableState::default()
+        };
+        let second = tbl
+            .load(&cx, toasty::stmt::Query::<List<User>>::all(), &state)
+            .await
+            .unwrap();
+        assert_eq!(second.rows.len(), 1);
+        // Both cursors together fail with the cursor marker — no silent
+        // precedence for whichever comes first.
+        let state = TableState {
+            after: Some(cursor.clone()),
+            before: Some(cursor),
+            ..TableState::default()
+        };
+        let err = tbl
+            .load(&cx, toasty::stmt::Query::<List<User>>::all(), &state)
+            .await
+            .expect_err("after+before must fail loudly");
+        assert!(
+            err.downcast_ref::<crate::cursor::CursorDecodeError>()
+                .is_some(),
+            "conflict must carry the cursor marker for the retry contract, got {err}"
+        );
     }
 
     #[test]
