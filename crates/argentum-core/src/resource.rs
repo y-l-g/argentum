@@ -888,8 +888,27 @@ impl<M> Table<M> {
     }
 
     /// Declare columns. Accepts a single column or tuple of columns.
-    pub fn columns(mut self, cols: impl IntoColumns<M>) -> Self {
-        self.columns = cols.into_columns();
+    ///
+    /// Panics on duplicate [`Column::name`] (GH #156): sort resolution is
+    /// first-sortable-`name()`-match, so duplicate sortable names would
+    /// silently misresolve `?sort=`. The guard covers computed names too
+    /// (`TextColumn::computed("Status", ..)` derives `name = "status"`) for
+    /// namespace consistency and future-proofing. Same fail-loud policy as
+    /// the GH #101 searchable/sortable panics and the Schema GH #100 guard.
+    pub fn columns(mut self, cols: impl IntoColumns<M>) -> Self
+    where
+        M: toasty::schema::Model,
+    {
+        let cols = cols.into_columns();
+        let mut seen = std::collections::HashSet::with_capacity(cols.len());
+        for c in &cols {
+            let name = c.name();
+            assert!(
+                seen.insert(name),
+                "duplicate column name '{name}': each Table column needs a distinct name (GH #156)"
+            );
+        }
+        self.columns = cols;
         self
     }
 
@@ -4042,23 +4061,31 @@ mod tests {
     #[tokio::test]
     async fn table_for_columns_renders_with_keyed_rows() {
         let cx = CxTestBuilder::new().build();
-        let users_table = Table::<User>::r#for(&cx).id(|u| u.id.to_string()).columns((
-            TextColumn::r#for(User::fields().name(), |u| u.name.clone()).searchable(),
-            TextColumn::r#for(User::fields().name(), |u| u.name.clone()).sortable(),
+        // GH #156: columns need distinct names — title + status, not one
+        // field twice.
+        let tasks_table = Table::<Task>::r#for(&cx).id(|t| t.id.to_string()).columns((
+            TextColumn::r#for(Task::fields().title(), |t: &Task| t.title.clone()).searchable(),
+            TextColumn::r#for(Task::fields().status(), |t: &Task| t.status.clone()).sortable(),
         ));
         // Use dummy rows for render check (no DB) — keyed by row.id
         let rows = vec![
-            User {
+            Task {
                 id: uuid::Uuid::new_v4(),
-                name: "Ada".to_string(),
+                title: "Ada".to_string(),
+                status: "draft".to_string(),
+                featured: false,
+                created_at: jiff::Timestamp::now(),
             },
-            User {
+            Task {
                 id: uuid::Uuid::new_v4(),
-                name: "Bob".to_string(),
+                title: "Bob".to_string(),
+                status: "published".to_string(),
+                featured: true,
+                created_at: jiff::Timestamp::now(),
             },
         ];
-        let page: TablePage<User> = rows.clone().into();
-        let html = users_table
+        let page: TablePage<Task> = rows.clone().into();
+        let html = tasks_table
             .render(&cx, page)
             .await
             .unwrap()
@@ -4090,12 +4117,13 @@ mod tests {
             html.contains("cursor-pointer"),
             "missing sortable cursor-pointer in {html}"
         );
-        assert!(html.contains("Name"), "missing Name header in {html}");
+        assert!(html.contains("Title"), "missing Title header in {html}");
+        assert!(html.contains("Status"), "missing Status header in {html}");
         for row in &rows {
             assert!(
-                html.contains(&row.name),
-                "missing row name {} in {html}",
-                row.name
+                html.contains(&row.title),
+                "missing row title {} in {html}",
+                row.title
             );
         }
     }
@@ -4546,13 +4574,14 @@ mod tests {
     #[test]
     fn table_search_expr_ors_across_searchable_columns() {
         let cx = CxTestBuilder::new().build();
-        let users_table = Table::<User>::r#for(&cx).columns((
-            TextColumn::r#for(User::fields().name(), |u| u.name.clone()).searchable(),
-            TextColumn::r#for(User::fields().name(), |u| u.name.clone()).searchable(),
+        // GH #156: distinct names — title + status, not one field twice.
+        let tasks_table = Table::<Task>::r#for(&cx).columns((
+            TextColumn::r#for(Task::fields().title(), |t| t.title.clone()).searchable(),
+            TextColumn::r#for(Task::fields().status(), |t| t.status.clone()).searchable(),
         ));
-        assert!(users_table.search_expr("Ada").is_some());
-        assert!(users_table.search_expr("").is_none());
-        assert!(users_table.search_expr("   ").is_none());
+        assert!(tasks_table.search_expr("Ada").is_some());
+        assert!(tasks_table.search_expr("").is_none());
+        assert!(tasks_table.search_expr("   ").is_none());
         let table_none = Table::<User>::r#for(&cx)
             .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()));
         assert!(table_none.search_expr("Ada").is_none());
@@ -4561,11 +4590,12 @@ mod tests {
     #[test]
     fn table_order_by_returns_first_sortable() {
         let cx = CxTestBuilder::new().build();
-        let users_table = Table::<User>::r#for(&cx).columns((
-            TextColumn::r#for(User::fields().name(), |u| u.name.clone()).sortable(),
-            TextColumn::r#for(User::fields().name(), |u| u.name.clone()),
+        // GH #156: distinct names — title sortable + status plain.
+        let tasks_table = Table::<Task>::r#for(&cx).columns((
+            TextColumn::r#for(Task::fields().title(), |t| t.title.clone()).sortable(),
+            TextColumn::r#for(Task::fields().status(), |t| t.status.clone()),
         ));
-        assert!(users_table.order_by(false).is_some());
+        assert!(tasks_table.order_by(false).is_some());
         let table_none = Table::<User>::r#for(&cx)
             .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()));
         assert!(table_none.order_by(false).is_none());
@@ -5014,6 +5044,39 @@ mod tests {
         assert!(!col.is_searchable() && !col.is_sortable());
         assert!(col.to_search_expr("x").is_none());
         assert!(col.to_order_by(false).is_none());
+    }
+
+    #[test]
+    #[should_panic(expected = "duplicate column name")]
+    fn duplicate_column_name_panics_on_field_computed_collision() {
+        // GH #156: computed("Status") derives name "status", colliding with
+        // the field column's name — the Column::name namespace must stay
+        // unique even though computeds are never sortable today (GH #101).
+        let _ = Table::<Task>::new().columns((
+            TextColumn::r#for(Task::fields().status(), |t: &Task| t.status.clone()).sortable(),
+            TextColumn::computed("Status", |t: &Task| t.status.clone()),
+        ));
+    }
+
+    #[test]
+    #[should_panic(expected = "duplicate column name")]
+    fn duplicate_column_name_panics_on_case_only_computed_collision() {
+        // GH #156: computed names are label.to_lowercase(), so labels
+        // differing only by case still collide.
+        let _ = Table::<User>::new().columns((
+            TextColumn::computed("Status", |u: &User| u.name.clone()),
+            TextColumn::computed("STATUS", |u: &User| u.name.clone()),
+        ));
+    }
+
+    #[test]
+    #[should_panic(expected = "duplicate column name")]
+    fn duplicate_column_name_panics_on_duplicate_field() {
+        // GH #156: same guard covers two bindings of one field.
+        let _ = Table::<User>::new().columns((
+            TextColumn::r#for(User::fields().name(), |u: &User| u.name.clone()),
+            TextColumn::r#for(User::fields().name(), |u: &User| u.name.clone()),
+        ));
     }
 
     #[test]
