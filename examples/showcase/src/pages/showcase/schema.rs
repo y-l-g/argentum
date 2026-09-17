@@ -1,13 +1,14 @@
 use std::collections::HashMap;
 
 use argentum_core::{
-    Grid, Group, Notification, Schema, Section, Text, TextInput, csrf,
-    notification::set_notification,
+    Grid, Group, Schema, Section, Text, TextInput,
+    notification::{LiveToast, live_toast},
 };
 use topcoat::{
     Result,
     context::Cx,
-    router::{content::Form, error::see_other, page},
+    router::page,
+    runtime::{Event, Signal, procedure, shard, signal},
     view::{BoxView, View, ViewExt, attributes, view},
 };
 
@@ -23,38 +24,155 @@ fn validation_schema() -> Schema {
     ))
 }
 
+/// Validate the demo form (GH #154 §4).
+///
+/// The rules stay [`Schema::validate`] over the same declaration; the result
+/// crosses as `(name_error, email_error)` (empty = valid) because only the
+/// shared vocabulary crosses to the client. The submit handler writes it into
+/// the form's error signals.
+#[procedure]
+pub async fn validate_schema_form(name: String, email: String) -> Result<(String, String)> {
+    let values = HashMap::from([("name".to_string(), name), ("email".to_string(), email)]);
+    let errors = validation_schema().validate(&values);
+    let first = |field: &str| {
+        errors
+            .get(field)
+            .and_then(|errs| errs.first())
+            .cloned()
+            .unwrap_or_default()
+    };
+    Ok((first("name"), first("email")))
+}
+
+/// The live-validation form (GH #154 §4): a shard, so a submit re-renders
+/// just this region — no navigation, no scroll jump, no PRG.
+///
+/// The field and error signals are page-owned (passed in as handles), so the
+/// submit handler writes the procedure result into the same signals the shard
+/// reads: an error signal change re-renders the fields, and the valid path
+/// writes the page's live toast, which the shell mounts.
+/// The module carries the lint allow: the shard's arity is its dependency
+/// list (one signal per field and toast slot), and the macro expands the face
+/// past clippy's default (same pattern as `panel::shard_body`).
+#[allow(clippy::too_many_arguments)]
+mod live_form_shard {
+    use super::*;
+
+    #[shard]
+    pub async fn live_validation_form(
+        cx: &Cx,
+        name: Signal<String>,
+        email: Signal<String>,
+        name_error: Signal<String>,
+        email_error: Signal<String>,
+        toast_status: Signal<String>,
+        toast_title: Signal<String>,
+        toast_description: Signal<String>,
+        toast_serial: Signal<u64>,
+    ) -> Result<impl View> {
+        render_live_validation_form(
+            cx,
+            &name,
+            &email,
+            &name_error,
+            &email_error,
+            &toast_status,
+            &toast_title,
+            &toast_description,
+            &toast_serial,
+        )
+        .await
+    }
+}
+pub use live_form_shard::live_validation_form;
+
+#[allow(clippy::too_many_arguments)]
+async fn render_live_validation_form<'a>(
+    cx: &'a Cx,
+    name: &Signal<String>,
+    email: &Signal<String>,
+    name_error: &Signal<String>,
+    email_error: &Signal<String>,
+    toast_status: &Signal<String>,
+    toast_title: &Signal<String>,
+    toast_description: &Signal<String>,
+    toast_serial: &Signal<u64>,
+) -> Result<BoxView<'a>> {
+    let schema = validation_schema();
+    // The error signals are the shard's dependencies: the submit handler
+    // writes the procedure result into them and the fields re-render. Values
+    // arrive with the rerun (the signals travel as shard arguments), so they
+    // are not read here.
+    let errors: HashMap<String, Vec<String>> =
+        [("name", name_error.get()), ("email", email_error.get())]
+            .into_iter()
+            .filter(|(_, error)| !error.is_empty())
+            .map(|(field, error)| (field.to_string(), vec![error]))
+            .collect();
+    let live_values = HashMap::from([
+        ("name".to_string(), name.clone()),
+        ("email".to_string(), email.clone()),
+    ]);
+    let fields = schema.render_live_with(cx, &live_values, &errors).await?;
+    let name = name.clone();
+    let email = email.clone();
+    let name_error = name_error.clone();
+    let email_error = email_error.clone();
+    let toast_status = toast_status.clone();
+    let toast_title = toast_title.clone();
+    let toast_description = toast_description.clone();
+    let toast_serial = toast_serial.clone();
+    Ok(view! {
+        cx =>
+        <form
+            class="flex flex-col gap-4"
+            @submit=$(async |e: Event| {
+                e.prevent_default();
+                let errs = validate_schema_form(name.get(), email.get()).await;
+                let valid = if errs.0.is_empty() { errs.1.is_empty() } else { false };
+                name_error.set(errs.0);
+                email_error.set(errs.1);
+                if valid {
+                    toast_status.set("success".to_owned());
+                    toast_title.set("Validated".to_owned());
+                    toast_description.set("Both fields passed.".to_owned());
+                    toast_serial.increment();
+                }
+            })
+        >
+            (fields)
+            <div>
+                argentum_ui::button(
+                    variant: argentum_ui::ButtonVariant::Primary,
+                    attrs: attributes! { type="submit" },
+                    "Submit"
+                )
+            </div>
+        </form>
+    }
+    .boxed())
+}
+
 #[page("/admin/showcase/schema")]
 async fn schema_showcase(cx: &Cx) -> Result<impl View> {
-    render_schema_page(cx, &HashMap::new(), &HashMap::new()).await
+    render_schema_page(cx).await
 }
 
-/// Validate the demo form: invalid submits re-render the page with inline
-/// errors; a valid submit flashes a toast and redirects (PRG).
-#[page(POST "/admin/showcase/schema")]
-async fn schema_validate_post(
-    cx: &Cx,
-    Form(values): Form<HashMap<String, String>>,
-) -> Result<impl View> {
-    csrf::verify(cx, &values)?;
-    let errors = validation_schema().validate(&values);
-    if errors.is_empty() {
-        set_notification(
-            cx,
-            Notification::success("Validated")
-                .description("Both fields passed, so the handler redirected (PRG)."),
-        );
-        return Err(see_other("/admin/showcase/schema").into());
-    }
-    render_schema_page(cx, &values, &errors).await
-}
-
-/// One renderer for GET and the invalid POST, so the page has a single shape.
-async fn render_schema_page<'a>(
-    cx: &'a Cx,
-    values: &HashMap<String, String>,
-    errors: &HashMap<String, Vec<String>>,
-) -> Result<BoxView<'a>> {
-    // Every example renders live, in the order title → snippet → result.
+/// One renderer for the page: every example pairs title → snippet → result.
+async fn render_schema_page<'a>(cx: &'a Cx) -> Result<BoxView<'a>> {
+    // The live-validation form's signals: the page owns them so both the
+    // shard (args) and the submit handler (captured in the shard view) share
+    // the same handles. The toast ones mount through the shell's toaster.
+    let LiveToast {
+        status: toast_status,
+        title: toast_title,
+        description: toast_description,
+        serial: toast_serial,
+    } = live_toast(cx);
+    let name = signal(cx, String::new);
+    let email = signal(cx, String::new);
+    let name_error = signal(cx, String::new);
+    let email_error = signal(cx, String::new);
     let text = Schema::new(Text::new("hello")).render(cx).await?;
     let input_required = Schema::new(TextInput::r#for(User::fields().name()))
         .render(cx)
@@ -65,7 +183,6 @@ async fn render_schema_page<'a>(
     let input_email = Schema::new(TextInput::r#for(User::fields().email()).email())
         .render(cx)
         .await?;
-    let validation_form = validation_schema().render_with(cx, values, errors).await?;
     let section = Schema::new(Section::new("Account").schema(Text::new("hello")))
         .render(cx)
         .await?;
@@ -113,14 +230,13 @@ async fn render_schema_page<'a>(
     ))
     .render(cx)
     .await?;
-    let csrf_token = csrf::ensure_token(cx);
     Ok(view! {
         cx =>
         argentum_ui::page(
             argentum_ui::page_header(
                 argentum_ui::page_title("Schema")
                 argentum_ui::page_description(
-                    "Unified layout primitive for forms and infolists. Text + Section/Group/Grid compose via IntoSchema tuples and render through view! — and every example pairs its snippet with the rendered result."
+                    "Unified layout primitive for forms and infolists. Text + Section/Group/Grid compose via IntoSchema tuples and render through view! — and every example pairs its snippet with the rendered result. The live-validation form submits without a reload."
                 )
             )
 
@@ -147,34 +263,25 @@ async fn render_schema_page<'a>(
 
             example(
                 title: "TextInput — email",
-                description: "Validation rules compose on top of the schema default; `.email()` rejects malformed addresses inline.",
+                description: "Validation rules compose on top of the schema default; `.email()` rejects malformed addresses inline. Submit the live-validation form below with `not-an-email` to watch the rule fire under the field.",
                 code: "TextInput::for(User::fields().email()).email()",
                 (input_email)
             )
 
             example(
                 title: "Live validation",
-                description: "The same schema drives a real form: submitting it validates the values, re-renders the fields with inline errors when invalid, and redirects with a toast when valid.",
-                code: "let errors = schema.validate(&values);\nschema.render_with(cx, &values, &errors) // inline errors\n// valid: set_notification(...); Err(see_other(\"/admin/showcase/schema\").into())",
-                // `novalidate` lets the server render the inline errors:
-                // without it the browser's native `required` blocks the
-                // submit before the round-trip this demo exists to show.
-                <form
-                    method="post"
-                    action="/admin/showcase/schema"
-                    novalidate=""
-                    class="flex flex-col gap-4"
-                >
-                    <input type="hidden" name=(csrf::FIELD_NAME) value=(csrf_token)>
-                    (validation_form)
-                    <div>
-                        argentum_ui::button(
-                            variant: argentum_ui::ButtonVariant::Primary,
-                            attrs: attributes! { type="submit" },
-                            "Submit"
-                        )
-                    </div>
-                </form>
+                description: "The same schema drives a real form: a #[procedure] validates the values through Schema::validate, the submit handler writes its per-field errors into signals, and a shard re-renders the fields in place — errors appear under their field (ac-field--error + ac-error) with no navigation and no PRG. Valid submits toast in place.",
+                code: "// #[procedure] validate_schema_form(name, email) -> (name_err, email_err)\nlet errs = validate_schema_form(name.get(), email.get()).await;\nname_error.set(errs.0); // the error slots update in place\nif errs.0.is_empty() && errs.1.is_empty() { /* toast */ }",
+                live_validation_form(
+                    name: $(name),
+                    email: $(email),
+                    name_error: $(name_error),
+                    email_error: $(email_error),
+                    toast_status: $(toast_status),
+                    toast_title: $(toast_title),
+                    toast_description: $(toast_description),
+                    toast_serial: $(toast_serial)
+                )
             )
 
             example(

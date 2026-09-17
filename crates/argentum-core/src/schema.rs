@@ -17,6 +17,7 @@ use argentum_ui::{
     field_error as ui_field_error, field_group as ui_field_group, field_label as ui_field_label,
     field_legend as ui_field_legend, field_set as ui_field_set, input as ui_input,
 };
+use topcoat::runtime::Signal;
 use topcoat::{Result, context::Cx, view::*};
 
 /// Why a relationship option load produced no options (GH #108).
@@ -238,6 +239,8 @@ impl TextInput {
         labels >= 2 && tld_len >= 2
     }
 
+    /// Static render: the create/edit path's control, with `value` rendered
+    /// into the `value` attribute and `errors` into the error slot.
     pub(crate) async fn render_with<'a>(
         &self,
         cx: &'a Cx,
@@ -283,6 +286,73 @@ impl TextInput {
                         type=(input_type)
                         name=(name.clone())
                         value=(value_owned.clone())
+                        placeholder=(placeholder.clone())
+                        required=(required)
+                        aria-required=(required.then_some("true"))
+                        aria-invalid=(if has_error { "true" } else { "false" })
+                        aria-describedby=(has_error.then_some(error_id.clone()))
+                    }
+                )
+                ui_field_error(
+                    attrs: attributes! {
+                        id=(error_id.clone())
+                        class="ac-error"
+                        aria-live="polite"
+                    },
+                    (error_text)
+                )
+            )
+        }
+        .boxed())
+    }
+
+    /// Render this field with its value bound to `value` and its inline
+    /// errors taken from the (server-rendered) `errors` (GH #154 §4).
+    ///
+    /// The control renders through [`bound_input`](argentum_ui::bound_input),
+    /// so typing writes the signal and a shard re-render reads the typed
+    /// value; the label, chrome, error slot, and `aria-invalid` state are the
+    /// same as [`Self::render_with`], so a re-render updates them in place.
+    pub(crate) async fn render_live_with<'a>(
+        &self,
+        cx: &'a Cx,
+        value: &Signal<String>,
+        errors: &[String],
+    ) -> Result<BoxView<'a>> {
+        let label_text = self.label.clone();
+        let name = self.name.clone();
+        let required = self.required;
+        let placeholder = self.placeholder.clone();
+        let input_type = if self.is_email { "email" } else { "text" };
+        let has_error = !errors.is_empty();
+        let error_text = errors.first().cloned().unwrap_or_default();
+        let field_class = if has_error {
+            "ac-field ac-field--error"
+        } else {
+            "ac-field"
+        };
+        let error_id = format!("{name}-error");
+        let value = value.clone();
+        Ok(view! {
+            cx =>
+            ui_field(
+                attrs: attributes! {
+                    class=(field_class)
+                    data-invalid=(has_error.then_some("true"))
+                },
+                ui_field_label(
+                    attrs: attributes! { for=(name.clone()) },
+                    (label_text.clone())
+                    if required {
+                        <span class="text-destructive" aria-hidden="true">"*"</span>
+                    }
+                )
+                argentum_ui::bound_input(
+                    value: value,
+                    attrs: attributes! {
+                        id=(name.clone())
+                        type=(input_type)
+                        name=(name.clone())
                         placeholder=(placeholder.clone())
                         required=(required)
                         aria-required=(required.then_some("true"))
@@ -996,16 +1066,15 @@ impl Section {
         self
     }
 
-    pub(crate) async fn render_with<'a>(
+    pub(crate) async fn render_source<'a>(
         &self,
         cx: &'a Cx,
-        values: &HashMap<String, String>,
-        errors: &HashMap<String, Vec<String>>,
+        source: &RenderSource<'_>,
     ) -> Result<BoxView<'a>> {
         let title = self.title.clone();
         let extra = self.extra_class.clone();
         if let Some(schema) = &self.children {
-            let child_view = schema.render_with(cx, values, errors).await?;
+            let child_view = schema.render_source(cx, source).await?;
             Ok(view! {
                 cx =>
                 card(
@@ -1050,14 +1119,13 @@ impl Group {
         self
     }
 
-    pub(crate) async fn render_with<'a>(
+    pub(crate) async fn render_source<'a>(
         &self,
         cx: &'a Cx,
-        values: &HashMap<String, String>,
-        errors: &HashMap<String, Vec<String>>,
+        source: &RenderSource<'_>,
     ) -> Result<BoxView<'a>> {
         if let Some(schema) = &self.children {
-            let child_view = schema.render_with(cx, values, errors).await?;
+            let child_view = schema.render_source(cx, source).await?;
             Ok(view! { cx => ui_field_group((child_view)) }.boxed())
         } else {
             Ok(view! { cx => ui_field_group() }.boxed())
@@ -1085,11 +1153,10 @@ impl Grid {
         self
     }
 
-    pub(crate) async fn render_with<'a>(
+    pub(crate) async fn render_source<'a>(
         &self,
         cx: &'a Cx,
-        values: &HashMap<String, String>,
-        errors: &HashMap<String, Vec<String>>,
+        source: &RenderSource<'_>,
     ) -> Result<BoxView<'a>> {
         // Static literals for Tailwind scanner — `format!("grid grid-cols-{}")` would be
         // purged because Tailwind only sees literal substrings. See ADR-0007 / T2.
@@ -1108,7 +1175,7 @@ impl Grid {
             _ => "grid grid-cols-12 gap-4",
         };
         if let Some(schema) = &self.children {
-            let child_view = schema.render_with(cx, values, errors).await?;
+            let child_view = schema.render_source(cx, source).await?;
             Ok(view! { cx => <div class=(class)>(child_view)</div> }.boxed())
         } else {
             Ok(view! { cx => <div class=(class)></div> }.boxed())
@@ -1289,18 +1356,21 @@ impl Repeater {
         &self.label
     }
 
-    pub(crate) async fn render_with<'a>(
+    pub(crate) async fn render_source<'a>(
         &self,
         cx: &'a Cx,
-        values: &HashMap<String, String>,
-        errors: &HashMap<String, Vec<String>>,
+        source: &RenderSource<'_>,
     ) -> Result<BoxView<'a>> {
         let title = self.label.clone();
         let required = self.required;
         // Own error lives under the label key (see `walk_repeater_absence`).
         // Field errors key by field name; repeaters have no field name yet, so the
         // label is the only stable key until repeaters become field-bound (GH #78).
-        let own_errors: &[String] = errors.get(&self.label).map(|v| v.as_slice()).unwrap_or(&[]);
+        let own_errors: &[String] = match source {
+            RenderSource::Static { errors, .. } | RenderSource::Live { errors, .. } => {
+                errors.get(&self.label).map(|v| v.as_slice()).unwrap_or(&[])
+            }
+        };
         let has_error = !own_errors.is_empty();
         let error_text = own_errors.first().cloned().unwrap_or_default();
         let container_class = if has_error {
@@ -1309,7 +1379,7 @@ impl Repeater {
             "ac-field rounded-md border border-border p-4"
         };
         if let Some(schema) = &self.children {
-            let child_view = schema.render_with(cx, values, errors).await?;
+            let child_view = schema.render_source(cx, source).await?;
             Ok(view! {
                 cx =>
                 ui_field_set(
@@ -1370,14 +1440,13 @@ impl Container {
         self
     }
 
-    async fn render_with<'a>(
+    async fn render_source<'a>(
         &self,
         cx: &'a Cx,
-        values: &HashMap<String, String>,
-        errors: &HashMap<String, Vec<String>>,
+        source: &RenderSource<'_>,
     ) -> Result<BoxView<'a>> {
         if let Some(schema) = &self.children {
-            let child_view = schema.render_with(cx, values, errors).await?;
+            let child_view = schema.render_source(cx, source).await?;
             Ok(view! {
                 cx =>
                 <div class="flex flex-col gap-4 border border-border rounded-md p-4">
@@ -1411,13 +1480,12 @@ impl Tabs {
         Self(self.0.schema(children))
     }
 
-    pub(crate) async fn render_with<'a>(
+    pub(crate) async fn render_source<'a>(
         &self,
         cx: &'a Cx,
-        values: &HashMap<String, String>,
-        errors: &HashMap<String, Vec<String>>,
+        source: &RenderSource<'_>,
     ) -> Result<BoxView<'a>> {
-        self.0.render_with(cx, values, errors).await
+        self.0.render_source(cx, source).await
     }
 }
 
@@ -1443,13 +1511,12 @@ impl Wizard {
         Self(self.0.schema(children))
     }
 
-    pub(crate) async fn render_with<'a>(
+    pub(crate) async fn render_source<'a>(
         &self,
         cx: &'a Cx,
-        values: &HashMap<String, String>,
-        errors: &HashMap<String, Vec<String>>,
+        source: &RenderSource<'_>,
     ) -> Result<BoxView<'a>> {
-        self.0.render_with(cx, values, errors).await
+        self.0.render_source(cx, source).await
     }
 }
 
@@ -1478,44 +1545,80 @@ enum Node {
 }
 
 impl Node {
-    async fn render_with<'a>(
+    /// Render this node from `source` (internal; see
+    /// [`Schema::render_with`] / [`Schema::render_live_with`]).
+    async fn render_source<'a>(
         &self,
         cx: &'a Cx,
-        values: &HashMap<String, String>,
-        errors: &HashMap<String, Vec<String>>,
+        source: &RenderSource<'_>,
     ) -> Result<BoxView<'a>> {
+        // A live field renders with its signal when the caller supplied a
+        // value signal for it; the error list may be empty (a valid field).
+        if let RenderSource::Live { values, errors } = source
+            && let Node::TextInput(f) = self
+            && let Some(value) = values.get(f.field_name())
+        {
+            let errs = errors
+                .get(f.field_name())
+                .map(|v| v.as_slice())
+                .unwrap_or(&[]);
+            return Ok(Box::pin(f.render_live_with(cx, value, errs)).await?.boxed());
+        }
         match self {
             Node::Text(t) => Ok(t.render(cx).await?.boxed()),
             Node::TextInput(f) => {
-                let val = values.get(&f.field_name().to_string()).map(|s| s.as_str());
-                let errs: &[String] = errors
-                    .get(&f.field_name().to_string())
-                    .map(|v| v.as_slice())
-                    .unwrap_or(&[]);
+                let val = static_value(source, f.field_name());
+                let errs = static_errors(source, f.field_name());
                 Ok(Box::pin(f.render_with(cx, val, errs)).await?.boxed())
             }
             Node::Select(f) => {
-                let val = values.get(&f.field_name().to_string()).map(|s| s.as_str());
-                let errs: &[String] = errors
-                    .get(&f.field_name().to_string())
-                    .map(|v| v.as_slice())
-                    .unwrap_or(&[]);
+                let val = static_value(source, f.field_name());
+                let errs = static_errors(source, f.field_name());
                 Ok(Box::pin(f.render_with(cx, val, errs)).await?.boxed())
             }
             Node::FileUpload(f) => {
-                let val = values.get(&f.field_name().to_string()).map(|s| s.as_str());
-                let errs: &[String] = errors
-                    .get(&f.field_name().to_string())
-                    .map(|v| v.as_slice())
-                    .unwrap_or(&[]);
+                let val = static_value(source, f.field_name());
+                let errs = static_errors(source, f.field_name());
                 Ok(Box::pin(f.render_with(cx, val, errs)).await?.boxed())
             }
-            Node::Repeater(r) => Ok(Box::pin(r.render_with(cx, values, errors)).await?.boxed()),
-            Node::Tabs(t) => Ok(Box::pin(t.render_with(cx, values, errors)).await?.boxed()),
-            Node::Wizard(w) => Ok(Box::pin(w.render_with(cx, values, errors)).await?.boxed()),
-            Node::Section(s) => Ok(Box::pin(s.render_with(cx, values, errors)).await?.boxed()),
-            Node::Group(g) => Ok(Box::pin(g.render_with(cx, values, errors)).await?.boxed()),
-            Node::Grid(g) => Ok(Box::pin(g.render_with(cx, values, errors)).await?.boxed()),
+            Node::Repeater(r) => Ok(Box::pin(r.render_source(cx, source)).await?.boxed()),
+            Node::Tabs(t) => Ok(Box::pin(t.render_source(cx, source)).await?.boxed()),
+            Node::Wizard(w) => Ok(Box::pin(w.render_source(cx, source)).await?.boxed()),
+            Node::Section(s) => Ok(Box::pin(s.render_source(cx, source)).await?.boxed()),
+            Node::Group(g) => Ok(Box::pin(g.render_source(cx, source)).await?.boxed()),
+            Node::Grid(g) => Ok(Box::pin(g.render_source(cx, source)).await?.boxed()),
+        }
+    }
+}
+
+/// Where a schema render reads field values and errors from (GH #154 §4).
+///
+/// `Static` is the create/edit path: plain maps, no bindings. `Live` carries
+/// per-field value signals for form controls that must two-way bind.
+pub(crate) enum RenderSource<'a> {
+    Static {
+        values: &'a HashMap<String, String>,
+        errors: &'a HashMap<String, Vec<String>>,
+    },
+    Live {
+        values: &'a HashMap<String, Signal<String>>,
+        errors: &'a HashMap<String, Vec<String>>,
+    },
+}
+
+/// The static value for `name`, if this render has one.
+fn static_value<'a>(source: &'a RenderSource<'_>, name: &str) -> Option<&'a str> {
+    match source {
+        RenderSource::Static { values, .. } => values.get(name).map(String::as_str),
+        RenderSource::Live { .. } => None,
+    }
+}
+
+/// The static errors for `name`, if this render has any.
+fn static_errors<'a>(source: &'a RenderSource<'_>, name: &str) -> &'a [String] {
+    match source {
+        RenderSource::Static { errors, .. } | RenderSource::Live { errors, .. } => {
+            errors.get(name).map(|v| v.as_slice()).unwrap_or(&[])
         }
     }
 }
@@ -1661,13 +1764,38 @@ impl Schema {
         values: &HashMap<String, String>,
         errors: &HashMap<String, Vec<String>>,
     ) -> Result<BoxView<'a>> {
+        self.render_source(cx, &RenderSource::Static { values, errors })
+            .await
+    }
+
+    /// Render with signal-bound values (GH #154 §4).
+    ///
+    /// Like [`Self::render_with`], but every [`TextInput`] whose field name
+    /// appears in `values` renders its control against that signal:
+    /// `:value`/`@input` keep the field and the signal in step, so a shard
+    /// re-render reads what the user typed. `errors` render through the same
+    /// slots as `render_with`. A field with no signal — and every other node
+    /// kind — falls back to its static render.
+    pub async fn render_live_with<'a>(
+        &self,
+        cx: &'a Cx,
+        values: &HashMap<String, Signal<String>>,
+        errors: &HashMap<String, Vec<String>>,
+    ) -> Result<BoxView<'a>> {
+        self.render_source(cx, &RenderSource::Live { values, errors })
+            .await
+    }
+
+    /// The one node walk: static values render as before, live values bind
+    /// the fields the caller supplied signals for.
+    async fn render_source<'a>(
+        &self,
+        cx: &'a Cx,
+        source: &RenderSource<'_>,
+    ) -> Result<BoxView<'a>> {
         let mut views = Vec::with_capacity(self.nodes.len());
         for node in &self.nodes {
-            views.push(
-                Box::pin(node.render_with(cx, values, errors))
-                    .await?
-                    .boxed(),
-            );
+            views.push(Box::pin(node.render_source(cx, source)).await?.boxed());
         }
         Ok(view! {
             cx =>

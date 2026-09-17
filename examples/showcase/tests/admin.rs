@@ -3,7 +3,7 @@ use topcoat::view::ViewExt;
 use showcase::app::router_for_tests as router;
 
 mod common;
-use common::{body_string, demo_client, form_body, input_value, response_cookies, seeded_db};
+use common::{body_string, demo_client, seeded_db};
 
 #[tokio::test]
 async fn admin_resource_list_page_serve_seeded_users() {
@@ -409,85 +409,131 @@ async fn showcase_schema_renders_variants() {
         4,
         "required should be inferred for the non-optional fields only: {html}"
     );
-    // The live-validation form is a real POST with a CSRF token, and
-    // `novalidate` lets the server errors render in the browser.
+    // The live-validation form is a shard with signal-bound inputs and an
+    // in-place submit; no POST form or `novalidate` remains (GH #154 §4).
     assert!(
-        html.contains("action=\"/admin/showcase/schema\"")
-            && html.contains("csrf_token")
-            && html.contains("novalidate")
+        html.contains("data-topcoat-bind:value")
+            && html.contains("data-topcoat-on:submit")
+            && html.contains("data-topcoat-on:input")
+            && html.contains("aria-live=\"polite\"")
             && html.contains("Live validation"),
-        "missing validation form in {html}"
+        "missing live validation form in {html}"
+    );
+    assert!(
+        !html.contains("action=\"/admin/showcase/schema\"") && !html.contains("novalidate"),
+        "the PRG form must be gone: {html}"
     );
 }
 
-/// §8's validation demo is a real form: an empty required field and an
-/// invalid email come back inline, and a valid submit redirects with a toast.
+/// The validation demo is in-place now (GH #154 §4): the procedure returns
+/// the per-field errors, the submit handler writes them into signals, and the
+/// shard re-renders the fields with the existing error slots — no POST, no
+/// redirect, no full-page render.
 #[tokio::test]
-async fn showcase_schema_validation_form_reports_errors_and_flashes_success() {
+async fn showcase_schema_validation_form_reports_errors_without_a_reload() {
+    use showcase::pages::showcase::schema::live_validation_form;
+    use topcoat::runtime::{Shard, ShardId};
+
     let db = seeded_db().await;
     let router = router(db);
     let client = demo_client(&router).await;
+    let identity = "A".repeat(22);
     let page = client.get("/admin/showcase/schema").await;
-    let cookies = response_cookies(&page);
     let html = body_string(page).await;
-    let csrf = input_value(&html, "csrf_token")
-        .unwrap_or_else(|| panic!("validation form must embed a csrf_token input: {html}"));
-    let invalid = client
-        .cookies(&cookies)
-        .post_form(
-            "/admin/showcase/schema",
-            form_body(&[
-                ("csrf_token", &csrf),
-                ("name", ""),
-                ("email", "not-an-email"),
-            ]),
+    // `ProcedureId` has no accessor; read the embedded reference.
+    let procedure_id: String = {
+        let needle = "&quot;t&quot;:&quot;Procedure&quot;,&quot;id&quot;:&quot;";
+        let at = html.find(needle).expect("procedure reference") + needle.len();
+        let end = at + html[at..].find('&').expect("procedure id end");
+        html[at..end].to_string()
+    };
+    // The procedure applies `Schema::validate` and returns one error string
+    // per field (empty = valid).
+    for (name, email, expected) in [
+        (
+            "",
+            "not-an-email",
+            r#"["Name is required","Email must be a valid email"]"#,
+        ),
+        ("Ada Lovelace", "ada@example.com", r#"["",""]"#),
+    ] {
+        let response = client
+            .post_json(
+                &format!("/_topcoat/runtime/procedures/{procedure_id}"),
+                format!(r#"["{name}","{email}"]"#),
+                &identity,
+            )
+            .await;
+        assert_eq!(response.status(), 200, "validation procedure");
+        assert_eq!(body_string(response).await, expected);
+    }
+
+    // The shard renders the fields from the page's signals: with the error
+    // signals set, the errors appear under their fields with the invalid
+    // chrome; with them empty, the form is clean.
+    let shard: ShardId = Shard::id(&live_validation_form);
+    let signal =
+        |id: u128, value: &str| format!(r#"{{"t":"Signal","id":"{id:032x}","v":"{value}"}}"#);
+    let serial = |value: &str| {
+        format!(
+            r#"{{"t":"Signal","id":"{:032x}","v":{{"t":"u64","bits":64,"v":"{value}"}}}}"#,
+            9u128
+        )
+    };
+    let args = |name: &str, email: &str, name_error: &str, email_error: &str| {
+        format!(
+            r#"{{"args":[{}, {}, {}, {}, {}, {}, {}, {}],"signals":{{}}}}"#,
+            signal(1, name),
+            signal(2, email),
+            signal(3, name_error),
+            signal(4, email_error),
+            signal(5, ""),
+            signal(6, ""),
+            signal(7, ""),
+            serial("0"),
+        )
+    };
+    let response = client
+        .post_json(
+            &format!("/_topcoat/runtime/shards/{}", shard.as_str()),
+            args(
+                "Ada Lovelace",
+                "not-an-email",
+                "Name is required",
+                "Email must be a valid email",
+            ),
+            &identity,
         )
         .await;
-    assert_eq!(invalid.status(), 200, "invalid submits re-render the page");
-    let html = body_string(invalid).await;
-    assert!(
-        html.contains("Name is required") && html.contains("Email must be a valid email"),
-        "inline errors should render: {html}"
-    );
-    assert!(
-        html.contains("value=\"not-an-email\"") && html.contains("aria-invalid=\"true\""),
-        "invalid submits should preserve values and mark the field: {html}"
-    );
-    assert!(
-        html.contains("type=\"email\""),
-        "the email field should render as an email input: {html}"
-    );
-    // CSRF stays fail-closed on the demo form too.
-    let no_csrf = client
-        .cookies(&cookies)
-        .post_form(
-            "/admin/showcase/schema",
-            form_body(&[("name", "Ada"), ("email", "ada@example.com")]),
+    assert_eq!(response.status(), 200, "live validation shard");
+    let html = body_string(response).await;
+    for needle in [
+        "Name is required",
+        "Email must be a valid email",
+        "ac-field--error",
+        "aria-invalid=\"true\"",
+        "value=\"not-an-email\"",
+        "data-topcoat-bind:value",
+        "data-topcoat-on:submit",
+        "aria-live=\"polite\"",
+    ] {
+        assert!(html.contains(needle), "missing {needle} in {html}");
+    }
+    // A valid render has no error chrome and keeps the typed value.
+    let response = client
+        .post_json(
+            &format!("/_topcoat/runtime/shards/{}", shard.as_str()),
+            args("Ada Lovelace", "ada@example.com", "", ""),
+            &identity,
         )
         .await;
-    assert_eq!(no_csrf.status(), 403, "a missing CSRF token is forbidden");
-    let valid = client
-        .cookies(&cookies)
-        .post_form(
-            "/admin/showcase/schema",
-            form_body(&[
-                ("csrf_token", &csrf),
-                ("name", "Ada Lovelace"),
-                ("email", "ada@example.com"),
-            ]),
-        )
-        .await;
-    assert_eq!(valid.status(), 303, "valid submit redirects (PRG)");
-    let flash = response_cookies(&valid);
-    let followed = client
-        .cookies(&cookies)
-        .cookies(&flash)
-        .get("/admin/showcase/schema")
-        .await;
-    let html = body_string(followed).await;
+    let html = body_string(response).await;
     assert!(
-        html.contains("data-type=\"success\"") && html.contains("\">Validated</div>"),
-        "valid submit should flash a success toast: {html}"
+        !html.contains("ac-field--error")
+            && !html.contains("Name is required")
+            && html.contains("value=\"ada@example.com\"")
+            && html.contains("aria-invalid=\"false\""),
+        "a valid submit must render clean fields: {html}"
     );
 }
 
