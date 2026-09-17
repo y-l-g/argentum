@@ -444,7 +444,7 @@ impl Panel {
     /// This is the panel-aware counterpart to `NavigationItem::from_resource`.
     /// The URL respects `self.prefix()` so `Panel::new("backoffice")` yields
     /// `"/backoffice/{slug}"` instead of hard-coded `"/admin"`.
-    pub fn nav_item<R: Resource>(&self) -> NavigationItem {
+    pub(crate) fn nav_item<R: Resource>(&self) -> NavigationItem {
         NavigationItem::from_resource_with_prefix::<R>(&self.prefix)
     }
 
@@ -905,7 +905,7 @@ type SearchFn = Arc<
 
 /// Live-search handlers installed on the app context by [`Panel::build`].
 #[derive(Clone, Default)]
-pub struct SearchRegistry(pub HashMap<String, SearchFn>);
+pub(crate) struct SearchRegistry(pub(crate) HashMap<String, SearchFn>);
 
 /// Monomorphize `R`'s grid loader into a [`SearchFn`]: tenancy + policy gate,
 /// then the same load + render the streamed list uses.
@@ -4470,6 +4470,35 @@ mod tests {
         assert!(
             !ol.contains("<span"),
             "empty toaster must not strand a span in the list, got {ol}"
+        );
+    }
+
+    #[tokio::test]
+    async fn render_shell_extra_class_reaches_the_provider() {
+        // GH #137: `extra_class` is the custom-document extension point — a
+        // passed class must reach the provider markup.
+        use topcoat::context::CxTestBuilder;
+
+        let cx = CxTestBuilder::new().build();
+        let cx_ref = &cx;
+        let nav_items: Vec<NavigationItem> = vec![];
+        let slot = view! { cx_ref => "hello" }.boxed().into();
+        let html = Panel::render_shell(
+            &cx,
+            &nav_items,
+            "/admin/users",
+            slot,
+            Some("my-shell".to_string()),
+        )
+        .await
+        .unwrap()
+        .single()
+        .await
+        .unwrap()
+        .render(&cx);
+        assert!(
+            html.contains("my-shell"),
+            "extra_class must reach the shell markup, got {html}"
         );
     }
 

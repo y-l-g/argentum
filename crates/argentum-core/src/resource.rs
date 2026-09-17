@@ -85,7 +85,8 @@ impl<M> SelectFilter<M>
 where
     M: toasty::schema::Model,
 {
-    pub fn new(lens: FieldLens<M, String>, options: Vec<String>) -> Self {
+    /// Call sites read `SelectFilter::for(Post::fields().status(), vec![...])`.
+    pub fn r#for(lens: FieldLens<M, String>, options: Vec<String>) -> Self {
         let (name, label) = lens_field_name_and_label(lens.clone());
         Self {
             name,
@@ -93,16 +94,6 @@ where
             lens,
             options,
         }
-    }
-
-    /// Convenience so call sites read `SelectFilter::for(Post::fields().status(), vec![...])`.
-    pub fn r#for(lens: FieldLens<M, String>, options: Vec<String>) -> Self {
-        Self::new(lens, options)
-    }
-
-    pub fn label(mut self, l: impl Into<String>) -> Self {
-        self.label = l.into();
-        self
     }
 
     pub fn to_expr(&self, value: &str) -> Option<Expr<bool>> {
@@ -158,18 +149,9 @@ impl<M> TernaryFilter<M>
 where
     M: toasty::schema::Model,
 {
-    pub fn new(lens: FieldLens<M, bool>) -> Self {
+    pub fn r#for(lens: FieldLens<M, bool>) -> Self {
         let (name, label) = lens_field_name_and_label(lens.clone());
         Self { name, label, lens }
-    }
-
-    pub fn r#for(lens: FieldLens<M, bool>) -> Self {
-        Self::new(lens)
-    }
-
-    pub fn label(mut self, l: impl Into<String>) -> Self {
-        self.label = l.into();
-        self
     }
 
     pub fn to_expr(&self, value: &str) -> Option<Expr<bool>> {
@@ -220,18 +202,9 @@ impl<M> DateFilter<M>
 where
     M: toasty::schema::Model,
 {
-    pub fn new(lens: FieldLens<M, jiff::Timestamp>) -> Self {
+    pub fn r#for(lens: FieldLens<M, jiff::Timestamp>) -> Self {
         let (name, label) = lens_field_name_and_label(lens.clone());
         Self { name, label, lens }
-    }
-
-    pub fn r#for(lens: FieldLens<M, jiff::Timestamp>) -> Self {
-        Self::new(lens)
-    }
-
-    pub fn label(mut self, l: impl Into<String>) -> Self {
-        self.label = l.into();
-        self
     }
 
     /// Build the predicate for a submitted value (GH #93).
@@ -316,7 +289,8 @@ impl<M> VariantFilter<M>
 where
     M: toasty::schema::Model,
 {
-    pub fn new(
+    /// Convenience alias so call sites read `VariantFilter::for("vehicule", "Véhicule", vec![...])`.
+    pub fn r#for(
         name: impl Into<String>,
         label: impl Into<String>,
         options: Vec<(String, Expr<bool>)>,
@@ -327,20 +301,6 @@ where
             options,
             _marker: std::marker::PhantomData,
         }
-    }
-
-    /// Convenience alias so call sites read `VariantFilter::for("vehicule", "Véhicule", vec![...])`.
-    pub fn r#for(
-        name: impl Into<String>,
-        label: impl Into<String>,
-        options: Vec<(String, Expr<bool>)>,
-    ) -> Self {
-        Self::new(name, label, options)
-    }
-
-    pub fn label(mut self, l: impl Into<String>) -> Self {
-        self.label = l.into();
-        self
     }
 
     pub fn to_expr(&self, value: &str) -> Option<Expr<bool>> {
@@ -405,14 +365,6 @@ where
             Filter::Ternary(f) => f.name(),
             Filter::Date(f) => f.name(),
             Filter::Variant(f) => f.name(),
-        }
-    }
-    pub fn label(&self) -> &str {
-        match self {
-            Filter::Select(f) => f.label_str(),
-            Filter::Ternary(f) => f.label_str(),
-            Filter::Date(f) => f.label_str(),
-            Filter::Variant(f) => f.label_str(),
         }
     }
     pub fn to_expr(&self, value: &str) -> Option<Expr<bool>> {
@@ -503,12 +455,13 @@ impl<M> TextColumn<M>
 where
     M: toasty::schema::Model,
 {
-    /// Bind a column to a `String` field lens plus a projection closure.
+    /// Bind a column to a `String` field lens plus a projection closure:
+    /// `TextColumn::for(User::fields().name(), |u| u.name.clone())`.
     ///
     /// The closure receives each rendered row and returns the cell text, so
     /// computed cells (`|u| u.active.then(|| "Active".into()).unwrap_or_default()`)
     /// are as natural as plain field reads.
-    pub fn for_lens(
+    pub fn r#for(
         path: FieldLens<M, String>,
         project: impl Fn(&M) -> String + Send + Sync + 'static,
     ) -> Self {
@@ -544,15 +497,6 @@ where
             searchable: false,
             sortable: false,
         }
-    }
-
-    /// Convenience alias so call sites read
-    /// `TextColumn::for(User::fields().name(), |u| u.name.clone())`.
-    pub fn r#for(
-        path: FieldLens<M, String>,
-        project: impl Fn(&M) -> String + Send + Sync + 'static,
-    ) -> Self {
-        Self::for_lens(path, project)
     }
 
     pub fn searchable(mut self) -> Self {
@@ -795,7 +739,6 @@ pub struct Table<M> {
     search_ui: Option<bool>,
     show_skeleton: bool,
     is_boundary: bool,
-    defer_initial: bool,
     delete_prefix: Option<String>,
     bulk_delete: bool,
     live_search: bool,
@@ -814,7 +757,6 @@ impl<M> std::fmt::Debug for Table<M> {
             .field("search_ui", &self.search_ui)
             .field("show_skeleton", &self.show_skeleton)
             .field("is_boundary", &self.is_boundary)
-            .field("defer_initial", &self.defer_initial)
             .field("delete_prefix", &self.delete_prefix)
             .field("bulk_delete", &self.bulk_delete)
             .field("live_search", &self.live_search)
@@ -848,7 +790,6 @@ impl<M> Table<M> {
             search_ui: None,
             show_skeleton: false,
             is_boundary: true,
-            defer_initial: false,
             delete_prefix: None,
             bulk_delete: false,
             live_search: false,
@@ -1078,7 +1019,6 @@ impl<M> Table<M> {
     /// the streamed list renders the swap through [`Self::without_skeleton`]
     /// so the loaded rows always arrive.
     pub fn defer(mut self, enabled: bool) -> Self {
-        self.defer_initial = enabled;
         self.show_skeleton = enabled;
         self
     }
@@ -1091,7 +1031,6 @@ impl<M> Table<M> {
     /// copy with the flag cleared so rows always arrive.
     pub fn without_skeleton(mut self) -> Self {
         self.show_skeleton = false;
-        self.defer_initial = false;
         self
     }
 
@@ -1102,7 +1041,7 @@ impl<M> Table<M> {
 
     /// Whether the table defers its initial load.
     pub fn is_defer(&self) -> bool {
-        self.defer_initial
+        self.show_skeleton
     }
 
     /// Enable row-level `Delete` action. When set, each row renders a
@@ -4889,7 +4828,7 @@ mod tests {
     }
 
     fn vehicule_filter() -> VariantFilter<Driver> {
-        VariantFilter::new(
+        VariantFilter::r#for(
             "vehicule",
             "Véhicule",
             vec![

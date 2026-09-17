@@ -90,7 +90,7 @@ impl TextInput {
     ///
     /// Only `String` lenses compile: binding a non-text field (a `Uuid` key,
     /// a `bool`, …) fails at compile time, mirroring `TextColumn`.
-    pub fn for_lens<M>(path: toasty::stmt::Path<M, String>) -> Self
+    pub fn r#for<M>(path: toasty::stmt::Path<M, String>) -> Self
     where
         M: toasty::schema::Model,
     {
@@ -106,14 +106,6 @@ impl TextInput {
             unique: false,
             placeholder: None,
         }
-    }
-
-    /// Convenience alias so call sites read `TextInput::for(User::fields().name())`.
-    pub fn r#for<M>(path: toasty::stmt::Path<M, String>) -> Self
-    where
-        M: toasty::schema::Model,
-    {
-        Self::for_lens(path)
     }
 
     pub fn required(mut self) -> Self {
@@ -170,7 +162,7 @@ impl TextInput {
 
     /// Typed equality filter against the field this input is bound to.
     ///
-    /// Inputs only bind `String` lenses (enforced at `for_lens`), so the
+    /// Inputs only bind `String` lenses (enforced at `r#for`), so the
     /// comparison is a string equality on that field's path. `M` must be the
     /// model the lens came from. Built through the public facade
     /// (`Model::field_name_to_id` + `Model::path_field` + `Path::eq`) — the
@@ -500,7 +492,7 @@ impl Select {
     /// foreign-key lens validates only presence (any value passes) — prefer
     /// [`.relationship()`](Self::relationship), which checks existence
     /// tenancy-aware, for FK fields (GH #91).
-    pub fn for_lens<M, T>(path: toasty::stmt::Path<M, T>) -> Self
+    pub fn r#for<M, T>(path: toasty::stmt::Path<M, T>) -> Self
     where
         M: toasty::schema::Model,
     {
@@ -524,14 +516,6 @@ impl Select {
     pub fn searchable(mut self) -> Self {
         self.searchable = true;
         self
-    }
-
-    /// Convenience alias so call sites read `Select::for(Post::fields().author_id())`.
-    pub fn r#for<M, T>(path: toasty::stmt::Path<M, T>) -> Self
-    where
-        M: toasty::schema::Model,
-    {
-        Self::for_lens(path)
     }
 
     /// Mark the field as required.
@@ -895,22 +879,6 @@ pub(crate) fn require_single_segment(path: &toasty_core::stmt::Path, what: &str)
     );
 }
 
-/// Returns whether the field behind a lens is nullable (GH #11).
-pub fn lens_field_is_nullable<M, T>(path: FieldLens<M, T>) -> bool
-where
-    M: toasty::schema::Model,
-{
-    let core_path: toasty_core::stmt::Path = path.into();
-    require_single_segment(&core_path, "lens");
-    let idx = core_path
-        .projection
-        .as_slice()
-        .first()
-        .copied()
-        .unwrap_or(usize::MAX);
-    M::schema().fields().get(idx).is_some_and(|f| f.nullable)
-}
-
 /// Parse a URL path segment into `M`'s primary-key value.
 ///
 /// The PK's application type decides the [`stmt::Value`] variant (`Uuid` PK
@@ -1214,7 +1182,7 @@ impl FileUpload {
     /// the default is always required and `.optional()` is the form-level
     /// opt-out; the nullability walk stays correct if the lens widens
     /// upstream (#115).
-    pub fn for_lens<M>(path: toasty::stmt::Path<M, String>) -> Self
+    pub fn r#for<M>(path: toasty::stmt::Path<M, String>) -> Self
     where
         M: toasty::schema::Model,
     {
@@ -1226,19 +1194,12 @@ impl FileUpload {
         }
     }
 
-    pub fn r#for<M>(path: toasty::stmt::Path<M, String>) -> Self
-    where
-        M: toasty::schema::Model,
-    {
-        Self::for_lens(path)
-    }
-
     pub fn required(mut self) -> Self {
         self.required = true;
         self
     }
 
-    /// Opt out of the required default (GH #147): today `for_lens` only binds
+    /// Opt out of the required default (GH #147): today `r#for` only binds
     /// non-nullable `String` columns (an `Option<String>` field is
     /// `Path<M, Option<String>>` and does not typecheck), so the default is
     /// always required and this is the only way to treat a required-backed
@@ -2320,7 +2281,8 @@ mod tests {
     #[test]
     fn required_default_follows_lens_nullability() {
         // GH #100: `required` defaults from the DB column, with an explicit
-        // `.optional()` escape hatch.
+        // `.optional()` escape hatch. Pinned through the public constructor
+        // (the standalone nullability helper was removed as dead code, GH #137).
         #[derive(Debug, toasty::Model)]
         struct NullableDoc {
             #[key]
@@ -2328,8 +2290,12 @@ mod tests {
             id: uuid::Uuid,
             nick: Option<String>,
         }
-        assert!(lens_field_is_nullable(NullableDoc::fields().nick()));
-        assert!(!lens_field_is_nullable(DummyUser::fields().name()));
+        assert!(
+            Select::r#for(NullableDoc::fields().nick())
+                .validate("")
+                .is_empty(),
+            "nullable columns default to optional"
+        );
         assert!(
             !TextInput::r#for(DummyUser::fields().name())
                 .validate("")
