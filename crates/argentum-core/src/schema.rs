@@ -152,6 +152,13 @@ impl TextInput {
         self.unique
     }
 
+    /// Whether an empty submit fails validation (`required`, defaulting from
+    /// column nullability per GH #100). The app-side unique check uses it to
+    /// skip empty values it would never write (GH #88).
+    pub(crate) fn is_required(&self) -> bool {
+        self.required
+    }
+
     pub fn field_name(&self) -> &str {
         &self.name
     }

@@ -1716,12 +1716,15 @@ fn strip_transport_keys(schema: &crate::schema::Schema, values: &mut HashMap<Str
 /// `current` holds the record's own hydrated values on edit: a field whose
 /// submitted value is unchanged belongs to this record and is skipped.
 ///
+/// Empty submits are checked on optional inputs (required ones fail
+/// validation first): `""` is stored, so a second empty submit would 500 at
+/// the driver — it is flagged inline instead.
+///
 /// Known limits (GH #88, upstream gap #117): races with concurrent
 /// inserts (only a driver predicate closes it); the check is tenant-scoped via
-/// `R::query` while DB `#[unique]` is global, so cross-tenant duplicates 500;
-/// empty values are skipped (pair `unique()` with `required()` or normalize
-/// `""` vs `NULL` in the record fn); `unique()` exists on `TextInput` only,
-/// composite uniques are not covered.
+/// `R::query` while DB `#[unique]` is global, so cross-tenant duplicates 500
+/// (constraint scope needs upstream field metadata, gap #115); `unique()`
+/// exists on `TextInput` only, composite uniques are not covered.
 async fn check_unique<R: Resource>(
     cx: &Cx,
     schema: &crate::schema::Schema,
@@ -1734,13 +1737,17 @@ async fn check_unique<R: Resource>(
         if !input.is_unique() {
             continue;
         }
-        let Some(submitted) = values
-            .get(&name)
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-        else {
+        let Some(submitted) = values.get(&name).map(|s| s.trim().to_string()) else {
             continue;
         };
+        // Empty values are checked on optional inputs only (GH #88): `""` is
+        // still stored (never NULL by the framework), so a second empty
+        // submit on an optional `unique()` field would 500 at the driver —
+        // flag it inline instead. Required inputs fail validation first, so
+        // the check (and its query) is skipped for their empty submits.
+        if submitted.is_empty() && input.is_required() {
+            continue;
+        }
         // Unchanged on edit → this record's own value, not a duplicate.
         if current.get(&name).map(|s| s.trim().to_string()) == Some(submitted.clone()) {
             continue;
@@ -4543,14 +4550,64 @@ mod tests {
             "changed-to-duplicate must be flagged, got {errors:?}"
         );
 
-        // Empty values are skipped (GH #88): pair unique() with required() or
-        // normalize "" vs NULL, or optional empty duplicates 500 at the driver.
+        // Empty values are skipped on required inputs (GH #88): validation
+        // rejects them first, so the check (and its query) never runs.
         let mut empty = HashMap::new();
         empty.insert("email".to_string(), "   ".to_string());
         let errors =
             check_unique::<SubscriberResource>(&cx, &schema, &empty, &HashMap::new(), &mut ex)
                 .await;
         assert!(errors.is_empty(), "empty must be skipped, got {errors:?}");
+
+        // Empty values are checked on optional inputs (GH #88): `""` is
+        // stored, so a second empty submit would 500 at the driver — flag it
+        // inline instead.
+        toasty::create!(Subscriber {
+            email: "".to_string()
+        })
+        .exec(&mut ex)
+        .await
+        .unwrap();
+        let optional_schema = Schema::new(
+            TextInput::r#for(Subscriber::fields().email())
+                .unique()
+                .optional(),
+        );
+        let errors = check_unique::<SubscriberResource>(
+            &cx,
+            &optional_schema,
+            &empty,
+            &HashMap::new(),
+            &mut ex,
+        )
+        .await;
+        assert_eq!(
+            errors.get("email"),
+            Some(&vec!["Email has already been taken".to_string()]),
+            "second empty submit on an optional unique field must be flagged, got {errors:?}"
+        );
+
+        // Optional empty with no stored `""` still passes.
+        let db2 = Db::builder()
+            .models(toasty::models!(Subscriber))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db2.push_schema().await.unwrap();
+        let cx2 = CxTestBuilder::new().app_context(db2).build();
+        let mut ex2 = crate::db::db(&cx2);
+        let errors = check_unique::<SubscriberResource>(
+            &cx2,
+            &optional_schema,
+            &empty,
+            &HashMap::new(),
+            &mut ex2,
+        )
+        .await;
+        assert!(
+            errors.is_empty(),
+            "first empty submit must pass, got {errors:?}"
+        );
     }
 
     #[test]
