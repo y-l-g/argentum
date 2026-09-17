@@ -904,6 +904,13 @@ pub struct SearchRegistry(pub HashMap<String, SearchFn>);
 
 /// Monomorphize `R`'s grid loader into a [`SearchFn`]: tenancy + policy gate,
 /// then the same load + render the streamed list uses.
+///
+/// The grid catches its own load errors (GH #158): a tampered `after=` /
+/// `before=` signal fails to decode inside the shard invocation, and the
+/// invocation must render the branded in-region `ErrorState` + retry link
+/// (via [`retry_url_for_error`], same as the streamed list) instead of
+/// erroring the shard. Auth/tenancy/policy failures still propagate — they
+/// are not grid evidence.
 fn search_handler_for<R: Resource>() -> SearchFn {
     Arc::new(
         |cx: &Cx,
@@ -930,10 +937,30 @@ fn search_handler_for<R: Resource>() -> SearchFn {
                 } else {
                     table
                 };
-                let page = load_table_page::<R>(cx, &table, &state).await?;
-                table
-                    .render_live_with_state(cx, page, &state, &path, signals)
-                    .await
+                let grid = async {
+                    let page = load_table_page::<R>(cx, &table, &state).await?;
+                    table
+                        .render_live_with_state(cx, page, &state, &path, signals)
+                        .await
+                };
+                match grid.await {
+                    Ok(view) => Ok(view),
+                    Err(error) => {
+                        tracing::error!(resource = R::slug(), error = %error, "table load failed");
+                        let retry = retry_url_for_error(&state, &error, &path);
+                        let action = view! { cx => <a href=(retry)>"Retry"</a> }.boxed();
+                        Ok(view! {
+                            cx =>
+                            argentum_ui::error_state(
+                                title: format!("Couldn't load {}", R::navigation_label()),
+                                detail: "Something went wrong while loading the records.",
+                                action: Some(action.into()),
+                                attrs: attributes! { role="alert" }
+                            )
+                        }
+                        .boxed())
+                    }
+                }
             })
         },
     )
@@ -3220,6 +3247,155 @@ mod tests {
         assert!(
             grid_html.contains("Bob"),
             "fresh search must match new query, got {grid_html}"
+        );
+    }
+
+    #[tokio::test]
+    async fn live_shard_malformed_cursor_renders_error_state() {
+        // GH #158: a tampered `after=`/`before=` signal fails `cursor::decode`
+        // inside the shard invocation — the invocation must render the branded
+        // in-region `ErrorState` + retry link (same as the streamed list via
+        // `retry_url_for_error`), not error the shard.
+        use crate::resource::Resource;
+        use http_body_util::BodyExt;
+        use std::collections::HashMap;
+
+        #[derive(Debug, toasty::Model)]
+        struct Dummy {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            name: String,
+        }
+        struct LiveResource;
+        impl Resource for LiveResource {
+            type Model = Dummy;
+            fn slug() -> String {
+                "dummies".to_string()
+            }
+            fn can_view_any(_cx: &Cx) -> bool {
+                true
+            }
+            fn can_view(_cx: &Cx, _record: &Dummy) -> bool {
+                true
+            }
+            fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
+                crate::resource::Table::r#for(cx)
+                    .id(|d: &Dummy| d.id.to_string())
+                    .columns(
+                        crate::resource::TextColumn::r#for(Dummy::fields().name(), |d: &Dummy| {
+                            d.name.clone()
+                        })
+                        .searchable()
+                        .sortable(),
+                    )
+                    .paginate(1)
+                    .live_search(true)
+            }
+            fn hydrate_form_values(_record: &Dummy) -> HashMap<String, String> {
+                HashMap::new()
+            }
+        }
+
+        let mut db = Db::builder()
+            .models(toasty::models!(Dummy))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        toasty::create!(Dummy {
+            name: "Ada".to_string(),
+        })
+        .exec(&mut db)
+        .await
+        .unwrap();
+        let router = Panel::new("admin")
+            .app_context(db)
+            .resource::<LiveResource>()
+            .auth(crate::Auth::disabled())
+            .build();
+
+        let sig = |n: u8, v: &str| format!(r#"{{"t":"Signal","id":"{:032x}","v":"{v}"}}"#, n);
+        let shard_args = |after: &str, before: &str| {
+            format!(
+                r#"["/admin/dummies",{}, {}, {}, {}, {}, {}, ""]"#,
+                sig(1, ""),
+                sig(2, ""),
+                sig(3, ""),
+                sig(4, ""),
+                sig(5, after),
+                sig(6, before),
+            )
+        };
+        let shard = topcoat::runtime::Shard::id(&table_search);
+        let grid = router
+            .handle(
+                http::Request::builder()
+                    .method(http::Method::POST)
+                    .uri(format!("/_topcoat/runtime/shards/{}", shard.as_str()))
+                    .header(http::header::CONTENT_TYPE, "application/json")
+                    .header(topcoat::router::request::IDENTITY_HEADER, "A".repeat(22))
+                    .body(Body::from(format!(
+                        r#"{{"args":{},"signals":{{}}}}"#,
+                        shard_args("zz-not-a-cursor", "")
+                    )))
+                    .unwrap(),
+            )
+            .await;
+        assert_eq!(
+            grid.status(),
+            http::StatusCode::OK,
+            "malformed live cursor must render in place, not error the shard"
+        );
+        let bytes = grid.into_body().collect().await.unwrap().to_bytes();
+        let grid_html = String::from_utf8_lossy(&bytes).to_string();
+        assert!(
+            grid_html.contains("Couldn't load Dummies"),
+            "error state must render in the shard output: {grid_html}"
+        );
+        assert!(
+            grid_html.contains("role=\"alert\""),
+            "error state must carry the alert role: {grid_html}"
+        );
+        assert!(
+            grid_html.contains("href=\"/admin/dummies\""),
+            "retry link must target the bare list (cursor dropped): {grid_html}"
+        );
+        assert!(
+            !grid_html.contains("after="),
+            "a malformed cursor must not travel into the retry link: {grid_html}"
+        );
+
+        // The `before` signal path is symmetric: a tampered backward cursor
+        // renders the same cursor-stripped ErrorState.
+        let grid = router
+            .handle(
+                http::Request::builder()
+                    .method(http::Method::POST)
+                    .uri(format!("/_topcoat/runtime/shards/{}", shard.as_str()))
+                    .header(http::header::CONTENT_TYPE, "application/json")
+                    .header(topcoat::router::request::IDENTITY_HEADER, "A".repeat(22))
+                    .body(Body::from(format!(
+                        r#"{{"args":{},"signals":{{}}}}"#,
+                        shard_args("", "zz-not-a-cursor")
+                    )))
+                    .unwrap(),
+            )
+            .await;
+        assert_eq!(
+            grid.status(),
+            http::StatusCode::OK,
+            "malformed live before-cursor must render in place, not error the shard"
+        );
+        let bytes = grid.into_body().collect().await.unwrap().to_bytes();
+        let grid_html = String::from_utf8_lossy(&bytes).to_string();
+        assert!(
+            grid_html.contains("Couldn't load Dummies"),
+            "error state must render for a bad before-cursor: {grid_html}"
+        );
+        assert!(
+            !grid_html.contains("before="),
+            "a malformed before-cursor must not travel into the retry link: {grid_html}"
         );
     }
 
