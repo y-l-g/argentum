@@ -937,6 +937,10 @@ fn search_handler_for<R: Resource>() -> SearchFn {
                 } else {
                     table
                 };
+                // Normalize once (GH #153): the shard `group_by` arg is
+                // client input — an unknown value must not echo through the
+                // retry link. The render re-normalizes internally.
+                let state = table.normalize_state(&state);
                 let grid = async {
                     let page = load_table_page::<R>(cx, &table, &state).await?;
                     table
@@ -1062,9 +1066,9 @@ fn retry_url_for_error(state: &TableState, error: &topcoat::Error, path: &str) -
         .downcast_ref::<crate::cursor::CursorDecodeError>()
         .is_some()
     {
-        state.retry_url_without_cursor(path)
+        state.without_cursor(path)
     } else {
-        state.retry_url(path)
+        state.list_url(path)
     }
 }
 
@@ -1111,6 +1115,9 @@ fn resource_list<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
         // The swap payload must be rows even when the declared table sets
         // `.defer(true)` (GH #98 trap: render() would return a second skeleton).
         let table = table.without_skeleton();
+        // Normalize once for the closure (GH #153): the retry link must not
+        // echo an unknown `?group_by=`. The render re-normalizes internally.
+        let state = table.normalize_state(&state);
         let lazy_rows = ThenView::new(async move {
             let grid = async {
                 let page = load_table_page::<R>(cx, &table, &state).await?;
@@ -1209,6 +1216,9 @@ fn resource_list_live<R: Resource>(
         // The swap payload must be rows even when the declared table sets
         // `.defer(true)` (GH #98 trap).
         let table = table.without_skeleton();
+        // Normalize once for the closure (GH #153): the retry link must not
+        // echo an unknown `?group_by=`. The invocation normalizes internally.
+        let state = table.normalize_state(&state);
         let lazy_rows = ThenView::new(async move {
             let grid = table
                 .render_live_invocation(cx, &state, &list_path, signals)
@@ -3317,9 +3327,9 @@ mod tests {
             .build();
 
         let sig = |n: u8, v: &str| format!(r#"{{"t":"Signal","id":"{:032x}","v":"{v}"}}"#, n);
-        let shard_args = |after: &str, before: &str| {
+        let shard_args = |after: &str, before: &str, group_by: &str| {
             format!(
-                r#"["/admin/dummies",{}, {}, {}, {}, {}, {}, ""]"#,
+                r#"["/admin/dummies",{}, {}, {}, {}, {}, {}, "{group_by}"]"#,
                 sig(1, ""),
                 sig(2, ""),
                 sig(3, ""),
@@ -3338,7 +3348,7 @@ mod tests {
                     .header(topcoat::router::request::IDENTITY_HEADER, "A".repeat(22))
                     .body(Body::from(format!(
                         r#"{{"args":{},"signals":{{}}}}"#,
-                        shard_args("zz-not-a-cursor", "")
+                        shard_args("zz-not-a-cursor", "", "")
                     )))
                     .unwrap(),
             )
@@ -3368,7 +3378,9 @@ mod tests {
         );
 
         // The `before` signal path is symmetric: a tampered backward cursor
-        // renders the same cursor-stripped ErrorState.
+        // renders the same cursor-stripped ErrorState. A tampered `group_by`
+        // shard arg is normalized with the same state (GH #153), so it must
+        // not echo through the retry link either.
         let grid = router
             .handle(
                 http::Request::builder()
@@ -3378,7 +3390,7 @@ mod tests {
                     .header(topcoat::router::request::IDENTITY_HEADER, "A".repeat(22))
                     .body(Body::from(format!(
                         r#"{{"args":{},"signals":{{}}}}"#,
-                        shard_args("", "zz-not-a-cursor")
+                        shard_args("", "zz-not-a-cursor", "nope")
                     )))
                     .unwrap(),
             )
@@ -3397,6 +3409,10 @@ mod tests {
         assert!(
             !grid_html.contains("before="),
             "a malformed before-cursor must not travel into the retry link: {grid_html}"
+        );
+        assert!(
+            !grid_html.contains("group_by"),
+            "an unknown group_by must not echo through the shard retry link: {grid_html}"
         );
     }
 

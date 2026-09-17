@@ -995,13 +995,21 @@ impl<M> Table<M> {
         }
     }
 
-    /// The `?group_by=` value to echo in pager/sort/filter links: only the
-    /// declared name, never an unknown value (GH #92).
-    fn effective_group_name(&self, state: &TableState) -> Option<String> {
-        match (&self.group_by, &state.group_by) {
-            (Some(def), Some(want)) if def.name == *want => Some(def.name.clone()),
-            _ => None,
+    /// Normalize `state.group_by` against the declared grouping (GH #92, GH
+    /// #153): an unknown `?group_by=` value renders no group headers and is
+    /// dropped from every link instead of round-tripping.
+    ///
+    /// Each render seam normalizes at its own entry (`render_with_state`,
+    /// `render_live_with_state`, `render_delete_dialog`,
+    /// `render_live_search_bar`, `render_live_invocation`, `render_skeleton`,
+    /// the shard handler, and the panel retry closures), so downstream links
+    /// read the pre-normalized `state.group_by` field directly.
+    pub(crate) fn normalize_state(&self, state: &TableState) -> TableState {
+        let mut out = state.clone();
+        if self.group_by.as_ref().map(|def| def.name.as_str()) != out.group_by.as_deref() {
+            out.group_by = None;
         }
+        out
     }
 
     /// Enable real cursor pagination with the given page size.
@@ -1268,7 +1276,8 @@ impl<M> Table<M> {
     where
         M: toasty::schema::Model + Send + Sync + 'static,
     {
-        self.render_inner(cx, page, state, path, None).await
+        let state = self.normalize_state(state);
+        self.render_inner(cx, page, &state, path, None).await
     }
 
     /// Render the interactive grid for a live table (GH #151): the same
@@ -1289,7 +1298,8 @@ impl<M> Table<M> {
     where
         M: toasty::schema::Model + Send + Sync + 'static,
     {
-        self.render_inner(cx, page, state, path, Some(signals))
+        let state = self.normalize_state(state);
+        self.render_inner(cx, page, &state, path, Some(signals))
             .await
     }
 
@@ -1512,20 +1522,7 @@ impl<M> Table<M> {
                     "other filter(s) still apply"
                 };
                 let text = format!("Ignored filter(s): {detail} — {consequence}.");
-                let dir = state
-                    .sort
-                    .as_ref()
-                    .map(|s| if s.descending { "desc" } else { "asc" });
-                let group = self.effective_group_name(state);
-                let clear = build_url(
-                    path,
-                    &[
-                        ("q", state.search.as_deref()),
-                        ("sort", state.sort.as_ref().map(|s| s.column.as_str())),
-                        ("dir", dir),
-                        ("group_by", group.as_deref()),
-                    ],
-                );
+                let clear = state.without_filters(path);
                 Some(
                     view! {
                         cx =>
@@ -1548,12 +1545,6 @@ impl<M> Table<M> {
         //
         // The per-row delete URL (GH #151) opens the confirmation dialog on
         // the list page (`?delete=<key>`) instead of posting straight away.
-        let dialog_dir = state
-            .sort
-            .as_ref()
-            .map(|s| if s.descending { "desc" } else { "asc" });
-        let dialog_filters = state.filters_param();
-        let dialog_group = self.effective_group_name(state);
         let row_data: Vec<(String, Vec<String>, Option<String>)> = page
             .rows
             .iter()
@@ -1564,21 +1555,9 @@ impl<M> Table<M> {
                     .iter()
                     .map(|col| col.render_cell(row))
                     .collect();
-                let open_url = delete_prefix.is_some().then(|| {
-                    build_url(
-                        path,
-                        &[
-                            ("q", state.search.as_deref()),
-                            ("sort", state.sort.as_ref().map(|s| s.column.as_str())),
-                            ("dir", dialog_dir),
-                            ("filters", dialog_filters.as_deref()),
-                            ("group_by", dialog_group.as_deref()),
-                            ("after", state.after.as_deref()),
-                            ("before", state.before.as_deref()),
-                            ("delete", Some(key.as_str())),
-                        ],
-                    )
-                });
+                let open_url = delete_prefix
+                    .is_some()
+                    .then(|| state.with_delete_dialog(path, &key));
                 (key, cells, open_url)
             })
             .collect();
@@ -1759,6 +1738,7 @@ impl<M> Table<M> {
         state: &TableState,
         path: &str,
     ) -> Result<Option<BoxView<'a>>> {
+        let state = self.normalize_state(state);
         let Some(prefix) = self.delete_prefix.as_deref() else {
             return Ok(None);
         };
@@ -1770,24 +1750,7 @@ impl<M> Table<M> {
         }
         let action = format!("{}/{}/delete", prefix, encode_path_segment(key));
         let csrf = crate::csrf::current_token(cx);
-        let dir = state
-            .sort
-            .as_ref()
-            .map(|s| if s.descending { "desc" } else { "asc" });
-        let filters = state.filters_param();
-        let group = self.effective_group_name(state);
-        let cancel_url = build_url(
-            path,
-            &[
-                ("q", state.search.as_deref()),
-                ("sort", state.sort.as_ref().map(|s| s.column.as_str())),
-                ("dir", dir),
-                ("filters", filters.as_deref()),
-                ("group_by", group.as_deref()),
-                ("after", state.after.as_deref()),
-                ("before", state.before.as_deref()),
-            ],
-        );
+        let cancel_url = state.list_url(path);
         Ok(Some(
             view! {
                 cx =>
@@ -1850,6 +1813,9 @@ impl<M> Table<M> {
         M: toasty::schema::Model,
     {
         let state = TableState::from_cx(cx);
+        // Same normalization as the grid seams (GH #153): the placeholder
+        // header links must not echo an unknown `?group_by=`.
+        let state = self.normalize_state(&state);
         let path = topcoat::context::try_request_context::<http::request::Parts>(cx)
             .map(|parts| parts.uri.path().to_string())
             .unwrap_or_default();
@@ -2004,39 +1970,14 @@ impl<M> Table<M> {
             .as_ref()
             .map(|s| if s.descending { "desc" } else { "asc" });
         let filters_hidden = state.filters_param();
-        // Echo only the declared group name (GH #92): unknown `?group_by=`
-        // values are dropped from links instead of round-tripping.
-        let group_hidden = self.effective_group_name(state);
-        let clear_url = state
-            .sort
-            .as_ref()
-            .map(|s| {
-                build_url(
-                    path,
-                    &[
-                        ("sort", Some(s.column.as_str())),
-                        ("dir", Some(if s.descending { "desc" } else { "asc" })),
-                        ("filters", filters_hidden.as_deref()),
-                        ("group_by", group_hidden.as_deref()),
-                    ],
-                )
-            })
-            .or_else(|| {
-                filters_hidden.as_ref().map(|f| {
-                    build_url(
-                        path,
-                        &[
-                            ("filters", Some(f.as_str())),
-                            ("group_by", group_hidden.as_deref()),
-                        ],
-                    )
-                })
-            })
-            .or_else(|| {
-                group_hidden
-                    .as_deref()
-                    .map(|g| build_url(path, &[("group_by", Some(g))]))
-            });
+        // Pre-normalized by the render seams (GH #153): `state.group_by` is
+        // the declared name or `None`, never an unknown value (GH #92).
+        let group_hidden = state.group_by.clone();
+        // Clear only renders when something survives the search term; every
+        // branch below projects the same URL, so one intent serves all three.
+        let clear_url =
+            (state.sort.is_some() || filters_hidden.is_some() || group_hidden.is_some())
+                .then(|| state.without_search(path));
         Ok(view! {
             cx =>
             <form
@@ -2109,7 +2050,10 @@ impl<M> Table<M> {
         path: &str,
         signals: &TableSignals,
     ) -> Result<BoxView<'a>> {
-        let fallback = self.render_search_bar(cx, state, path).await?;
+        // Called directly with raw state (panel live page, showcase demos):
+        // normalize for the `<noscript>` fallback links (GH #153).
+        let state = self.normalize_state(state);
+        let fallback = self.render_search_bar(cx, &state, path).await?;
         let q = signals.q.clone();
         let (after, before) = (signals.after.clone(), signals.before.clone());
         Ok(view! {
@@ -2150,8 +2094,9 @@ impl<M> Table<M> {
     ) -> Result<BoxView<'a>> {
         use crate::panel::table_search;
 
+        let state = self.normalize_state(state);
         let live_path = path.to_string();
-        let live_group = self.effective_group_name(state).unwrap_or_default();
+        let live_group = state.group_by.clone().unwrap_or_default();
         let TableSignals {
             q,
             filters,
@@ -2202,17 +2147,9 @@ impl<M> Table<M> {
             .as_ref()
             .map(|s| if s.descending { "desc" } else { "asc" });
         let q_hidden = state.search.clone();
-        let group_hidden = self.effective_group_name(state);
+        let group_hidden = state.group_by.clone();
         let clear_url = if !state.filters.is_empty() {
-            Some(build_url(
-                path,
-                &[
-                    ("q", state.search.as_deref()),
-                    ("sort", state.sort.as_ref().map(|s| s.column.as_str())),
-                    ("dir", dir_hidden),
-                    ("group_by", group_hidden.as_deref()),
-                ],
-            ))
+            Some(state.without_filters(path))
         } else {
             None
         };
@@ -2497,28 +2434,11 @@ impl<M> Table<M> {
         // alone — dropping `group_by` — and cleared the filters too under a
         // "Clear search" label when both a search and filters were active.
         let clear_url = filtered.then(|| {
-            let filters = state.filters_param();
-            let (q, filters) = if state.search.is_some() {
-                (None, filters.as_deref())
+            if state.search.is_some() {
+                state.without_search(path)
             } else {
-                (state.search.as_deref(), None)
-            };
-            build_url(
-                path,
-                &[
-                    ("q", q),
-                    ("sort", state.sort.as_ref().map(|s| s.column.as_str())),
-                    (
-                        "dir",
-                        state
-                            .sort
-                            .as_ref()
-                            .map(|s| if s.descending { "desc" } else { "asc" }),
-                    ),
-                    ("filters", filters),
-                    ("group_by", self.effective_group_name(state).as_deref()),
-                ],
-            )
+                state.without_filters(path)
+            }
         });
         // Search is prefix-only (`starts_with`, GH #101): the empty copy says
         // so instead of implying general search.
@@ -2536,24 +2456,8 @@ impl<M> Table<M> {
         // rows deleted under pagination) leaves an empty page with no pager —
         // link back to the first page instead of a dead end. State is
         // preserved, only the cursor is dropped.
-        let first_page_url = (state.after.is_some() || state.before.is_some()).then(|| {
-            let dir = state
-                .sort
-                .as_ref()
-                .map(|s| if s.descending { "desc" } else { "asc" });
-            let filters = state.filters_param();
-            let group = self.effective_group_name(state);
-            build_url(
-                path,
-                &[
-                    ("q", state.search.as_deref()),
-                    ("sort", state.sort.as_ref().map(|s| s.column.as_str())),
-                    ("dir", dir),
-                    ("filters", filters.as_deref()),
-                    ("group_by", group.as_deref()),
-                ],
-            )
-        });
+        let first_page_url =
+            (state.after.is_some() || state.before.is_some()).then(|| state.without_cursor(path));
         // Live links write the signals in place (keeping the state the link
         // does not name); `href` stays the no-JS fallback.
         let clear_link: Option<BoxView<'a>> = clear_url.map(|url| {
@@ -2657,33 +2561,14 @@ impl<M> Table<M> {
         }
         // Cursors only carry ordering values; the loader re-applies search and
         // sort, so the links must carry that state along.
-        let dir = state
-            .sort
-            .as_ref()
-            .map(|s| if s.descending { "desc" } else { "asc" });
-        let filters_param = state.filters_param();
-        let group_name = self.effective_group_name(state);
-        let preserve: Vec<(&str, Option<&str>)> = vec![
-            ("q", state.search.as_deref()),
-            ("sort", state.sort.as_ref().map(|s| s.column.as_str())),
-            ("dir", dir),
-            ("filters", filters_param.as_deref()),
-            ("group_by", group_name.as_deref()),
-        ];
-        let href = |param: &str, cursor: &str| {
-            let mut params = Vec::with_capacity(preserve.len() + 1);
-            params.push((param, Some(cursor)));
-            params.extend(preserve.clone());
-            build_url(path, &params)
-        };
         let next_href = page
             .next_cursor
             .as_ref()
-            .map(|cursor| href("after", cursor));
+            .map(|cursor| state.with_after(path, cursor));
         let prev_href = page
             .prev_cursor
             .as_ref()
-            .map(|cursor| href("before", cursor));
+            .map(|cursor| state.with_before(path, cursor));
         if prev_href.is_none() && next_href.is_none() {
             return Ok(Vec::new());
         }
@@ -2793,17 +2678,7 @@ impl<M> Table<M> {
                     ),
                     _ => ("none", icons::ARROW_UP_DOWN, false),
                 };
-                let group_name = self.effective_group_name(state);
-                let href = build_url(
-                    path,
-                    &[
-                        ("q", state.search.as_deref()),
-                        ("sort", Some(col.name())),
-                        ("dir", Some(if next_desc { "desc" } else { "asc" })),
-                        ("filters", state.filters_param().as_deref()),
-                        ("group_by", group_name.as_deref()),
-                    ],
-                );
+                let href = state.sorted_by(path, col.name(), next_desc);
                 let aria_label = format!(
                     "Sort by {} {}",
                     label,
@@ -3073,48 +2948,189 @@ impl TableState {
         Some(pairs.join(","))
     }
 
-    /// List URL preserving the full table state for the streamed retry link
-    /// (GH #98): a filtered/sorted/paginated failure retries the same evidence,
-    /// not the bare list.
-    pub(crate) fn retry_url(&self, path: &str) -> String {
-        self.retry_url_inner(path, true)
-    }
-
-    /// Retry URL for a failure whose cause is the cursor itself (GH #110): the
-    /// malformed `after`/`before` token can never decode — nor can a conflicting
-    /// `after` + `before` pair resolve (GH #155) — so retrying the identical
-    /// URL would loop forever. Drop pagination and keep the rest of
-    /// the evidence (search/sort/filters/grouping).
-    pub(crate) fn retry_url_without_cursor(&self, path: &str) -> String {
-        self.retry_url_inner(path, false)
-    }
-
-    fn retry_url_inner(&self, path: &str, with_cursor: bool) -> String {
-        let dir = self
-            .sort
-            .as_ref()
-            .map(|s| if s.descending { "desc" } else { "asc" });
+    /// URL projection: `TableState` owns the table's URL vocabulary (GH #153).
+    /// Callers ask for a user intent, never a parameter list, so adding a
+    /// parameter cannot silently drop it from half the links (GH #93).
+    ///
+    /// One private encoder ([`Self::project_url`]) holds the vocabulary in
+    /// canonical order `q, sort, dir, filters, group_by, after, before`
+    /// (`delete` appended by its intent). The parser is first-wins with unique
+    /// keys, so order is semantically irrelevant.
+    ///
+    /// Expects `group_by` pre-normalized: render seams normalize through
+    /// [`Table::normalize_state`], so the projection echoes `state.group_by`
+    /// as-is. `open` is never emitted by any link; `delete` only by
+    /// [`Self::with_delete_dialog`].
+    ///
+    /// Full state, including cursors; never `delete`/`open`. The streamed
+    /// retry link for failures that keep their evidence (GH #98).
+    pub(crate) fn list_url(&self, path: &str) -> String {
         let filters = self.filters_param();
-        let after = if with_cursor {
-            self.after.as_deref()
-        } else {
-            None
-        };
-        let before = if with_cursor {
-            self.before.as_deref()
-        } else {
-            None
-        };
+        self.project_url(
+            path,
+            self.search.as_deref(),
+            self.sort_pair(),
+            filters.as_deref(),
+            self.group_by.as_deref(),
+            self.after.as_deref(),
+            self.before.as_deref(),
+            None,
+        )
+    }
+
+    /// Drops `q` (and the cursors + dialog of its result set); keeps the
+    /// `filters` transport including malformed segments (GH #148).
+    pub(crate) fn without_search(&self, path: &str) -> String {
+        let filters = self.filters_param();
+        self.project_url(
+            path,
+            None,
+            self.sort_pair(),
+            filters.as_deref(),
+            self.group_by.as_deref(),
+            None,
+            None,
+            None,
+        )
+    }
+
+    /// Drops `filters` and malformed segments (and the cursors + dialog of
+    /// their result set); keeps the search term.
+    pub(crate) fn without_filters(&self, path: &str) -> String {
+        self.project_url(
+            path,
+            self.search.as_deref(),
+            self.sort_pair(),
+            None,
+            self.group_by.as_deref(),
+            None,
+            None,
+            None,
+        )
+    }
+
+    /// Drops `after` and `before`; keeps everything else. Back-to-first-page
+    /// and the cursor-failure retry link (GH #110).
+    pub(crate) fn without_cursor(&self, path: &str) -> String {
+        let filters = self.filters_param();
+        self.project_url(
+            path,
+            self.search.as_deref(),
+            self.sort_pair(),
+            filters.as_deref(),
+            self.group_by.as_deref(),
+            None,
+            None,
+            None,
+        )
+    }
+
+    /// Full state + `after`, drops `before` and the dialog.
+    pub(crate) fn with_after(&self, path: &str, token: &str) -> String {
+        let filters = self.filters_param();
+        self.project_url(
+            path,
+            self.search.as_deref(),
+            self.sort_pair(),
+            filters.as_deref(),
+            self.group_by.as_deref(),
+            Some(token),
+            None,
+            None,
+        )
+    }
+
+    /// Full state + `before`, drops `after` and the dialog.
+    pub(crate) fn with_before(&self, path: &str, token: &str) -> String {
+        let filters = self.filters_param();
+        self.project_url(
+            path,
+            self.search.as_deref(),
+            self.sort_pair(),
+            filters.as_deref(),
+            self.group_by.as_deref(),
+            None,
+            Some(token),
+            None,
+        )
+    }
+
+    /// Replaces `sort`/`dir`, drops cursors and the dialog: a new ordering is
+    /// a new result set.
+    pub(crate) fn sorted_by(&self, path: &str, column: &str, descending: bool) -> String {
+        let filters = self.filters_param();
+        self.project_url(
+            path,
+            self.search.as_deref(),
+            Some((column, if descending { "desc" } else { "asc" })),
+            filters.as_deref(),
+            self.group_by.as_deref(),
+            None,
+            None,
+            None,
+        )
+    }
+
+    /// Full state including cursors + `delete=key`; never `open` (GH #151).
+    pub(crate) fn with_delete_dialog(&self, path: &str, key: &str) -> String {
+        let filters = self.filters_param();
+        self.project_url(
+            path,
+            self.search.as_deref(),
+            self.sort_pair(),
+            filters.as_deref(),
+            self.group_by.as_deref(),
+            self.after.as_deref(),
+            self.before.as_deref(),
+            Some(key),
+        )
+    }
+
+    /// `?sort=` column + `?dir=` value for the projection.
+    fn sort_pair(&self) -> Option<(&str, &str)> {
+        self.sort
+            .as_ref()
+            .map(|s| (s.column.as_str(), if s.descending { "desc" } else { "asc" }))
+    }
+
+    /// The one encoder: every table link's parameter vocabulary lives here.
+    ///
+    /// The exhaustive destructure fails compilation when a field is added to
+    /// `TableState`, forcing the author to decide where it projects.
+    #[allow(clippy::too_many_arguments)]
+    fn project_url(
+        &self,
+        path: &str,
+        search: Option<&str>,
+        sort: Option<(&str, &str)>,
+        filters: Option<&str>,
+        group_by: Option<&str>,
+        after: Option<&str>,
+        before: Option<&str>,
+        delete: Option<&str>,
+    ) -> String {
+        let TableState {
+            search: _,
+            sort: _,
+            after: _,
+            before: _,
+            filters: _,
+            malformed_filters: _,
+            group_by: _,
+            delete: _,
+            open: _,
+        } = self;
         build_url(
             path,
             &[
-                ("q", self.search.as_deref()),
-                ("sort", self.sort.as_ref().map(|s| s.column.as_str())),
-                ("dir", dir),
-                ("filters", filters.as_deref()),
-                ("group_by", self.group_by.as_deref()),
+                ("q", search),
+                ("sort", sort.map(|(column, _)| column)),
+                ("dir", sort.map(|(_, dir)| dir)),
+                ("filters", filters),
+                ("group_by", group_by),
                 ("after", after),
                 ("before", before),
+                ("delete", delete),
             ],
         )
     }
@@ -5588,49 +5604,143 @@ mod tests {
         );
     }
 
-    #[test]
-    fn retry_url_preserves_full_table_state() {
-        let mut filters = HashMap::new();
-        filters.insert("status".to_string(), "published".to_string());
-        let state = TableState {
+    /// Fully populated projection source (GH #153): every intent projects
+    /// from this through the real parser (`from_cx`), asserting the typed
+    /// delta — state, not URL bytes.
+    fn populated_state() -> TableState {
+        TableState {
             search: Some("Ada".to_string()),
             sort: Some(Sort {
                 column: "name".to_string(),
                 descending: true,
             }),
-            after: Some("cur".to_string()),
-            filters,
+            after: Some("after-cur".to_string()),
+            before: Some("before-cur".to_string()),
+            filters: HashMap::from([("status".to_string(), "published".to_string())]),
+            malformed_filters: vec!["bogus".to_string()],
             group_by: Some("status".to_string()),
-            ..TableState::default()
-        };
-        let url = state.retry_url("/admin/users");
-        for part in [
-            "q=Ada",
-            "sort=name",
-            "dir=desc",
-            "filters=",
-            "group_by=status",
-            "after=cur",
-        ] {
-            assert!(url.contains(part), "retry must preserve {part}, got {url}");
+            delete: Some("row-1".to_string()),
+            open: Some(false),
         }
     }
 
+    /// Project through an intent and re-parse the URL with the real parser.
+    fn reparse(url: &str) -> TableState {
+        let query = url.split_once('?').map(|(_, q)| q).unwrap_or("");
+        TableState::from_cx(&cx_with_query(query))
+    }
+
     #[test]
-    fn retry_url_without_cursor_drops_pagination_only() {
-        // GH #110: a malformed cursor can never decode again, so its retry
-        // drops `after`/`before` while keeping the rest of the evidence.
-        let state = TableState {
-            search: Some("Ada".to_string()),
-            after: Some("after-cur".to_string()),
-            before: Some("before-cur".to_string()),
-            ..TableState::default()
-        };
-        let url = state.retry_url_without_cursor("/admin/users");
-        assert!(url.contains("q=Ada"), "must keep search, got {url}");
-        assert!(
-            !url.contains("after=") && !url.contains("before="),
-            "must drop both cursors, got {url}"
+    fn projection_list_url_round_trips_full_state() {
+        // GH #153: full state including cursors; never `delete`/`open`.
+        let source = populated_state();
+        let mut expected = source.clone();
+        expected.delete = None;
+        expected.open = None;
+        assert_eq!(reparse(&source.list_url("/admin/users")), expected);
+    }
+
+    #[test]
+    fn projection_without_search_drops_query() {
+        // GH #153: drops `q` (and its result set's cursors + dialog); keeps
+        // the `filters` transport including malformed segments.
+        let source = populated_state();
+        let mut expected = source.clone();
+        expected.search = None;
+        expected.after = None;
+        expected.before = None;
+        expected.delete = None;
+        expected.open = None;
+        assert_eq!(reparse(&source.without_search("/admin/users")), expected);
+    }
+
+    #[test]
+    fn projection_without_filters_drops_filters() {
+        // GH #153: drops `filters` and malformed segments (and their result
+        // set's cursors + dialog); keeps the search term.
+        let source = populated_state();
+        let mut expected = source.clone();
+        expected.filters = HashMap::new();
+        expected.malformed_filters = Vec::new();
+        expected.after = None;
+        expected.before = None;
+        expected.delete = None;
+        expected.open = None;
+        assert_eq!(reparse(&source.without_filters("/admin/users")), expected);
+    }
+
+    #[test]
+    fn projection_without_cursor_drops_pagination() {
+        // GH #153 (GH #110): drops `after`/`before`; keeps everything else.
+        let source = populated_state();
+        let mut expected = source.clone();
+        expected.after = None;
+        expected.before = None;
+        expected.delete = None;
+        expected.open = None;
+        assert_eq!(reparse(&source.without_cursor("/admin/users")), expected);
+    }
+
+    #[test]
+    fn projection_with_after_sets_forward_cursor() {
+        // GH #153: full state + `after`, drops `before` and the dialog.
+        let source = populated_state();
+        let mut expected = source.clone();
+        expected.after = Some("tok2".to_string());
+        expected.before = None;
+        expected.delete = None;
+        expected.open = None;
+        assert_eq!(
+            reparse(&source.with_after("/admin/users", "tok2")),
+            expected
+        );
+    }
+
+    #[test]
+    fn projection_with_before_sets_backward_cursor() {
+        // GH #153: full state + `before`, drops `after` and the dialog.
+        let source = populated_state();
+        let mut expected = source.clone();
+        expected.after = None;
+        expected.before = Some("tok2".to_string());
+        expected.delete = None;
+        expected.open = None;
+        assert_eq!(
+            reparse(&source.with_before("/admin/users", "tok2")),
+            expected
+        );
+    }
+
+    #[test]
+    fn projection_sorted_by_replaces_sort() {
+        // GH #153: replaces `sort`/`dir`, drops cursors and the dialog.
+        let source = populated_state();
+        let mut expected = source.clone();
+        expected.sort = Some(Sort {
+            column: "title".to_string(),
+            descending: false,
+        });
+        expected.after = None;
+        expected.before = None;
+        expected.delete = None;
+        expected.open = None;
+        assert_eq!(
+            reparse(&source.sorted_by("/admin/users", "title", false)),
+            expected
+        );
+    }
+
+    #[test]
+    fn projection_with_delete_dialog_adds_key() {
+        // GH #153 (GH #151): full state including cursors + `delete=key`;
+        // never `open`.
+        let source = populated_state();
+        let mut expected = source.clone();
+        expected.delete = Some("row-9".to_string());
+        expected.open = None;
+        assert_eq!(
+            reparse(&source.with_delete_dialog("/admin/users", "row-9")),
+            expected
         );
     }
 }
