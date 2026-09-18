@@ -423,8 +423,14 @@ async fn delete_session_row(cx: &Cx, key: &str) -> topcoat::Result<()> {
     Ok(())
 }
 
-/// Revoke every live session of `user_id` (ADR-0013): the hook password reset
-/// and deactivation call so removal is real.
+/// Revoke every live session of `user_id` (ADR-0013).
+///
+/// Call this whenever a credential changes out from under live sessions —
+/// password reset/change and deactivation alike. Nothing in-core calls it
+/// (there is no password-change flow in the framework); sessions otherwise
+/// stay valid for their full fixed lifetime, so a reset that skips this
+/// leaves a stolen session usable. The showcase reset flow must call it,
+/// and custom `Authenticator` apps own the same obligation.
 pub async fn revoke_sessions_for_user(cx: &Cx, user_id: &str) -> topcoat::Result<()> {
     let mut db = crate::db::db(cx);
     AuthSession::filter(AuthSession::fields().user_id().eq(user_id.to_string()))

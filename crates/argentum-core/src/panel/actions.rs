@@ -352,6 +352,7 @@ pub(crate) fn resource_export<R: Resource>(cx: &Cx, _body: Body) -> RouteFuture<
         let res = http::Response::builder()
             .status(200)
             .header(http::header::CONTENT_TYPE, "text/csv; charset=utf-8")
+            .header("x-content-type-options", "nosniff")
             .header(
                 http::header::CONTENT_DISPOSITION,
                 format!("attachment; filename=\"{}\"", filename),
@@ -413,6 +414,7 @@ pub(crate) fn resource_options<R: Resource>(cx: &Cx, _body: Body) -> RouteFuture
                 let res = http::Response::builder()
                     .status(200)
                     .header(http::header::CONTENT_TYPE, "text/html; charset=utf-8")
+                    .header("x-content-type-options", "nosniff")
                     .body(Body::from(html))
                     .map_err(|e| std::io::Error::other(e.to_string()))?;
                 Ok(res)
@@ -427,6 +429,7 @@ pub(crate) fn resource_options<R: Resource>(cx: &Cx, _body: Body) -> RouteFuture
                 let res = http::Response::builder()
                     .status(200)
                     .header(http::header::CONTENT_TYPE, "text/html; charset=utf-8")
+                    .header("x-content-type-options", "nosniff")
                     .body(Body::from(html))
                     .map_err(|e| std::io::Error::other(e.to_string()))?;
                 Ok(res)

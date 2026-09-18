@@ -90,6 +90,14 @@ async fn posts_export_streams_csv_with_content_disposition() {
         "filename should be posts.csv, got {}",
         disposition
     );
+    // Hardening headers (GH #176): bodies must never be sniffed as HTML.
+    assert_eq!(
+        resp.headers()
+            .get("x-content-type-options")
+            .and_then(|v| v.to_str().ok()),
+        Some("nosniff"),
+        "export must carry nosniff"
+    );
     let csv = body_string(resp).await;
     // Header row with column labels (Title, Author, etc.)
     assert!(
