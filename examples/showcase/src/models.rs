@@ -74,8 +74,9 @@ pub struct Comment {
     pub post: Deferred<Post>,
 }
 
-/// Seed a few users. Names are chosen so the default `name`-asc sort has a
-/// deterministic order: Ada Lovelace, Alan Turing, Grace Hopper.
+/// Seed the team roster. Names sort deterministically (name-asc): Ada and
+/// Alan stay first for pagination and search tests, followed by six more
+/// engineers.
 pub async fn seed(db: &mut Db) -> toasty::Result<()> {
     toasty::create!(User::[
         {
@@ -105,6 +106,51 @@ pub async fn seed(db: &mut Db) -> toasty::Result<()> {
                 .parse::<Timestamp>()
                 .expect("timestamp"),
         },
+        {
+            name: "Claude Shannon",
+            email: "claude@example.com",
+            role: "member",
+            active: true,
+            created_at: "2024-02-10T10:00:00Z"
+                .parse::<Timestamp>()
+                .expect("timestamp"),
+        },
+        {
+            name: "Dorothy Vaughan",
+            email: "dorothy@example.com",
+            role: "member",
+            active: true,
+            created_at: "2024-02-18T14:00:00Z"
+                .parse::<Timestamp>()
+                .expect("timestamp"),
+        },
+        {
+            name: "Edsger Dijkstra",
+            email: "edsger@example.com",
+            role: "member",
+            active: false,
+            created_at: "2024-03-05T09:00:00Z"
+                .parse::<Timestamp>()
+                .expect("timestamp"),
+        },
+        {
+            name: "Frances Allen",
+            email: "frances@example.com",
+            role: "admin",
+            active: true,
+            created_at: "2024-03-12T16:30:00Z"
+                .parse::<Timestamp>()
+                .expect("timestamp"),
+        },
+        {
+            name: "Ken Thompson",
+            email: "ken@example.com",
+            role: "member",
+            active: true,
+            created_at: "2024-04-02T11:15:00Z"
+                .parse::<Timestamp>()
+                .expect("timestamp"),
+        },
     ])
     .exec(db)
     .await?;
@@ -130,6 +176,10 @@ pub async fn seed(db: &mut Db) -> toasty::Result<()> {
 /// The tenant owning all showcase seed rows (GH #87): seeds never mint
 /// nil-tenant orphans, and the demo admin owns it.
 pub const DEMO_TENANT: uuid::Uuid = uuid::Uuid::from_u128(100);
+
+/// A tenant whose Policy denies everything: the legible deny path for
+/// tenancy tests (no magic values at call sites).
+pub const BLOCKED_TENANT: uuid::Uuid = uuid::Uuid::from_u128(9999);
 
 /// Demo administrator credentials, shown on the login page and in the README.
 pub const DEMO_ADMIN_EMAIL: &str = "admin@example.com";
@@ -161,6 +211,11 @@ pub async fn create_admin(
 }
 
 /// Seed Phase 2 relation data (Authors + Posts + Comments) — call only when DB was built with all models.
+///
+/// The two original rows stay stable (filter/group/export tests pin them);
+/// the four extra posts are drafts with featured=false so the
+/// published/featured filter assertions keep holding while the list shows a
+/// believable backlog.
 pub async fn seed_phase2(db: &mut Db) -> toasty::Result<()> {
     // Authors
     if Author::all().exec(db).await?.is_empty() {
@@ -179,14 +234,28 @@ pub async fn seed_phase2(db: &mut Db) -> toasty::Result<()> {
         })
         .exec(db)
         .await?;
+        let june_writer = toasty::create!(Author {
+            tenant_id: tenant,
+            name: "June Writer",
+            email: "june.writer@example.com",
+        })
+        .exec(db)
+        .await?;
+        let rosa_editor = toasty::create!(Author {
+            tenant_id: tenant,
+            name: "Rosa Editor",
+            email: "rosa.editor@example.com",
+        })
+        .exec(db)
+        .await?;
         toasty::create!(Post {
             tenant_id: tenant,
             title: "Hello Toasty",
-            body: "First post body",
+            body: "How we render admin tables over Toasty queries without an N+1.",
             status: "published".to_string(),
             featured: true,
             created_at: "2024-01-15T09:30:00Z".parse::<Timestamp>().unwrap(),
-            image_path: "/images/hello.jpg".to_string(),
+            image_path: "hello-toasty.jpg".to_string(),
             tags: "rust,async".to_string(),
             author_id: ada_author.id,
         })
@@ -195,27 +264,77 @@ pub async fn seed_phase2(db: &mut Db) -> toasty::Result<()> {
         toasty::create!(Post {
             tenant_id: tenant,
             title: "Second Post",
-            body: "More content",
+            body: "Draft notes on cursor pagination edge cases.",
             status: "draft".to_string(),
             featured: false,
             created_at: "2024-06-01T12:00:00Z".parse::<Timestamp>().unwrap(),
-            image_path: "/images/second.jpg".to_string(),
+            image_path: "second-post.jpg".to_string(),
             tags: "draft".to_string(),
             author_id: alan_author.id,
         })
         .exec(db)
         .await?;
+        for (title, body, tags, created_at, author_id) in [
+            (
+                "Row-Level Caching Notes",
+                "When the list cache helps and when it hides fresh writes.",
+                "performance,caching",
+                "2024-02-08T10:00:00Z",
+                june_writer.id,
+            ),
+            (
+                "Async Rust Patterns",
+                "A field guide to the executors and channels we actually use.",
+                "rust,async",
+                "2024-02-20T15:30:00Z",
+                rosa_editor.id,
+            ),
+            (
+                "Reviewing Query Plans",
+                "Reading EXPLAIN output before reaching for an index.",
+                "database,sql",
+                "2024-03-14T09:45:00Z",
+                june_writer.id,
+            ),
+            (
+                "Onboarding Runbook",
+                "Checklist for bringing a new editor onto the panel.",
+                "process,docs",
+                "2024-04-09T13:20:00Z",
+                rosa_editor.id,
+            ),
+        ] {
+            toasty::create!(Post {
+                tenant_id: tenant,
+                title: title,
+                body: body,
+                status: "draft".to_string(),
+                featured: false,
+                created_at: created_at.parse::<Timestamp>().unwrap(),
+                image_path: "draft-cover.jpg".to_string(),
+                tags: tags,
+                author_id: author_id,
+            })
+            .exec(db)
+            .await?;
+        }
         let first_post = Post::filter(Post::fields().title().eq("Hello Toasty".to_string()))
             .first()
             .exec(db)
             .await?
             .expect("post");
-        toasty::create!(Comment {
-            body: "Nice post!",
-            post_id: first_post.id,
-        })
-        .exec(db)
-        .await?;
+        for body in [
+            "Clear write-up — the include strategy finally clicked.",
+            "Tried this on our staging data, pagination stayed stable.",
+            "Small nit: the CSV export section deserves its own post.",
+        ] {
+            toasty::create!(Comment {
+                body: body,
+                post_id: first_post.id,
+            })
+            .exec(db)
+            .await?;
+        }
     }
     Ok(())
 }

@@ -62,7 +62,7 @@ async fn manual_create_check() {
     // Check DB still has 3 rows
     let mut db_check = db.clone();
     let count = User::all().exec(&mut db_check).await.unwrap().len();
-    assert_eq!(count, 3, "DB should still have 3 after invalid");
+    assert_eq!(count, 8, "DB should still have 8 after invalid");
 
     // Test POST valid
     let resp = client
@@ -127,9 +127,8 @@ async fn manual_create_check() {
         "the flash is one-time, got {cleared}"
     );
     let html2 = body_string(resp2).await;
-    // Need to check if new user appears on page 1 or 2? Since paginated 2 per page, new user "New User" with name N may be on page 2 (after Grace Hopper? Let's see sort is name asc: Ada, Alan, Grace, New User -> New User is last, so on page 2)
-    // So we need to fetch page 2 via pagination? Or increase page size? But list page default shows page 1 (Ada, Alan). New User not on page1.
-    // Let's check DB directly that user was created, and also check that notification appears.
+    // Production page size is 25: the new user sorts onto page 1.
+    // Verify DB creation directly, plus the consumed toast.
     assert!(
         html2.contains("data-sonner-toaster") && html2.contains("bottom-4"),
         "missing the bottom-right toast stack in {}",
@@ -149,7 +148,7 @@ async fn manual_create_check() {
     );
     let mut db_check2 = db.clone();
     let count2 = User::all().exec(&mut db_check2).await.unwrap().len();
-    assert_eq!(count2, 4, "DB should have 4 after valid create");
+    assert_eq!(count2, 9, "DB should have 9 after valid create");
     // Also verify that new user can be found via query
     let new_user = User::filter(User::fields().email().eq("new@example.com".to_string()))
         .first()
@@ -282,5 +281,84 @@ async fn create_post_with_unknown_keys_is_bad_request() {
     );
     let mut db_check = db.clone();
     let count = User::all().exec(&mut db_check).await.unwrap().len();
-    assert_eq!(count, 3, "smuggled POST must not create");
+    assert_eq!(count, 8, "smuggled POST must not create");
+}
+
+#[tokio::test]
+async fn users_create_duplicate_email_shows_taken() {
+    // The declared unique() field re-renders inline instead of writing.
+    let db = seeded_db().await;
+    let router = router(db.clone());
+    let client = demo_client(&router).await;
+    let csrf = uuid::Uuid::new_v4().to_string();
+    let resp = client
+        .csrf(&csrf)
+        .post_form(
+            "/admin/users/create",
+            format!("name=Copycat&email=ada%40example.com&csrf_token={csrf}"),
+        )
+        .await;
+    assert!(
+        resp.status().is_success(),
+        "duplicate POST must re-render 200, got {}",
+        resp.status()
+    );
+    let html = body_string(resp).await;
+    assert!(
+        html.contains("has already been taken"),
+        "missing uniqueness error: {html}"
+    );
+    let mut db_check = db.clone();
+    let count = User::all().exec(&mut db_check).await.unwrap().len();
+    assert_eq!(count, 8, "duplicate POST must not create");
+}
+
+#[tokio::test]
+async fn users_create_static_selects_set_role_and_active() {
+    // Both Select kinds on one form: relationship selects live on posts;
+    // static options (role vocabulary, active Yes/No) live here.
+    let db = seeded_db().await;
+    let router = router(db.clone());
+    let client = demo_client(&router).await;
+
+    let resp = client.get("/admin/users/create").await;
+    let html = body_string(resp).await;
+    assert!(html.contains("Profile"), "missing wizard section: {html}");
+    assert!(
+        html.contains("name=\"role\""),
+        "missing role select: {html}"
+    );
+    assert!(
+        html.contains("name=\"active\""),
+        "missing active select: {html}"
+    );
+
+    let csrf = uuid::Uuid::new_v4().to_string();
+    let resp = client
+        .csrf(&csrf)
+        .post_form(
+            "/admin/users/create",
+            format!(
+                "name=New+Admin&email=newadmin%40example.com&role=admin&active=false&csrf_token={csrf}"
+            ),
+        )
+        .await;
+    assert!(
+        resp.status().is_redirection(),
+        "valid static-select POST must redirect, got {}",
+        resp.status()
+    );
+    let mut db_check = db.clone();
+    let created = User::filter(
+        User::fields()
+            .email()
+            .eq("newadmin@example.com".to_string()),
+    )
+    .first()
+    .exec(&mut db_check)
+    .await
+    .unwrap()
+    .expect("created user");
+    assert_eq!(created.role, "admin");
+    assert!(!created.active);
 }

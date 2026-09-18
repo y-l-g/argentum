@@ -32,7 +32,7 @@ async fn runtime_post(
 }
 
 #[tokio::test]
-async fn login_page_is_standalone_with_csrf_and_demo_credentials() {
+async fn login_page_is_standalone_with_csrf_and_no_demo_hint_by_default() {
     let db = full_db().await;
     let router = router(db);
     let response = TestClient::new(&router).get("/admin/login").await;
@@ -40,10 +40,14 @@ async fn login_page_is_standalone_with_csrf_and_demo_credentials() {
     assert_eq!(response.status(), 200);
     let html = body_string(response).await;
     assert!(html.contains("Sign in"), "missing heading: {html}");
-    assert!(html.contains("Showcase"), "missing brand: {html}");
+    assert!(html.contains("Argentum Blog"), "missing brand: {html}");
     assert!(
-        html.contains("Demo credentials: admin@example.com / password"),
-        "missing demo hint: {html}"
+        html.contains("<html class=\"dark\">"),
+        "login must share the dark first-paint: {html}"
+    );
+    assert!(
+        !html.contains("Demo credentials:"),
+        "default login page must not leak demo credentials: {html}"
     );
     assert!(
         html.contains("name=\"csrf_token\""),

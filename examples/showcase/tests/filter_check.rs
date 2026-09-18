@@ -17,7 +17,7 @@ async fn posts_filter_widgets_render_typed_controls() {
     let html = body_string(resp).await;
     // One typed control per declared filter, composed by filters.js into the
     // hidden `filters` transport (the text fallback lives in `<noscript>`).
-    for name in ["status", "featured", "created_at"] {
+    for name in ["status", "featured", "created_at", "spotlight"] {
         assert!(
             html.contains(&format!("data-filter-name=\"{name}\"")),
             "missing control for {name} in {html}",
@@ -243,13 +243,14 @@ async fn posts_filter_with_cursor_paginates_filtered_rows() {
     let db = full_db().await;
     let router = router(db.clone());
     let client = demo_client(&router).await;
-    // The posts table paginates by 2: seed two more published rows so the
-    // `status:published` result spans two pages (Hello + 2 new).
+    // The posts table paginates by 25: seed 25 more published rows so the
+    // `status:published` result spans two pages (Hello + 25 new).
     let mut db_q = db.clone();
     let authors = Author::all().exec(&mut db_q).await.unwrap();
     let author_id = authors[0].id;
     let tenant = authors[0].tenant_id;
-    for title in ["Third Published", "Fourth Published"] {
+    for i in 0..25 {
+        let title = format!("Published {:02}", i);
         toasty::create!(Post {
             tenant_id: tenant,
             title: title,
@@ -315,4 +316,37 @@ fn find_href_with(html: &str, needle: &str) -> Option<String> {
 
 fn unescape_href_entities(href: &str) -> String {
     href.replace("&amp;", "&")
+}
+
+#[tokio::test]
+async fn posts_filter_variant_spotlight_splits_featured() {
+    // The fourth filter kind: prebuilt-expression VariantFilter over the
+    // featured flag, no embedded enum required.
+    let db = full_db().await;
+    let router = router(db);
+    let client = demo_client(&router).await;
+
+    let resp = client.get("/admin/posts?filters=spotlight:Featured").await;
+    assert!(resp.status().is_success());
+    let html = body_string(resp).await;
+    assert!(
+        html.contains("Hello Toasty"),
+        "Featured must show the spotlight post: {html}"
+    );
+    assert!(
+        !html.contains("Second Post"),
+        "Featured must hide regular posts: {html}"
+    );
+
+    let resp = client.get("/admin/posts?filters=spotlight:Standard").await;
+    assert!(resp.status().is_success());
+    let html = body_string(resp).await;
+    assert!(
+        html.contains("Second Post"),
+        "Standard must show non-spotlight posts: {html}"
+    );
+    assert!(
+        !html.contains("Hello Toasty"),
+        "Standard must hide the spotlight post: {html}"
+    );
 }

@@ -61,10 +61,10 @@ async fn posts_create_empty_author_shows_required_error() {
         "missing required error {}",
         html
     );
-    // DB still has 2 posts
+    // DB still has 6 posts
     let mut db2 = db.clone();
     let posts = Post::all().exec(&mut db2).await.unwrap();
-    assert_eq!(posts.len(), 2);
+    assert_eq!(posts.len(), 6);
 }
 
 #[tokio::test]
@@ -94,7 +94,7 @@ async fn posts_create_invalid_author_shows_invalid_error() {
     );
     let mut db2 = db.clone();
     let posts = Post::all().exec(&mut db2).await.unwrap();
-    assert_eq!(posts.len(), 2);
+    assert_eq!(posts.len(), 6);
 }
 
 #[tokio::test]
@@ -194,8 +194,8 @@ async fn posts_list_shows_comments_count_via_include() {
         "missing Comments header {}",
         html
     );
-    // Hello Toasty has 1 comment, Second Post has 0 (cell content only)
-    assert!(html.contains(">1<"), "missing comment count 1 {}", html);
+    // Hello Toasty has 3 comments, Second Post has 0 (cell content only)
+    assert!(html.contains(">3<"), "missing comment count 3 {}", html);
     assert!(html.contains(">0<"), "missing comment count 0 {}", html);
     // GH #101: loaded relations must never render the unloaded marker.
     assert!(
@@ -274,4 +274,126 @@ async fn hydrate_form_values_match_schema_fields() {
         .next()
         .unwrap();
     assert_hydrate_keys_are_form_fields::<PostResource>(&cx, &post);
+}
+
+#[tokio::test]
+async fn posts_create_lifecycle_fields_persist() {
+    // The full post form: body prose plus static lifecycle selects alongside
+    // the author relationship select.
+    let db = full_db().await;
+    let router = router(db.clone());
+    let client = demo_client(&router).await;
+    let csrf = uuid::Uuid::new_v4().to_string();
+    let mut db2 = db.clone();
+    let authors = Author::all().exec(&mut db2).await.unwrap();
+    let first = &authors[0];
+    let resp = client
+        .csrf(&csrf)
+        .post_form(
+            "/admin/posts/create",
+            format!(
+                "title=Lifecycle+Post&body=Full+story&status=published&featured=true&author_id={}&image_path=/tmp/life.jpg&tags=life&csrf_token={csrf}",
+                first.id
+            ),
+        )
+        .await;
+    assert!(
+        resp.status().is_redirection(),
+        "lifecycle POST must redirect, got {}",
+        resp.status()
+    );
+    let mut db_check = db.clone();
+    let created = Post::filter(Post::fields().title().eq("Lifecycle Post".to_string()))
+        .first()
+        .exec(&mut db_check)
+        .await
+        .unwrap()
+        .expect("lifecycle post");
+    assert_eq!(created.body, "Full story");
+    assert_eq!(created.status, "published");
+    assert!(created.featured);
+}
+
+#[tokio::test]
+async fn posts_create_omitted_lifecycle_fields_default_to_draft() {
+    // Optional-with-defaults: lifecycle fields omitted from the payload
+    // create a plain draft, not a validation error.
+    let db = full_db().await;
+    let router = router(db.clone());
+    let client = demo_client(&router).await;
+    let csrf = uuid::Uuid::new_v4().to_string();
+    let mut db2 = db.clone();
+    let authors = Author::all().exec(&mut db2).await.unwrap();
+    let first = &authors[0];
+    let resp = client
+        .csrf(&csrf)
+        .post_form(
+            "/admin/posts/create",
+            format!(
+                "title=Stub+Post&author_id={}&image_path=/tmp/stub.jpg&tags=stub&csrf_token={csrf}",
+                first.id
+            ),
+        )
+        .await;
+    assert!(
+        resp.status().is_redirection(),
+        "stub POST must redirect, got {}",
+        resp.status()
+    );
+    let mut db_check = db.clone();
+    let created = Post::filter(Post::fields().title().eq("Stub Post".to_string()))
+        .first()
+        .exec(&mut db_check)
+        .await
+        .unwrap()
+        .expect("stub post");
+    assert_eq!(created.body, "");
+    assert_eq!(created.status, "draft");
+    assert!(!created.featured);
+}
+
+#[tokio::test]
+async fn post_author_options_are_tenant_scoped() {
+    // Relationship loads funnel through the tenant-scoped query: a foreign
+    // tenant sees none of this tenant's writers.
+    let db = full_db().await;
+    let router = router(db.clone());
+    let client = demo_client(&router).await;
+
+    let resp = client.get("/admin/posts/options?field=author_id").await;
+    assert!(resp.status().is_success());
+    let html = body_string(resp).await;
+    assert!(
+        html.contains("Ada Author"),
+        "own-tenant options must list writers: {html}"
+    );
+
+    let foreign = client
+        .tenant(uuid::Uuid::from_u128(4242))
+        .get("/admin/posts/options?field=author_id")
+        .await;
+    assert!(foreign.status().is_success());
+    let html = body_string(foreign).await;
+    assert!(
+        !html.contains("Ada Author"),
+        "foreign tenant must not see writers: {html}"
+    );
+}
+
+#[tokio::test]
+async fn post_author_options_deny_blocked_tenant() {
+    // Policy denial fails the options load closed: no options, no leak.
+    let db = full_db().await;
+    let router = router(db.clone());
+    let client = demo_client(&router).await;
+    let resp = client
+        .tenant(showcase::models::BLOCKED_TENANT)
+        .get("/admin/posts/options?field=author_id")
+        .await;
+    assert_eq!(
+        resp.status(),
+        403,
+        "blocked tenant options must be forbidden, got {}",
+        resp.status()
+    );
 }
