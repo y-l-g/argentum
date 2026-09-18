@@ -50,6 +50,11 @@ async fn admin_resource_list_page_serve_seeded_users() {
         html.contains("href=\"/admin/posts\"") || html.contains("/admin/posts"),
         "missing Blog Posts navigation url in {html}"
     );
+    assert!(html.contains("Discussion"), "missing Discussion label in {html}");
+    assert!(
+        html.contains("href=\"/admin/comments\"") || html.contains("/admin/comments"),
+        "missing Discussion navigation url in {html}"
+    );
     assert!(html.contains("Published"), "missing manual Published entry in {html}");
     assert!(
         html.contains("/admin/posts?filters=status:published")

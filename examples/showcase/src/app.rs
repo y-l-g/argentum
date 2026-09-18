@@ -687,6 +687,189 @@ impl Resource for PostResource {
     }
 }
 
+/// Discussion resource over `Comment`: the moderation queue.
+///
+/// Comments carry no tenant of their own — they inherit visibility from their
+/// post — so the query is unscoped and `requires_tenant` stays false. Deletes
+/// are hidden in the panel (`deletable() == false`): removals happen through
+/// the post lifecycle, never from the queue. Server policy still allows them,
+/// so the override is chrome-only.
+pub struct CommentResource;
+
+impl Resource for CommentResource {
+    type Model = Comment;
+
+    fn navigation_label() -> String {
+        "Discussion".to_string()
+    }
+
+    fn deletable() -> bool {
+        false
+    }
+
+    fn can_view_any(_cx: &Cx) -> bool {
+        true
+    }
+    fn can_view(_cx: &Cx, _record: &Comment) -> bool {
+        true
+    }
+    fn can_create(_cx: &Cx) -> bool {
+        true
+    }
+    fn can_update(_cx: &Cx, _record: &Comment) -> bool {
+        true
+    }
+    fn can_delete(_cx: &Cx, _record: &Comment) -> bool {
+        true
+    }
+
+    fn query(cx: &Cx) -> toasty::stmt::Query<toasty::stmt::List<Comment>> {
+        let _ = cx;
+        let inc_post: toasty::stmt::Include<Comment, Post> = Comment::fields().post().into();
+        toasty::stmt::Query::<toasty::stmt::List<Comment>>::all().include(inc_post)
+    }
+
+    fn table(cx: &Cx) -> Table<Comment> {
+        Table::r#for(cx)
+            .id(|c: &Comment| c.id.to_string())
+            .columns((
+                TextColumn::r#for(Comment::fields().body(), |c: &Comment| c.body.clone())
+                    .searchable()
+                    .sortable(),
+                TextColumn::computed("Post", |c: &Comment| {
+                    debug_assert!(
+                        !c.post.is_unloaded(),
+                        "Post column needs Comment::query to include post"
+                    );
+                    if c.post.is_unloaded() {
+                        "(unloaded)".to_string()
+                    } else {
+                        c.post.get().title.clone()
+                    }
+                }),
+            ))
+            .paginate(25)
+            .live_search(true)
+    }
+
+    fn form(_cx: &Cx) -> Schema {
+        Schema::new((
+            TextInput::r#for(Comment::fields().body()).placeholder("Write a reply…"),
+            Select::r#for(Comment::fields().post_id())
+                .relationship::<PostResource>(
+                    PostResource::query,
+                    |p: &Post| p.id,
+                    |p: &Post| p.title.clone(),
+                )
+                .searchable()
+                .label("Post"),
+        ))
+    }
+
+    fn hydrate_form_values(record: &Comment) -> HashMap<String, String> {
+        let mut m = HashMap::new();
+        m.insert("body".to_string(), record.body.clone());
+        m.insert("post_id".to_string(), record.post_id.to_string());
+        m
+    }
+
+    async fn create_record(
+        _cx: &Cx,
+        values: HashMap<String, String>,
+        ex: &mut dyn toasty::Executor,
+    ) -> Result<()> {
+        let body = values
+            .get("body")
+            .cloned()
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        let post_id = values
+            .get("post_id")
+            .cloned()
+            .unwrap_or_default()
+            .trim()
+            .parse::<uuid::Uuid>()
+            .map_err(|e| topcoat::Error::from(std::io::Error::other(format!("invalid post_id: {e}"))))?;
+        toasty::create!(Comment {
+            body: body,
+            post_id: post_id,
+        })
+        .exec(&mut *ex)
+        .await
+        .map_err(|e| -> topcoat::Error { e.into() })?;
+        Ok(())
+    }
+
+    async fn update_record(
+        _cx: &Cx,
+        mut record: Comment,
+        values: HashMap<String, String>,
+        ex: &mut dyn toasty::Executor,
+    ) -> Result<()> {
+        let body = match values.get("body") {
+            Some(v) => v.trim().to_string(),
+            None => record.body.clone(),
+        };
+        let post_id = match values.get("post_id") {
+            Some(s) => s.trim().parse::<uuid::Uuid>().map_err(|e| {
+                topcoat::Error::from(std::io::Error::other(format!("invalid post_id: {e}")))
+            })?,
+            None => record.post_id,
+        };
+        toasty::update!(record {
+            body: body,
+            post_id: post_id,
+        })
+        .exec(&mut *ex)
+        .await
+        .map_err(|e| -> topcoat::Error { e.into() })?;
+        Ok(())
+    }
+
+    fn delete_record(
+        cx: &Cx,
+        record: Comment,
+        ex: &mut dyn toasty::Executor,
+    ) -> impl std::future::Future<Output = Result<()>> + Send
+    where
+        Self: Sized,
+    {
+        let cx = cx.clone();
+        async move {
+            Self::query(&cx)
+                .filter(Comment::fields().id().eq(record.id))
+                .delete()
+                .exec(&mut *ex)
+                .await
+                .map_err(|e| -> topcoat::Error { e.into() })?;
+            Ok(())
+        }
+    }
+
+    fn bulk_delete_records(
+        cx: &Cx,
+        records: Vec<Comment>,
+        ex: &mut dyn toasty::Executor,
+    ) -> impl std::future::Future<Output = Result<()>> + Send
+    where
+        Self: Sized,
+    {
+        let cx = cx.clone();
+        async move {
+            for rec in &records {
+                Self::query(&cx)
+                    .filter(Comment::fields().id().eq(rec.id))
+                    .delete()
+                    .exec(&mut *ex)
+                    .await
+                    .map_err(|e| -> topcoat::Error { e.into() })?;
+            }
+            Ok(())
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Layout — Panel shell at /admin, wraps every /admin/* page
 // ---------------------------------------------------------------------------
@@ -725,6 +908,7 @@ fn build_router(db: Db, bundle: Option<AssetBundle>) -> Router {
         .resource::<UserResource>()
         .resource::<AuthorResource>()
         .resource::<PostResource>()
+        .resource::<CommentResource>()
         // Saved view outside the resource set: the published queue.
         // Query-aware active state (the shell matches paths, so a bare URL
         // could never highlight): active exactly on the published filter.
