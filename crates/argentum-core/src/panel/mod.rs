@@ -370,7 +370,7 @@ impl Panel {
         for route in routes {
             builder = builder.route(route);
         }
-        // Filament's panel root is a Dashboard; until dashboards exist,
+        // The panel root has no home page of its own; until custom pages exist,
         // the prefix serves a redirect to the first resource's
         // list so the mount point is never a dead URL.
         if let Some(target) = root_target {
@@ -467,8 +467,8 @@ pub(crate) fn list_url(cx: &Cx, slug: &str) -> String {
 }
 
 /// The panel root: a temporary redirect to the first declared resource's
-/// list, so the mount point is never a dead URL (until Dashboards exist,
-/// GH #38). Filament registers a Dashboard page here.
+/// list, so the mount point is never a dead URL (custom pages remain future
+/// work, see README §10). Filament registers its home page here.
 pub(crate) fn panel_root_redirect(cx: &Cx, _body: Body) -> RouteFuture<'_> {
     Box::pin(async move {
         // Defense in depth (GH #146): every panel handler re-checks the
