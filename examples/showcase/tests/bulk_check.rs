@@ -172,18 +172,18 @@ async fn bulk_bar_renders_checkboxes_with_row_keys() {
     let ids: std::collections::HashSet<String> = users.iter().map(|u| u.id.to_string()).collect();
 
     // The list streams (skeleton first, rows in the swap payload); the
-    // collected body contains both. The table paginates by 2, so the first
-    // page carries exactly 2 row checkboxes.
+    // collected body contains both. The table paginates by 25, so the first
+    // page carries all 3 seeded row checkboxes.
     let resp = client.get("/admin/users").await;
     assert!(resp.status().is_success());
     let html = body_string(resp).await;
     assert_eq!(
         html.matches("data-row-select").count(),
-        2,
-        "first page should carry 2 row checkboxes in {}",
+        3,
+        "first page should carry 3 row checkboxes in {}",
         html
     );
-    // Every rendered checkbox value is a real row key (the two visible rows;
+    // Every rendered checkbox value is a real row key (the three visible rows;
     // delete forms carry ids in actions, never in `value=`).
     let mut found = 0;
     for u in &users {
@@ -192,8 +192,8 @@ async fn bulk_bar_renders_checkboxes_with_row_keys() {
         }
     }
     assert_eq!(
-        found, 2,
-        "both visible row keys should be checkbox values in {}",
+        found, 3,
+        "all visible row keys should be checkbox values in {}",
         html
     );
     // A filtered list shows only the matching row's checkbox.

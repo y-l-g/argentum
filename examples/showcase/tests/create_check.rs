@@ -127,9 +127,8 @@ async fn manual_create_check() {
         "the flash is one-time, got {cleared}"
     );
     let html2 = body_string(resp2).await;
-    // Need to check if new user appears on page 1 or 2? Since paginated 2 per page, new user "New User" with name N may be on page 2 (after Grace Hopper? Let's see sort is name asc: Ada, Alan, Grace, New User -> New User is last, so on page 2)
-    // So we need to fetch page 2 via pagination? Or increase page size? But list page default shows page 1 (Ada, Alan). New User not on page1.
-    // Let's check DB directly that user was created, and also check that notification appears.
+    // Production page size is 25: the new user sorts onto page 1.
+    // Verify DB creation directly, plus the consumed toast.
     assert!(
         html2.contains("data-sonner-toaster") && html2.contains("bottom-4"),
         "missing the bottom-right toast stack in {}",

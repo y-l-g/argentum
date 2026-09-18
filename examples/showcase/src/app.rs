@@ -67,7 +67,7 @@ impl Resource for UserResource {
                     u.created_at.strftime("%Y-%m-%d").to_string()
                 }),
             ))
-            .paginate(2)
+            .paginate(25)
             .live_search(true)
     }
 
@@ -244,7 +244,7 @@ impl Resource for AuthorResource {
                 TextColumn::r#for(Author::fields().email(), |a: &Author| a.email.clone())
                     .searchable(),
             ))
-            .paginate(2)
+            .paginate(25)
             .live_search(true)
     }
 
@@ -465,7 +465,7 @@ impl Resource for PostResource {
                 DateFilter::r#for(Post::fields().created_at()),
             ))
             .group_by("status", |p: &Post| p.status.clone())
-            .paginate(2)
+            .paginate(25)
             .live_search(true)
     }
 

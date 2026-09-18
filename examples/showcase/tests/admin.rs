@@ -48,12 +48,13 @@ async fn admin_resource_list_page_serve_seeded_users() {
         !html.contains("href=\"/admin/showcase\""),
         "showcase navigation must be gone in {html}"
     );
-    // List page content — page 1 of the cursor-paginated list (name asc,
-    // 2 per page) shows Ada + Alan; Grace lives on page 2, exercised by
-    // admin_list_pagination_walks_cursor_links.
+    // List page content — production page size (25 per page) shows all
+    // seeded users on page 1; cursor pagination across pages is exercised by
+    // admin_list_pagination_walks_cursor_links with extra seeded rows.
     assert!(html.contains("Users</h1>"), "missing heading in {html}");
     assert!(html.contains("Ada Lovelace"), "missing Ada in {html}");
     assert!(html.contains("Alan Turing"), "missing Alan in {html}");
+    assert!(html.contains("Grace Hopper"), "missing Grace in {html}");
     assert!(
         html.contains("ada@example.com"),
         "missing Ada email in {html}"
@@ -124,8 +125,8 @@ async fn admin_table_via_resource_has_searchable_sortable() {
     );
     assert_eq!(
         table.page_size(),
-        Some(2),
-        "UserResource::table should declare real pagination"
+        Some(25),
+        "UserResource::table should declare production pagination"
     );
 }
 
@@ -200,18 +201,40 @@ async fn admin_list_renders_search_box_and_sort_links() {
 
 #[tokio::test]
 async fn admin_list_pagination_walks_cursor_links() {
+    use showcase::models::User;
+
     let db = seeded_db().await;
-    let router = router(db);
+    let router = router(db.clone());
     let client = demo_client(&router).await;
+    // Production page size is 25: seed 23 extra users (3 seeded + 23 = 26)
+    // so the list spans two pages. Extra names sort after Grace Hopper.
+    {
+        let mut db_q = db.clone();
+        for i in 0..23 {
+            let name = format!("User {:02}", i);
+            let email = format!("user{:02}@example.com", i);
+            toasty::create!(User {
+                name: name,
+                email: email,
+                role: "member",
+                active: true,
+                created_at: "2024-03-01T00:00:00Z".parse::<jiff::Timestamp>().unwrap(),
+            })
+            .exec(&mut db_q)
+            .await
+            .unwrap();
+        }
+    }
     let response = client.get("/admin/users").await;
     let page1 = body_string(response).await;
 
-    // Page 1 (name asc, 2 per page): Ada + Alan, not Grace; a real Next link.
+    // Page 1 (name asc, 25 per page): Ada + Alan + Grace, not the last user; a real Next link.
     assert!(page1.contains("Ada Lovelace"), "page1 missing Ada: {page1}");
     assert!(page1.contains("Alan Turing"), "page1 missing Alan: {page1}");
+    assert!(page1.contains("Grace Hopper"), "page1 missing Grace: {page1}");
     assert!(
-        !page1.contains("Grace Hopper"),
-        "page1 must not show Grace (page size 2): {page1}"
+        !page1.contains("User 22"),
+        "page1 must not show the last overflow row (page size 25): {page1}"
     );
     let next_href = find_href_with(&page1, "after=")
         .unwrap_or_else(|| panic!("page1 missing Next (after=) link: {page1}"));
@@ -224,8 +247,8 @@ async fn admin_list_pagination_walks_cursor_links() {
     );
     let page2 = body_string(response).await;
     assert!(
-        page2.contains("Grace Hopper"),
-        "page2 missing Grace: {page2}"
+        page2.contains("User 22"),
+        "page2 missing overflow row: {page2}"
     );
     assert!(
         !page2.contains("Ada Lovelace") && !page2.contains("Alan Turing"),

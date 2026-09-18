@@ -243,13 +243,14 @@ async fn posts_filter_with_cursor_paginates_filtered_rows() {
     let db = full_db().await;
     let router = router(db.clone());
     let client = demo_client(&router).await;
-    // The posts table paginates by 2: seed two more published rows so the
-    // `status:published` result spans two pages (Hello + 2 new).
+    // The posts table paginates by 25: seed 25 more published rows so the
+    // `status:published` result spans two pages (Hello + 25 new).
     let mut db_q = db.clone();
     let authors = Author::all().exec(&mut db_q).await.unwrap();
     let author_id = authors[0].id;
     let tenant = authors[0].tenant_id;
-    for title in ["Third Published", "Fourth Published"] {
+    for i in 0..25 {
+        let title = format!("Published {:02}", i);
         toasty::create!(Post {
             tenant_id: tenant,
             title: title,
