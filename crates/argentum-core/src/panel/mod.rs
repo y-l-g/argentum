@@ -36,7 +36,7 @@ use topcoat::{
     },
 };
 
-use self::actions::{resource_bulk_delete, resource_delete, resource_export};
+use self::actions::{resource_bulk_delete, resource_delete, resource_export, resource_options};
 use self::forms::{
     MAX_FORM_BYTES, resource_create, resource_create_post, resource_edit, resource_edit_post,
 };
@@ -215,6 +215,15 @@ impl Panel {
             http::Method::GET,
             route_path(&export_url),
             resource_export::<R>,
+        ));
+        // Relationship option search — GET for searchable selects past the cap
+        // (GH #150): `{list_url}/options?field=&q=` reusing the related
+        // table's searchable columns, bounded, policy-checked.
+        let options_url = format!("{}/options", url);
+        self.routes.push(RouteFn::new(
+            http::Method::GET,
+            route_path(&options_url),
+            resource_options::<R>,
         ));
         // Live-search handler (GH #104): the slug-dispatched `#[shard]` below
         // cannot be generic (inventory only discovers concrete fns), so each

@@ -12,7 +12,9 @@ use topcoat::{Result, context::Cx, view::*};
 
 use super::lenses::lens_field_name_label_and_nullable;
 use super::relationship::{
-    OptionLoadError, RelatedPrimaryKey, RelationshipLoadFuture, RelationshipLoader, related_records,
+    OptionLoadError, RelatedCheck, RelatedPrimaryKey, RelationshipCheckFuture, RelationshipChecker,
+    RelationshipLoadFuture, RelationshipLoader, RelationshipSearchFuture, RelationshipSearchLoader,
+    related_record_check, related_records, related_records_search,
 };
 
 /// Placeholder leaf — renders a text block. Used in T3 before typed fields land.
@@ -348,6 +350,10 @@ pub struct Select {
     pub(crate) options_static: Vec<(String, String)>,
     #[allow(clippy::type_complexity)]
     pub(crate) relationship: Option<RelationshipLoader>,
+    #[allow(clippy::type_complexity)]
+    pub(crate) relationship_search: Option<RelationshipSearchLoader>,
+    #[allow(clippy::type_complexity)]
+    pub(crate) relationship_check: Option<RelationshipChecker>,
 }
 
 impl std::fmt::Debug for Select {
@@ -359,6 +365,8 @@ impl std::fmt::Debug for Select {
             .field("searchable", &self.searchable)
             .field("options_static", &self.options_static)
             .field("relationship", &self.relationship.is_some())
+            .field("relationship_search", &self.relationship_search.is_some())
+            .field("relationship_check", &self.relationship_check.is_some())
             .finish()
     }
 }
@@ -372,6 +380,8 @@ impl Clone for Select {
             searchable: self.searchable,
             options_static: self.options_static.clone(),
             relationship: self.relationship.clone(),
+            relationship_search: self.relationship_search.clone(),
+            relationship_check: self.relationship_check.clone(),
         }
     }
 }
@@ -398,15 +408,20 @@ impl Select {
             searchable: false,
             options_static: Vec::new(),
             relationship: None,
+            relationship_search: None,
+            relationship_check: None,
         }
     }
 
-    /// Client-side option search (GH #91): renders a filter input above the
-    /// select that narrows options by label substring (delegated JS, no
-    /// re-render). Covers the bounded option set (relationship loads are
-    /// capped); over-cap tables still fail visibly, and server-side option
-    /// search for huge tables is future work (#150). No-JS keeps the plain
-    /// select.
+    /// Client-side option search (GH #91) plus server-side narrowing past the
+    /// cap (GH #150): renders a filter input above the select that narrows
+    /// options by label substring (delegated JS, no re-render) for bounded
+    /// sets, and fetches `GET {parent_list_url}/options?field=&q=` (debounced,
+    /// abort in-flight, selection preserved) when the related table overflows
+    /// the cap. Reuses the related `Table`'s declared `searchable()` columns;
+    /// non-searchable selects keep the cap error. No-JS keeps the plain
+    /// select (relation cannot be changed past the cap, other fields still
+    /// submit).
     ///
     /// Behavior asset: the filter input needs `assets/selects.js`
     /// (`argentum_ui::SELECTS_JS`, hooks `data-select-filterable` /
@@ -489,13 +504,14 @@ impl Select {
     ///
     /// Bounded and memoized (GH #91): the loader fetches at most one row
     /// past `MAX_RELATIONSHIP_OPTIONS` (before `can_view` filtering) and
-    /// fails when the related table is larger — a 10k-row reference table
-    /// costs bounded work per submit and surfaces `could not load options,
-    /// retry` instead of silently validating against a truncated list.
-    /// Option records are memoized per `(request, tenant)`, so any number of
-    /// selects over one resource share a single load. Suitable for small
-    /// reference tables only; a searchable/paginated dropdown is future
-    /// work.
+    /// overflows when the related table is larger — a 10k-row reference table
+    /// costs bounded work per submit. Small tables validate against the
+    /// bounded set; overflowed tables surface `Overflow` (GH #150): searchable
+    /// selects degrade to type-to-search with a targeted existence check,
+    /// non-searchable ones keep the `could not load options, retry` error.
+    /// Option records are memoized per `(request, tenant)`, searches per
+    /// `(request, tenant, q)`, so any number of selects over one resource
+    /// share loads.
     pub fn relationship<R>(
         mut self,
         _query: fn(&Cx) -> toasty::stmt::Query<toasty::stmt::List<R::Model>>,
@@ -509,6 +525,8 @@ impl Select {
     {
         let value = std::sync::Arc::new(value);
         let label = std::sync::Arc::new(label);
+        let value_s = value.clone();
+        let label_s = label.clone();
         let loader = std::sync::Arc::new(move |cx: &Cx| {
             let value = value.clone();
             let label = label.clone();
@@ -528,8 +546,83 @@ impl Select {
                 Ok(opts)
             }) as RelationshipLoadFuture
         }) as RelationshipLoader;
+        let search_loader = std::sync::Arc::new(move |cx: &Cx, q: String| {
+            let value = value_s.clone();
+            let label = label_s.clone();
+            let cx = cx.clone();
+            Box::pin(async move {
+                let records =
+                    match related_records_search::<R>(&cx, crate::tenancy::tenant_id(&cx), q).await
+                    {
+                        Ok(records) => records,
+                        Err(err) => return Err(err.clone()),
+                    };
+                let mut opts = Vec::new();
+                for rec in records.iter() {
+                    opts.push((value(rec).to_string(), label(rec)));
+                }
+                Ok(opts)
+            }) as RelationshipSearchFuture
+        }) as RelationshipSearchLoader;
+        let check_loader = std::sync::Arc::new(move |cx: &Cx, v: String| {
+            let cx = cx.clone();
+            Box::pin(async move {
+                match related_record_check::<R>(&cx, crate::tenancy::tenant_id(&cx), v).await {
+                    Ok(check) => Ok(check),
+                    Err(err) => Err(err.clone()),
+                }
+            }) as RelationshipCheckFuture
+        }) as RelationshipChecker;
         self.relationship = Some(loader);
+        self.relationship_search = Some(search_loader);
+        self.relationship_check = Some(check_loader);
         self
+    }
+
+    pub(crate) fn is_searchable(&self) -> bool {
+        self.searchable
+    }
+
+    pub(crate) fn is_relationship(&self) -> bool {
+        self.relationship.is_some()
+    }
+
+    /// Server-side option search for the endpoint (GH #150 D1/D5).
+    ///
+    /// Clamps `q`, reuses the related table's searchable columns, bounds to
+    /// `MAX_RELATIONSHIP_OPTIONS`. Returns `Overflow` when the filtered set
+    /// still exceeds the cap (caller renders "keep typing").
+    pub(crate) async fn search_options(
+        &self,
+        cx: &Cx,
+        q: &str,
+    ) -> Result<Vec<(String, String)>, OptionLoadError> {
+        if let Some(search) = &self.relationship_search {
+            search(cx, q.to_string()).await
+        } else if let Some(loader) = &self.relationship {
+            loader(cx).await
+        } else {
+            Ok(self.options_static.clone())
+        }
+    }
+
+    /// Targeted existence check for overflowed selects (GH #150 D4).
+    async fn check_overflowed(&self, cx: &Cx, value: &str) -> Vec<String> {
+        let Some(check) = &self.relationship_check else {
+            return vec![format!("{} could not load options, retry", self.label)];
+        };
+        match check(cx, value.trim().to_string()).await {
+            Ok(RelatedCheck::FoundViewable) => Vec::new(),
+            Ok(RelatedCheck::FoundHidden) | Ok(RelatedCheck::NotFound) => {
+                vec![format!("{} is invalid", self.label)]
+            }
+            Err(OptionLoadError::Denied) => {
+                vec![format!("{} is not available", self.label)]
+            }
+            Err(OptionLoadError::LoadFailed) | Err(OptionLoadError::Overflow) => {
+                vec![format!("{} could not load options, retry", self.label)]
+            }
+        }
     }
 
     pub fn field_name(&self) -> &str {
@@ -552,7 +645,9 @@ impl Select {
     /// empty-options passthrough that would 500 at FK write time. A policy
     /// denial (GH #108) is reported as "not available" — retrying cannot fix
     /// a permission decision, and "invalid" would misattribute it to the
-    /// submitted value.
+    /// submitted value. An overflowed load (GH #150) uses the targeted check
+    /// for searchable selects (legitimate FKs beyond the cap validate) and
+    /// keeps the retry error for non-searchable ones.
     pub async fn validate_async(&self, cx: &Cx, value: &str) -> Vec<String> {
         let mut errs = self.validate(value);
         if errs.is_empty() && !value.trim().is_empty() {
@@ -567,7 +662,10 @@ impl Select {
                     Err(OptionLoadError::Denied) => {
                         errs.push(format!("{} is not available", self.label));
                     }
-                    Err(OptionLoadError::LoadFailed) => {
+                    Err(OptionLoadError::Overflow) if self.searchable => {
+                        return self.check_overflowed(cx, value).await;
+                    }
+                    Err(OptionLoadError::Overflow) | Err(OptionLoadError::LoadFailed) => {
                         errs.push(format!("{} could not load options, retry", self.label));
                     }
                 }
@@ -607,11 +705,19 @@ impl Select {
         // denial is also surfaced on GET (when the caller carries no error
         // yet): the select has no options to pick, so the empty control must
         // explain itself instead of looking like a requireable empty field.
-        // A failed/over-cap load keeps the stored FK selectable (GH #91): an
-        // edit must not blank the relation into a required-error, and the
-        // submit surfaces `could not load options, retry`.
+        // A failed load keeps the stored FK selectable (GH #91): an edit must
+        // not blank the relation into a required-error, and the submit
+        // surfaces `could not load options, retry`. An overflowed load
+        // (GH #150) also keeps the stored FK; searchable selects degrade to
+        // type-to-search with a hint (no retry error), non-searchable ones
+        // keep the retry path.
         let denied = matches!(&loaded, Err(OptionLoadError::Denied));
-        let keep_current_value = matches!(&loaded, Err(OptionLoadError::LoadFailed));
+        let overflowed = matches!(&loaded, Err(OptionLoadError::Overflow));
+        let overflow_searchable = overflowed && searchable && self.relationship.is_some();
+        let keep_current_value = matches!(
+            &loaded,
+            Err(OptionLoadError::LoadFailed) | Err(OptionLoadError::Overflow)
+        );
         let mut options = loaded.unwrap_or_default();
         if keep_current_value && !current.is_empty() && !options.iter().any(|(v, _)| v == &current)
         {
@@ -657,6 +763,11 @@ impl Select {
         };
         let error_id = format!("{name}-error");
         let filter_label = format!("Filter {label_text} options");
+        let is_rel_searchable = searchable && self.relationship.is_some();
+        let options_field = is_rel_searchable.then(|| name.clone());
+        let options_server = is_rel_searchable.then_some("true");
+        let options_overflow = overflow_searchable.then_some("true");
+        let overflow_hint = "Too many options — type to search".to_string();
         Ok(view! {
             cx =>
             ui_field(
@@ -664,6 +775,9 @@ impl Select {
                     class=(field_class)
                     data-select-filterable=""
                     data-invalid=(has_error.then_some("true"))
+                    data-options-field=(options_field)
+                    data-options-server=(options_server)
+                    data-options-overflow=(options_overflow)
                 },
                 ui_field_label(
                     attrs: attributes! { for=(name.clone()) },
@@ -682,6 +796,9 @@ impl Select {
                             class="h-9"
                         }
                     )
+                }
+                if overflow_searchable {
+                    <div class="text-xs text-muted-foreground" data-options-hint="">(overflow_hint)</div>
                 }
                 <select
                     id=(name.clone())

@@ -23,6 +23,7 @@ pub use lenses::FieldLens;
 pub(crate) use lenses::{capitalize, lens_field_name_and_label};
 pub(crate) use pk::{pk_eq_expr, pk_in_expr, pk_is_composite};
 pub use relationship::MAX_RELATIONSHIP_OPTIONS;
+pub(crate) use relationship::OptionLoadError;
 pub use tree::IntoSchema;
 pub(crate) use tree::{Node, RenderSource, for_each_field, walk_repeater_absence};
 

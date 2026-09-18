@@ -11,13 +11,20 @@ use topcoat::{Result, context::Cx};
 /// Distinguishes a policy denial from a structural/transient failure so
 /// `validate_async` can say "not available" instead of "retry", and so the
 /// render path never re-labels a value the user may not view.
-#[derive(Debug, Clone)]
+///
+/// `Overflow` (GH #150) is distinct from `LoadFailed`: the related table
+/// exceeds the option cap. A searchable `Select` degrades to "type to
+/// search" instead of a retry error, while a genuine DB failure stays
+/// retryable.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum OptionLoadError {
     /// The related resource denies `can_view_any` (or has no tenant) for
     /// this request.
     Denied,
-    /// The driver failed, or the related table overflows the option cap.
+    /// The driver failed.
     LoadFailed,
+    /// The related table overflows the option cap (GH #150).
+    Overflow,
 }
 
 /// The boxed future a relationship loader returns.
@@ -28,6 +35,24 @@ pub(crate) type RelationshipLoadFuture = std::pin::Pin<
 #[allow(clippy::type_complexity)]
 pub(crate) type RelationshipLoader =
     std::sync::Arc<dyn Fn(&Cx) -> RelationshipLoadFuture + Send + Sync>;
+
+/// The boxed future a relationship *search* loader returns (GH #150).
+pub(crate) type RelationshipSearchFuture = std::pin::Pin<
+    Box<dyn std::future::Future<Output = Result<Vec<(String, String)>, OptionLoadError>> + Send>,
+>;
+
+#[allow(clippy::type_complexity)]
+pub(crate) type RelationshipSearchLoader =
+    std::sync::Arc<dyn Fn(&Cx, String) -> RelationshipSearchFuture + Send + Sync>;
+
+/// The boxed future a targeted existence check returns (GH #150 D4).
+pub(crate) type RelationshipCheckFuture = std::pin::Pin<
+    Box<dyn std::future::Future<Output = Result<RelatedCheck, OptionLoadError>> + Send>,
+>;
+
+#[allow(clippy::type_complexity)]
+pub(crate) type RelationshipChecker =
+    std::sync::Arc<dyn Fn(&Cx, String) -> RelationshipCheckFuture + Send + Sync>;
 
 /// Max options a relationship `Select` will load (GH #91): the loader carries
 /// `limit(Self + 1)` and fails past the cap instead of scanning a 10k-row
@@ -92,16 +117,156 @@ where
     if records.len() > MAX_RELATIONSHIP_OPTIONS {
         // Fail visibly (GH #91): validating against a silent truncation
         // would reject legitimate FKs as "invalid" while rendering a
-        // misleading subset. Counted before policy filtering.
+        // misleading subset. Counted before policy filtering. Distinct
+        // `Overflow` (GH #150) so searchable selects degrade to type-to-
+        // search instead of a retry error.
         tracing::warn!(
             resource = R::slug(),
             max = MAX_RELATIONSHIP_OPTIONS,
             "relationship option table overflows the cap"
         );
-        return Err(OptionLoadError::LoadFailed);
+        return Err(OptionLoadError::Overflow);
     }
     records.retain(|record| R::can_view(cx, record));
     Ok(records)
+}
+
+/// Bounded server-side option search (GH #150).
+///
+/// Reuses the related `Table`'s declared `searchable()` columns via
+/// `R::table(cx).search_expr(q)` (D1): documented as "option search searches
+/// the related resource's declared searchable columns". No option-specific
+/// hook until a real caller needs it.
+///
+/// * Empty/blank `q` → bounded head (same cap as [`related_records`]).
+/// * `q` non-empty but `search_expr` is `None` (no searchable columns) →
+///   fallback to the hard-cap path (D1a): unfiltered bounded load, `Overflow`
+///   when over the cap. Non-searchable selects keep today's behavior.
+/// * Filtered fetch carries `limit(MAX+1)` and fails with `Overflow` past the
+///   cap instead of scanning the table — one bounded round-trip per keystroke
+///   burst, never the whole table.
+/// * Policy mirrors the base load: `can_view_any` + tenant gate fail closed
+///   (`Denied`), rows filter through `can_view` before labels.
+/// * `q` is clamped to [`crate::resource::MAX_QUERY_TERM`] chars (same bound
+///   as `?q=`), trimmed.
+pub(crate) async fn related_records_search<R>(
+    cx: &Cx,
+    _tenant: Option<uuid::Uuid>,
+    q: String,
+) -> Result<Vec<R::Model>, OptionLoadError>
+where
+    R: crate::resource::Resource + 'static,
+    R::Model: Send + Sync + 'static,
+{
+    if !R::can_view_any(cx) {
+        return Err(OptionLoadError::Denied);
+    }
+    if R::requires_tenant() && crate::tenancy::tenant_id(cx).is_none() {
+        return Err(OptionLoadError::Denied);
+    }
+    let term = crate::resource::clamp_query_term(&q);
+    let mut query = R::query(cx);
+    if !term.is_empty() {
+        let table = R::table(cx);
+        // D1: reuse the related table's declared searchable columns. When it
+        // declares none, `search_expr` is None and we fall through unfiltered
+        // to the capped exec below (D1a fallback: hard-cap path, `Overflow`
+        // on large tables). Non-searchable selects keep today's behavior.
+        if let Some(expr) = table.search_expr(&term) {
+            query = query.filter(expr);
+        }
+    }
+    for ord in R::table(cx).order_bys() {
+        query = query.order_by(ord);
+    }
+    let mut db = crate::db::db(cx);
+    let mut records = query
+        .limit(MAX_RELATIONSHIP_OPTIONS + 1)
+        .exec(&mut db)
+        .await
+        .map_err(|e| {
+            tracing::warn!(
+                resource = R::slug(),
+                error = %e,
+                "relationship option search failed"
+            );
+            OptionLoadError::LoadFailed
+        })?;
+    if records.len() > MAX_RELATIONSHIP_OPTIONS {
+        tracing::warn!(
+            resource = R::slug(),
+            max = MAX_RELATIONSHIP_OPTIONS,
+            "relationship option search overflows the cap"
+        );
+        return Err(OptionLoadError::Overflow);
+    }
+    records.retain(|record| R::can_view(cx, record));
+    Ok(records)
+}
+
+/// Outcome of the targeted existence check for overflowed selects (GH #150 D4).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum RelatedCheck {
+    /// PK parses and resolves through `R::query` and passes `can_view`.
+    FoundViewable,
+    /// PK resolves but `can_view` denies it (maps to "invalid", never leaks).
+    FoundHidden,
+    /// PK does not parse or no row matches (maps to "invalid").
+    NotFound,
+}
+
+/// Targeted FK existence check for overflowed sets (GH #150 D4).
+///
+/// Membership in the bounded set cannot validate overflowed selects (the full
+/// set exceeds the cap), so validate the submitted value directly: parse via
+/// `pk_eq_expr`, fetch through tenancy-scoped `R::query`, then `can_view`.
+/// * `Denied` when `can_view_any` fails or tenant is missing (maps to
+///   "not available").
+/// * `LoadFailed` on driver failure (maps to retry).
+/// * `Ok(FoundViewable/FoundHidden/NotFound)` otherwise.
+pub(crate) async fn related_record_check<R>(
+    cx: &Cx,
+    _tenant: Option<uuid::Uuid>,
+    value: String,
+) -> Result<RelatedCheck, OptionLoadError>
+where
+    R: crate::resource::Resource + 'static,
+    R::Model: Send + Sync + 'static,
+{
+    if !R::can_view_any(cx) {
+        return Err(OptionLoadError::Denied);
+    }
+    if R::requires_tenant() && crate::tenancy::tenant_id(cx).is_none() {
+        return Err(OptionLoadError::Denied);
+    }
+    let trimmed = value.trim();
+    let Some(expr) = crate::schema::pk_eq_expr::<R::Model>(trimmed) else {
+        return Ok(RelatedCheck::NotFound);
+    };
+    let mut db = crate::db::db(cx);
+    let row = R::query(cx)
+        .filter(expr)
+        .first()
+        .exec(&mut db)
+        .await
+        .map_err(|e| {
+            tracing::warn!(
+                resource = R::slug(),
+                error = %e,
+                "relationship option check failed"
+            );
+            OptionLoadError::LoadFailed
+        })?;
+    match row {
+        None => Ok(RelatedCheck::NotFound),
+        Some(record) => {
+            if R::can_view(cx, &record) {
+                Ok(RelatedCheck::FoundViewable)
+            } else {
+                Ok(RelatedCheck::FoundHidden)
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -655,6 +820,393 @@ mod tests {
             OPTION_LOADS.load(Ordering::SeqCst),
             2,
             "a second tenant must not reuse the first tenant's options"
+        );
+    }
+
+    #[tokio::test]
+    async fn relationship_overflow_is_distinct_from_load_failed() {
+        // GH #150 D3: over-cap is `Overflow`, not `LoadFailed`, so searchable
+        // selects degrade to type-to-search while DB errors stay retryable.
+        use crate::resource::Resource;
+
+        #[derive(Debug, toasty::Model)]
+        struct BigRef {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            name: String,
+        }
+        struct BigRefResource;
+        impl Resource for BigRefResource {
+            type Model = BigRef;
+            fn can_view_any(_cx: &Cx) -> bool {
+                true
+            }
+            fn can_view(_cx: &Cx, _record: &BigRef) -> bool {
+                true
+            }
+            fn table(cx: &Cx) -> crate::resource::Table<BigRef> {
+                crate::resource::Table::r#for(cx)
+                    .id(|r: &BigRef| r.id.to_string())
+                    .columns(crate::resource::TextColumn::r#for(
+                        BigRef::fields().name(),
+                        |r: &BigRef| r.name.clone(),
+                    ))
+            }
+        }
+
+        let mut db = toasty::Db::builder()
+            .models(toasty::models!(BigRef))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        for i in 0..=MAX_RELATIONSHIP_OPTIONS {
+            toasty::create!(BigRef {
+                name: format!("author-{i}"),
+            })
+            .exec(&mut db)
+            .await
+            .unwrap();
+        }
+        let cx = CxTestBuilder::new().app_context(db).build();
+        let tenant = crate::tenancy::tenant_id(&cx);
+        let err = super::related_records::<BigRefResource>(&cx, tenant)
+            .await
+            .unwrap_err();
+        assert_eq!(err, &super::OptionLoadError::Overflow);
+        // Non-searchable keeps the retry message (today's behavior).
+        let plain = Select::r#for(BigRef::fields().name()).relationship::<BigRefResource>(
+            BigRefResource::query,
+            |r: &BigRef| r.id,
+            |r: &BigRef| r.name.clone(),
+        );
+        assert_eq!(
+            plain.validate_async(&cx, "whatever-not-a-uuid").await,
+            vec!["Name could not load options, retry".to_string()]
+        );
+    }
+
+    #[tokio::test]
+    async fn relationship_search_narrows_past_the_cap() {
+        // GH #150 D1: `related_records_search` reuses the related table's
+        // searchable columns — a 201-row table overflows unfiltered but a
+        // distinctive term returns its bounded match.
+        use crate::resource::Resource;
+
+        #[derive(Debug, toasty::Model)]
+        struct SearchRef {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            name: String,
+        }
+        struct SearchRefResource;
+        impl Resource for SearchRefResource {
+            type Model = SearchRef;
+            fn can_view_any(_cx: &Cx) -> bool {
+                true
+            }
+            fn can_view(_cx: &Cx, _record: &SearchRef) -> bool {
+                true
+            }
+            fn table(cx: &Cx) -> crate::resource::Table<SearchRef> {
+                crate::resource::Table::r#for(cx)
+                    .id(|r: &SearchRef| r.id.to_string())
+                    .columns(
+                        crate::resource::TextColumn::r#for(
+                            SearchRef::fields().name(),
+                            |r: &SearchRef| r.name.clone(),
+                        )
+                        .searchable(),
+                    )
+            }
+        }
+
+        let mut db = toasty::Db::builder()
+            .models(toasty::models!(SearchRef))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        for i in 0..MAX_RELATIONSHIP_OPTIONS {
+            toasty::create!(SearchRef {
+                name: format!("author-{i}"),
+            })
+            .exec(&mut db)
+            .await
+            .unwrap();
+        }
+        let unique = toasty::create!(SearchRef {
+            name: "Zebra Unique".to_string(),
+        })
+        .exec(&mut db)
+        .await
+        .unwrap();
+        let cx = CxTestBuilder::new().app_context(db).build();
+        let tenant = crate::tenancy::tenant_id(&cx);
+        // Unfiltered overflows (201 rows).
+        let err = super::related_records::<SearchRefResource>(&cx, tenant)
+            .await
+            .unwrap_err();
+        assert_eq!(err, &super::OptionLoadError::Overflow);
+        // Distinctive term narrows to one.
+        let rows =
+            super::related_records_search::<SearchRefResource>(&cx, tenant, "Zebra".to_string())
+                .await
+                .unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].name, "Zebra Unique");
+        // Empty q is the bounded head → still overflows on this table.
+        let err = super::related_records_search::<SearchRefResource>(&cx, tenant, "".to_string())
+            .await
+            .unwrap_err();
+        assert_eq!(err, super::OptionLoadError::Overflow);
+        // `Select::search_options` shares the same seam.
+        let select = Select::r#for(SearchRef::fields().name())
+            .searchable()
+            .relationship::<SearchRefResource>(
+                SearchRefResource::query,
+                |r: &SearchRef| r.id,
+                |r: &SearchRef| r.name.clone(),
+            );
+        let opts = select.search_options(&cx, "Zebra").await.unwrap();
+        assert_eq!(opts.len(), 1);
+        assert_eq!(opts[0].1, "Zebra Unique");
+        assert_eq!(opts[0].0, unique.id.to_string());
+    }
+
+    #[tokio::test]
+    async fn relationship_search_without_searchable_falls_back_to_cap() {
+        // GH #150 D1a: no searchable columns → unfiltered bounded load, which
+        // overflows large tables instead of silently truncating.
+        use crate::resource::Resource;
+
+        #[derive(Debug, toasty::Model)]
+        struct PlainRef {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            name: String,
+        }
+        struct PlainRefResource;
+        impl Resource for PlainRefResource {
+            type Model = PlainRef;
+            fn can_view_any(_cx: &Cx) -> bool {
+                true
+            }
+            fn can_view(_cx: &Cx, _record: &PlainRef) -> bool {
+                true
+            }
+            fn table(cx: &Cx) -> crate::resource::Table<PlainRef> {
+                crate::resource::Table::r#for(cx)
+                    .id(|r: &PlainRef| r.id.to_string())
+                    .columns(crate::resource::TextColumn::r#for(
+                        PlainRef::fields().name(),
+                        |r: &PlainRef| r.name.clone(),
+                    ))
+            }
+        }
+
+        let mut db = toasty::Db::builder()
+            .models(toasty::models!(PlainRef))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        for i in 0..=MAX_RELATIONSHIP_OPTIONS {
+            toasty::create!(PlainRef {
+                name: format!("author-{i}"),
+            })
+            .exec(&mut db)
+            .await
+            .unwrap();
+        }
+        let cx = CxTestBuilder::new().app_context(db).build();
+        let tenant = crate::tenancy::tenant_id(&cx);
+        let err =
+            super::related_records_search::<PlainRefResource>(&cx, tenant, "author-1".to_string())
+                .await
+                .unwrap_err();
+        assert_eq!(err, super::OptionLoadError::Overflow);
+    }
+
+    #[tokio::test]
+    async fn relationship_overflowed_searchable_validates_via_targeted_check() {
+        // GH #150 D4: searchable selects over overflowed tables validate
+        // legitimate FKs via the targeted PK check, not membership.
+        use crate::resource::Resource;
+
+        #[derive(Debug, toasty::Model)]
+        struct CheckRef {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            name: String,
+        }
+        struct CheckRefResource;
+        impl Resource for CheckRefResource {
+            type Model = CheckRef;
+            fn can_view_any(_cx: &Cx) -> bool {
+                true
+            }
+            fn can_view(_cx: &Cx, record: &CheckRef) -> bool {
+                record.name != "Hidden"
+            }
+            fn table(cx: &Cx) -> crate::resource::Table<CheckRef> {
+                crate::resource::Table::r#for(cx)
+                    .id(|r: &CheckRef| r.id.to_string())
+                    .columns(
+                        crate::resource::TextColumn::r#for(
+                            CheckRef::fields().name(),
+                            |r: &CheckRef| r.name.clone(),
+                        )
+                        .searchable(),
+                    )
+            }
+        }
+
+        let mut db = toasty::Db::builder()
+            .models(toasty::models!(CheckRef))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        let mut visible_pk = String::new();
+        for i in 0..=MAX_RELATIONSHIP_OPTIONS {
+            let name = if i == 0 {
+                "Hidden".to_string()
+            } else {
+                format!("author-{i}")
+            };
+            let row = toasty::create!(CheckRef { name })
+                .exec(&mut db)
+                .await
+                .unwrap();
+            if i == 1 {
+                visible_pk = row.id.to_string();
+            }
+        }
+        let hidden = CheckRef::filter(CheckRef::fields().name().eq("Hidden"))
+            .first()
+            .exec(&mut db.clone())
+            .await
+            .unwrap()
+            .unwrap();
+        let hidden_pk = hidden.id.to_string();
+        let cx = CxTestBuilder::new().app_context(db).build();
+        let searchable = Select::r#for(CheckRef::fields().name())
+            .searchable()
+            .relationship::<CheckRefResource>(
+                CheckRefResource::query,
+                |r: &CheckRef| r.id,
+                |r: &CheckRef| r.name.clone(),
+            );
+        // Legitimate FK beyond the cap passes via targeted check.
+        assert!(searchable.validate_async(&cx, &visible_pk).await.is_empty());
+        // Hidden row → invalid (not leaked), unknown → invalid.
+        assert_eq!(
+            searchable.validate_async(&cx, &hidden_pk).await,
+            vec!["Name is invalid".to_string()]
+        );
+        assert_eq!(
+            searchable
+                .validate_async(&cx, &uuid::Uuid::new_v4().to_string())
+                .await,
+            vec!["Name is invalid".to_string()]
+        );
+        // Non-searchable over the same table keeps the retry error.
+        let plain = Select::r#for(CheckRef::fields().name()).relationship::<CheckRefResource>(
+            CheckRefResource::query,
+            |r: &CheckRef| r.id,
+            |r: &CheckRef| r.name.clone(),
+        );
+        assert_eq!(
+            plain.validate_async(&cx, &visible_pk).await,
+            vec!["Name could not load options, retry".to_string()]
+        );
+    }
+
+    #[tokio::test]
+    async fn relationship_overflowed_searchable_renders_hint_and_keeps_value() {
+        // GH #150 D6: over-cap searchable renders stored value + search input
+        // + hint, with server data-attributes for the fetch.
+        use crate::resource::Resource;
+
+        #[derive(Debug, toasty::Model)]
+        struct HintRef {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            name: String,
+        }
+        struct HintRefResource;
+        impl Resource for HintRefResource {
+            type Model = HintRef;
+            fn can_view_any(_cx: &Cx) -> bool {
+                true
+            }
+            fn can_view(_cx: &Cx, _record: &HintRef) -> bool {
+                true
+            }
+            fn table(cx: &Cx) -> crate::resource::Table<HintRef> {
+                crate::resource::Table::r#for(cx)
+                    .id(|r: &HintRef| r.id.to_string())
+                    .columns(
+                        crate::resource::TextColumn::r#for(
+                            HintRef::fields().name(),
+                            |r: &HintRef| r.name.clone(),
+                        )
+                        .searchable(),
+                    )
+            }
+        }
+
+        let mut db = toasty::Db::builder()
+            .models(toasty::models!(HintRef))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        for i in 0..=MAX_RELATIONSHIP_OPTIONS {
+            toasty::create!(HintRef {
+                name: format!("author-{i}"),
+            })
+            .exec(&mut db)
+            .await
+            .unwrap();
+        }
+        let cx = CxTestBuilder::new().app_context(db).build();
+        let select = Select::r#for(HintRef::fields().name())
+            .searchable()
+            .relationship::<HintRefResource>(
+                HintRefResource::query,
+                |r: &HintRef| r.id,
+                |r: &HintRef| r.name.clone(),
+            );
+        let html = select
+            .render_with(&cx, Some("stored-fk"), &[])
+            .await
+            .unwrap()
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
+        assert!(
+            html.contains("value=\"stored-fk\""),
+            "overflow must keep stored value: {html}"
+        );
+        assert!(
+            html.contains("Too many options — type to search"),
+            "overflow searchable must hint: {html}"
+        );
+        assert!(
+            html.contains("data-options-server"),
+            "overflow searchable must flag server fetch: {html}"
+        );
+        assert!(
+            html.contains("data-options-field"),
+            "server fetch needs the field name: {html}"
         );
     }
 }

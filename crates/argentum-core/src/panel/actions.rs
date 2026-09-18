@@ -18,7 +18,8 @@ use super::forms::{parse_form_values, truthy};
 use super::{enforce_auth, enforce_tenant, list_url};
 use crate::db::db;
 use crate::notification::{Notification, set_notification};
-use crate::resource::{Resource, TablePage, TableState};
+use crate::resource::{Resource, TablePage, TableState, clamp_query_term};
+use crate::schema::OptionLoadError;
 
 /// Fetch one record by its URL `id` through the tenancy-scoped query seam.
 ///
@@ -359,6 +360,115 @@ pub(crate) fn resource_export<R: Resource>(cx: &Cx, _body: Body) -> RouteFuture<
             .map_err(|e| std::io::Error::other(e.to_string()))?;
         Ok(res)
     })
+}
+
+/// Relationship option search endpoint (GH #150 D2/D5).
+///
+/// `GET {parent_list_url}/options?field=&q=` — server-side narrowing for
+/// tables above the option cap. `field` allow-lists to a declared searchable
+/// relationship `Select` in `R::form(cx)` (400 otherwise); non-searchable
+/// selects keep today's cap error and never call here. `q` is trimmed and
+/// clamped to the shared query bound; empty `q` returns the bounded head.
+///
+/// Gates: `enforce_auth` + `enforce_tenant::<R>` (parent), then the related
+/// gates inside the search (`can_view_any` + tenant + `can_view` filtering
+/// before labels). `Denied` → 403, driver failure → 500, filtered overflow →
+/// 200 with a "keep typing" hint option (client keeps its hint element).
+/// Success → 200 `text/html` with `<option>` markup, bounded to
+/// `MAX_RELATIONSHIP_OPTIONS`, values are typed PK strings, labels escaped.
+pub(crate) fn resource_options<R: Resource>(cx: &Cx, _body: Body) -> RouteFuture<'_> {
+    Box::pin(async move {
+        enforce_auth(cx)?;
+        enforce_tenant::<R>(cx)?;
+        let (field, q) = options_query(cx);
+        let field = field.trim();
+        if field.is_empty() {
+            return Err(topcoat::router::error::bad_request("missing field").into());
+        }
+        let q = clamp_query_term(&q);
+        let form = R::form(cx);
+        let selects = form.select_inputs();
+        let Some(select) = selects.get(field) else {
+            return Err(topcoat::router::error::bad_request("unknown field").into());
+        };
+        if !select.is_relationship() {
+            return Err(topcoat::router::error::bad_request("not a relationship select").into());
+        }
+        if !select.is_searchable() {
+            return Err(topcoat::router::error::bad_request("not searchable").into());
+        }
+        match select.search_options(cx, &q).await {
+            Ok(opts) => {
+                let mut html = String::with_capacity(opts.len() * 32);
+                for (v, lab) in opts {
+                    html.push_str(&format!(
+                        "<option value=\"{}\">{}</option>",
+                        escape_option(&v),
+                        escape_option(&lab)
+                    ));
+                }
+                let res = http::Response::builder()
+                    .status(200)
+                    .header(http::header::CONTENT_TYPE, "text/html; charset=utf-8")
+                    .body(Body::from(html))
+                    .map_err(|e| std::io::Error::other(e.to_string()))?;
+                Ok(res)
+            }
+            Err(OptionLoadError::Denied) => Err(forbidden().into()),
+            Err(OptionLoadError::LoadFailed) => Err(topcoat::Error::from(std::io::Error::other(
+                "option search failed",
+            ))),
+            Err(OptionLoadError::Overflow) => {
+                let html = "<option value=\"\" disabled>Too many results — keep typing</option>"
+                    .to_string();
+                let res = http::Response::builder()
+                    .status(200)
+                    .header(http::header::CONTENT_TYPE, "text/html; charset=utf-8")
+                    .body(Body::from(html))
+                    .map_err(|e| std::io::Error::other(e.to_string()))?;
+                Ok(res)
+            }
+        }
+    })
+}
+
+/// Parse `?field=` + `?q=` for the options endpoint (first-wins, like the
+/// table state parser).
+fn options_query(cx: &Cx) -> (String, String) {
+    let Some(parts) = topcoat::context::try_request_context::<http::request::Parts>(cx) else {
+        return (String::new(), String::new());
+    };
+    let query = parts.uri.query().unwrap_or("");
+    let mut field = String::new();
+    let mut q = String::new();
+    let mut seen_field = false;
+    let mut seen_q = false;
+    for (k, v) in form_urlencoded::parse(query.as_bytes()) {
+        if k == "field" && !seen_field {
+            field = v.into_owned();
+            seen_field = true;
+        } else if k == "q" && !seen_q {
+            q = v.into_owned();
+            seen_q = true;
+        }
+    }
+    (field, q)
+}
+
+/// Escape a value/label for `<option>` markup.
+fn escape_option(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&#39;"),
+            _ => out.push(c),
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -922,6 +1032,292 @@ mod tests {
             http::StatusCode::INTERNAL_SERVER_ERROR,
             "composite PK must fail loudly, got {}",
             resp.status()
+        );
+    }
+
+    #[tokio::test]
+    async fn options_endpoint_searches_and_gates() {
+        // GH #150: `GET {parent}/options?field=&q=` narrows server-side,
+        // allow-lists to searchable relationship selects, and mirrors gates.
+        use crate::resource::Resource;
+        use http_body_util::BodyExt;
+
+        #[derive(Debug, toasty::Model)]
+        struct OptAuthor {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            name: String,
+        }
+        struct OptAuthorResource;
+        impl Resource for OptAuthorResource {
+            type Model = OptAuthor;
+            fn slug() -> String {
+                "opt-authors".to_string()
+            }
+            fn can_view_any(_cx: &Cx) -> bool {
+                true
+            }
+            fn can_view(_cx: &Cx, _record: &OptAuthor) -> bool {
+                true
+            }
+            fn table(cx: &Cx) -> crate::resource::Table<OptAuthor> {
+                crate::resource::Table::r#for(cx)
+                    .id(|a: &OptAuthor| a.id.to_string())
+                    .columns(
+                        crate::resource::TextColumn::r#for(
+                            OptAuthor::fields().name(),
+                            |a: &OptAuthor| a.name.clone(),
+                        )
+                        .searchable(),
+                    )
+            }
+        }
+
+        #[derive(Debug, toasty::Model)]
+        struct OptPost {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            author_id: uuid::Uuid,
+            title: String,
+        }
+        struct OptPostResource;
+        impl Resource for OptPostResource {
+            type Model = OptPost;
+            fn slug() -> String {
+                "opt-posts".to_string()
+            }
+            fn can_view_any(_cx: &Cx) -> bool {
+                true
+            }
+            fn can_view(_cx: &Cx, _record: &OptPost) -> bool {
+                true
+            }
+            fn table(cx: &Cx) -> crate::resource::Table<OptPost> {
+                crate::resource::Table::r#for(cx)
+                    .id(|p: &OptPost| p.id.to_string())
+                    .columns(crate::resource::TextColumn::r#for(
+                        OptPost::fields().title(),
+                        |p: &OptPost| p.title.clone(),
+                    ))
+            }
+            fn form(_cx: &Cx) -> crate::schema::Schema {
+                crate::schema::Schema::new(
+                    crate::schema::Select::r#for(OptPost::fields().author_id())
+                        .relationship::<OptAuthorResource>(
+                            OptAuthorResource::query,
+                            |a: &OptAuthor| a.id,
+                            |a: &OptAuthor| a.name.clone(),
+                        )
+                        .searchable(),
+                )
+            }
+        }
+
+        async fn body_text(resp: http::Response<Body>) -> String {
+            let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+            String::from_utf8_lossy(&bytes).to_string()
+        }
+
+        let mut db = Db::builder()
+            .models(toasty::models!(OptAuthor, OptPost))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        for name in ["Ada", "Grace", "Alan"] {
+            toasty::create!(OptAuthor {
+                name: name.to_string(),
+            })
+            .exec(&mut db)
+            .await
+            .unwrap();
+        }
+        let router = Panel::new("admin")
+            .app_context(db)
+            .resource::<OptPostResource>()
+            .resource::<OptAuthorResource>()
+            .auth(crate::Auth::disabled())
+            .build();
+
+        // Narrowing works.
+        let resp = router
+            .handle(
+                http::Request::builder()
+                    .uri("/admin/opt-posts/options?field=author_id&q=Ada")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await;
+        assert_eq!(resp.status(), http::StatusCode::OK);
+        let html = body_text(resp).await;
+        assert!(html.contains("Ada"), "search must return Ada, got {html}");
+        assert!(!html.contains("Grace"), "search must narrow, got {html}");
+
+        // Unknown field → 400.
+        let resp = router
+            .handle(
+                http::Request::builder()
+                    .uri("/admin/opt-posts/options?field=nope&q=Ada")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await;
+        assert_eq!(resp.status(), http::StatusCode::BAD_REQUEST);
+
+        // Missing field → 400.
+        let resp = router
+            .handle(
+                http::Request::builder()
+                    .uri("/admin/opt-posts/options?q=Ada")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await;
+        assert_eq!(resp.status(), http::StatusCode::BAD_REQUEST);
+
+        // Labels escape (no raw HTML passthrough).
+        assert!(!html.contains("<script"), "options must escape, got {html}");
+    }
+
+    #[tokio::test]
+    async fn options_endpoint_rejects_non_searchable_and_overflows() {
+        // GH #150 D5/D6: non-searchable selects never serve search (400);
+        // filtered overflow answers 200 with the keep-typing hint.
+        use crate::resource::Resource;
+        use http_body_util::BodyExt;
+
+        #[derive(Debug, toasty::Model)]
+        struct BigA {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            name: String,
+        }
+        struct BigAResource;
+        impl Resource for BigAResource {
+            type Model = BigA;
+            fn slug() -> String {
+                "big-as".to_string()
+            }
+            fn can_view_any(_cx: &Cx) -> bool {
+                true
+            }
+            fn can_view(_cx: &Cx, _record: &BigA) -> bool {
+                true
+            }
+            fn table(cx: &Cx) -> crate::resource::Table<BigA> {
+                crate::resource::Table::r#for(cx)
+                    .id(|a: &BigA| a.id.to_string())
+                    .columns(
+                        crate::resource::TextColumn::r#for(BigA::fields().name(), |a: &BigA| {
+                            a.name.clone()
+                        })
+                        .searchable(),
+                    )
+            }
+        }
+
+        #[derive(Debug, toasty::Model)]
+        struct BigP {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            author_id: uuid::Uuid,
+        }
+        struct SearchableParent;
+        impl Resource for SearchableParent {
+            type Model = BigP;
+            fn slug() -> String {
+                "big-ps".to_string()
+            }
+            fn form(_cx: &Cx) -> crate::schema::Schema {
+                crate::schema::Schema::new(
+                    crate::schema::Select::r#for(BigP::fields().author_id())
+                        .relationship::<BigAResource>(
+                            BigAResource::query,
+                            |a: &BigA| a.id,
+                            |a: &BigA| a.name.clone(),
+                        )
+                        .searchable(),
+                )
+            }
+        }
+        struct PlainParent;
+        impl Resource for PlainParent {
+            type Model = BigP;
+            fn slug() -> String {
+                "plain-ps".to_string()
+            }
+            fn form(_cx: &Cx) -> crate::schema::Schema {
+                crate::schema::Schema::new(
+                    crate::schema::Select::r#for(BigP::fields().author_id())
+                        .relationship::<BigAResource>(
+                            BigAResource::query,
+                            |a: &BigA| a.id,
+                            |a: &BigA| a.name.clone(),
+                        ),
+                )
+            }
+        }
+
+        let mut db = Db::builder()
+            .models(toasty::models!(BigA, BigP))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        for i in 0..=crate::schema::MAX_RELATIONSHIP_OPTIONS {
+            toasty::create!(BigA {
+                name: format!("author-{i}"),
+            })
+            .exec(&mut db)
+            .await
+            .unwrap();
+        }
+        let router = Panel::new("admin")
+            .app_context(db)
+            .resource::<SearchableParent>()
+            .resource::<PlainParent>()
+            .auth(crate::Auth::disabled())
+            .build();
+
+        // Non-searchable → 400 (keeps today's cap error path, never search).
+        let resp = router
+            .handle(
+                http::Request::builder()
+                    .uri("/admin/plain-ps/options?field=author_id&q=author-1")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await;
+        assert_eq!(resp.status(), http::StatusCode::BAD_REQUEST);
+
+        // Empty q on over-cap searchable → 200 with keep-typing hint.
+        let resp = router
+            .handle(
+                http::Request::builder()
+                    .uri("/admin/big-ps/options?field=author_id&q=")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await;
+        assert_eq!(resp.status(), http::StatusCode::OK);
+        let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+        let html = String::from_utf8_lossy(&bytes).to_string();
+        assert!(
+            html.contains("keep typing"),
+            "filtered overflow must hint, got {html}"
+        );
+    }
+
+    #[test]
+    fn options_query_parses_first_wins_and_escapes() {
+        assert_eq!(escape_option("a&b<c>\"'"), "a&amp;b&lt;c&gt;&quot;&#39;");
+        assert_eq!(
+            escape_option("550e8400-e29b-41d4-a716-446655440000"),
+            "550e8400-e29b-41d4-a716-446655440000"
         );
     }
 }

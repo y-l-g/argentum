@@ -254,6 +254,9 @@ Select::r#for(Post::fields().author_id())
     .label("Author")
 ```
 
+- Relation options are bounded to 200 (`MAX_RELATIONSHIP_OPTIONS`) and memoized per `(request, tenant)`. Small tables validate against the bounded set; `can_view` filters before labels, `can_view_any`/tenant denial fails closed (`not available`).
+- Large reference tables (10k+ rows) need `.searchable()` on the `Select` (GH #150): over-cap searchable selects degrade to type-to-search instead of a retry error. Typing fetches `GET {parent_list_url}/options?field=&q=` (debounced 200ms, abort in-flight, selection preserved), which reuses the related `Table`'s declared `searchable()` columns (`search_expr`), bounds to 200, and filters `can_view` before labels. No searchable columns → hard-cap path (non-searchable keeps the cap error). Overflowed submits validate via a targeted PK check (`R::query` + `can_view`): legitimate FKs beyond the cap pass, hidden → `invalid`, denied → `not available`, DB failure → retry. Initial render keeps the stored value + search input + “Too many options — type to search” hint; no-JS keeps the plain select (other fields still submit, relation cannot be changed past the cap).
+
 - `FileUpload` stores the sanitized basename as the `String` path (bytes are not persisted in v1; no `value` on `type=file`). Forms with one emit `enctype="multipart/form-data"`. Bodies are capped at 10 MiB (413), multipart without a boundary is a 400, and filenames rejecting `.` / `..` / Windows reserved names surface as inline errors. Empty submits keep the stored path; `clear_<field>=1` opts back into clearing.
 - `Repeater` is a single-entry group. An all-empty group is skipped, so its inner required fields do not fail the submit. A `required` repeater yields one label-keyed error; a partially filled group still enforces inner `required`.
 
