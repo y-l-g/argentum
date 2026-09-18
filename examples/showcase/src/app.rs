@@ -521,7 +521,7 @@ impl Resource for PostResource {
                     "Spotlight",
                     vec![
                         ("Featured".to_string(), Post::fields().featured().eq(true)),
-                        ("Regular".to_string(), Post::fields().featured().eq(false)),
+                        ("Standard".to_string(), Post::fields().featured().eq(false)),
                     ],
                 ),
             ))

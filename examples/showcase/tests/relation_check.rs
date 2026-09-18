@@ -313,3 +313,41 @@ async fn posts_create_lifecycle_fields_persist() {
     assert_eq!(created.status, "published");
     assert!(created.featured);
 }
+
+#[tokio::test]
+async fn posts_create_omitted_lifecycle_fields_default_to_draft() {
+    // Optional-with-defaults: lifecycle fields omitted from the payload
+    // create a plain draft, not a validation error.
+    let db = full_db().await;
+    let router = router(db.clone());
+    let client = demo_client(&router).await;
+    let csrf = uuid::Uuid::new_v4().to_string();
+    let mut db2 = db.clone();
+    let authors = Author::all().exec(&mut db2).await.unwrap();
+    let first = &authors[0];
+    let resp = client
+        .csrf(&csrf)
+        .post_form(
+            "/admin/posts/create",
+            format!(
+                "title=Stub+Post&author_id={}&image_path=/tmp/stub.jpg&tags=stub&csrf_token={csrf}",
+                first.id
+            ),
+        )
+        .await;
+    assert!(
+        resp.status().is_redirection(),
+        "stub POST must redirect, got {}",
+        resp.status()
+    );
+    let mut db_check = db.clone();
+    let created = Post::filter(Post::fields().title().eq("Stub Post".to_string()))
+        .first()
+        .exec(&mut db_check)
+        .await
+        .unwrap()
+        .expect("stub post");
+    assert_eq!(created.body, "");
+    assert_eq!(created.status, "draft");
+    assert!(!created.featured);
+}

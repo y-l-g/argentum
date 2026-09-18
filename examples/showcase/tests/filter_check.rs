@@ -338,15 +338,15 @@ async fn posts_filter_variant_spotlight_splits_featured() {
         "Featured must hide regular posts: {html}"
     );
 
-    let resp = client.get("/admin/posts?filters=spotlight:Regular").await;
+    let resp = client.get("/admin/posts?filters=spotlight:Standard").await;
     assert!(resp.status().is_success());
     let html = body_string(resp).await;
     assert!(
         html.contains("Second Post"),
-        "Regular must show non-spotlight posts: {html}"
+        "Standard must show non-spotlight posts: {html}"
     );
     assert!(
         !html.contains("Hello Toasty"),
-        "Regular must hide the spotlight post: {html}"
+        "Standard must hide the spotlight post: {html}"
     );
 }
