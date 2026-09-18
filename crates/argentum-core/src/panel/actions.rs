@@ -372,7 +372,10 @@ pub(crate) fn resource_export<R: Resource>(cx: &Cx, _body: Body) -> RouteFuture<
 ///
 /// Gates: `enforce_auth` + `enforce_tenant::<R>` (parent), then the related
 /// gates inside the search (`can_view_any` + tenant + `can_view` filtering
-/// before labels). `Denied` → 403, driver failure → 500, filtered overflow →
+/// before labels). Parent form policy (`can_create` / `can_view`+`can_update`)
+/// stays on the form pages themselves: requiring parent `can_view_any` here
+/// would lock create-only users out of a form they may use, and adds no
+/// visibility the related list does not already expose. `Denied` → 403, driver failure → 500, filtered overflow →
 /// 200 with a "keep typing" hint option (client keeps its hint element).
 /// Success → 200 `text/html` with `<option>` markup, bounded to
 /// `MAX_RELATIONSHIP_OPTIONS`, values are typed PK strings, labels escaped.

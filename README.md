@@ -393,7 +393,7 @@ Budget: 50-row list with 2 preloaded relations renders under 40ms p50 on local S
 Done:
 
 - CRUD for single resources: typed tables, cursor pagination, search and sort, create and edit forms, row and bulk delete, flash notifications, sidebar shell
-- Relations: preloaded `BelongsTo` and `HasMany`, relation selects, tenant scoping
+- Relations: preloaded `BelongsTo` and `HasMany`, relation selects, tenant scoping, server-side option search past the cap
 - Table extras: typed filters, page-local grouping with counts, CSV export, live in-place search and sort, empty and error states
 - Auth: default login plus sessions, custom user table seam, explicit opt-out, per-resource policy
 
@@ -401,7 +401,6 @@ Next:
 
 - Widgets and infolists: stats overview, charts, global search
 - Nicer media handling for uploads
-- Server-side search for large relation option lists
 - Documented production migrations
 
 Non-goals for v1:

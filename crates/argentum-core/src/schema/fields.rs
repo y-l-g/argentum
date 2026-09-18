@@ -509,9 +509,9 @@ impl Select {
     /// bounded set; overflowed tables surface `Overflow` (GH #150): searchable
     /// selects degrade to type-to-search with a targeted existence check,
     /// non-searchable ones keep the `could not load options, retry` error.
-    /// Option records are memoized per `(request, tenant)`, searches per
-    /// `(request, tenant, q)`, so any number of selects over one resource
-    /// share loads.
+    /// Base option records are memoized per `(request, tenant)` so any number
+    /// of selects over one resource share the load; searches and targeted
+    /// checks are single bounded round-trips per call, not shared.
     pub fn relationship<R>(
         mut self,
         _query: fn(&Cx) -> toasty::stmt::Query<toasty::stmt::List<R::Model>>,
@@ -551,12 +551,10 @@ impl Select {
             let label = label_s.clone();
             let cx = cx.clone();
             Box::pin(async move {
-                let records =
-                    match related_records_search::<R>(&cx, crate::tenancy::tenant_id(&cx), q).await
-                    {
-                        Ok(records) => records,
-                        Err(err) => return Err(err.clone()),
-                    };
+                let records = match related_records_search::<R>(&cx, q).await {
+                    Ok(records) => records,
+                    Err(err) => return Err(err.clone()),
+                };
                 let mut opts = Vec::new();
                 for rec in records.iter() {
                     opts.push((value(rec).to_string(), label(rec)));
@@ -567,7 +565,7 @@ impl Select {
         let check_loader = std::sync::Arc::new(move |cx: &Cx, v: String| {
             let cx = cx.clone();
             Box::pin(async move {
-                match related_record_check::<R>(&cx, crate::tenancy::tenant_id(&cx), v).await {
+                match related_record_check::<R>(&cx, v).await {
                     Ok(check) => Ok(check),
                     Err(err) => Err(err.clone()),
                 }
@@ -763,9 +761,12 @@ impl Select {
         };
         let error_id = format!("{name}-error");
         let filter_label = format!("Filter {label_text} options");
-        let is_rel_searchable = searchable && self.relationship.is_some();
-        let options_field = is_rel_searchable.then(|| name.clone());
-        let options_server = is_rel_searchable.then_some("true");
+        // Server fetch only past the cap (GH #150): bounded searchable sets
+        // keep the client-side label-substring filter (GH #91), so the
+        // `data-options-server` flag must follow the overflow state — not
+        // every searchable relationship. `selects.js` branches on this flag.
+        let options_field = overflow_searchable.then(|| name.clone());
+        let options_server = overflow_searchable.then_some("true");
         let options_overflow = overflow_searchable.then_some("true");
         let overflow_hint = "Too many options — type to search".to_string();
         Ok(view! {

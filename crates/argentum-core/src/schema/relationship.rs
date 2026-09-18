@@ -54,6 +54,25 @@ pub(crate) type RelationshipCheckFuture = std::pin::Pin<
 pub(crate) type RelationshipChecker =
     std::sync::Arc<dyn Fn(&Cx, String) -> RelationshipCheckFuture + Send + Sync>;
 
+/// Whether the option load may proceed: related `can_view_any` plus the
+/// related tenant gate fail closed (`Denied`). Shared by the bounded load,
+/// the server-side search, and the targeted check so tenancy isolation never
+/// rides on scope resolution in one place and not the others.
+fn ensure_option_access<R>(cx: &Cx) -> Result<(), OptionLoadError>
+where
+    R: crate::resource::Resource + 'static,
+{
+    if !R::can_view_any(cx) {
+        return Err(OptionLoadError::Denied);
+    }
+    if R::requires_tenant() && crate::tenancy::tenant_id(cx).is_none() {
+        // The panel gates every handler through `enforce_tenant::<R>`;
+        // option loads must not be the one tenantless path into `R::query`.
+        return Err(OptionLoadError::Denied);
+    }
+    Ok(())
+}
+
 /// Max options a relationship `Select` will load (GH #91): the loader carries
 /// `limit(Self + 1)` and fails past the cap instead of scanning a 10k-row
 /// table per select per submit.
@@ -93,14 +112,7 @@ where
     R: crate::resource::Resource + 'static,
     R::Model: Send + Sync + 'static,
 {
-    if !R::can_view_any(cx) {
-        return Err(OptionLoadError::Denied);
-    }
-    if R::requires_tenant() && crate::tenancy::tenant_id(cx).is_none() {
-        // The panel gates every handler through `enforce_tenant::<R>`;
-        // option loads must not be the one tenantless path into `R::query`.
-        return Err(OptionLoadError::Denied);
-    }
+    ensure_option_access::<R>(cx)?;
     let mut db = crate::db::db(cx);
     let mut records = R::query(cx)
         .limit(MAX_RELATIONSHIP_OPTIONS + 1)
@@ -149,21 +161,18 @@ where
 ///   (`Denied`), rows filter through `can_view` before labels.
 /// * `q` is clamped to [`crate::resource::MAX_QUERY_TERM`] chars (same bound
 ///   as `?q=`), trimmed.
+/// * One bounded round-trip per call, never the whole table; not memoized
+///   (`q` is unbounded per keystroke, and the endpoint serves one field and
+///   one term per request, so sharing would only grow the per-request cache).
 pub(crate) async fn related_records_search<R>(
     cx: &Cx,
-    _tenant: Option<uuid::Uuid>,
     q: String,
 ) -> Result<Vec<R::Model>, OptionLoadError>
 where
     R: crate::resource::Resource + 'static,
     R::Model: Send + Sync + 'static,
 {
-    if !R::can_view_any(cx) {
-        return Err(OptionLoadError::Denied);
-    }
-    if R::requires_tenant() && crate::tenancy::tenant_id(cx).is_none() {
-        return Err(OptionLoadError::Denied);
-    }
+    ensure_option_access::<R>(cx)?;
     let term = crate::resource::clamp_query_term(&q);
     let mut query = R::query(cx);
     if !term.is_empty() {
@@ -224,21 +233,17 @@ pub(crate) enum RelatedCheck {
 ///   "not available").
 /// * `LoadFailed` on driver failure (maps to retry).
 /// * `Ok(FoundViewable/FoundHidden/NotFound)` otherwise.
+/// * Single targeted round-trip per call, not memoized (one value per
+///   validation; sharing would only grow the per-request cache).
 pub(crate) async fn related_record_check<R>(
     cx: &Cx,
-    _tenant: Option<uuid::Uuid>,
     value: String,
 ) -> Result<RelatedCheck, OptionLoadError>
 where
     R: crate::resource::Resource + 'static,
     R::Model: Send + Sync + 'static,
 {
-    if !R::can_view_any(cx) {
-        return Err(OptionLoadError::Denied);
-    }
-    if R::requires_tenant() && crate::tenancy::tenant_id(cx).is_none() {
-        return Err(OptionLoadError::Denied);
-    }
+    ensure_option_access::<R>(cx)?;
     let trimmed = value.trim();
     let Some(expr) = crate::schema::pk_eq_expr::<R::Model>(trimmed) else {
         return Ok(RelatedCheck::NotFound);
@@ -951,14 +956,13 @@ mod tests {
             .unwrap_err();
         assert_eq!(err, &super::OptionLoadError::Overflow);
         // Distinctive term narrows to one.
-        let rows =
-            super::related_records_search::<SearchRefResource>(&cx, tenant, "Zebra".to_string())
-                .await
-                .unwrap();
+        let rows = super::related_records_search::<SearchRefResource>(&cx, "Zebra".to_string())
+            .await
+            .unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].name, "Zebra Unique");
         // Empty q is the bounded head → still overflows on this table.
-        let err = super::related_records_search::<SearchRefResource>(&cx, tenant, "".to_string())
+        let err = super::related_records_search::<SearchRefResource>(&cx, "".to_string())
             .await
             .unwrap_err();
         assert_eq!(err, super::OptionLoadError::Overflow);
@@ -1023,11 +1027,9 @@ mod tests {
             .unwrap();
         }
         let cx = CxTestBuilder::new().app_context(db).build();
-        let tenant = crate::tenancy::tenant_id(&cx);
-        let err =
-            super::related_records_search::<PlainRefResource>(&cx, tenant, "author-1".to_string())
-                .await
-                .unwrap_err();
+        let err = super::related_records_search::<PlainRefResource>(&cx, "author-1".to_string())
+            .await
+            .unwrap_err();
         assert_eq!(err, super::OptionLoadError::Overflow);
     }
 
@@ -1207,6 +1209,84 @@ mod tests {
         assert!(
             html.contains("data-options-field"),
             "server fetch needs the field name: {html}"
+        );
+    }
+
+    #[tokio::test]
+    async fn relationship_bounded_searchable_keeps_client_filter() {
+        // GH #150 + #91: bounded searchable sets narrow by label substring in
+        // the browser — the server flag is overflow-only, or every small
+        // table pays a debounced round-trip per keystroke.
+        use crate::resource::Resource;
+
+        #[derive(Debug, toasty::Model)]
+        struct SmallRef {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            name: String,
+        }
+        struct SmallRefResource;
+        impl Resource for SmallRefResource {
+            type Model = SmallRef;
+            fn can_view_any(_cx: &Cx) -> bool {
+                true
+            }
+            fn can_view(_cx: &Cx, _record: &SmallRef) -> bool {
+                true
+            }
+            fn table(cx: &Cx) -> crate::resource::Table<SmallRef> {
+                crate::resource::Table::r#for(cx)
+                    .id(|r: &SmallRef| r.id.to_string())
+                    .columns(
+                        crate::resource::TextColumn::r#for(
+                            SmallRef::fields().name(),
+                            |r: &SmallRef| r.name.clone(),
+                        )
+                        .searchable(),
+                    )
+            }
+        }
+
+        let mut db = toasty::Db::builder()
+            .models(toasty::models!(SmallRef))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        toasty::create!(SmallRef {
+            name: "Ada".to_string(),
+        })
+        .exec(&mut db)
+        .await
+        .unwrap();
+        let cx = CxTestBuilder::new().app_context(db).build();
+        let select = Select::r#for(SmallRef::fields().name())
+            .searchable()
+            .relationship::<SmallRefResource>(
+                SmallRefResource::query,
+                |r: &SmallRef| r.id,
+                |r: &SmallRef| r.name.clone(),
+            );
+        let html = select
+            .render_with(&cx, None, &[])
+            .await
+            .unwrap()
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
+        assert!(
+            html.contains("data-options-filter"),
+            "bounded searchable keeps the client filter input: {html}"
+        );
+        assert!(
+            !html.contains("data-options-server"),
+            "bounded searchable must not flag server fetch: {html}"
+        );
+        assert!(
+            !html.contains("Too many options"),
+            "bounded searchable must not hint: {html}"
         );
     }
 }
