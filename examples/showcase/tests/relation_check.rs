@@ -275,3 +275,41 @@ async fn hydrate_form_values_match_schema_fields() {
         .unwrap();
     assert_hydrate_keys_are_form_fields::<PostResource>(&cx, &post);
 }
+
+#[tokio::test]
+async fn posts_create_lifecycle_fields_persist() {
+    // The full post form: body prose plus static lifecycle selects alongside
+    // the author relationship select.
+    let db = full_db().await;
+    let router = router(db.clone());
+    let client = demo_client(&router).await;
+    let csrf = uuid::Uuid::new_v4().to_string();
+    let mut db2 = db.clone();
+    let authors = Author::all().exec(&mut db2).await.unwrap();
+    let first = &authors[0];
+    let resp = client
+        .csrf(&csrf)
+        .post_form(
+            "/admin/posts/create",
+            format!(
+                "title=Lifecycle+Post&body=Full+story&status=published&featured=true&author_id={}&image_path=/tmp/life.jpg&tags=life&csrf_token={csrf}",
+                first.id
+            ),
+        )
+        .await;
+    assert!(
+        resp.status().is_redirection(),
+        "lifecycle POST must redirect, got {}",
+        resp.status()
+    );
+    let mut db_check = db.clone();
+    let created = Post::filter(Post::fields().title().eq("Lifecycle Post".to_string()))
+        .first()
+        .exec(&mut db_check)
+        .await
+        .unwrap()
+        .expect("lifecycle post");
+    assert_eq!(created.body, "Full story");
+    assert_eq!(created.status, "published");
+    assert!(created.featured);
+}

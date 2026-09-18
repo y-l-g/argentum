@@ -283,3 +283,75 @@ async fn create_post_with_unknown_keys_is_bad_request() {
     let count = User::all().exec(&mut db_check).await.unwrap().len();
     assert_eq!(count, 8, "smuggled POST must not create");
 }
+
+#[tokio::test]
+async fn users_create_duplicate_email_shows_taken() {
+    // The declared unique() field re-renders inline instead of writing.
+    let db = seeded_db().await;
+    let router = router(db.clone());
+    let client = demo_client(&router).await;
+    let csrf = uuid::Uuid::new_v4().to_string();
+    let resp = client
+        .csrf(&csrf)
+        .post_form(
+            "/admin/users/create",
+            format!("name=Copycat&email=ada%40example.com&csrf_token={csrf}"),
+        )
+        .await;
+    assert!(
+        resp.status().is_success(),
+        "duplicate POST must re-render 200, got {}",
+        resp.status()
+    );
+    let html = body_string(resp).await;
+    assert!(
+        html.contains("has already been taken"),
+        "missing uniqueness error: {html}"
+    );
+    let mut db_check = db.clone();
+    let count = User::all().exec(&mut db_check).await.unwrap().len();
+    assert_eq!(count, 8, "duplicate POST must not create");
+}
+
+#[tokio::test]
+async fn users_create_static_selects_set_role_and_active() {
+    // Both Select kinds on one form: relationship selects live on posts;
+    // static options (role vocabulary, active Yes/No) live here.
+    let db = seeded_db().await;
+    let router = router(db.clone());
+    let client = demo_client(&router).await;
+
+    let resp = client.get("/admin/users/create").await;
+    let html = body_string(resp).await;
+    assert!(html.contains("Profile"), "missing wizard section: {html}");
+    assert!(html.contains("name=\"role\""), "missing role select: {html}");
+    assert!(
+        html.contains("name=\"active\""),
+        "missing active select: {html}"
+    );
+
+    let csrf = uuid::Uuid::new_v4().to_string();
+    let resp = client
+        .csrf(&csrf)
+        .post_form(
+            "/admin/users/create",
+            format!(
+                "name=New+Admin&email=newadmin%40example.com&role=admin&active=false&csrf_token={csrf}"
+            ),
+        )
+        .await;
+    assert!(
+        resp.status().is_redirection(),
+        "valid static-select POST must redirect, got {}",
+        resp.status()
+    );
+    let mut db_check = db.clone();
+    let created = User::filter(User::fields().email().eq("newadmin@example.com".to_string()))
+        .first()
+        .exec(&mut db_check)
+        .await
+        .unwrap()
+        .expect("created user");
+    assert_eq!(created.role, "admin");
+    assert!(!created.active);
+}

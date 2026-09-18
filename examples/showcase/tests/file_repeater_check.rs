@@ -42,10 +42,21 @@ async fn posts_create_shows_fileupload_and_repeater() {
         "missing tags input {}",
         html
     );
-    // Section/Grid composition
+    // Content/Group/Tabs composition: sectioned story fields, grouped
+    // metadata grid, tabbed media.
     assert!(
-        html.contains("Post Details") || html.contains("Section"),
-        "missing Section {}",
+        html.contains("Content"),
+        "missing Content section {}",
+        html
+    );
+    assert!(
+        html.contains("name=\"status\"") && html.contains("name=\"featured\""),
+        "missing lifecycle selects {}",
+        html
+    );
+    assert!(
+        html.contains("field-group"),
+        "missing Group container {}",
         html
     );
     assert!(

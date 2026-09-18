@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
 use argentum_core::{
-    Brand, DateFilter, FileUpload, Grid, NavigationItem, Panel, Repeater, Resource, Schema,
-    Section, Select, SelectFilter, Table, TernaryFilter, TextColumn, TextInput,
-    resource::HrefCheck, tenant_id,
+    Brand, DateFilter, FileUpload, Grid, Group, NavigationItem, Panel, Repeater, Resource, Schema,
+    Section, Select, SelectFilter, Table, Tabs, TernaryFilter, TextColumn, TextInput,
+    VariantFilter, Wizard, resource::HrefCheck, tenant_id,
 };
 use toasty::Db;
 use topcoat::{
@@ -78,21 +78,41 @@ impl Resource for UserResource {
     }
 
     fn form(_cx: &Cx) -> Schema {
-        // Canonical Resource::form seam (spec #6 solution) — typed lens → TextInput.
-        // Proves both Resource entry points are wired; resource owners declare
-        // forms here.
-        Schema::new((
-            // Required is inferred from the non-nullable columns (GH #100);
-            // no redundant `.required()` call.
-            TextInput::r#for(User::fields().name()),
-            TextInput::r#for(User::fields().email()).email().unique(),
-        ))
+        // Profile as a single-step wizard: the shipped Wizard seam grouping
+        // a real section, not a throwaway demo page.
+        Schema::new(Wizard::new().schema(Section::new("Profile").schema((
+            TextInput::r#for(User::fields().name()).placeholder("Ada Lovelace"),
+            TextInput::r#for(User::fields().email())
+                .email()
+                .unique()
+                .placeholder("ada@example.com"),
+            // Static-options Select (the non-relationship kind): role
+            // vocabulary with presence defaulting from the column.
+            Select::r#for(User::fields().role())
+                .options(vec!["admin".to_string(), "member".to_string()])
+                .label("Role")
+                .optional(),
+            // Bool lens via static options: the shipped Field set has no
+            // checkbox, so Active renders as a Yes/No select.
+            Select::r#for(User::fields().active())
+                .options_with_labels(vec![
+                    ("true".to_string(), "Active".to_string()),
+                    ("false".to_string(), "Inactive".to_string()),
+                ])
+                .label("Active")
+                .optional(),
+        ))))
     }
 
     fn hydrate_form_values(record: &User) -> HashMap<String, String> {
         let mut map = HashMap::new();
         map.insert("name".to_string(), record.name.clone());
         map.insert("email".to_string(), record.email.clone());
+        map.insert("role".to_string(), record.role.clone());
+        map.insert(
+            "active".to_string(),
+            if record.active { "true" } else { "false" }.to_string(),
+        );
         map
     }
 
@@ -113,11 +133,21 @@ impl Resource for UserResource {
             .unwrap_or_default()
             .trim()
             .to_string();
+        // Optional selects fall back to member/active: the form offers them,
+        // older clients omitting them still create a valid member.
+        let role = match values.get("role").map(|s| s.trim().to_string()) {
+            Some(r) if r == "admin" || r == "member" => r,
+            _ => "member".to_string(),
+        };
+        let active = match values.get("active").map(|s| s.trim().to_string()) {
+            Some(a) if a == "false" => false,
+            _ => true,
+        };
         toasty::create!(User {
             name: name,
             email: email,
-            role: "member",
-            active: true,
+            role: role,
+            active: active,
             created_at: jiff::Timestamp::now(),
         })
         .exec(&mut *ex)
@@ -144,9 +174,21 @@ impl Resource for UserResource {
             Some(v) => v.trim().to_string(),
             None => record.email.clone(),
         };
+        let role = match values.get("role") {
+            Some(v) if v.trim() == "admin" || v.trim() == "member" => v.trim().to_string(),
+            Some(_) => record.role.clone(),
+            None => record.role.clone(),
+        };
+        let active = match values.get("active") {
+            Some(v) if v.trim() == "false" => false,
+            Some(v) if v.trim() == "true" => true,
+            _ => record.active,
+        };
         toasty::update!(record {
             name: name,
             email: email,
+            role: role,
+            active: active,
         })
         .exec(&mut *ex)
         .await
@@ -435,6 +477,10 @@ impl Resource for PostResource {
                 TextColumn::r#for(Post::fields().title(), |p: &Post| p.title.clone())
                     .searchable()
                     .sortable(),
+                TextColumn::r#for(Post::fields().status(), |p: &Post| p.status.clone()),
+                TextColumn::computed("Featured", |p: &Post| {
+                    if p.featured { "Yes" } else { "No" }.to_string()
+                }),
                 TextColumn::computed("Author", |p: &Post| {
                     // Loud on missing includes (GH #101): a silent "-" reads
                     // as data. The list/export loaders always `include`
@@ -460,17 +506,6 @@ impl Resource for PostResource {
                         p.comments.get().len().to_string()
                     }
                 }),
-                TextColumn::computed("Author Email", |p: &Post| {
-                    debug_assert!(
-                        !p.author.is_unloaded(),
-                        "Author Email column needs Post::query to include author"
-                    );
-                    if p.author.is_unloaded() {
-                        "(unloaded)".to_string()
-                    } else {
-                        p.author.get().email.clone()
-                    }
-                }),
             ))
             .filters((
                 SelectFilter::r#for(
@@ -479,6 +514,16 @@ impl Resource for PostResource {
                 ),
                 TernaryFilter::r#for(Post::fields().featured()),
                 DateFilter::r#for(Post::fields().created_at()),
+                // Prebuilt-expression VariantFilter (no embedded enum needed):
+                // the editorial spotlight facet over the featured flag.
+                VariantFilter::r#for(
+                    "spotlight",
+                    "Spotlight",
+                    vec![
+                        ("Featured".to_string(), Post::fields().featured().eq(true)),
+                        ("Regular".to_string(), Post::fields().featured().eq(false)),
+                    ],
+                ),
             ))
             .group_by("status", |p: &Post| p.status.clone())
             .paginate(25)
@@ -487,8 +532,28 @@ impl Resource for PostResource {
 
     fn form(_cx: &Cx) -> Schema {
         Schema::new((
-            Section::new("Post Details").schema((
-                TextInput::r#for(Post::fields().title()),
+            Section::new("Content").schema((
+                TextInput::r#for(Post::fields().title()).placeholder("A title editors click"),
+                // Optional so quick draft stubs submit; full stories fill it.
+                TextInput::r#for(Post::fields().body())
+                    .placeholder("The full story…")
+                    .optional(),
+            )),
+            // Grouped metadata: lifecycle selects beside the author picker.
+            Group::new().schema((
+                Grid::new(2).schema((
+                    Select::r#for(Post::fields().status())
+                        .options(vec!["draft".to_string(), "published".to_string()])
+                        .label("Status")
+                        .optional(),
+                    Select::r#for(Post::fields().featured())
+                        .options_with_labels(vec![
+                            ("true".to_string(), "Featured".to_string()),
+                            ("false".to_string(), "Regular".to_string()),
+                        ])
+                        .label("Spotlight")
+                        .optional(),
+                )),
                 Select::r#for(Post::fields().author_id())
                     .relationship::<AuthorResource>(
                         AuthorResource::query,
@@ -498,9 +563,11 @@ impl Resource for PostResource {
                     .searchable()
                     .label("Author"),
             )),
-            Grid::new(2).schema((
+            // Media as tabs: upload and tags grouped until tab JS lands.
+            Tabs::new().schema((
                 FileUpload::r#for(Post::fields().image_path()),
-                Repeater::new("Tags").schema(TextInput::r#for(Post::fields().tags()).label("Tag")),
+                Repeater::new("Tags")
+                    .schema(TextInput::r#for(Post::fields().tags()).label("Tag")),
             )),
         ))
     }
@@ -508,6 +575,12 @@ impl Resource for PostResource {
     fn hydrate_form_values(record: &Post) -> HashMap<String, String> {
         let mut m = HashMap::new();
         m.insert("title".to_string(), record.title.clone());
+        m.insert("body".to_string(), record.body.clone());
+        m.insert("status".to_string(), record.status.clone());
+        m.insert(
+            "featured".to_string(),
+            if record.featured { "true" } else { "false" }.to_string(),
+        );
         m.insert("author_id".to_string(), record.author_id.to_string());
         m.insert("image_path".to_string(), record.image_path.clone());
         m.insert("tags".to_string(), record.tags.clone());
@@ -564,14 +637,30 @@ impl Resource for PostResource {
                 .unwrap_or_default()
                 .trim()
                 .to_string();
+            // Optional lifecycle fields with draft defaults: older clients
+            // omitting them still create a valid draft.
+            let body = values
+                .get("body")
+                .cloned()
+                .unwrap_or_default()
+                .trim()
+                .to_string();
+            let status = match values.get("status").map(|s| s.trim().to_string()) {
+                Some(s) if s == "draft" || s == "published" => s,
+                _ => "draft".to_string(),
+            };
+            let featured = matches!(
+                values.get("featured").map(|s| s.trim().to_string()),
+                Some(s) if s == "true"
+            );
             let tid =
                 tenant_id(&cx).expect("requires_tenant handlers always set a tenant (GH #87)");
             toasty::create!(Post {
                 tenant_id: tid,
                 title: title,
-                body: String::new(),
-                status: "draft".to_string(),
-                featured: false,
+                body: body,
+                status: status,
+                featured: featured,
                 created_at: jiff::Timestamp::now(),
                 image_path: image_path,
                 tags: tags,
@@ -630,11 +719,29 @@ impl Resource for PostResource {
                 Some(v) => v.trim().to_string(),
                 None => rec.tags.clone(),
             };
+            let body = match values.get("body") {
+                Some(v) => v.trim().to_string(),
+                None => rec.body.clone(),
+            };
+            let status = match values.get("status") {
+                Some(v) if v.trim() == "draft" || v.trim() == "published" => {
+                    v.trim().to_string()
+                }
+                _ => rec.status.clone(),
+            };
+            let featured = match values.get("featured") {
+                Some(v) if v.trim() == "true" => true,
+                Some(v) if v.trim() == "false" => false,
+                _ => rec.featured,
+            };
             toasty::update!(rec {
                 title: title,
                 author_id: author_id,
                 image_path: image_path,
-                tags: tags
+                tags: tags,
+                body: body,
+                status: status,
+                featured: featured
             })
             .exec(&mut *ex)
             .await

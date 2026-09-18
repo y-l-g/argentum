@@ -380,6 +380,17 @@ where
         vec![self.0.into(), self.1.into(), self.2.into()]
     }
 }
+impl<M, A, B, C, D> IntoFilters<M> for (A, B, C, D)
+where
+    A: Into<Filter<M>>,
+    B: Into<Filter<M>>,
+    C: Into<Filter<M>>,
+    D: Into<Filter<M>>,
+{
+    fn into_filters(self) -> Vec<Filter<M>> {
+        vec![self.0.into(), self.1.into(), self.2.into(), self.3.into()]
+    }
+}
 
 #[cfg(test)]
 mod tests {
