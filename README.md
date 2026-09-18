@@ -72,7 +72,7 @@ Panel::new("admin")
     .build() // -> Router via discover + app_context
 ```
 
-`Panel` owns the `Router`, registers `Db` and declared resources in `app_context`, registers each resource list at `/{prefix}/{slug}`, and redirects the panel root to the first resource. An app registers the shell with one layout handler: `Panel::layout_shell(cx, slot).await`. Custom pages add a typed `NavigationItem::from_href` through `Panel::navigation(..)`. `.brand(..)` / `.dark_mode(bool)` are opt-in shell seams (header brand + `dark` class + theme toggle); the showcase router leaves them unset and the shell falls back to the `"Admin"` title.
+`Panel` owns the `Router`, registers `Db` and declared resources in `app_context`, registers each resource list at `/{prefix}/{slug}`, and redirects the panel root to the first resource. An app registers the shell with one layout handler: `Panel::layout_shell(cx, slot).await`. Custom pages add a typed `NavigationItem::from_href` through `Panel::navigation(..)`. `.brand(..)` sets the header/sidebar brand (the showcase router leaves it unset and the shell falls back to the `"Admin"` title); `.dark_mode(bool)` only sets the initial `<html class>` — the theme toggle renders unconditionally (sidebar footer + header) and the stored choice wins on every later visit (see `DarkMode`, ADR-0014).
 
 ### 4.2 `Resource`
 

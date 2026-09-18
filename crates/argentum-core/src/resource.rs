@@ -1671,6 +1671,14 @@ impl<M> Table<M> {
     /// [`Self::render_with_state`] renders it with the grid; the live-search
     /// page (`panel::resource_list_live`) calls this separately because the
     /// shard swaps the grid per keystroke and must not carry dialog state.
+    ///
+    /// Behavior asset: Escape/backdrop dismissal and the `data-dialog-close`
+    /// cancel hook need `assets/dialog.js` (`argentum_ui::DIALOG_JS`, which
+    /// also mirrors the dismissal into `?open=false`), emitted by
+    /// `Panel::render_document` on every document with shell assets (see
+    /// ADR-0014). The dialog primitives are vendored under the ADR-0007 sync
+    /// guard so they carry no note themselves. Without the document scripts
+    /// Cancel still navigates and Delete still POSTs.
     pub async fn render_delete_dialog<'a>(
         &self,
         cx: &'a Cx,

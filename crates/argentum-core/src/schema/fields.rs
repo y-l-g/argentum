@@ -407,6 +407,12 @@ impl Select {
     /// capped); over-cap tables still fail visibly, and server-side option
     /// search for huge tables is future work (#150). No-JS keeps the plain
     /// select.
+    ///
+    /// Behavior asset: the filter input needs `assets/selects.js`
+    /// (`argentum_ui::SELECTS_JS`, hooks `data-select-filterable` /
+    /// `data-options-filter`), emitted by `Panel::render_document` on every
+    /// document with shell assets (see ADR-0014). Without the document
+    /// scripts the input is inert and the plain select keeps working.
     pub fn searchable(mut self) -> Self {
         self.searchable = true;
         self

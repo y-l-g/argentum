@@ -71,6 +71,13 @@ const CLOSE: StaticClass = class!(
 /// the `<noscript>` rule re-reveals toasts whose enter transition never got its
 /// `data-mounted` flip.
 ///
+/// Behavior asset: the enter transition, auto-dismissal, and the close button
+/// need `assets/notifications.js` (`crate::NOTIFICATION_JS`, hooks
+/// `data-sonner-toast` / `data-close-button`), emitted by
+/// `Panel::render_document` on every document with shell assets (see
+/// ADR-0014). A `toaster` rendered outside such a document shows its toasts
+/// statically through the `<noscript>` rule until the next navigation.
+///
 /// ```ignore
 /// view! {
 ///     toaster(

@@ -577,6 +577,14 @@ impl Panel {
     /// cookie/session) and the toast stack (shadcn/Sonner surface, fixed
     /// bottom-right). Additive `class` is allowed on the outer container only
     /// (narrow seam).
+    ///
+    /// Asset note: desktop persistence needs `assets/sidebar.js`
+    /// (`argentum_ui::SIDEBAR_JS`), which [`Self::layout_shell`]'s document —
+    /// not this function — emits (scripts are owned by the document). The
+    /// mobile sheet (`#mobile-sidebar-sheet`) instead dismisses through its
+    /// own runtime `@keydown`/`@click` handlers, so it needs no asset; the
+    /// vendored `sheet`/`sidebar` primitives carry no note themselves
+    /// (ADR-0007 sync guard). See ADR-0014.
     pub async fn render_shell<'a>(
         cx: &'a Cx,
         nav_items: &[NavigationItem],
@@ -789,6 +797,13 @@ impl Panel {
     /// class, and title. [`Self::layout_shell`] frames the panel shell with
     /// it; the standalone login page (ADR-0013) uses the same document so
     /// brand and dark mode carry over.
+    ///
+    /// The eight shell scripts ship `defer`red (deliberate all-load policy,
+    /// ADR-0014): parsing never waits for them, and every one is safe
+    /// deferred — document-level listeners install after parse, and the
+    /// `DOMContentLoaded` handlers still run, since deferred scripts execute
+    /// first. The blocking `theme_init_script` stays inline so the `dark`
+    /// class lands pre-paint.
     pub(crate) async fn render_document<'a>(
         cx: &'a Cx,
         title: String,
@@ -803,14 +818,14 @@ impl Panel {
                 topcoat::runtime::script()
                 topcoat::font::link(font: font)
                 <link rel="stylesheet" href=(stylesheet)>
-                <script src=(argentum_ui::SIDEBAR_JS)></script>
-                <script src=(argentum_ui::THEME_JS)></script>
-                <script src=(argentum_ui::DIALOG_JS)></script>
-                <script src=(argentum_ui::CODE_BLOCK_JS)></script>
-                <script src=(argentum_ui::BULK_JS)></script>
-                <script src=(argentum_ui::FILTERS_JS)></script>
-                <script src=(argentum_ui::SELECTS_JS)></script>
-                <script src=(argentum_ui::NOTIFICATION_JS)></script>
+                <script src=(argentum_ui::SIDEBAR_JS) defer=""></script>
+                <script src=(argentum_ui::THEME_JS) defer=""></script>
+                <script src=(argentum_ui::DIALOG_JS) defer=""></script>
+                <script src=(argentum_ui::CODE_BLOCK_JS) defer=""></script>
+                <script src=(argentum_ui::BULK_JS) defer=""></script>
+                <script src=(argentum_ui::FILTERS_JS) defer=""></script>
+                <script src=(argentum_ui::SELECTS_JS) defer=""></script>
+                <script src=(argentum_ui::NOTIFICATION_JS) defer=""></script>
             }
             .boxed(),
             None => view! {

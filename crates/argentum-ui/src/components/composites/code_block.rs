@@ -229,6 +229,13 @@ fn highlight_pair(code: &str) -> Option<(String, String)> {
 /// low-contrast greys and render with `var(--muted-foreground)` instead, so
 /// they stay legible on both surfaces (GH #151 §4).
 ///
+/// Behavior asset: the copy button needs `assets/code_block.js`
+/// (`crate::CODE_BLOCK_JS`, hook `data-copy-button`, document-level
+/// delegation so streamed/shard swaps keep working), emitted by
+/// `Panel::render_document` on every document with shell assets (see
+/// ADR-0014). Without the document scripts the button is inert and the
+/// snippet stays readable.
+///
 /// ```ignore
 /// code_block(lang: "rust", code: "fn main() {}")
 /// ```
