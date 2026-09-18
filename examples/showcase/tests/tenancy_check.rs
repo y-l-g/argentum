@@ -395,7 +395,7 @@ async fn comments_query_scopes_directly_through_parent_post() {
     use argentum_core::{Resource, Tenant};
     use showcase::app::CommentResource;
     use topcoat::context::CxTestBuilder;
-    let (db, t1, _) = tenanted_db().await;
+    let (db, t1, t2) = tenanted_db().await;
     let cx_t1 = CxTestBuilder::new()
         .app_context(db.clone())
         .request_context(Tenant(t1))
@@ -408,7 +408,7 @@ async fn comments_query_scopes_directly_through_parent_post() {
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].body, "T1 comment");
 
-    let cx_t2 = cx_t1.with(Tenant(uuid::Uuid::from_u128(2)));
+    let cx_t2 = cx_t1.with(Tenant(t2));
     let mut db_cx2 = argentum_core::db::db(&cx_t2);
     let rows2 = CommentResource::query(&cx_t2)
         .exec(&mut db_cx2)
