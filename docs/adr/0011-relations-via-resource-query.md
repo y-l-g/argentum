@@ -38,6 +38,16 @@ Relationship option identity (GH #108): `Select::relationship` takes a **typed p
 
 Option loads respect the related resource's policy (GH #108), resolving the policy caveat in the 2026-09-10 amendment: `can_view_any` denies the whole load — the select renders no options and not the stored value, the field surfaces `{label} is not available` (on GET too), and an untouched denied value on an optional select submits empty; a submit that still carries a value fails closed. `can_view` filters loaded rows before any label renders, so a filtered-out value is absent and reported as invalid. The option cap counts the raw bounded fetch, before that filtering (GH #91): counting viewable rows only would let one hidden record defeat the cap and silently truncate a larger table.
 
+## Amendment (2026-09-18, GH #168)
+
+Display key vs record key. The sentence above ("it stays the list's row
+identity for DOM ids, bulk values and edit/delete URLs") is superseded:
+`Table::id` is display-only (keyed diffs, DOM ids) and a new `Table::pk`
+projection feeds edit/delete URLs and bulk checkbox values, resolved by
+handlers as the model's typed PK. Rendering action or bulk chrome without
+`pk` is a render error, not a silent 404; single and bulk deletes require
+`can_view` + `can_delete` (the edit contract).
+
 ## Amendment (2026-09-18, GH #150)
 
 Server-side option search for tables above the cap. The cap failure splits into `Overflow` (distinct from driver `LoadFailed`): searchable `Select::relationship(..).searchable()` degrades to type-to-search, non-searchable keeps the retry error.

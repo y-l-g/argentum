@@ -74,6 +74,7 @@ impl Resource for AuthorResource {
     fn table(cx: &Cx) -> Table<Author> {
         Table::r#for(cx)
             .id(|a: &Author| a.id.to_string())
+            .pk(|a: &Author| a.id.to_string())
             .columns((
                 TextColumn::r#for(Author::fields().name(), |a: &Author| a.name.clone())
                     .searchable()
@@ -109,6 +110,7 @@ impl Resource for PostResource {
     fn table(cx: &Cx) -> Table<Post> {
         Table::r#for(cx)
             .id(|p: &Post| p.id.to_string())
+            .pk(|p: &Post| p.id.to_string())
             .columns((
                 TextColumn::r#for(Post::fields().title(), |p: &Post| p.title.clone())
                     .searchable()

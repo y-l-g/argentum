@@ -183,6 +183,7 @@ async fn create_policy_deny() {
         fn table(cx: &topcoat::context::Cx) -> Table<DummyUser> {
             Table::r#for(cx)
                 .id(|u: &DummyUser| u.id.to_string())
+                .pk(|u: &DummyUser| u.id.to_string())
                 .columns(TextColumn::r#for(
                     DummyUser::fields().name(),
                     |u: &DummyUser| u.name.clone(),

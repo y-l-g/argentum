@@ -96,11 +96,17 @@ pub(crate) fn resource_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
             // Confirmed and authenticated: open the transaction only now (GH
             // #144), fetch through the tenancy seam, check Policy against the
             // loaded record, and delete inside the tx — commit makes the checked
-            // delete durable, any error rolls it back (GH #84).
+            // delete durable, any error rolls it back (GH #84). Delete takes
+            // the edit contract (GH #86, GH #168): `can_view` plus
+            // `can_delete` — a record that cannot be viewed cannot be deleted
+            // by UUID-guessing the route.
             let mut db = db(cx);
             let mut tx = db.transaction().await.map_err(crate::db::unavailable)?;
             let id = topcoat::router::path_param_segment(cx, "id").to_string();
             let record = find_by_key::<R>(cx, &id, &mut tx).await?;
+            if !R::can_view(cx, &record) {
+                return Err(forbidden().into());
+            }
             if !R::can_delete(cx, &record) {
                 return Err(forbidden().into());
             }
@@ -173,6 +179,11 @@ pub(crate) fn resource_bulk_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<
                 return Err(topcoat::router::error::not_found().into());
             }
             for rec in &rows {
+                // Edit contract on every row (GH #168): viewing precedes
+                // deleting, same as the edit GET/POST pair.
+                if !R::can_view(cx, rec) {
+                    return Err(forbidden().into());
+                }
                 if !R::can_delete(cx, rec) {
                     return Err(forbidden().into());
                 }
@@ -495,6 +506,108 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn delete_and_bulk_delete_require_can_view() {
+        // GH #168: the edit contract extends to deletes — a record that
+        // cannot be viewed cannot be deleted by UUID-guessing the route,
+        // even with `can_delete == true`.
+        use crate::resource::Resource;
+        use std::collections::HashMap;
+
+        #[derive(Debug, toasty::Model)]
+        struct Dummy {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            name: String,
+        }
+        struct ViewDeniedResource;
+        impl Resource for ViewDeniedResource {
+            type Model = Dummy;
+            fn slug() -> String {
+                "dummies".to_string()
+            }
+            fn can_view(_cx: &Cx, _record: &Dummy) -> bool {
+                false
+            }
+            fn can_delete(_cx: &Cx, _record: &Dummy) -> bool {
+                true
+            }
+            fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
+                crate::resource::Table::r#for(cx)
+                    .id(|d: &Dummy| d.id.to_string())
+                    .pk(|d: &Dummy| d.id.to_string())
+                    .columns(crate::resource::TextColumn::r#for(
+                        Dummy::fields().name(),
+                        |d: &Dummy| d.name.clone(),
+                    ))
+            }
+            fn hydrate_form_values(_record: &Dummy) -> HashMap<String, String> {
+                HashMap::new()
+            }
+        }
+
+        let mut db = Db::builder()
+            .models(toasty::models!(Dummy))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        let row = toasty::create!(Dummy {
+            name: "Ada".to_string(),
+        })
+        .exec(&mut db)
+        .await
+        .unwrap();
+        let router = Panel::new("admin")
+            .app_context(db)
+            .resource::<ViewDeniedResource>()
+            .auth(crate::Auth::disabled())
+            .build();
+        let token = uuid::Uuid::new_v4().to_string();
+        let post = |uri: String, body: String| {
+            router.handle(
+                http::Request::builder()
+                    .uri(uri)
+                    .method(http::Method::POST)
+                    .header(
+                        http::header::CONTENT_TYPE,
+                        "application/x-www-form-urlencoded",
+                    )
+                    .header(
+                        http::header::COOKIE,
+                        format!("{}={token}", crate::csrf::COOKIE_NAME),
+                    )
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+        };
+        // Single delete: view-denied is 403 despite can_delete == true.
+        let single = post(
+            format!("/admin/dummies/{}/delete", row.id),
+            format!("confirm=1&csrf_token={token}"),
+        )
+        .await;
+        assert_eq!(
+            single.status(),
+            http::StatusCode::FORBIDDEN,
+            "view-denied single delete must 403, got {}",
+            single.status()
+        );
+        // Bulk delete: same rule, per row.
+        let bulk = post(
+            "/admin/dummies/bulk-delete".to_string(),
+            format!("ids={}&csrf_token={token}", row.id),
+        )
+        .await;
+        assert_eq!(
+            bulk.status(),
+            http::StatusCode::FORBIDDEN,
+            "view-denied bulk delete must 403, got {}",
+            bulk.status()
+        );
+    }
+
+    #[tokio::test]
     async fn bulk_delete_caps_ids_and_ignores_display_key() {
         use crate::resource::Resource;
         use std::collections::HashMap;
@@ -515,11 +628,17 @@ mod tests {
             fn can_delete(_cx: &Cx, _record: &Dummy) -> bool {
                 true
             }
+            fn can_view(_cx: &Cx, _record: &Dummy) -> bool {
+                true
+            }
             fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
                 // Non-canonical display key (GH #85): bulk must still resolve
-                // via the typed PK fetch alone.
+                // via the typed PK fetch alone. The record key stays canonical
+                // (GH #168) — the renderer emits it for bulk values, so the
+                // display/URL split is exercised, not bypassed.
                 crate::resource::Table::r#for(cx)
                     .id(|d: &Dummy| d.id.to_string().to_uppercase())
+                    .pk(|d: &Dummy| d.id.to_string())
                     .columns(crate::resource::TextColumn::r#for(
                         Dummy::fields().name(),
                         |d: &Dummy| d.name.clone(),
@@ -619,6 +738,144 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn delete_resolves_record_key_not_display_key() {
+        // GH #168 defect 1 round-trip: `Table::id` projects a non-PK value
+        // (the name), `Table::pk` carries the typed PK. Handlers must 404
+        // the display value and accept the record key, for single and bulk.
+        use crate::resource::Resource;
+        use std::collections::HashMap;
+
+        #[derive(Debug, toasty::Model)]
+        struct Dummy {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            name: String,
+        }
+        struct NameKeyResource;
+        impl Resource for NameKeyResource {
+            type Model = Dummy;
+            fn slug() -> String {
+                "dummies".to_string()
+            }
+            fn can_delete(_cx: &Cx, _record: &Dummy) -> bool {
+                true
+            }
+            fn can_view(_cx: &Cx, _record: &Dummy) -> bool {
+                true
+            }
+            fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
+                crate::resource::Table::r#for(cx)
+                    .id(|d: &Dummy| d.name.clone())
+                    .pk(|d: &Dummy| d.id.to_string())
+                    .columns(crate::resource::TextColumn::r#for(
+                        Dummy::fields().name(),
+                        |d: &Dummy| d.name.clone(),
+                    ))
+            }
+            async fn delete_record(
+                _cx: &Cx,
+                _record: Dummy,
+                _ex: &mut dyn toasty::Executor,
+            ) -> Result<()> {
+                Ok(())
+            }
+            async fn bulk_delete_records(
+                _cx: &Cx,
+                _records: Vec<Dummy>,
+                _ex: &mut dyn toasty::Executor,
+            ) -> Result<()> {
+                Ok(())
+            }
+            fn hydrate_form_values(_record: &Dummy) -> HashMap<String, String> {
+                HashMap::new()
+            }
+        }
+
+        let mut db = Db::builder()
+            .models(toasty::models!(Dummy))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        let row = toasty::create!(Dummy {
+            name: "Ada".to_string(),
+        })
+        .exec(&mut db)
+        .await
+        .unwrap();
+        let router = Panel::new("admin")
+            .app_context(db)
+            .resource::<NameKeyResource>()
+            .auth(crate::Auth::disabled())
+            .build();
+        let token = uuid::Uuid::new_v4().to_string();
+        let post = |uri: String, body: String| {
+            router.handle(
+                http::Request::builder()
+                    .uri(uri)
+                    .method(http::Method::POST)
+                    .header(
+                        http::header::CONTENT_TYPE,
+                        "application/x-www-form-urlencoded",
+                    )
+                    .header(
+                        http::header::COOKIE,
+                        format!("{}={token}", crate::csrf::COOKIE_NAME),
+                    )
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+        };
+        // Single delete with the display value 404s — it is not a PK.
+        let display_single = post(
+            "/admin/dummies/Ada/delete".to_string(),
+            format!("confirm=1&csrf_token={token}"),
+        )
+        .await;
+        assert_eq!(
+            display_single.status(),
+            http::StatusCode::NOT_FOUND,
+            "display key must not resolve, got {}",
+            display_single.status()
+        );
+        // Single delete with the record key succeeds.
+        let record_single = post(
+            format!("/admin/dummies/{}/delete", row.id),
+            format!("confirm=1&csrf_token={token}"),
+        )
+        .await;
+        assert!(
+            record_single.status().is_redirection(),
+            "record key must delete, got {}",
+            record_single.status()
+        );
+        // Bulk with the display value 404s.
+        let display_bulk = post(
+            "/admin/dummies/bulk-delete".to_string(),
+            format!("ids=Ada&csrf_token={token}"),
+        )
+        .await;
+        assert_eq!(
+            display_bulk.status(),
+            http::StatusCode::NOT_FOUND,
+            "display key must not resolve in bulk, got {}",
+            display_bulk.status()
+        );
+        // Bulk with the record key succeeds.
+        let record_bulk = post(
+            "/admin/dummies/bulk-delete".to_string(),
+            format!("ids={}&csrf_token={token}", row.id),
+        )
+        .await;
+        assert!(
+            record_bulk.status().is_redirection(),
+            "record key must bulk-delete, got {}",
+            record_bulk.status()
+        );
+    }
+
+    #[tokio::test]
     async fn bulk_delete_mid_loop_failure_deletes_zero_rows() {
         // GH #84 acceptance: fetch, policy checks, and deletes share one
         // framework transaction — an impl that fails halfway rolls everything
@@ -642,9 +899,13 @@ mod tests {
             fn can_delete(_cx: &Cx, _record: &Dummy) -> bool {
                 true
             }
+            fn can_view(_cx: &Cx, _record: &Dummy) -> bool {
+                true
+            }
             fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
                 crate::resource::Table::r#for(cx)
                     .id(|d: &Dummy| d.id.to_string())
+                    .pk(|d: &Dummy| d.id.to_string())
                     .columns(crate::resource::TextColumn::r#for(
                         Dummy::fields().name(),
                         |d: &Dummy| d.name.clone(),
@@ -757,6 +1018,7 @@ mod tests {
             fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
                 crate::resource::Table::r#for(cx)
                     .id(|d: &Dummy| d.id.to_string())
+                    .pk(|d: &Dummy| d.id.to_string())
                     .columns(crate::resource::TextColumn::r#for(
                         Dummy::fields().name(),
                         |d: &Dummy| d.name.clone(),
@@ -1070,6 +1332,7 @@ mod tests {
             fn table(cx: &Cx) -> crate::resource::Table<OptAuthor> {
                 crate::resource::Table::r#for(cx)
                     .id(|a: &OptAuthor| a.id.to_string())
+                    .pk(|a: &OptAuthor| a.id.to_string())
                     .columns(
                         crate::resource::TextColumn::r#for(
                             OptAuthor::fields().name(),
@@ -1103,6 +1366,7 @@ mod tests {
             fn table(cx: &Cx) -> crate::resource::Table<OptPost> {
                 crate::resource::Table::r#for(cx)
                     .id(|p: &OptPost| p.id.to_string())
+                    .pk(|p: &OptPost| p.id.to_string())
                     .columns(crate::resource::TextColumn::r#for(
                         OptPost::fields().title(),
                         |p: &OptPost| p.title.clone(),
@@ -1216,6 +1480,7 @@ mod tests {
             fn table(cx: &Cx) -> crate::resource::Table<BigA> {
                 crate::resource::Table::r#for(cx)
                     .id(|a: &BigA| a.id.to_string())
+                    .pk(|a: &BigA| a.id.to_string())
                     .columns(
                         crate::resource::TextColumn::r#for(BigA::fields().name(), |a: &BigA| {
                             a.name.clone()

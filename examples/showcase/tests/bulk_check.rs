@@ -258,6 +258,7 @@ async fn bulk_delete_partial_deny_aborts() {
         fn table(cx: &topcoat::context::Cx) -> Table<DummyUser> {
             Table::r#for(cx)
                 .id(|u: &DummyUser| u.id.to_string())
+                .pk(|u: &DummyUser| u.id.to_string())
                 .columns(TextColumn::r#for(
                     DummyUser::fields().name(),
                     |u: &DummyUser| u.name.clone(),
@@ -340,6 +341,7 @@ async fn view_any_deny_blocks_list() {
         fn table(cx: &topcoat::context::Cx) -> Table<DummyUser> {
             Table::r#for(cx)
                 .id(|u: &DummyUser| u.id.to_string())
+                .pk(|u: &DummyUser| u.id.to_string())
                 .columns(TextColumn::r#for(
                     DummyUser::fields().name(),
                     |u: &DummyUser| u.name.clone(),

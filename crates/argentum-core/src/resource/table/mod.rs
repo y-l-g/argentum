@@ -44,6 +44,7 @@ pub struct Table<M> {
     filters: Vec<Filter<M>>,
     group_by: Option<GroupDef<M>>,
     row_key: Option<RowKey<M>>,
+    record_key: Option<RowKey<M>>,
     page_size: Option<usize>,
     search_ui: Option<bool>,
     show_skeleton: bool,
@@ -63,6 +64,7 @@ impl<M> std::fmt::Debug for Table<M> {
             .field("filters", &self.filters.len())
             .field("group_by", &self.group_by.is_some())
             .field("row_key", &self.row_key.is_some())
+            .field("record_key", &self.record_key.is_some())
             .field("page_size", &self.page_size)
             .field("search_ui", &self.search_ui)
             .field("show_skeleton", &self.show_skeleton)
@@ -89,6 +91,7 @@ impl<M> Table<M> {
             filters: Vec::new(),
             group_by: None,
             row_key: None,
+            record_key: None,
             page_size: None,
             search_ui: None,
             show_skeleton: false,
@@ -127,8 +130,29 @@ impl<M> Table<M> {
     /// falling back to loop indices. The projection must be injective within
     /// a page (GH #96): duplicate keys corrupt keyed diffs and bulk selection,
     /// and are debug-asserted at render time.
+    ///
+    /// Display key only (GH #168): this drives keyed diffs and DOM ids —
+    /// never record fetches. Action URLs and bulk values
+    /// come from [`Self::pk`], which handlers resolve as the model's typed
+    /// PK. The two agree in the common case (`|u| u.id.to_string()`) and
+    /// diverge whenever the display projects a non-PK value.
     pub fn id(mut self, key: impl Fn(&M) -> String + Send + Sync + 'static) -> Self {
         self.row_key = Some(Arc::new(key));
+        self
+    }
+
+    /// Declare the record-key projection for action URLs and bulk checkbox
+    /// values (typically `|u| u.id.to_string()`), GH #168.
+    ///
+    /// Required before [`Self::render`] whenever action chrome is on
+    /// ([`Self::with_delete`], [`Self::with_edit`], [`Self::with_bulk_delete`]):
+    /// handlers resolve these strings as the model's typed PK (`pk_eq_expr` /
+    /// `pk_in_expr` — an unparseable value 404s), so emitting a display key
+    /// here used to 404 every delete and bulk submit. Renders with chrome but
+    /// without it return an error rather than emitting keys the handlers
+    /// cannot resolve.
+    pub fn pk(mut self, key: impl Fn(&M) -> String + Send + Sync + 'static) -> Self {
+        self.record_key = Some(Arc::new(key));
         self
     }
 
@@ -285,8 +309,20 @@ impl<M> Table<M> {
     }
 
     /// Return the row-key for a record, if the table has one.
+    ///
+    /// Display key only (GH #168): keyed diffs and DOM ids — never a fetch
+    /// key. Action URLs and bulk values come from [`Self::pk_for`].
     pub fn key_for(&self, record: &M) -> Option<String> {
         self.row_key.as_ref().map(|f| f(record))
+    }
+
+    /// Return the record-key for a record, if the table has one.
+    ///
+    /// The model's typed PK as URL text (GH #168): handlers resolve exactly
+    /// these strings (`pk_eq_expr` / `pk_in_expr`), so this is what edit URLs,
+    /// delete dialogs, and bulk checkbox values carry.
+    pub fn pk_for(&self, record: &M) -> Option<String> {
+        self.record_key.as_ref().map(|f| f(record))
     }
 
     /// Force the search toolbar on or off.
@@ -357,7 +393,9 @@ impl<M> Table<M> {
 
     /// Enable row-level `Delete` action. When set, each row renders a
     /// `Delete` button that POSTs to `{prefix}/{id}/delete` with
-    /// `requires_confirmation` semantics.
+    /// `requires_confirmation` semantics. `{id}` is the [`Self::pk`]
+    /// record key (handlers resolve it as the typed PK) — rendering with
+    /// delete chrome but no `pk` is a render error (GH #168).
     pub fn with_delete(mut self, prefix: String) -> Self {
         self.delete_prefix = Some(prefix);
         self
@@ -365,7 +403,9 @@ impl<M> Table<M> {
 
     /// Enable row-level `Edit` action (GH #162). When set, each row renders
     /// an `Edit` link to `{prefix}/{id}/edit` (Filament's `recordActions`
-    /// `EditAction`, same last-column slot as `Delete`). Per-record policy
+    /// `EditAction`, same last-column slot as `Delete`). `{id}` is the
+    /// [`Self::pk`] record key — rendering with edit chrome but no `pk` is a
+    /// render error (GH #168). Per-record policy
     /// stays handler-enforced (`can_view` + `can_update` in the edit GET/POST);
     /// the list deliberately does not filter rows (GH #86).
     pub fn with_edit(mut self, prefix: String) -> Self {
@@ -373,7 +413,9 @@ impl<M> Table<M> {
         self
     }
 
-    /// Enable bulk selection with `BulkDelete` action.
+    /// Enable bulk selection with `BulkDelete` action. Checkbox values are
+    /// the [`Self::pk`] record keys (handlers resolve them as typed PKs) —
+    /// rendering with bulk chrome but no `pk` is a render error (GH #168).
     pub fn with_bulk_delete(mut self, enabled: bool) -> Self {
         self.bulk_delete = enabled;
         self
@@ -642,6 +684,7 @@ mod tests {
     fn status_table(cx: &Cx) -> Table<Task> {
         Table::<Task>::r#for(cx)
             .id(|t| t.id.to_string())
+            .pk(|t| t.id.to_string())
             .columns(TextColumn::r#for(Task::fields().title(), |t| {
                 t.title.clone()
             }))
@@ -712,6 +755,7 @@ mod tests {
         let cx = CxTestBuilder::new().app_context(db).build();
         let tbl = Table::<User>::new()
             .id(|u| u.id.to_string())
+            .pk(|u| u.id.to_string())
             .columns(TextColumn::r#for(User::fields().name(), |u: &User| {
                 u.name.clone()
             }))
@@ -868,6 +912,7 @@ mod tests {
         let cx = CxTestBuilder::new().app_context(db).build();
         let users_table = Table::<User>::r#for(&cx)
             .id(|u| u.id.to_string())
+            .pk(|u| u.id.to_string())
             .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()).sortable());
         let mut db = crate::db::db(&cx);
 
@@ -909,6 +954,7 @@ mod tests {
         let cx = CxTestBuilder::new().build();
         let table = Table::<User>::r#for(&cx)
             .id(|u: &User| u.id.to_string())
+            .pk(|u: &User| u.id.to_string())
             .columns(TextColumn::r#for(User::fields().name(), |u: &User| {
                 u.name.clone()
             }));
@@ -916,6 +962,7 @@ mod tests {
         assert!(!table.is_defer(), "Table does not defer by default");
         let plain = Table::<User>::r#for(&cx)
             .id(|u: &User| u.id.to_string())
+            .pk(|u: &User| u.id.to_string())
             .columns(TextColumn::r#for(User::fields().name(), |u: &User| {
                 u.name.clone()
             }))
@@ -923,6 +970,7 @@ mod tests {
         assert!(!plain.is_boundary(), "boundary(false) disables");
         let deferred = Table::<User>::r#for(&cx)
             .id(|u: &User| u.id.to_string())
+            .pk(|u: &User| u.id.to_string())
             .columns(TextColumn::r#for(User::fields().name(), |u: &User| {
                 u.name.clone()
             }))
@@ -986,6 +1034,7 @@ mod tests {
         let cx = CxTestBuilder::new().build();
         let tbl = Table::<Task>::r#for(&cx)
             .id(|t| t.id.to_string())
+            .pk(|t| t.id.to_string())
             .columns(TextColumn::r#for(Task::fields().title(), |t| {
                 t.title.clone()
             }))

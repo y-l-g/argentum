@@ -93,6 +93,7 @@ impl Resource for MemberResource {
     fn table(cx: &Cx) -> Table<Member> {
         Table::r#for(cx)
             .id(|member: &Member| member.id.to_string())
+            .pk(|member: &Member| member.id.to_string())
             .columns(TextColumn::r#for(
                 Member::fields().handle(),
                 |member: &Member| member.handle.clone(),

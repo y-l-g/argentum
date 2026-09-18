@@ -79,6 +79,10 @@ pub trait Resource: Sized + Send + Sync + 'static {
     }
 
     /// Whether the current user may delete the given record.
+    ///
+    /// Checked on the single-delete and bulk-delete POSTs together with
+    /// `can_view` (GH #168) — the edit contract: a record that cannot be
+    /// viewed cannot be deleted by UUID-guessing the route.
     fn can_delete(_cx: &Cx, _record: &Self::Model) -> bool {
         false
     }
