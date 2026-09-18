@@ -190,6 +190,9 @@ impl<M> Table<M> {
     /// where reason is `"unknown filter"` (no declared filter owns the key)
     /// or `"invalid value"` (the declared filter rejected the value).
     ///
+    /// Documented no-op values are exempt (GH #170): `TernaryFilter`'s `all`
+    /// selects no predicate by contract, so it is never flagged.
+    ///
     /// The list view renders these as a `role=alert` banner and keeps a 200;
     /// the export refuses the request with 400 instead of silently
     /// over-sharing an effectively-unfiltered CSV.
@@ -201,7 +204,7 @@ impl<M> Table<M> {
         for (key, value) in &state.filters {
             match self.filters.iter().find(|f| f.name() == key) {
                 None => out.push((format!("{key}:{value}"), "unknown filter".to_string())),
-                Some(f) if f.to_expr(value).is_none() => {
+                Some(f) if f.to_expr(value).is_none() && !f.is_noop_value(value) => {
                     out.push((format!("{key}:{value}"), "invalid value".to_string()))
                 }
                 Some(_) => {}
@@ -612,7 +615,7 @@ impl<M> Table<M> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::resource::{SelectFilter, Sort, TableState, TextColumn};
+    use crate::resource::{SelectFilter, Sort, TableState, TernaryFilter, TextColumn};
     use toasty::Db;
     use toasty::stmt::List;
     use topcoat::context::CxTestBuilder;
@@ -972,6 +975,66 @@ mod tests {
         assert_eq!(
             tbl.unapplied_filters(&filters_state(&[("status", "Published")])),
             vec![("status:Published".to_string(), "invalid value".to_string())]
+        );
+    }
+
+    #[test]
+    fn ternary_all_is_a_neutral_noop_not_an_invalid_value() {
+        // GH #170: `all` is the documented TernaryFilter no-op — it selects
+        // no predicate AND is never flagged, so the list shows no warning
+        // and the export (which refuses on any unapplied filter) stays 200.
+        let cx = CxTestBuilder::new().build();
+        let tbl = Table::<Task>::r#for(&cx)
+            .id(|t| t.id.to_string())
+            .columns(TextColumn::r#for(Task::fields().title(), |t| {
+                t.title.clone()
+            }))
+            .filters(TernaryFilter::r#for(Task::fields().featured()));
+        let state = filters_state(&[("featured", "all")]);
+        assert!(
+            tbl.filter_expr(&state).is_none(),
+            "all must select no predicate"
+        );
+        assert!(
+            tbl.unapplied_filters(&state).is_empty(),
+            "all must not be flagged, got {:?}",
+            tbl.unapplied_filters(&state)
+        );
+        // Genuine garbage still flags.
+        assert_eq!(
+            tbl.unapplied_filters(&filters_state(&[("featured", "maybe")])),
+            vec![("featured:maybe".to_string(), "invalid value".to_string())]
+        );
+    }
+
+    #[tokio::test]
+    async fn filter_banner_reports_unfiltered_when_nothing_applies() {
+        // GH #170: an invalid-only request applies no predicate, so the
+        // banner must say "showing unfiltered results" — "other filter(s)
+        // still apply" would be the lie. Mixed valid+invalid keeps the old
+        // tail (GH #148).
+        use topcoat::view::ViewExt;
+        let cx = CxTestBuilder::new().build();
+        let tbl = status_table(&cx);
+        let render_banner = async |pairs: &[(&str, &str)]| {
+            let page = crate::resource::TablePage::<Task>::from(vec![]);
+            tbl.render_with_state(&cx, page, &filters_state(pairs), "/admin/tasks")
+                .await
+                .unwrap()
+                .single()
+                .await
+                .unwrap()
+                .render(&cx)
+        };
+        let html = render_banner(&[("status", "typo")]).await;
+        assert!(
+            html.contains("showing unfiltered results"),
+            "invalid-only banner must admit unfiltered, got {html}"
+        );
+        let html = render_banner(&[("status", "published"), ("bogus", "x")]).await;
+        assert!(
+            html.contains("other filter(s) still apply"),
+            "mixed banner keeps the GH #148 tail, got {html}"
         );
     }
 

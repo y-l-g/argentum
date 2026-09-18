@@ -195,8 +195,10 @@ impl<M> Table<M> {
                     .join(", ");
                 // No false tail: when other filters still apply, "unfiltered"
                 // would be a lie (GH #148 — a malformed segment can ride
-                // alongside valid ones).
-                let consequence = if state.filters.is_empty() {
+                // alongside valid ones). Conversely an invalid-only request
+                // applies nothing, so "other filter(s)" would be the lie
+                // (GH #170) — key off applied predicates, not raw entries.
+                let consequence = if self.filter_expr(state).is_none() {
                     "showing unfiltered results"
                 } else {
                     "other filter(s) still apply"

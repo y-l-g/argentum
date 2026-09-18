@@ -116,6 +116,15 @@ where
         }
     }
 
+    /// The documented no-op value (GH #170): `all` selects no predicate, and
+    /// — unlike any other rejected value — it is neutral, never `"invalid
+    /// value"`. `to_expr` still returns `None` for it (there is no predicate
+    /// to build); `Table::unapplied_filters` consults this so the no-op is
+    /// never flagged and the export never refuses it.
+    pub fn is_noop_value(value: &str) -> bool {
+        value.trim() == "all"
+    }
+
     pub fn name(&self) -> &str {
         &self.name
     }
@@ -327,6 +336,15 @@ where
             Filter::Ternary(f) => f.to_expr(value),
             Filter::Date(f) => f.to_expr(value),
             Filter::Variant(f) => f.to_expr(value),
+        }
+    }
+    /// Whether this value is a documented no-op for this filter (GH #170):
+    /// only `TernaryFilter`'s `all` qualifies — every other rejected value
+    /// is genuinely invalid.
+    pub fn is_noop_value(&self, value: &str) -> bool {
+        match self {
+            Filter::Ternary(_) => TernaryFilter::<M>::is_noop_value(value),
+            _ => false,
         }
     }
 }
