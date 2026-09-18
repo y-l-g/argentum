@@ -61,10 +61,10 @@ async fn posts_create_empty_author_shows_required_error() {
         "missing required error {}",
         html
     );
-    // DB still has 2 posts
+    // DB still has 6 posts
     let mut db2 = db.clone();
     let posts = Post::all().exec(&mut db2).await.unwrap();
-    assert_eq!(posts.len(), 2);
+    assert_eq!(posts.len(), 6);
 }
 
 #[tokio::test]
@@ -94,7 +94,7 @@ async fn posts_create_invalid_author_shows_invalid_error() {
     );
     let mut db2 = db.clone();
     let posts = Post::all().exec(&mut db2).await.unwrap();
-    assert_eq!(posts.len(), 2);
+    assert_eq!(posts.len(), 6);
 }
 
 #[tokio::test]
@@ -194,8 +194,8 @@ async fn posts_list_shows_comments_count_via_include() {
         "missing Comments header {}",
         html
     );
-    // Hello Toasty has 1 comment, Second Post has 0 (cell content only)
-    assert!(html.contains(">1<"), "missing comment count 1 {}", html);
+    // Hello Toasty has 3 comments, Second Post has 0 (cell content only)
+    assert!(html.contains(">3<"), "missing comment count 3 {}", html);
     assert!(html.contains(">0<"), "missing comment count 0 {}", html);
     // GH #101: loaded relations must never render the unloaded marker.
     assert!(

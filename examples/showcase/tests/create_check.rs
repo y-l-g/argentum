@@ -62,7 +62,7 @@ async fn manual_create_check() {
     // Check DB still has 3 rows
     let mut db_check = db.clone();
     let count = User::all().exec(&mut db_check).await.unwrap().len();
-    assert_eq!(count, 3, "DB should still have 3 after invalid");
+    assert_eq!(count, 8, "DB should still have 8 after invalid");
 
     // Test POST valid
     let resp = client
@@ -148,7 +148,7 @@ async fn manual_create_check() {
     );
     let mut db_check2 = db.clone();
     let count2 = User::all().exec(&mut db_check2).await.unwrap().len();
-    assert_eq!(count2, 4, "DB should have 4 after valid create");
+    assert_eq!(count2, 9, "DB should have 9 after valid create");
     // Also verify that new user can be found via query
     let new_user = User::filter(User::fields().email().eq("new@example.com".to_string()))
         .first()
@@ -281,5 +281,5 @@ async fn create_post_with_unknown_keys_is_bad_request() {
     );
     let mut db_check = db.clone();
     let count = User::all().exec(&mut db_check).await.unwrap().len();
-    assert_eq!(count, 3, "smuggled POST must not create");
+    assert_eq!(count, 8, "smuggled POST must not create");
 }

@@ -15,7 +15,7 @@ async fn bulk_delete_deletes_selected() {
     let csrf = uuid::Uuid::new_v4().to_string();
     let mut db_q = db.clone();
     let users = User::all().exec(&mut db_q).await.unwrap();
-    assert_eq!(users.len(), 3);
+    assert_eq!(users.len(), 8);
     let ids: Vec<String> = users.iter().take(2).map(|u| u.id.to_string()).collect();
     let ids_param = ids.join(",");
 
@@ -71,8 +71,8 @@ async fn bulk_delete_deletes_selected() {
     let remaining = User::all().exec(&mut db_check).await.unwrap();
     assert_eq!(
         remaining.len(),
-        1,
-        "should have 1 after bulk delete 2, got {}",
+        6,
+        "should have 6 after bulk delete 2, got {}",
         remaining.len()
     );
     // Follow redirect carrying the flash cookie and check the toast
@@ -118,7 +118,7 @@ async fn bulk_delete_without_ids_redirects_with_the_reason() {
     // Nothing was deleted.
     let mut db_check = db.clone();
     let remaining = User::all().exec(&mut db_check).await.unwrap();
-    assert_eq!(remaining.len(), 3, "an empty bulk delete deletes nothing");
+    assert_eq!(remaining.len(), 8, "an empty bulk delete deletes nothing");
 }
 
 #[tokio::test]
@@ -150,7 +150,7 @@ async fn bulk_delete_short_fetch_404s_and_deletes_nothing() {
     let remaining = User::all().exec(&mut db_check).await.unwrap();
     assert_eq!(
         remaining.len(),
-        3,
+        8,
         "a short-fetch batch must delete nothing, got {}",
         remaining.len()
     );
@@ -168,19 +168,19 @@ async fn bulk_bar_renders_checkboxes_with_row_keys() {
     let csrf = uuid::Uuid::new_v4().to_string();
     let mut db_q = db.clone();
     let users = User::all().exec(&mut db_q).await.unwrap();
-    assert_eq!(users.len(), 3);
+    assert_eq!(users.len(), 8);
     let ids: std::collections::HashSet<String> = users.iter().map(|u| u.id.to_string()).collect();
 
     // The list streams (skeleton first, rows in the swap payload); the
     // collected body contains both. The table paginates by 25, so the first
-    // page carries all 3 seeded row checkboxes.
+    // page carries all 8 seeded row checkboxes.
     let resp = client.get("/admin/users").await;
     assert!(resp.status().is_success());
     let html = body_string(resp).await;
     assert_eq!(
         html.matches("data-row-select").count(),
-        3,
-        "first page should carry 3 row checkboxes in {}",
+        8,
+        "first page should carry 8 row checkboxes in {}",
         html
     );
     // Every rendered checkbox value is a real row key (the three visible rows;
@@ -192,7 +192,7 @@ async fn bulk_bar_renders_checkboxes_with_row_keys() {
         }
     }
     assert_eq!(
-        found, 3,
+        found, 8,
         "all visible row keys should be checkbox values in {}",
         html
     );

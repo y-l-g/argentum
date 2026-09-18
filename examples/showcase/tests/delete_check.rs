@@ -121,7 +121,7 @@ async fn delete_requires_confirmation_and_deletes() {
     // Check DB: user should be gone
     let mut db_check = db.clone();
     let count = User::all().exec(&mut db_check).await.unwrap().len();
-    assert_eq!(count, 2, "should have 2 after delete, got {}", count);
+    assert_eq!(count, 7, "should have 7 after delete, got {}", count);
     let gone = User::filter(User::fields().id().eq(user.id))
         .first()
         .exec(&mut db_check)

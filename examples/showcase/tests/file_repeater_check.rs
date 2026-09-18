@@ -91,7 +91,7 @@ async fn posts_create_invalid_fileupload_repeater_shows_errors() {
     // Should not create
     let mut db2 = db.clone();
     let posts = Post::all().exec(&mut db2).await.unwrap();
-    assert_eq!(posts.len(), 2, "should not create on invalid");
+    assert_eq!(posts.len(), 6, "should not create on invalid");
 }
 
 #[tokio::test]
@@ -273,7 +273,7 @@ async fn posts_edit_untouched_file_keeps_stored_path() {
     .await
     .unwrap()
     .expect("seeded post");
-    assert_eq!(post.image_path, "/images/hello.jpg");
+    assert_eq!(post.image_path, "hello-toasty.jpg");
     let authors = Author::all().exec(&mut db_q).await.unwrap();
     let csrf = uuid::Uuid::new_v4().to_string();
     let resp = client
@@ -302,7 +302,7 @@ async fn posts_edit_untouched_file_keeps_stored_path() {
     .unwrap()
     .expect("renamed post");
     assert_eq!(
-        kept.image_path, "/images/hello.jpg",
+        kept.image_path, "hello-toasty.jpg",
         "stored path must survive untouched edit"
     );
 }
@@ -354,7 +354,7 @@ async fn posts_edit_explicit_clear_flag_skips_preservation() {
     .unwrap()
     .expect("post still titled");
     assert_eq!(
-        kept.image_path, "/images/hello.jpg",
+        kept.image_path, "hello-toasty.jpg",
         "failed edit must not touch storage"
     );
 }
