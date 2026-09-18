@@ -468,10 +468,14 @@ async fn check_unique<R: Resource>(
     values: &HashMap<String, String>,
     current: &HashMap<String, String>,
     ex: &mut dyn toasty::Executor,
-) -> HashMap<String, Vec<String>> {
+) -> Result<HashMap<String, Vec<String>>, topcoat::Error> {
     let mut errors: HashMap<String, Vec<String>> = HashMap::new();
+    // Absent Repeater groups are not checked (GH #167): `validate` treats an
+    // all-empty group as untouched via the same classification, so a stored
+    // `""` must not flag a group the user never touched.
+    let skip = schema.absent_repeater_fields(values);
     for (name, input) in schema.text_inputs() {
-        if !input.is_unique() {
+        if !input.is_unique() || skip.contains(&name) {
             continue;
         }
         let Some(submitted) = values.get(&name).map(|s| s.trim().to_string()) else {
@@ -490,20 +494,23 @@ async fn check_unique<R: Resource>(
             continue;
         }
         // Inside the handler's tx (GH #84): the check observes the same
-        // snapshot as the write that follows.
+        // snapshot as the write that follows. A failing probe fails the
+        // submit (GH #167) — swallowing it would write past a check that
+        // never ran.
         let rows = R::query(cx)
             .filter(input.eq_filter::<R::Model>(submitted))
             .limit(1)
             .exec(&mut *ex)
-            .await;
-        if matches!(rows, Ok(rows) if !rows.is_empty()) {
+            .await
+            .map_err(topcoat::Error::from)?;
+        if !rows.is_empty() {
             errors.insert(
                 name,
                 vec![format!("{} has already been taken", input.label_str())],
             );
         }
     }
-    errors
+    Ok(errors)
 }
 
 /// Shared create/edit POST error tail (GH #134): re-render the form with inline
@@ -561,7 +568,8 @@ pub(crate) fn resource_create_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<
         // App-side unique check over every `unique()`-marked input — the only
         // error layer until toasty exposes a unique-violation predicate
         // (upstream gap #117; never string-match driver error messages).
-        for (name, errs) in check_unique::<R>(cx, &schema, &values, &HashMap::new(), &mut tx).await
+        for (name, errs) in
+            check_unique::<R>(cx, &schema, &values, &HashMap::new(), &mut tx).await?
         {
             errors.entry(name).or_default().extend(errs);
         }
@@ -682,7 +690,7 @@ pub(crate) fn resource_edit_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_
         if !R::can_update(cx, &record) {
             return Err(forbidden().into());
         }
-        for (name, errs) in check_unique::<R>(cx, &schema, &values, &current, &mut tx).await {
+        for (name, errs) in check_unique::<R>(cx, &schema, &values, &current, &mut tx).await? {
             errors.entry(name).or_default().extend(errs);
         }
         if !errors.is_empty() {
@@ -1084,7 +1092,8 @@ mod tests {
         // Create: duplicate → inline error on the field, label-derived.
         let errors =
             check_unique::<SubscriberResource>(&cx, &schema, &values, &HashMap::new(), &mut ex)
-                .await;
+                .await
+                .unwrap();
         assert_eq!(
             errors.get("email"),
             Some(&vec!["Email has already been taken".to_string()]),
@@ -1096,14 +1105,16 @@ mod tests {
         fresh.insert("email".to_string(), "other@b.c".to_string());
         let errors =
             check_unique::<SubscriberResource>(&cx, &schema, &fresh, &HashMap::new(), &mut ex)
-                .await;
+                .await
+                .unwrap();
         assert!(errors.is_empty(), "fresh value must pass, got {errors:?}");
 
         // Edit: the record's own unchanged value is not a duplicate.
         let mut current = HashMap::new();
         current.insert("email".to_string(), "a@b.c".to_string());
-        let errors =
-            check_unique::<SubscriberResource>(&cx, &schema, &values, &current, &mut ex).await;
+        let errors = check_unique::<SubscriberResource>(&cx, &schema, &values, &current, &mut ex)
+            .await
+            .unwrap();
         assert!(
             errors.is_empty(),
             "own unchanged value must be skipped, got {errors:?}"
@@ -1114,7 +1125,8 @@ mod tests {
         changed_current.insert("email".to_string(), "old@b.c".to_string());
         let errors =
             check_unique::<SubscriberResource>(&cx, &schema, &values, &changed_current, &mut ex)
-                .await;
+                .await
+                .unwrap();
         assert_eq!(
             errors.get("email"),
             Some(&vec!["Email has already been taken".to_string()]),
@@ -1127,7 +1139,8 @@ mod tests {
         empty.insert("email".to_string(), "   ".to_string());
         let errors =
             check_unique::<SubscriberResource>(&cx, &schema, &empty, &HashMap::new(), &mut ex)
-                .await;
+                .await
+                .unwrap();
         assert!(errors.is_empty(), "empty must be skipped, got {errors:?}");
 
         // Empty values are checked on optional inputs (GH #88): `""` is
@@ -1151,7 +1164,8 @@ mod tests {
             &HashMap::new(),
             &mut ex,
         )
-        .await;
+        .await
+        .unwrap();
         assert_eq!(
             errors.get("email"),
             Some(&vec!["Email has already been taken".to_string()]),
@@ -1174,10 +1188,128 @@ mod tests {
             &HashMap::new(),
             &mut ex2,
         )
-        .await;
+        .await
+        .unwrap();
         assert!(
             errors.is_empty(),
             "first empty submit must pass, got {errors:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn unique_check_propagates_probe_errors() {
+        use crate::schema::{Schema, TextInput};
+        use topcoat::context::CxTestBuilder;
+
+        #[derive(Debug, toasty::Model)]
+        struct Probe {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            #[unique]
+            email: String,
+        }
+        struct ProbeResource;
+        impl Resource for ProbeResource {
+            type Model = Probe;
+        }
+
+        // Schema never pushed: the probe query cannot run, so the check must
+        // fail the submit instead of silently passing it (GH #167).
+        let db = Db::builder()
+            .models(toasty::models!(Probe))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        let cx = CxTestBuilder::new().app_context(db).build();
+        let mut ex = crate::db::db(&cx);
+
+        let schema = Schema::new(TextInput::r#for(Probe::fields().email()).unique());
+        let mut values = HashMap::new();
+        values.insert("email".to_string(), "a@b.c".to_string());
+        let result =
+            check_unique::<ProbeResource>(&cx, &schema, &values, &HashMap::new(), &mut ex).await;
+        assert!(
+            result.is_err(),
+            "a failing probe must fail the submit, got {result:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn unique_check_ignores_absent_repeater_groups() {
+        use crate::schema::{Repeater, Schema, TextInput};
+        use topcoat::context::CxTestBuilder;
+
+        #[derive(Debug, toasty::Model)]
+        struct Tagged {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            #[unique]
+            nickname: String,
+        }
+        struct TaggedResource;
+        impl Resource for TaggedResource {
+            type Model = Tagged;
+        }
+
+        let mut db = Db::builder()
+            .models(toasty::models!(Tagged))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        toasty::create!(Tagged {
+            nickname: "".to_string()
+        })
+        .exec(&mut db)
+        .await
+        .unwrap();
+        let cx = CxTestBuilder::new().app_context(db).build();
+        let mut ex = crate::db::db(&cx);
+
+        let schema = Schema::new(
+            Repeater::new("Tags").schema(
+                TextInput::r#for(Tagged::fields().nickname())
+                    .unique()
+                    .optional(),
+            ),
+        );
+
+        // Absent group (all-inner-empty) with a stored `""`: validation calls
+        // it clean (GH #147), so the unique check must agree (GH #167).
+        let mut absent = HashMap::new();
+        absent.insert("nickname".to_string(), "".to_string());
+        assert!(
+            schema.validate(&absent).is_empty(),
+            "absent group must validate clean"
+        );
+        let errors =
+            check_unique::<TaggedResource>(&cx, &schema, &absent, &HashMap::new(), &mut ex)
+                .await
+                .unwrap();
+        assert!(
+            errors.is_empty(),
+            "absent group must not be unique-checked, got {errors:?}"
+        );
+
+        // Present group still checks: a taken value flags inline.
+        let mut present = HashMap::new();
+        present.insert("nickname".to_string(), "taken".to_string());
+        toasty::create!(Tagged {
+            nickname: "taken".to_string()
+        })
+        .exec(&mut ex)
+        .await
+        .unwrap();
+        let errors =
+            check_unique::<TaggedResource>(&cx, &schema, &present, &HashMap::new(), &mut ex)
+                .await
+                .unwrap();
+        assert_eq!(
+            errors.get("nickname"),
+            Some(&vec!["Nickname has already been taken".to_string()]),
+            "present group must still be unique-checked, got {errors:?}"
         );
     }
 

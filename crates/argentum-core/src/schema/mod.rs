@@ -265,6 +265,21 @@ impl Schema {
         errors
     }
 
+    /// Field names hidden inside absent Repeater groups for these values
+    /// (GH #147): the same classification `validate` uses — an all-empty
+    /// group is "absent" — minus the required-group errors, which validation
+    /// already reported. `check_unique` consults it so an untouched group is
+    /// never unique-checked while validation calls it clean.
+    pub(crate) fn absent_repeater_fields(
+        &self,
+        values: &HashMap<String, String>,
+    ) -> HashSet<String> {
+        let mut skip = HashSet::new();
+        let mut discarded = HashMap::new();
+        walk_repeater_absence(&self.nodes, values, &mut skip, &mut discarded, false);
+        skip
+    }
+
     /// Async validation for Select relationship existence (tenancy-aware).
     pub async fn validate_async(
         &self,
