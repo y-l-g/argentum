@@ -40,6 +40,18 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
+  msrv:
+    name: msrv (1.98)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # The workspace MSRV floor (Cargo.toml rust-version, rust-toolchain.toml
+      # comment): a `main`-tracking dep can silently raise what it needs
+      # (GH #175), so pin the floor even though day-to-day CI rides stable.
+      - run: rustup toolchain install 1.98 --profile minimal
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo +1.98 check --workspace --locked
+
   fmt:
     name: fmt
     runs-on: ubuntu-latest
@@ -48,11 +60,19 @@ jobs:
       - run: rustup update stable && rustup default stable
       - uses: Swatinem/rust-cache@v2
       # Explicit `-p` list: deterministic and independent of what cargo has
-      # checked out; `cargo fmt` only ever touches workspace members, so this
-      # covers every crate this repo owns.
+      # checked out; `cargo fmt` only ever touches workspace members, so the
+      # detached benches (workspace `exclude`) get their own checks below.
       - run: >-
           cargo fmt -p argentum-core -p argentum-macros -p argentum-ui
           -p showcase -p xtask -- --check
+      # The detached benches have their own workspaces/lockfiles (GH #175):
+      # check each in its own directory.
+      - name: fmt detached benches
+        run: |
+          for bench in benchmarks/argentum benchmarks/axum-maud benchmarks/leptos; do
+            echo "--- fmt --check $bench"
+            (cd "$bench" && cargo fmt -- --check)
+          done
       - name: Install topcoat CLI (for `topcoat fmt`)
         # Install the formatter built from the same topcoat revision the
         # workspace locks (Cargo.lock) — the version-matched install the CLI
@@ -85,6 +105,10 @@ jobs:
       # CI would notice, because `cargo test --workspace` never sees it.
       - name: Check detached bench workspace (locked)
         run: cargo check --locked --manifest-path benchmarks/argentum/Cargo.toml
+      # Same blind spot as fmt had (GH #175): `clippy --workspace` never sees
+      # the detached bench, so lint it by manifest path.
+      - name: Clippy detached bench workspace (locked)
+        run: cargo clippy --locked --manifest-path benchmarks/argentum/Cargo.toml --all-targets -- -D warnings
       # Pin policy (Cargo.toml comment / ADR-0003): the bench must measure the
       # same upstream revs the workspace ships, so the two lockfiles stay in
       # lockstep through every `cargo update -p topcoat|toasty`.

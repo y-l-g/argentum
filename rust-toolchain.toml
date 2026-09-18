@@ -4,3 +4,6 @@
 # the higher floor: 1.98. Stable today satisfies it and keeps up as the
 # topcoat/toasty git deps advance.
 channel = "stable"
+# Explicit so every checkout (including CI images without the default profile)
+# has the tools the fmt/clippy jobs need.
+components = ["rustfmt", "clippy"]

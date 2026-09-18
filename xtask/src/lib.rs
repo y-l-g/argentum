@@ -50,8 +50,14 @@ pub fn primitives_dir() -> PathBuf {
 /// pinned by `Cargo.lock`. The registry directory is read from the data
 /// crate's `[package.metadata.topcoat-ui] registry` declaration.
 fn locate_registry() -> anyhow::Result<(Registry, String)> {
+    // Anchored at xtask's own manifest (GH #175): a bare `cargo metadata`
+    // resolves the caller's CWD, so invoking from a detached workspace
+    // (e.g. benchmarks/argentum, which has no topcoat-ui-registry in its
+    // graph) failed with a misleading "must be a dependency of xtask".
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
     let output = std::process::Command::new("cargo")
-        .args(["metadata", "--format-version", "1"])
+        .args(["metadata", "--format-version", "1", "--manifest-path"])
+        .arg(&manifest)
         .output()
         .map_err(|error| anyhow::anyhow!("failed to run cargo metadata: {error}"))?;
     if !output.status.success() {
@@ -106,7 +112,12 @@ const HINT: &str = "run `cargo xtask sync-topcoat-ui` to restore the verbatim co
 ///
 /// No sibling clone required — the registry comes from the same git source
 /// Cargo compiles against.
-pub fn sync_topcoat_ui(dry_run: bool) -> anyhow::Result<()> {
+///
+/// `prune` deletes vendored files the registry no longer owns (the orphan
+/// guard in `verify_sync` otherwise leaves `verify` red after an upstream
+/// removal with `sync` alone unable to fix it). Without it, orphans are only
+/// reported — pass `--prune` to converge.
+pub fn sync_topcoat_ui(dry_run: bool, prune: bool) -> anyhow::Result<()> {
     let dst_dir = primitives_dir();
     std::fs::create_dir_all(&dst_dir)?;
 
@@ -141,6 +152,45 @@ pub fn sync_topcoat_ui(dry_run: bool) -> anyhow::Result<()> {
         println!("note: composites/ was not touched (ADR-0007)");
     }
     ensure_primitives_mod(&dst_dir, &version, &names, dry_run)?;
+    if prune {
+        prune_orphans(&dst_dir, &registry, dry_run)?;
+    }
+    Ok(())
+}
+
+/// Delete vendored files the registry manifest no longer owns (GH #175):
+/// the same expected-set as the `verify_sync` orphan guard (`mod.rs`
+/// included — it is regenerated, never pruned). Dry runs only report.
+fn prune_orphans(dst_dir: &Path, registry: &Registry, dry_run: bool) -> anyhow::Result<()> {
+    use std::collections::HashSet;
+    let mut expected: HashSet<String> = HashSet::new();
+    for name in registry.names() {
+        if let Some(component) = registry.get(name) {
+            expected.insert(component.file_name().to_string());
+        }
+    }
+    expected.insert("mod.rs".to_string());
+    let mut orphans: Vec<PathBuf> = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(dst_dir) {
+        for entry in entries.flatten() {
+            let file_name = entry.file_name().to_string_lossy().to_string();
+            if file_name.starts_with('.') {
+                continue;
+            }
+            if !expected.contains(&file_name) {
+                orphans.push(entry.path());
+            }
+        }
+    }
+    orphans.sort();
+    for orphan in orphans {
+        if dry_run {
+            println!("would delete orphan {}", orphan.display());
+        } else {
+            std::fs::remove_file(&orphan)?;
+            println!("deleted orphan {}", orphan.display());
+        }
+    }
     Ok(())
 }
 

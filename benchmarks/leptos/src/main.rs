@@ -3,9 +3,9 @@
 async fn main() {
     use axum::{Router, routing::get};
     use leptos::prelude::*;
-    use leptos_axum::{generate_route_list, LeptosRoutes};
+    use leptos_axum::{LeptosRoutes, generate_route_list};
 
-    use storefront_leptos::{shell, App};
+    use storefront_leptos::{App, shell};
 
     let conf = get_configuration(None).unwrap();
     let leptos_options = conf.leptos_options;

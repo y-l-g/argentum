@@ -85,7 +85,10 @@ impl Resource for AuthorResource {
     fn form(_cx: &Cx) -> Schema {
         Schema::new((
             TextInput::r#for(Author::fields().name()).required(),
-            TextInput::r#for(Author::fields().email()).required().email().unique(),
+            TextInput::r#for(Author::fields().email())
+                .required()
+                .email()
+                .unique(),
         ))
     }
 }
@@ -135,10 +138,7 @@ impl Resource for PostResource {
 #[memoize]
 async fn memoized_posts(cx: &Cx) -> Vec<Post> {
     let mut db = argentum_core::db::db(cx);
-    PostResource::query(cx)
-        .exec(&mut db)
-        .await
-        .expect("query")
+    PostResource::query(cx).exec(&mut db).await.expect("query")
 }
 
 async fn seed_50(db: &mut Db) {
@@ -162,7 +162,11 @@ async fn seed_50(db: &mut Db) {
             tenant_id: tenant,
             title: format!("Post {i:02}"),
             body: format!("Body {i}"),
-            status: if i % 2 == 0 { "published".to_string() } else { "draft".to_string() },
+            status: if i % 2 == 0 {
+                "published".to_string()
+            } else {
+                "draft".to_string()
+            },
             featured: i % 3 == 0,
             created_at: Timestamp::now(),
             image_path: "/images/x.jpg".to_string(),
@@ -245,7 +249,9 @@ async fn run_bench(iterations: usize) {
 
     println!("=== Argentum Phase 2 bench: 50 rows, 2 includes (author + comments) ===");
     println!("iterations: {iterations} (memoized), 20 (uncached)");
-    println!("memoized (cache hit) — p50: {p50:.2}ms p90: {p90:.2}ms p99: {p99:.2}ms min: {min:.2}ms max: {max:.2}ms");
+    println!(
+        "memoized (cache hit) — p50: {p50:.2}ms p90: {p90:.2}ms p99: {p99:.2}ms min: {min:.2}ms max: {max:.2}ms"
+    );
     println!("uncached (1 query with 2 includes) — p50: {uncached_p50:.2}ms");
     println!("budget: <40ms p50 (Phase 2, 50 rows, 2 includes)");
     // The budget gates the COLD path (GH #103): fresh Cx per iteration, no

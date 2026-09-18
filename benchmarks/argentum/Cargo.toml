@@ -17,8 +17,11 @@ publish = false
 
 [dependencies]
 argentum-core = { path = "../../crates/argentum-core" }
-topcoat = { git = "https://github.com/tokio-rs/topcoat", branch = "main", features = ["router", "serve", "runtime", "discover", "asset"] }
-toasty = { git = "https://github.com/tokio-rs/toasty", branch = "main", features = ["sqlite", "jiff"] }
+# `default-features = false` mirrors the workspace baseline (GH #175): without
+# it the bench builds upstream defaults (e.g. toasty's `rustls`) the shipped
+# toolkit never compiles against.
+topcoat = { git = "https://github.com/tokio-rs/topcoat", branch = "main", default-features = false, features = ["router", "serve", "runtime", "discover", "asset"] }
+toasty = { git = "https://github.com/tokio-rs/toasty", branch = "main", default-features = false, features = ["sqlite", "jiff"] }
 jiff = "0.2"
 uuid = { version = "1.23", features = ["v4"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }

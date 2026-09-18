@@ -4,7 +4,8 @@ fn main() -> anyhow::Result<()> {
     match cmd.as_str() {
         "sync-topcoat-ui" | "sync" => {
             let dry_run = args.any(|a| a == "--dry-run");
-            xtask::sync_topcoat_ui(dry_run)?;
+            let prune = args.any(|a| a == "--prune");
+            xtask::sync_topcoat_ui(dry_run, prune)?;
         }
         "verify-topcoat-ui" | "verify" => {
             xtask::verify_sync()?;
@@ -26,7 +27,7 @@ fn print_help() {
         r#"xtask — repo tasks (ADR-0007)
 
 USAGE:
-    cargo xtask sync-topcoat-ui [--dry-run]
+    cargo xtask sync-topcoat-ui [--dry-run] [--prune]
     cargo xtask verify-topcoat-ui
 
 COMMANDS:
@@ -44,6 +45,7 @@ COMMANDS:
 
 OPTIONS:
     --dry-run          Print what would be copied without writing
+    --prune            Also delete vendored files the registry no longer owns
     --help, -h         Show this help
 "#
     );
