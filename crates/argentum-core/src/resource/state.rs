@@ -144,6 +144,19 @@ pub(crate) fn clamp_query_term(term: &str) -> String {
     term.trim().chars().take(MAX_QUERY_TERM).collect()
 }
 
+/// Parse source for [`TableState::from_parts`]: the GET query string and the
+/// live-search shard disagree on two fields by history, and the shared
+/// constructor preserves each contract instead of unifying them (GH #133
+/// is move-only — unifying would be a query behavior change).
+#[derive(Clone, Copy)]
+enum StateSource {
+    /// `?q=` trims and clamps to [`MAX_QUERY_TERM`]; `?dir=` compares
+    /// untrimmed.
+    Url,
+    /// `q` trims without clamping; `dir` trims before comparing.
+    Live,
+}
+
 impl TableState {
     /// Parse the state from the request in `cx`.
     ///
@@ -160,7 +173,7 @@ impl TableState {
             return Self::default();
         };
         let params = first_wins_query_params(parts.uri.query().unwrap_or(""));
-        Self::from_parts(|key| params.get(key).map(String::as_str))
+        Self::from_parts(|key| params.get(key).map(String::as_str), StateSource::Url)
     }
 
     /// One shared constructor behind [`Self::from_cx`] and
@@ -169,11 +182,10 @@ impl TableState {
     /// live args arrive named at the single `match` below, where a
     /// transposed positional pair would not compile silently.
     ///
-    /// `q` clamps through [`clamp_query_term`] like the GET path: the panel
-    /// shard pre-clamps its signal the same way, so the bound is idempotent
-    /// there. `dir` compares untrimmed (the `from_cx` contract): a padded
-    /// `dir` never meant `desc` on the GET path.
-    fn from_parts<'a>(get: impl Fn(&str) -> Option<&'a str>) -> Self {
+    /// The two [`StateSource`] contracts differ only on `q`/`dir` (see its
+    /// docs); everything else (sort column, cursors, filters, grouping,
+    /// dialog) shares one implementation.
+    fn from_parts<'a>(get: impl Fn(&str) -> Option<&'a str>, source: StateSource) -> Self {
         let non_empty = |v: Option<&str>| {
             v.map(str::trim)
                 .filter(|t| !t.is_empty())
@@ -181,10 +193,18 @@ impl TableState {
         };
         let (filters, malformed_filters) = parse_filters_param(get("filters").unwrap_or_default());
         Self {
-            search: get("q").map(clamp_query_term).filter(|t| !t.is_empty()),
+            search: match source {
+                StateSource::Url => get("q").map(clamp_query_term).filter(|t| !t.is_empty()),
+                StateSource::Live => get("q")
+                    .map(|s| s.trim().to_string())
+                    .filter(|t| !t.is_empty()),
+            },
             sort: non_empty(get("sort")).map(|column| Sort {
                 column,
-                descending: get("dir") == Some("desc"),
+                descending: match source {
+                    StateSource::Url => get("dir") == Some("desc"),
+                    StateSource::Live => get("dir").map(str::trim) == Some("desc"),
+                },
             }),
             after: non_empty(get("after")),
             before: non_empty(get("before")),
@@ -438,14 +458,17 @@ impl TableState {
         // is a new result set, same as the GET toolbar), and the panel
         // renders the dialog outside the shard region for live tables
         // (GH #151). Missing keys read as absent through `from_parts`.
-        Self::from_parts(|key| match key {
-            "q" => Some(q),
-            "filters" => Some(filters_param),
-            "sort" => Some(sort),
-            "dir" => Some(dir),
-            "group_by" => Some(group_by),
-            _ => None,
-        })
+        Self::from_parts(
+            |key| match key {
+                "q" => Some(q),
+                "filters" => Some(filters_param),
+                "sort" => Some(sort),
+                "dir" => Some(dir),
+                "group_by" => Some(group_by),
+                _ => None,
+            },
+            StateSource::Live,
+        )
     }
 }
 
@@ -622,6 +645,23 @@ mod tests {
         assert_eq!(
             TableState::from_live_args("", "", "", "", ""),
             TableState::default()
+        );
+    }
+
+    #[test]
+    fn from_live_args_preserves_live_contracts() {
+        // GH #133 is move-only: the live path trims `q` without the GET
+        // path's 128-char clamp, and trims `dir` before comparing.
+        let long = "x".repeat(MAX_QUERY_TERM + 10);
+        let state = TableState::from_live_args(&long, "", "", "", "");
+        assert_eq!(state.search.as_deref(), Some(long.as_str()));
+        let state = TableState::from_live_args("", "", "name", " desc ", "");
+        assert_eq!(
+            state.sort,
+            Some(Sort {
+                column: "name".to_string(),
+                descending: true,
+            })
         );
     }
 
