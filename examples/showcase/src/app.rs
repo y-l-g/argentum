@@ -797,10 +797,11 @@ impl Resource for PostResource {
 /// Discussion resource over `Comment`: the moderation queue.
 ///
 /// Comments carry no tenant of their own — they inherit visibility from their
-/// post — so the query is unscoped and `requires_tenant` stays false. Deletes
-/// are hidden in the panel (`deletable() == false`): removals happen through
-/// the post lifecycle, never from the queue. Server policy still allows them,
-/// so the override is chrome-only.
+/// post (GH #169) — so the query scopes through the parent post's `tenant_id`
+/// and `requires_tenant` stays false. Deletes are hidden in the panel
+/// (`deletable() == false`): removals happen through the post lifecycle,
+/// never from the queue. Server policy still allows them, so the override is
+/// chrome-only.
 pub struct CommentResource;
 
 impl Resource for CommentResource {
@@ -831,9 +832,16 @@ impl Resource for CommentResource {
     }
 
     fn query(cx: &Cx) -> toasty::stmt::Query<toasty::stmt::List<Comment>> {
-        let _ = cx;
+        // Inherit-through-the-relation (GH #169): scope through the parent
+        // post's tenant, mirroring the Author/Post `tenant_id(cx)` filter
+        // style. Toasty rewrites the relation-path comparison into a
+        // foreign-key subquery.
+        let mut q = toasty::stmt::Query::<toasty::stmt::List<Comment>>::all();
+        if let Some(tid) = tenant_id(cx) {
+            q = q.filter(Comment::fields().post().tenant_id().eq(tid));
+        }
         let inc_post: toasty::stmt::Include<Comment, Post> = Comment::fields().post().into();
-        toasty::stmt::Query::<toasty::stmt::List<Comment>>::all().include(inc_post)
+        q.include(inc_post)
     }
 
     fn table(cx: &Cx) -> Table<Comment> {

@@ -93,7 +93,7 @@ pub async fn tenanted_db() -> (Db, uuid::Uuid, uuid::Uuid) {
     .exec(&mut db)
     .await
     .expect("create author t2");
-    toasty::create!(showcase::models::Post {
+    let p1 = toasty::create!(showcase::models::Post {
         tenant_id: t1,
         title: "T1 Post",
         body: "body",
@@ -107,7 +107,7 @@ pub async fn tenanted_db() -> (Db, uuid::Uuid, uuid::Uuid) {
     .exec(&mut db)
     .await
     .expect("create post t1");
-    toasty::create!(showcase::models::Post {
+    let p2 = toasty::create!(showcase::models::Post {
         tenant_id: t2,
         title: "T2 Post",
         body: "body",
@@ -121,6 +121,22 @@ pub async fn tenanted_db() -> (Db, uuid::Uuid, uuid::Uuid) {
     .exec(&mut db)
     .await
     .expect("create post t2");
+    // One comment per tenant post (GH #169): the inherit-through-the-relation
+    // fixture for the Discussion queue's tenant scoping.
+    toasty::create!(showcase::models::Comment {
+        body: "T1 comment",
+        post_id: p1.id,
+    })
+    .exec(&mut db)
+    .await
+    .expect("create comment t1");
+    toasty::create!(showcase::models::Comment {
+        body: "T2 comment",
+        post_id: p2.id,
+    })
+    .exec(&mut db)
+    .await
+    .expect("create comment t2");
     (db, t1, t2)
 }
 

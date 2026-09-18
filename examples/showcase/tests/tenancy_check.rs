@@ -2,7 +2,8 @@ use http::header::COOKIE;
 use showcase::{
     app::router_for_tests as router,
     models::{
-        Author, DEMO_ADMIN_EMAIL, DEMO_ADMIN_PASSWORD, DEMO_TENANT, Post, TENANTLESS_ADMIN_EMAIL,
+        Author, Comment, DEMO_ADMIN_EMAIL, DEMO_ADMIN_PASSWORD, DEMO_TENANT, Post,
+        TENANTLESS_ADMIN_EMAIL,
     },
 };
 use topcoat::router::Body;
@@ -272,6 +273,149 @@ async fn bulk_delete_wrong_tenant_404s_and_deletes_nothing() {
         .await
         .unwrap();
     assert_eq!(remaining.len(), 1, "cross-tenant batch deletes nothing");
+}
+
+#[tokio::test]
+async fn comments_list_is_scoped_through_parent_post() {
+    // GH #169: comments carry no tenant of their own — the Discussion queue
+    // inherits visibility from the parent post via `CommentResource::query`.
+    let (db, t1, t2) = tenanted_db().await;
+    let router = router(db.clone());
+    let client = demo_client(&router).await;
+
+    let resp = client.tenant(t1).get("/admin/comments").await;
+    assert!(resp.status().is_success());
+    let html = body_string(resp).await;
+    assert!(
+        html.contains("T1 comment"),
+        "t1 should see T1 comment: {html}"
+    );
+    assert!(
+        !html.contains("T2 comment"),
+        "t1 should not see T2 comment: {html}"
+    );
+
+    let resp = client.tenant(t2).get("/admin/comments").await;
+    assert!(resp.status().is_success());
+    let html = body_string(resp).await;
+    assert!(
+        html.contains("T2 comment"),
+        "t2 should see T2 comment: {html}"
+    );
+    assert!(
+        !html.contains("T1 comment"),
+        "t2 should not see T1 comment: {html}"
+    );
+}
+
+#[tokio::test]
+async fn comments_search_is_scoped_through_parent_post() {
+    // GH #169: live search runs over `R::query`, so a cross-tenant body
+    // match must not surface the other tenant's comment.
+    let (db, t1, _) = tenanted_db().await;
+    let router = router(db.clone());
+    let client = demo_client(&router).await;
+
+    let resp = client.tenant(t1).get("/admin/comments?q=T2+comment").await;
+    assert!(resp.status().is_success());
+    let html = body_string(resp).await;
+    // The search term is echoed in the empty-state message and sort links,
+    // so assert on the empty state itself rather than term absence.
+    assert!(
+        html.contains("No prefix matches"),
+        "t1 search for T2 comment must return zero rows: {html}"
+    );
+
+    let resp = client.tenant(t1).get("/admin/comments?q=T1+comment").await;
+    let html = body_string(resp).await;
+    assert!(
+        !html.contains("No prefix matches"),
+        "t1 search must find its own comment: {html}"
+    );
+    assert!(
+        html.contains("T1 comment"),
+        "t1 search must still find its own comment: {html}"
+    );
+}
+
+#[tokio::test]
+async fn comments_export_is_scoped_through_parent_post() {
+    // GH #169: export reuses `R::query`, so each tenant's CSV carries only
+    // comments on its own posts.
+    let (db, t1, t2) = tenanted_db().await;
+    let router = router(db.clone());
+    let client = demo_client(&router).await;
+
+    let resp = client.tenant(t1).get("/admin/comments/export").await;
+    assert!(resp.status().is_success());
+    let csv = body_string(resp).await;
+    assert!(
+        csv.contains("T1 comment"),
+        "t1 export must contain T1 comment, got {csv}"
+    );
+    assert!(
+        !csv.contains("T2 comment"),
+        "t1 export must not contain T2 comment, got {csv}"
+    );
+    let resp = client.tenant(t2).get("/admin/comments/export").await;
+    let csv = body_string(resp).await;
+    assert!(
+        csv.contains("T2 comment") && !csv.contains("T1 comment"),
+        "t2 export must be scoped, got {csv}"
+    );
+}
+
+#[tokio::test]
+async fn comments_edit_with_wrong_tenant_yields_404_via_resource_query() {
+    // GH #169: the edit handler loads through `CommentResource::query`, so a
+    // cross-tenant comment id is not found.
+    let (db, _, t2) = tenanted_db().await;
+    let router = router(db.clone());
+    let client = demo_client(&router).await;
+    let mut db_q = db.clone();
+    let t1_comment = Comment::filter(Comment::fields().body().eq("T1 comment".to_string()))
+        .first()
+        .exec(&mut db_q)
+        .await
+        .unwrap()
+        .expect("t1 comment");
+    let edit_url = format!("/admin/comments/{}/edit", t1_comment.id);
+    let resp = client.tenant(t2).get(&edit_url).await;
+    assert_eq!(
+        resp.status(),
+        404,
+        "wrong tenant comment edit should be 404, got {}",
+        resp.status()
+    );
+}
+
+#[tokio::test]
+async fn comments_query_scopes_directly_through_parent_post() {
+    // GH #169, Cx-level proof alongside the HTTP tests above.
+    use argentum_core::{Resource, Tenant};
+    use showcase::app::CommentResource;
+    use topcoat::context::CxTestBuilder;
+    let (db, t1, _) = tenanted_db().await;
+    let cx_t1 = CxTestBuilder::new()
+        .app_context(db.clone())
+        .request_context(Tenant(t1))
+        .build();
+    let mut db_cx = argentum_core::db::db(&cx_t1);
+    let rows = CommentResource::query(&cx_t1)
+        .exec(&mut db_cx)
+        .await
+        .unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].body, "T1 comment");
+
+    let cx_t2 = cx_t1.with(Tenant(uuid::Uuid::from_u128(2)));
+    let mut db_cx2 = argentum_core::db::db(&cx_t2);
+    let rows2 = CommentResource::query(&cx_t2)
+        .exec(&mut db_cx2)
+        .await
+        .unwrap();
+    assert_eq!(rows2.len(), 1);
+    assert_eq!(rows2[0].body, "T2 comment");
 }
 
 #[tokio::test]
