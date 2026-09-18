@@ -27,22 +27,29 @@ async fn admin_resource_list_page_serve_seeded_users() {
         html.contains("data-sidebar=\"sidebar\"") || html.contains("data-sidebar=\"menu\""),
         "missing sidebar in {html}"
     );
-    // Sidebar lists only Resource-derived entries: Users, Authors, Posts.
-    // No Showcase documentation entry (GH #163).
-    assert!(html.contains("Users"), "missing navigation label in {html}");
+    // Sidebar lists curated entries: Team, Writers, Blog Posts, plus the
+    // manual Published saved view. No Showcase documentation entry (GH #163).
+    assert!(html.contains("Team"), "missing Team label in {html}");
     assert!(
         html.contains("href=\"/admin/users\"") || html.contains("/admin/users"),
         "missing navigation url in {html}"
     );
-    assert!(html.contains("Authors"), "missing Authors label in {html}");
+    assert!(html.contains("Writers"), "missing Writers label in {html}");
     assert!(
         html.contains("href=\"/admin/authors\"") || html.contains("/admin/authors"),
-        "missing Authors navigation url in {html}"
+        "missing Writers navigation url in {html}"
     );
-    assert!(html.contains("Posts"), "missing Posts label in {html}");
+    assert!(html.contains("Blog Posts"), "missing Blog Posts label in {html}");
     assert!(
         html.contains("href=\"/admin/posts\"") || html.contains("/admin/posts"),
-        "missing Posts navigation url in {html}"
+        "missing Blog Posts navigation url in {html}"
+    );
+    assert!(html.contains("Published"), "missing manual Published entry in {html}");
+    assert!(
+        html.contains("/admin/posts?filters=status:published")
+            || html.contains("/admin/posts?filters=status%3Apublished")
+            || html.contains("status:published"),
+        "missing Published saved-view url in {html}"
     );
     assert!(
         !html.contains("href=\"/admin/showcase\""),
@@ -50,8 +57,8 @@ async fn admin_resource_list_page_serve_seeded_users() {
     );
     // List page content — production page size (25 per page) shows all
     // seeded users on page 1; cursor pagination across pages is exercised by
-    // admin_list_pagination_walks_cursor_links with extra seeded rows.
-    assert!(html.contains("Users</h1>"), "missing heading in {html}");
+    // admin_list_pagination_walks_cursor_links with 23 extra rows.
+    assert!(html.contains("Team</h1>"), "missing heading in {html}");
     assert!(html.contains("Ada Lovelace"), "missing Ada in {html}");
     assert!(html.contains("Alan Turing"), "missing Alan in {html}");
     assert!(html.contains("Grace Hopper"), "missing Grace in {html}");

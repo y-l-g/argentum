@@ -74,9 +74,9 @@ pub struct Comment {
     pub post: Deferred<Post>,
 }
 
-/// Seed the team roster. Names sort deterministically (name-asc): the
-/// original Ada/Alan/Grace trio stays first for pagination and search tests,
-/// followed by five more engineers.
+/// Seed the team roster. Names sort deterministically (name-asc): Ada and
+/// Alan stay first for pagination and search tests, followed by six more
+/// engineers.
 pub async fn seed(db: &mut Db) -> toasty::Result<()> {
     toasty::create!(User::[
         {

@@ -66,7 +66,7 @@ async fn bulk_delete_deletes_selected() {
         "the flash carries the action, got {flash}"
     );
 
-    // Check DB: should have 1 left
+    // Check DB: should have 6 left after bulk-deleting 2 of 8
     let mut db_check = db.clone();
     let remaining = User::all().exec(&mut db_check).await.unwrap();
     assert_eq!(

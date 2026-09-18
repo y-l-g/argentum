@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use argentum_core::{
-    Brand, DateFilter, FileUpload, Grid, Panel, Repeater, Resource, Schema, Section, Select,
-    SelectFilter, Table, TernaryFilter, TextColumn, TextInput, tenant_id,
+    Brand, DateFilter, FileUpload, Grid, NavigationItem, Panel, Repeater, Resource, Schema,
+    Section, Select, SelectFilter, Table, TernaryFilter, TextColumn, TextInput, tenant_id,
 };
 use toasty::Db;
 use topcoat::{
@@ -34,6 +34,11 @@ pub struct UserResource;
 
 impl Resource for UserResource {
     type Model = User;
+
+    fn navigation_label() -> String {
+        "Team".to_string()
+    }
+
 
     fn can_view_any(_cx: &Cx) -> bool {
         true
@@ -198,6 +203,11 @@ pub struct AuthorResource;
 
 impl Resource for AuthorResource {
     type Model = Author;
+
+    fn navigation_label() -> String {
+        "Writers".to_string()
+    }
+
 
     fn query(cx: &Cx) -> toasty::stmt::Query<toasty::stmt::List<Author>> {
         let mut q = toasty::stmt::Query::<toasty::stmt::List<Author>>::all();
@@ -372,6 +382,11 @@ pub struct PostResource;
 
 impl Resource for PostResource {
     type Model = Post;
+
+    fn navigation_label() -> String {
+        "Blog Posts".to_string()
+    }
+
 
     fn query(cx: &Cx) -> toasty::stmt::Query<toasty::stmt::List<Post>> {
         // Tenancy + explicit includes (one round-trip, no N+1).
@@ -698,17 +713,30 @@ pub fn router_for_tests(db: Db) -> Router {
 }
 
 fn build_router(db: Db, bundle: Option<AssetBundle>) -> Router {
-    let panel = Panel::new("admin")
+    let mut panel = Panel::new("admin")
         .app_context(db)
-        .brand(Brand::new("Showcase"))
-        .login_hint(format!(
-            "Demo credentials: {} / {}",
-            crate::models::DEMO_ADMIN_EMAIL,
-            crate::models::DEMO_ADMIN_PASSWORD
-        ))
+        .brand(
+            Brand::new("Argentum Blog").logo(
+                "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='10' fill='%236366f1'/%3E%3Ctext x='12' y='16' text-anchor='middle' font-size='12' fill='white' font-family='sans-serif'%3EA%3C/text%3E%3C/svg%3E",
+            ),
+        )
+        .dark_mode(true)
         .resource::<UserResource>()
         .resource::<AuthorResource>()
-        .resource::<PostResource>();
+        .resource::<PostResource>()
+        // Saved view outside the resource set: the published queue.
+        .navigation(NavigationItem {
+            label: "Published".to_string(),
+            url: "/admin/posts?filters=status:published".to_string(),
+            href_check: None,
+            order: 1,
+        });
+    // Demo credentials stay available for local development via
+    // SHOWCASE_LOGIN_HINT, but the default login page is shippable with no
+    // hint.
+    if let Ok(hint) = std::env::var("SHOWCASE_LOGIN_HINT") {
+        panel = panel.login_hint(hint);
+    }
     match bundle {
         Some(bundle) => panel
             .assets(bundle)
