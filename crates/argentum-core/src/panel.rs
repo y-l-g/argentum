@@ -417,7 +417,7 @@ impl Panel {
         for route in routes {
             builder = builder.route(route);
         }
-        // Filament's panel root is a Dashboard; until dashboards exist,
+        // The panel root has no home page of its own; until custom pages exist,
         // the prefix serves a redirect to the first resource's
         // list so the mount point is never a dead URL.
         if let Some(target) = root_target {
@@ -619,7 +619,7 @@ impl Panel {
         let outer_class = extra_class.clone().unwrap_or_default();
         let header_title = topcoat::context::try_app_context::<Brand>(cx)
             .map(|b| b.name.clone())
-            .unwrap_or_else(|| "Admin".to_string());
+            .unwrap_or_else(|| "Argentum".to_string());
         // One navigation tree: the upstream sidebar renders its children once
         // and shares them between the desktop panel and the mobile sheet.
         let navigation =
@@ -775,13 +775,23 @@ impl Panel {
         use topcoat::context::try_app_context;
         use topcoat::router::request::uri;
         let current = uri(cx).path().to_string();
-        // Prefer declarative nav_items from Panel::resource, fallback to Dashboard.
+        // Prefer declarative nav_items from Panel::resource, fallback to Home.
         let nav_items = try_app_context::<Vec<NavigationItem>>(cx)
             .cloned()
             .unwrap_or_else(|| {
+                let prefix = try_app_context::<PanelPrefix>(cx)
+                    .map(|p| p.0.clone())
+                    .unwrap_or_else(|| {
+                        current
+                            .split('/')
+                            .nth(1)
+                            .filter(|s| !s.is_empty())
+                            .map(|s| format!("/{s}"))
+                            .unwrap_or_else(|| "/admin".to_string())
+                    });
                 vec![NavigationItem {
-                    label: "Dashboard".to_string(),
-                    url: "/admin".to_string(),
+                    label: "Home".to_string(),
+                    url: prefix,
                     href_check: None,
                     order: 0,
                 }]
@@ -789,7 +799,7 @@ impl Panel {
         let shell = Self::render_shell(cx, &nav_items, &current, slot, None).await?;
         let brand_title = try_app_context::<Brand>(cx)
             .map(|b| b.name.clone())
-            .unwrap_or_else(|| "Admin".to_string());
+            .unwrap_or_else(|| "Argentum".to_string());
         Self::render_document(cx, brand_title, shell).await
     }
 
@@ -2362,8 +2372,8 @@ fn resource_export<R: Resource>(cx: &Cx, _body: Body) -> RouteFuture<'_> {
 }
 
 /// The panel root: a temporary redirect to the first declared resource's
-/// list, so the mount point is never a dead URL (until Dashboards exist,
-/// GH #38). Filament registers a Dashboard page here.
+/// list, so the mount point is never a dead URL (custom pages remain future
+/// work, see README §10). Filament registers its home page here.
 fn panel_root_redirect(cx: &Cx, _body: Body) -> RouteFuture<'_> {
     Box::pin(async move {
         // Defense in depth (GH #146): every panel handler re-checks the
@@ -4354,7 +4364,7 @@ mod tests {
             "missing document head in {html}"
         );
         assert!(
-            html.contains("<title>Admin</title>"),
+            html.contains("<title>Argentum</title>"),
             "missing document title in {html}"
         );
         assert!(html.contains("hello"), "missing layout slot in {html}");

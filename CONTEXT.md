@@ -11,6 +11,8 @@ The admin application. Owns the Router, the Db in app_context, the layout Shell,
 
 _Avoid_: Admin, Dashboard, App, Site
 
+_Documented exceptions_: shipped `AdminUser` model retains the `Admin` prefix (auth seam, ADR-0013); the `/admin` mount default is generic English for the URL prefix, not Panel vocabulary.
+
 ### Authenticator
 The one authentication seam (ADR-0013). An object-safe trait resolving credentials into the erased `CurrentUser` and a live session back to it; `PasswordAuth` is the shipped default over `AdminUser`, `Panel::auth(Auth::custom(..))` swaps in an app implementation over its own user table, and `Auth::disabled()` is the explicit, greppable opt-out. Sessions stay framework-owned (`AuthSession`) whichever implementation is in use.
 
