@@ -42,6 +42,10 @@ async fn login_page_is_standalone_with_csrf_and_no_demo_hint_by_default() {
     assert!(html.contains("Sign in"), "missing heading: {html}");
     assert!(html.contains("Argentum Blog"), "missing brand: {html}");
     assert!(
+        html.contains("<html class=\"dark\">"),
+        "login must share the dark first-paint: {html}"
+    );
+    assert!(
         !html.contains("Demo credentials:"),
         "default login page must not leak demo credentials: {html}"
     );

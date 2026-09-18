@@ -2,7 +2,8 @@ use std::collections::HashMap;
 
 use argentum_core::{
     Brand, DateFilter, FileUpload, Grid, NavigationItem, Panel, Repeater, Resource, Schema,
-    Section, Select, SelectFilter, Table, TernaryFilter, TextColumn, TextInput, tenant_id,
+    Section, Select, SelectFilter, Table, TernaryFilter, TextColumn, TextInput,
+    resource::HrefCheck, tenant_id,
 };
 use toasty::Db;
 use topcoat::{
@@ -717,7 +718,7 @@ fn build_router(db: Db, bundle: Option<AssetBundle>) -> Router {
         .app_context(db)
         .brand(
             Brand::new("Argentum Blog").logo(
-                "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='10' fill='%236366f1'/%3E%3Ctext x='12' y='16' text-anchor='middle' font-size='12' fill='white' font-family='sans-serif'%3EA%3C/text%3E%3C/svg%3E",
+                "data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2024%2024'%3E%3Ccircle%20cx='12'%20cy='12'%20r='10'%20fill='%236366f1'/%3E%3Ctext%20x='12'%20y='16'%20text-anchor='middle'%20font-size='12'%20fill='white'%20font-family='sans-serif'%3EA%3C/text%3E%3C/svg%3E",
             ),
         )
         .dark_mode(true)
@@ -725,16 +726,26 @@ fn build_router(db: Db, bundle: Option<AssetBundle>) -> Router {
         .resource::<AuthorResource>()
         .resource::<PostResource>()
         // Saved view outside the resource set: the published queue.
+        // Query-aware active state (the shell matches paths, so a bare URL
+        // could never highlight): active exactly on the published filter.
         .navigation(NavigationItem {
             label: "Published".to_string(),
             url: "/admin/posts?filters=status:published".to_string(),
-            href_check: None,
+            href_check: Some(std::sync::Arc::new(|cx: &Cx| {
+                let uri = topcoat::router::request::uri(cx);
+                uri.path() == "/admin/posts"
+                    && uri
+                        .query()
+                        .is_some_and(|q| q.contains("status:published"))
+            }) as HrefCheck),
             order: 1,
         });
     // Demo credentials stay available for local development via
     // SHOWCASE_LOGIN_HINT, but the default login page is shippable with no
-    // hint.
-    if let Ok(hint) = std::env::var("SHOWCASE_LOGIN_HINT") {
+    // hint. Empty values install nothing (no empty hint paragraph).
+    if let Ok(hint) = std::env::var("SHOWCASE_LOGIN_HINT")
+        && !hint.trim().is_empty()
+    {
         panel = panel.login_hint(hint);
     }
     match bundle {
