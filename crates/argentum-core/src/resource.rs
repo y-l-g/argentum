@@ -740,6 +740,7 @@ pub struct Table<M> {
     show_skeleton: bool,
     is_boundary: bool,
     delete_prefix: Option<String>,
+    edit_prefix: Option<String>,
     bulk_delete: bool,
     live_search: bool,
     interactive: bool,
@@ -758,6 +759,7 @@ impl<M> std::fmt::Debug for Table<M> {
             .field("show_skeleton", &self.show_skeleton)
             .field("is_boundary", &self.is_boundary)
             .field("delete_prefix", &self.delete_prefix)
+            .field("edit_prefix", &self.edit_prefix)
             .field("bulk_delete", &self.bulk_delete)
             .field("live_search", &self.live_search)
             .field("interactive", &self.interactive)
@@ -791,6 +793,7 @@ impl<M> Table<M> {
             show_skeleton: false,
             is_boundary: true,
             delete_prefix: None,
+            edit_prefix: None,
             bulk_delete: false,
             live_search: false,
             interactive: true,
@@ -1049,6 +1052,16 @@ impl<M> Table<M> {
     /// `requires_confirmation` semantics.
     pub fn with_delete(mut self, prefix: String) -> Self {
         self.delete_prefix = Some(prefix);
+        self
+    }
+
+    /// Enable row-level `Edit` action (GH #162). When set, each row renders
+    /// an `Edit` link to `{prefix}/{id}/edit` (Filament's `recordActions`
+    /// `EditAction`, same last-column slot as `Delete`). Per-record policy
+    /// stays handler-enforced (`can_view` + `can_update` in the edit GET/POST);
+    /// the list deliberately does not filter rows (GH #86).
+    pub fn with_edit(mut self, prefix: String) -> Self {
+        self.edit_prefix = Some(prefix);
         self
     }
 
@@ -1381,16 +1394,11 @@ impl<M> Table<M> {
             return self.render_skeleton(cx).await;
         }
         let delete_prefix = self.delete_prefix.clone();
+        let edit_prefix = self.edit_prefix.clone();
+        let with_actions = delete_prefix.is_some() || edit_prefix.is_some();
         let with_bulk = self.bulk_enabled();
         let head = self
-            .render_thead(
-                cx,
-                state,
-                path,
-                delete_prefix.is_some(),
-                with_bulk,
-                signals.as_ref(),
-            )
+            .render_thead(cx, state, path, with_actions, with_bulk, signals.as_ref())
             .await?;
         let show_search = self.search_enabled();
         let search_bar = if show_search {
@@ -1484,7 +1492,9 @@ impl<M> Table<M> {
         //
         // The per-row delete URL (GH #151) opens the confirmation dialog on
         // the list page (`?delete=<key>`) instead of posting straight away.
-        let row_data: Vec<(String, Vec<String>, Option<String>)> = page
+        // The per-row edit URL (GH #162, Filament's `recordActions`
+        // `EditAction`) links straight to `{prefix}/{key}/edit`.
+        let row_data: Vec<RowView> = page
             .rows
             .iter()
             .map(|row| {
@@ -1494,10 +1504,18 @@ impl<M> Table<M> {
                     .iter()
                     .map(|col| col.render_cell(row))
                     .collect();
-                let open_url = delete_prefix
+                let edit_url = edit_prefix
+                    .as_ref()
+                    .map(|prefix| format!("{}/{}/edit", prefix, encode_path_segment(&key)));
+                let delete_url = delete_prefix
                     .is_some()
                     .then(|| state.with_delete_dialog(path, &key));
-                (key, cells, open_url)
+                RowView {
+                    key,
+                    cells,
+                    edit_url,
+                    delete_url,
+                }
             })
             .collect();
         // Row keys must be injective within a page (GH #96): duplicates corrupt
@@ -1505,7 +1523,7 @@ impl<M> Table<M> {
         debug_assert!(
             {
                 let mut seen = std::collections::HashSet::new();
-                row_data.iter().all(|(k, _, _)| seen.insert(k.clone()))
+                row_data.iter().all(|row| seen.insert(row.key.clone()))
             },
             "duplicate Table::id keys in one page: Table::id must be injective"
         );
@@ -1515,14 +1533,7 @@ impl<M> Table<M> {
 
         if page.rows.is_empty() {
             let empty_cell = self
-                .render_empty_cell(
-                    cx,
-                    state,
-                    path,
-                    delete_prefix.is_some(),
-                    with_bulk,
-                    signals.as_ref(),
-                )
+                .render_empty_cell(cx, state, path, with_actions, with_bulk, signals.as_ref())
                 .await?;
             let inner = view! {
                 cx =>
@@ -1605,11 +1616,12 @@ impl<M> Table<M> {
                 table(
                     (head)
                     table_body(
-                        #[key(key.as_str())]
-                        for (key, cells, open_url) in &row_data {
-                            let key_for_row = key.clone();
-                            let key_for_select = key.clone();
-                            let open_for_row = open_url.clone();
+                        #[key(row.key.as_str())]
+                        for row in &row_data {
+                            let key_for_row = row.key.clone();
+                            let key_for_select = row.key.clone();
+                            let edit_for_row = row.edit_url.clone();
+                            let open_for_row = row.delete_url.clone();
                             let row_dom_id = row_dom_id(&key_for_row);
                             table_row(
                                 attrs: attributes! { id=(row_dom_id) },
@@ -1623,20 +1635,35 @@ impl<M> Table<M> {
                                         >
                                     )
                                 }
-                                for cell in cells {
+                                for cell in &row.cells {
                                     table_cell((cell.clone()))
                                 }
-                                if let Some(url) = open_for_row {
+                                if edit_for_row.is_some() || open_for_row.is_some() {
                                     table_cell(
-                                        <a
-                                            href=(url)
-                                            class=(button_variants(
-                                                ButtonVariant::Destructive,
-                                                ButtonSize::Md,
-                                            ))
-                                        >
-                                            "Delete"
-                                        </a>
+                                        <div class="flex gap-2">
+                                            if let Some(url) = edit_for_row {
+                                                <a
+                                                    href=(url)
+                                                    class=(button_variants(
+                                                        ButtonVariant::Outline,
+                                                        ButtonSize::Md,
+                                                    ))
+                                                >
+                                                    "Edit"
+                                                </a>
+                                            }
+                                            if let Some(url) = open_for_row {
+                                                <a
+                                                    href=(url)
+                                                    class=(button_variants(
+                                                        ButtonVariant::Destructive,
+                                                        ButtonSize::Md,
+                                                    ))
+                                                >
+                                                    "Delete"
+                                                </a>
+                                            }
+                                        </div>
                                     )
                                 }
                             )
@@ -1771,13 +1798,13 @@ impl<M> Table<M> {
                 cx,
                 &state,
                 &path,
-                self.delete_prefix.is_some(),
+                self.delete_prefix.is_some() || self.edit_prefix.is_some(),
                 self.bulk_enabled(),
                 None,
             )
             .await?;
         let column_count = self.columns.len();
-        let with_delete = self.delete_prefix.is_some();
+        let with_actions = self.delete_prefix.is_some() || self.edit_prefix.is_some();
         let with_bulk = self.bulk_enabled();
         let inner = view! {
             cx =>
@@ -1809,7 +1836,7 @@ impl<M> Table<M> {
                                         ></div>
                                     )
                                 }
-                                if with_delete {
+                                if with_actions {
                                     table_cell(
                                         <div
                                             class="animate-pulse rounded-md bg-foreground/10 h-4 w-12"
@@ -2363,7 +2390,7 @@ impl<M> Table<M> {
         cx: &'a Cx,
         state: &TableState,
         path: &str,
-        with_delete: bool,
+        with_actions: bool,
         with_bulk: bool,
         signals: Option<&TableSignals>,
     ) -> Result<BoxView<'a>>
@@ -2374,7 +2401,7 @@ impl<M> Table<M> {
         if with_bulk {
             colspan += 1;
         }
-        if with_delete {
+        if with_actions {
             colspan += 1;
         }
         let filtered = state.search.is_some() || !state.filters.is_empty();
@@ -2590,7 +2617,7 @@ impl<M> Table<M> {
         cx: &'a Cx,
         state: &TableState,
         path: &str,
-        with_delete: bool,
+        with_actions: bool,
         with_bulk: bool,
         signals: Option<&TableSignals>,
     ) -> Result<BoxView<'a>>
@@ -2689,7 +2716,7 @@ impl<M> Table<M> {
                 .boxed(),
             );
         }
-        if with_delete {
+        if with_actions {
             heads.push(view! { cx => table_head("Actions") }.boxed());
         }
         Ok(view! {
@@ -2713,6 +2740,17 @@ impl<M> Table<M> {
         }
         .boxed())
     }
+}
+
+/// Precomputed per-row presentation for the grid body: the row key, the
+/// rendered cells, and the optional Edit / delete-dialog action URLs.
+/// A struct (not a tuple): four anonymous positions would mislead readers
+/// and trip `clippy::type_complexity` (GH #162).
+struct RowView {
+    key: String,
+    cells: Vec<String>,
+    edit_url: Option<String>,
+    delete_url: Option<String>,
 }
 
 /// One executed page of rows for [`Table::render`].
@@ -3506,6 +3544,16 @@ pub trait Resource: Sized + Send + Sync + 'static {
         true
     }
 
+    /// Whether this resource exposes row edit chrome (GH #162).
+    ///
+    /// The default renders an `Edit` link per row (Filament's `recordActions`
+    /// `EditAction`); server policy (`can_view` + `can_update`) still denies
+    /// in the edit GET/POST regardless. Read-only resources should override
+    /// to `false` alongside [`Self::deletable`].
+    fn editable() -> bool {
+        true
+    }
+
     /// The URL slug for this resource's pages, e.g. `"users"` mounts the list
     /// at `{panel prefix}/users`.
     ///
@@ -4101,6 +4149,62 @@ mod tests {
                 row.title
             );
         }
+    }
+
+    #[tokio::test]
+    async fn edit_links_render_beside_delete_in_actions_column() {
+        // GH #162 (Filament's `recordActions` EditAction): `with_edit` wires
+        // one `Edit` link per row into the shared Actions column.
+        let cx = CxTestBuilder::new().build();
+        let action_table = Table::<User>::r#for(&cx)
+            .id(|u| u.id.to_string())
+            .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()))
+            .with_delete("/admin/users".to_string())
+            .with_edit("/admin/users".to_string());
+        let rows = vec![User {
+            id: uuid::Uuid::new_v4(),
+            name: "Ada".to_string(),
+        }];
+        let id = rows[0].id.to_string();
+        let page: TablePage<User> = rows.into();
+        let html = action_table
+            .render(&cx, page)
+            .await
+            .unwrap()
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
+        assert!(html.contains("Actions"), "missing Actions header in {html}");
+        assert!(
+            html.contains(&format!("href=\"/admin/users/{id}/edit\"")) && html.contains(">Edit<"),
+            "missing Edit link for {id} in {html}"
+        );
+        assert!(
+            html.contains("Delete"),
+            "Delete link must survive, got {html}"
+        );
+        // Without either prefix there is no Actions column at all.
+        let plain = Table::<User>::r#for(&cx)
+            .id(|u| u.id.to_string())
+            .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()));
+        let page: TablePage<User> = vec![User {
+            id: uuid::Uuid::new_v4(),
+            name: "Ada".to_string(),
+        }]
+        .into();
+        let html = plain
+            .render(&cx, page)
+            .await
+            .unwrap()
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
+        assert!(
+            !html.contains("Actions") && !html.contains(">Edit<"),
+            "plain table must not render action chrome, got {html}"
+        );
     }
 
     #[tokio::test]

@@ -957,6 +957,9 @@ fn search_handler_for<R: Resource>() -> SearchFn {
                 } else {
                     table
                 };
+                if R::editable() {
+                    table = table.with_edit(list_url(cx, &R::slug()));
+                }
                 // Normalize once (GH #153): the shard `group_by` arg is
                 // client input — an unknown value must not echo through the
                 // retry link. The render re-normalizes internally.
@@ -1117,8 +1120,16 @@ fn resource_list<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
         } else {
             table
         };
+        if R::editable() {
+            table = table.with_edit(list_url(cx, &R::slug()));
+        }
         let title = R::navigation_label();
         let list_path = list_url(cx, &R::slug());
+        // Create entry point (GH #162, Filament's List page `CreateAction` in
+        // the page header): a real link so no-JS keeps working. Gated on
+        // `can_create`; the POST handler enforces it again.
+        let create_url = R::can_create(cx).then(|| format!("{}/create", list_path));
+        let create_label = format!("Create {}", R::navigation_label());
         if table.is_live_search() {
             return Ok(resource_list_live::<R>(cx, table, state, title, list_path));
         }
@@ -1166,7 +1177,22 @@ fn resource_list<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
         Ok(view! {
             cx =>
             argentum_ui::page(
-                argentum_ui::page_header(argentum_ui::page_title((title.clone())))
+                argentum_ui::page_header(
+                    <div class="flex items-center justify-between gap-4">
+                        argentum_ui::page_title((title.clone()))
+                        if let Some(url) = create_url {
+                            <a
+                                href=(url)
+                                class=(argentum_ui::button_variants(
+                                    argentum_ui::ButtonVariant::Primary,
+                                    argentum_ui::ButtonSize::Md,
+                                ))
+                            >
+                                (create_label)
+                            </a>
+                        }
+                    </div>
+                )
                 argentum_ui::page_content(
                     <div class="flex flex-col gap-4">
                         suspense(fallback: skeleton, (lazy_rows.boxed()))
@@ -1233,6 +1259,10 @@ fn resource_list_live<R: Resource>(
         // (or re-open) a dialog, so the live page renders it eagerly once
         // (GH #151).
         let delete_dialog = table.render_delete_dialog(cx, &state, &list_path).await?;
+        // Create entry point (GH #162): same header button as the streamed
+        // list — a real link above the swapped region, gated on `can_create`.
+        let create_url = R::can_create(cx).then(|| format!("{}/create", list_path));
+        let create_label = format!("Create {}", R::navigation_label());
         // The swap payload must be rows even when the declared table sets
         // `.defer(true)` (GH #98 trap).
         let table = table.without_skeleton();
@@ -1266,7 +1296,22 @@ fn resource_list_live<R: Resource>(
         Ok(view! {
             cx =>
             argentum_ui::page(
-                argentum_ui::page_header(argentum_ui::page_title((title.clone())))
+                argentum_ui::page_header(
+                    <div class="flex items-center justify-between gap-4">
+                        argentum_ui::page_title((title.clone()))
+                        if let Some(url) = create_url {
+                            <a
+                                href=(url)
+                                class=(argentum_ui::button_variants(
+                                    argentum_ui::ButtonVariant::Primary,
+                                    argentum_ui::ButtonSize::Md,
+                                ))
+                            >
+                                (create_label)
+                            </a>
+                        }
+                    </div>
+                )
                 argentum_ui::page_content(
                     <div class="flex flex-col gap-4">
                         if let Some(host) = host {
@@ -3516,6 +3561,208 @@ mod tests {
         assert!(
             !html.contains("/delete"),
             "read-only list must not render delete actions, got {html}"
+        );
+    }
+
+    #[tokio::test]
+    async fn list_header_renders_create_entry_point_when_allowed() {
+        // GH #162 (Filament's List page `CreateAction` in the page header):
+        // the Create link is eager page chrome, gated on `can_create`.
+        use crate::resource::Resource;
+        use http_body_util::BodyExt;
+        use std::collections::HashMap;
+
+        #[derive(Debug, toasty::Model)]
+        struct Dummy {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            name: String,
+        }
+        struct CreatableResource;
+        impl Resource for CreatableResource {
+            type Model = Dummy;
+            fn slug() -> String {
+                "dummies".to_string()
+            }
+            fn can_view_any(_cx: &Cx) -> bool {
+                true
+            }
+            fn can_create(_cx: &Cx) -> bool {
+                true
+            }
+            fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
+                crate::resource::Table::r#for(cx)
+                    .id(|d: &Dummy| d.id.to_string())
+                    .columns(crate::resource::TextColumn::r#for(
+                        Dummy::fields().name(),
+                        |d: &Dummy| d.name.clone(),
+                    ))
+            }
+            fn hydrate_form_values(_record: &Dummy) -> HashMap<String, String> {
+                HashMap::new()
+            }
+        }
+        struct DenyCreateResource;
+        impl Resource for DenyCreateResource {
+            type Model = Dummy;
+            fn slug() -> String {
+                "dummies".to_string()
+            }
+            fn can_view_any(_cx: &Cx) -> bool {
+                true
+            }
+            fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
+                CreatableResource::table(cx)
+            }
+            fn hydrate_form_values(_record: &Dummy) -> HashMap<String, String> {
+                HashMap::new()
+            }
+        }
+
+        async fn list_html<R: Resource>() -> String {
+            let db = Db::builder()
+                .models(toasty::models!(Dummy))
+                .connect("sqlite::memory:")
+                .await
+                .unwrap();
+            db.push_schema().await.unwrap();
+            let router = Panel::new("admin")
+                .app_context(db)
+                .resource::<R>()
+                .auth(crate::Auth::disabled())
+                .build();
+            let resp = router
+                .handle(
+                    http::Request::builder()
+                        .uri("/admin/dummies")
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await;
+            assert!(resp.status().is_success());
+            let body = resp.into_body().collect().await.unwrap().to_bytes();
+            String::from_utf8_lossy(&body).to_string()
+        }
+
+        let html = list_html::<CreatableResource>().await;
+        assert!(
+            html.contains("href=\"/admin/dummies/create\"") && html.contains("Create"),
+            "allowed list must link to the create page, got {html}"
+        );
+        let html = list_html::<DenyCreateResource>().await;
+        assert!(
+            !html.contains("/admin/dummies/create"),
+            "denied list must not link to the create page, got {html}"
+        );
+    }
+
+    #[tokio::test]
+    async fn non_editable_resource_hides_edit_links() {
+        // GH #162: `editable()` is the `deletable()` (GH #96) counterpart for
+        // the per-row Edit link — read-only resources hide it, writable ones
+        // link each row to `{list}/{id}/edit`.
+        use crate::resource::Resource;
+        use http_body_util::BodyExt;
+        use std::collections::HashMap;
+
+        #[derive(Debug, toasty::Model)]
+        struct Dummy {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            name: String,
+        }
+        struct WritableResource;
+        impl Resource for WritableResource {
+            type Model = Dummy;
+            fn slug() -> String {
+                "dummies".to_string()
+            }
+            fn deletable() -> bool {
+                false
+            }
+            fn can_view_any(_cx: &Cx) -> bool {
+                true
+            }
+            fn can_create(_cx: &Cx) -> bool {
+                true
+            }
+            fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
+                crate::resource::Table::r#for(cx)
+                    .id(|d: &Dummy| d.id.to_string())
+                    .columns(crate::resource::TextColumn::r#for(
+                        Dummy::fields().name(),
+                        |d: &Dummy| d.name.clone(),
+                    ))
+            }
+            fn hydrate_form_values(_record: &Dummy) -> HashMap<String, String> {
+                HashMap::new()
+            }
+        }
+        struct LockedResource;
+        impl Resource for LockedResource {
+            type Model = Dummy;
+            fn slug() -> String {
+                "dummies".to_string()
+            }
+            fn deletable() -> bool {
+                false
+            }
+            fn editable() -> bool {
+                false
+            }
+            fn can_view_any(_cx: &Cx) -> bool {
+                true
+            }
+            fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
+                WritableResource::table(cx)
+            }
+            fn hydrate_form_values(_record: &Dummy) -> HashMap<String, String> {
+                HashMap::new()
+            }
+        }
+
+        async fn list_html<R: Resource>() -> String {
+            let mut db = Db::builder()
+                .models(toasty::models!(Dummy))
+                .connect("sqlite::memory:")
+                .await
+                .unwrap();
+            db.push_schema().await.unwrap();
+            toasty::create!(Dummy {
+                name: "Ada".to_string(),
+            })
+            .exec(&mut db)
+            .await
+            .unwrap();
+            let router = Panel::new("admin")
+                .app_context(db)
+                .resource::<R>()
+                .auth(crate::Auth::disabled())
+                .build();
+            let resp = router
+                .handle(
+                    http::Request::builder()
+                        .uri("/admin/dummies")
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await;
+            assert!(resp.status().is_success());
+            let body = resp.into_body().collect().await.unwrap().to_bytes();
+            String::from_utf8_lossy(&body).to_string()
+        }
+
+        let html = list_html::<WritableResource>().await;
+        assert!(
+            html.contains("/edit") && html.contains(">Edit<"),
+            "editable list must link rows to their edit pages, got {html}"
+        );
+        let html = list_html::<LockedResource>().await;
+        assert!(
+            !html.contains("/edit") && !html.contains(">Edit<"),
+            "non-editable list must not render edit links, got {html}"
         );
     }
 
