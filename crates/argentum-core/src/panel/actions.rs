@@ -59,7 +59,7 @@ pub(crate) async fn find_by_key<R: Resource>(
         .first()
         .exec(&mut *ex)
         .await
-        .map_err(topcoat::Error::from)?
+        .map_err(crate::db::unavailable)?
         .ok_or_else(topcoat::router::error::not_found)
         .map_err(Into::into)
 }
@@ -98,14 +98,14 @@ pub(crate) fn resource_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
             // loaded record, and delete inside the tx — commit makes the checked
             // delete durable, any error rolls it back (GH #84).
             let mut db = db(cx);
-            let mut tx = db.transaction().await.map_err(topcoat::Error::from)?;
+            let mut tx = db.transaction().await.map_err(crate::db::unavailable)?;
             let id = topcoat::router::path_param_segment(cx, "id").to_string();
             let record = find_by_key::<R>(cx, &id, &mut tx).await?;
             if !R::can_delete(cx, &record) {
                 return Err(forbidden().into());
             }
             R::delete_record(cx, record, &mut tx).await?;
-            tx.commit().await.map_err(topcoat::Error::from)?;
+            tx.commit().await.map_err(crate::db::unavailable)?;
             set_notification(cx, Notification::success("Deleted"));
             Err(see_other(list_url(cx, &R::slug())).into())
         },
@@ -163,12 +163,12 @@ pub(crate) fn resource_bulk_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<
                 return Err(topcoat::router::error::not_found().into());
             };
             let mut db = db(cx);
-            let mut tx = db.transaction().await.map_err(topcoat::Error::from)?;
+            let mut tx = db.transaction().await.map_err(crate::db::unavailable)?;
             let rows = R::query(cx)
                 .filter(pk_filter)
                 .exec(&mut tx)
                 .await
-                .map_err(topcoat::Error::from)?;
+                .map_err(crate::db::unavailable)?;
             if rows.len() != ids.len() {
                 return Err(topcoat::router::error::not_found().into());
             }
@@ -181,7 +181,7 @@ pub(crate) fn resource_bulk_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<
             // commit once. Any error drops `tx` uncommitted: zero rows
             // deleted, never half-applied.
             R::bulk_delete_records(cx, rows, &mut tx).await?;
-            tx.commit().await.map_err(topcoat::Error::from)?;
+            tx.commit().await.map_err(crate::db::unavailable)?;
             set_notification(cx, Notification::success("Bulk deleted"));
             Err(see_other(list_url(cx, &R::slug())).into())
         },
@@ -329,7 +329,7 @@ pub(crate) fn resource_export<R: Resource>(cx: &Cx, _body: Body) -> RouteFuture<
         // most one row past the cap, so memory stays bounded.
         query = query.limit(MAX_EXPORT_ROWS + 1);
         let mut db = db(cx);
-        let rows: Vec<R::Model> = query.exec(&mut db).await.map_err(topcoat::Error::from)?;
+        let rows: Vec<R::Model> = query.exec(&mut db).await.map_err(crate::db::unavailable)?;
         // Visibility first, cap second (GH #86, GH #145) — see
         // `filter_then_cap` for why the cap counts only receivable rows.
         // Bounded over-fetch (the issue's accepted alternative): a 200 holds

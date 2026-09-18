@@ -502,7 +502,7 @@ async fn check_unique<R: Resource>(
             .limit(1)
             .exec(&mut *ex)
             .await
-            .map_err(topcoat::Error::from)?;
+            .map_err(crate::db::unavailable)?;
         if !rows.is_empty() {
             errors.insert(
                 name,
@@ -564,7 +564,7 @@ pub(crate) fn resource_create_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<
         // observe one snapshot and commit atomically. Dropping `tx`
         // without commit (validation errors, policy denials) rolls back.
         let mut db = db(cx);
-        let mut tx = db.transaction().await.map_err(topcoat::Error::from)?;
+        let mut tx = db.transaction().await.map_err(crate::db::unavailable)?;
         // App-side unique check over every `unique()`-marked input — the only
         // error layer until toasty exposes a unique-violation predicate
         // (upstream gap #117; never string-match driver error messages).
@@ -587,7 +587,7 @@ pub(crate) fn resource_create_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<
         // Attempt creation via Resource hook, inside the tx.
         match R::create_record(cx, values.clone(), &mut tx).await {
             Ok(()) => {
-                tx.commit().await.map_err(topcoat::Error::from)?;
+                tx.commit().await.map_err(crate::db::unavailable)?;
                 Err(redirect_after_write::<R>(cx, "Created"))
             }
             // A unique violation that slipped past the app-side check (a
@@ -682,7 +682,7 @@ pub(crate) fn resource_edit_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_
         // policy is checked on this snapshot and the same record flows into
         // the write — never a silent re-load outside the checked snapshot.
         let mut db = db(cx);
-        let mut tx = db.transaction().await.map_err(topcoat::Error::from)?;
+        let mut tx = db.transaction().await.map_err(crate::db::unavailable)?;
         let record = find_by_key::<R>(cx, &id, &mut tx).await?;
         if !R::can_view(cx, &record) {
             return Err(forbidden().into());
@@ -706,7 +706,7 @@ pub(crate) fn resource_edit_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_
         }
         match R::update_record(cx, record, values.clone(), &mut tx).await {
             Ok(()) => {
-                tx.commit().await.map_err(topcoat::Error::from)?;
+                tx.commit().await.map_err(crate::db::unavailable)?;
                 Err(redirect_after_write::<R>(cx, "Updated"))
             }
             // A unique violation that slipped past the app-side check (a

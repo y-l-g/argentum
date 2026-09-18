@@ -114,10 +114,15 @@ pub fn set_notification(cx: &Cx, notification: Notification) {
         return;
     }
     // `commit` serializes to JSON and queues the Set-Cookie — one hand-rolled
-    // wire format less (GH #139).
-    let _ = cookie_store::<Notification, _>(hardened(cookies(cx)), COOKIE_NAME)
+    // wire format less (GH #139). A failed commit must not fail the mutation
+    // it rides on, but swallowing it retries a completed write with no toast
+    // (GH #174) — log it for operators instead.
+    if let Err(error) = cookie_store::<Notification, _>(hardened(cookies(cx)), COOKIE_NAME)
         .set(notification)
-        .commit();
+        .commit()
+    {
+        tracing::error!(error = %error, "flash notification commit failed");
+    }
 }
 
 /// Take the notification from the request (if present) and clear it.

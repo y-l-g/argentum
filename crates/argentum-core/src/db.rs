@@ -23,6 +23,19 @@ pub fn db(cx: &Cx) -> Db {
     app_context::<Db>(cx).clone()
 }
 
+/// Map a database infrastructure failure (pool/tx open, probe/exec, commit)
+/// to an opaque 500 (GH #174): the driver/SQL text is logged for operators
+/// but never reaches the error page. The streamed list already holds this
+/// contract through its generic `ErrorState` (logged once at
+/// `grid_error_view`); mutation/export paths must match it.
+///
+/// Only infra failures come here. App-hook errors (`create_record` et al.)
+/// and explicit guards (404s, 403s, config errors) keep their own mapping.
+pub(crate) fn unavailable(source: impl std::fmt::Display) -> topcoat::Error {
+    tracing::error!(error = %source, "database unavailable");
+    topcoat::Error::from(std::io::Error::other("database unavailable"))
+}
+
 #[cfg(test)]
 mod tests {
     use topcoat::context::CxTestBuilder;
@@ -67,5 +80,20 @@ mod tests {
             .expect("query users");
         assert_eq!(users.len(), 1);
         assert_eq!(users[0].name, "Ada");
+    }
+
+    #[test]
+    fn unavailable_maps_infra_failures_to_an_opaque_error() {
+        // GH #174: driver text is for the logs, never the error page.
+        let err = super::unavailable("secret driver gunk: no such table");
+        let rendered = err.to_string();
+        assert!(
+            rendered.contains("database unavailable"),
+            "the opaque message must survive, got {rendered}"
+        );
+        assert!(
+            !rendered.contains("gunk"),
+            "driver text must not leak, got {rendered}"
+        );
     }
 }
