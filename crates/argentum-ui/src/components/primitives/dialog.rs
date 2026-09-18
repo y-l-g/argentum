@@ -1,6 +1,7 @@
-// SYNC: topcoat-ui-registry@0.8.1 sha256:bf3a0a1d8fcb802c3fcb25f2aa724d36e1e81c26e8c5846d9767d5dfd05691fc — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
+// SYNC: topcoat-ui-registry@0.8.1 sha256:92b8fdd4d938ebd8afe9515ff3a4d6ecca307940f60aad1c3666abcdca2ec80b — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
 use topcoat::{
     Result,
+    runtime::Expr,
     view::{Attributes, Child, StaticClass, View, class, component, view},
 };
 
@@ -38,11 +39,9 @@ const FADE: StaticClass = class!(
 /// A dialog component: a panel over the page for a single task.
 ///
 /// The dialog is a native `<dialog>` whose open state is the `open`
-/// parameter, so the server decides whether it shows. Both opening and
-/// closing it are a link or a form that changes the state behind `open`,
-/// which means the dialog survives a reload and can be linked to. Dismissing
-/// it in the browser alone needs scripting, as does trapping focus in it or
-/// closing it on Escape; the overlay does cover the page, so what is behind
+/// parameter. Pass a boolean for a fixed state or a runtime expression to
+/// open and close it in the browser. Focus trapping and closing on Escape
+/// need additional scripting; the overlay covers the page, so what is behind
 /// it cannot be clicked.
 ///
 /// Child nodes become the dialog's content, normally a single
@@ -77,7 +76,8 @@ const FADE: StaticClass = class!(
 #[component]
 pub async fn dialog(
     /// Whether the dialog shows.
-    open: bool,
+    #[into]
+    open: Expr<bool>,
     /// Extra attributes for the `<dialog>` element.
     #[default]
     mut attrs: Attributes,
@@ -87,7 +87,7 @@ pub async fn dialog(
 ) -> Result<impl View> {
     Ok(view! {
         <dialog
-            open=(open)
+            :open=(open)
             class=(class!(OVERLAY, FADE, attrs.remove("class")))
             (attrs)
         >
@@ -107,7 +107,7 @@ pub async fn dialog(
 /// its corners.
 const CONTENT: StaticClass = class!(
     "relative my-auto flex w-full max-w-lg flex-col gap-4 rounded-xl \
-     border border-border bg-background p-6 text-foreground shadow-sm",
+     border border-border bg-card p-6 text-card-foreground shadow-sm",
 );
 
 /// The classes bringing the panel in behind the veil.

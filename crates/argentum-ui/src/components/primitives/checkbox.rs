@@ -1,4 +1,4 @@
-// SYNC: topcoat-ui-registry@0.8.1 sha256:c5cb2baa25c978591e222d9e253b6d2c347f48c339bc5f348e1c54e70aaca620 — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
+// SYNC: topcoat-ui-registry@0.8.1 sha256:9dd695f40e391c1b8aaec5e3d439e1f4db9b90f7acbad6c974eeab12d1f0438e — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
 use topcoat::{
     Result,
     icon::{icon, iconify::iconify_icon},
@@ -10,11 +10,11 @@ use topcoat::{
 ///
 /// The native glyph is suppressed with `appearance-none` so the component can
 /// draw its own checkmark, which keeps the control looking the same across
-/// browsers. The unchecked box matches the input control's border and shadow;
+/// browsers. The unchecked box matches the input control's border;
 /// checking it fills the box with the primary color.
 const CHECKBOX: StaticClass = class!(
     "peer size-4 shrink-0 appearance-none rounded-[4px] border border-border \
-     bg-background shadow-xs transition-colors outline-none \
+     bg-background transition-colors outline-none \
      checked:border-primary checked:bg-primary \
      focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 \
      focus-visible:ring-offset-background disabled:pointer-events-none",
@@ -44,7 +44,7 @@ pub async fn checkbox(#[default] mut attrs: Attributes) -> Result<impl View> {
     Ok(view! {
         <span
             class=(class!(
-                "relative inline-flex shrink-0 has-[:disabled]:opacity-50",
+                "peer relative inline-flex shrink-0 has-[:disabled]:opacity-50",
                 attrs.remove("class"),
             ))
         >

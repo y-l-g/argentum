@@ -1,5 +1,3 @@
-use topcoat::view::ViewExt;
-
 use showcase::app::router_for_tests as router;
 
 mod common;
@@ -29,15 +27,26 @@ async fn admin_resource_list_page_serve_seeded_users() {
         html.contains("data-sidebar=\"sidebar\"") || html.contains("data-sidebar=\"menu\""),
         "missing sidebar in {html}"
     );
-    // NavigationItem derived from UserResource and the custom Showcase item.
+    // Sidebar lists only Resource-derived entries: Users, Authors, Posts.
+    // No Showcase documentation entry (GH #163).
     assert!(html.contains("Users"), "missing navigation label in {html}");
     assert!(
         html.contains("href=\"/admin/users\"") || html.contains("/admin/users"),
         "missing navigation url in {html}"
     );
+    assert!(html.contains("Authors"), "missing Authors label in {html}");
     assert!(
-        html.contains("href=\"/admin/showcase\""),
-        "missing custom Showcase navigation url in {html}"
+        html.contains("href=\"/admin/authors\"") || html.contains("/admin/authors"),
+        "missing Authors navigation url in {html}"
+    );
+    assert!(html.contains("Posts"), "missing Posts label in {html}");
+    assert!(
+        html.contains("href=\"/admin/posts\"") || html.contains("/admin/posts"),
+        "missing Posts navigation url in {html}"
+    );
+    assert!(
+        !html.contains("href=\"/admin/showcase\""),
+        "showcase navigation must be gone in {html}"
     );
     // List page content — page 1 of the cursor-paginated list (name asc,
     // 2 per page) shows Ada + Alan; Grace lives on page 2, exercised by
@@ -79,285 +88,23 @@ async fn admin_root_redirects_to_first_resource() {
 }
 
 #[tokio::test]
-async fn showcase_index_lists_features() {
+async fn removed_showcase_routes_are_not_found() {
     let db = seeded_db().await;
     let router = router(db);
     let client = demo_client(&router).await;
-    let response = client.get("/admin/showcase").await;
-    assert!(
-        response.status().is_success(),
-        "showcase index status {}",
-        response.status()
-    );
-    let html = body_string(response).await;
-    assert!(
-        html.contains("Showcase"),
-        "missing Showcase heading in {html}"
-    );
-    assert!(
-        html.contains("href=\"/admin/showcase\"") && html.contains("aria-current=\"page\""),
-        "typed Showcase navigation item should be current on its page: {html}"
-    );
     for path in [
+        "/admin/showcase",
         "/admin/showcase/ui",
         "/admin/showcase/dialog",
-        "/admin/showcase/schema",
-        "/admin/showcase/resource",
         "/admin/showcase/panel",
+        "/admin/showcase/resource",
+        "/admin/showcase/schema",
         "/admin/showcase/table",
         "/admin/showcase/db",
     ] {
-        assert!(html.contains(path), "missing link {path} in {html}");
+        let response = client.get(path).await;
+        assert_eq!(response.status(), 404, "{path} should be gone");
     }
-}
-
-#[tokio::test]
-async fn showcase_ui_renders_card_and_button_with_tokens() {
-    let db = seeded_db().await;
-    let router = router(db);
-    let client = demo_client(&router).await;
-    let response = client.get("/admin/showcase/ui").await;
-    assert!(
-        response.status().is_success(),
-        "ui showcase status {}",
-        response.status()
-    );
-    let html = body_string(response).await;
-    assert!(
-        html.contains("Beautiful card") || html.contains("argentum-ui"),
-        "missing card title in {html}"
-    );
-    assert!(
-        html.contains("border-border") && html.contains("bg-background"),
-        "missing Token border/bg in {html}"
-    );
-    assert!(
-        html.contains("text-muted-foreground"),
-        "missing muted text Token in {html}"
-    );
-    assert!(
-        html.contains("shadow-sm") || html.contains("rounded-xl"),
-        "missing card shadow/rounded in {html}"
-    );
-    assert!(html.contains("Primary"), "missing Primary button in {html}");
-}
-
-#[tokio::test]
-async fn showcase_dialog_renders_notification_and_dialog_with_tokens() {
-    let db = seeded_db().await;
-    let router = router(db);
-    let client = demo_client(&router).await;
-    let response = client.get("/admin/showcase/dialog").await;
-    assert!(
-        response.status().is_success(),
-        "dialog showcase status {}",
-        response.status()
-    );
-    let html = body_string(response).await;
-    // Notification stack: fixed top-4 right-4, card with border-border bg-background shadow-sm
-    assert!(
-        html.contains("fixed top-4 right-4") || html.contains("top-4 right-4"),
-        "missing notification stack in {html}"
-    );
-    assert!(
-        html.contains("border-border")
-            && html.contains("bg-background")
-            && html.contains("shadow-sm"),
-        "missing notification/dialog card Token in {html}"
-    );
-    // Dialog: alert_dialog with Primary/Destructive buttons
-    assert!(
-        html.contains("Delete user?") || html.contains("alert_dialog"),
-        "missing dialog title in {html}"
-    );
-    assert!(
-        html.contains("Destructive") || html.contains("Delete"),
-        "missing Destructive button in {html}"
-    );
-    assert!(
-        html.contains("Primary") || html.contains("Cancel"),
-        "missing Primary/Outline button in {html}"
-    );
-    // Ensure no ac-* remains in this showcase
-    assert!(
-        !html.contains("ac-showcase") && !html.contains("ac-"),
-        "ac-* should not remain in dialog showcase, got {html}"
-    );
-}
-
-#[tokio::test]
-async fn showcase_schema_renders_variants() {
-    let db = seeded_db().await;
-    let router = router(db);
-    let client = demo_client(&router).await;
-    let response = client.get("/admin/showcase/schema").await;
-    assert!(
-        response.status().is_success(),
-        "schema showcase status {}",
-        response.status()
-    );
-    let html = body_string(response).await;
-    // Snippets + rendered classes — beautiful: Token classes
-    assert!(html.contains("Text::new"), "missing Text snippet in {html}");
-    assert!(
-        html.contains("text-foreground") || html.contains("text-sm"),
-        "missing Text Token in {html}"
-    );
-    assert!(
-        html.contains("rounded-xl") && html.contains("border-border"),
-        "missing Section card chrome in {html}"
-    );
-    assert!(
-        html.contains("flex flex-col gap-4"),
-        "missing Group Token in {html}"
-    );
-    assert!(html.contains("grid"), "missing grid in {html}");
-    assert!(html.contains("grid-cols-2"), "missing grid cols in {html}");
-    // TextInput field — beautiful via label+input Tokens
-    assert!(
-        html.contains("TextInput::for"),
-        "missing TextInput snippet in {html}"
-    );
-    assert!(
-        html.contains("grid gap-1.5"),
-        "missing TextInput grid gap-1.5 in {html}"
-    );
-    assert!(
-        html.contains("border-border"),
-        "missing input border-border in {html}"
-    );
-    assert!(html.contains("<input"), "missing input in {html}");
-    assert!(
-        html.contains("text-sm text-destructive"),
-        "missing error slot in {html}"
-    );
-    // Composition and empty
-    assert!(
-        html.contains("Schema::empty"),
-        "missing empty snippet in {html}"
-    );
-}
-
-#[tokio::test]
-async fn showcase_resource_renders_derives_and_navigation() {
-    let db = seeded_db().await;
-    let router = router(db);
-    let client = demo_client(&router).await;
-    let response = client.get("/admin/showcase/resource").await;
-    assert!(
-        response.status().is_success(),
-        "resource showcase status {}",
-        response.status()
-    );
-    let html = body_string(response).await;
-    assert!(
-        html.contains("BareUserResource"),
-        "missing Bare snippet in {html}"
-    );
-    assert!(
-        html.contains("only_ada"),
-        "missing only_ada snippet in {html}"
-    );
-    assert!(
-        html.contains("Bare query rows: 3"),
-        "missing all count in {html}"
-    );
-    assert!(
-        html.contains("Scoped query rows: 1"),
-        "missing scoped count in {html}"
-    );
-    assert!(
-        html.contains("Ada Lovelace"),
-        "missing scoped user in {html}"
-    );
-    assert!(html.contains("Users"), "missing navigation label in {html}");
-    assert!(
-        html.contains("/admin/bare-users"),
-        "missing derived resource URL in {html}"
-    );
-}
-
-#[tokio::test]
-async fn showcase_panel_renders_normalization() {
-    let db = seeded_db().await;
-    let router = router(db);
-    let client = demo_client(&router).await;
-    let response = client.get("/admin/showcase/panel").await;
-    assert!(
-        response.status().is_success(),
-        "panel showcase status {}",
-        response.status()
-    );
-    let html = body_string(response).await;
-    assert!(
-        html.contains("Panel::new"),
-        "missing Panel snippet in {html}"
-    );
-    assert!(
-        html.contains("/admin") && html.contains("/showcase"),
-        "missing prefix variants in {html}"
-    );
-}
-
-#[tokio::test]
-async fn showcase_db_renders_memoized_loader() {
-    let db = seeded_db().await;
-    let router = router(db);
-    let client = demo_client(&router).await;
-    let response = client.get("/admin/showcase/db").await;
-    assert!(
-        response.status().is_success(),
-        "db showcase status {}",
-        response.status()
-    );
-    let html = body_string(response).await;
-    assert!(html.contains("db(cx)"), "missing db snippet in {html}");
-    assert!(
-        html.contains("#[memoize"),
-        "missing memoize snippet in {html}"
-    );
-    assert!(
-        html.contains("Ada Lovelace") || html.contains("Grace Hopper"),
-        "missing user rows in {html}"
-    );
-}
-
-#[tokio::test]
-async fn showcase_table_renders_variants() {
-    let db = seeded_db().await;
-    let router = router(db);
-    let client = demo_client(&router).await;
-    let response = client.get("/admin/showcase/table").await;
-    assert!(
-        response.status().is_success(),
-        "table showcase status {}",
-        response.status()
-    );
-    let html = body_string(response).await;
-    assert!(
-        html.contains("TextColumn::for"),
-        "missing TextColumn snippet in {html}"
-    );
-    assert!(
-        html.contains("rounded-xl") && html.contains("border-border"),
-        "missing table chrome in {html}"
-    );
-    assert!(
-        html.contains("text-muted-foreground"),
-        "missing table header Token in {html}"
-    );
-    assert!(
-        html.contains("⌕") || html.contains("search"),
-        "missing searchable indicator in {html}"
-    );
-    assert!(
-        html.contains("↕") || html.contains("aria-sort"),
-        "missing sortable indicator in {html}"
-    );
-    assert!(
-        html.contains("Ada Lovelace") || html.contains("Name"),
-        "missing table rows in {html}"
-    );
 }
 
 #[tokio::test]
@@ -574,45 +321,8 @@ async fn admin_list_filters_via_q_param() {
         "filtered table should still render via Table chrome in {html}"
     );
     assert!(
-        html.contains("text-muted-foreground") || html.contains("⌕"),
-        "filtered table should have searchable indicator in {html}"
-    );
-}
-
-#[tokio::test]
-async fn admin_form_via_resource_renders_text_inputs() {
-    use argentum_core::Resource;
-    use showcase::app::UserResource;
-    use topcoat::context::CxTestBuilder;
-    let cx = CxTestBuilder::new().build();
-    let form = UserResource::form(&cx);
-    let html = form
-        .render(&cx)
-        .await
-        .unwrap()
-        .single()
-        .await
-        .unwrap()
-        .render(&cx);
-    assert!(
-        html.contains("grid gap-1.5"),
-        "Resource::form should render TextInput(s) with grid gap-1.5 in {html}"
-    );
-    assert!(
-        html.contains("border-border") && html.contains("bg-background"),
-        "Resource::form should have Token input chrome in {html}"
-    );
-    assert!(
-        html.contains("<input"),
-        "Resource::form should contain <input> in {html}"
-    );
-    assert!(
-        html.contains("text-sm text-destructive"),
-        "Resource::form should have error slot in {html}"
-    );
-    assert!(
-        html.matches("grid gap-1.5").count() >= 2,
-        "Resource::form should have at least 2 fields (name, email) in {html}"
+        !html.contains("Prefix search matches this column"),
+        "searchable headers must not carry a loupe, got {html}"
     );
 }
 

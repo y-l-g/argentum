@@ -1,4 +1,4 @@
-// SYNC: topcoat-ui-registry@0.8.1 sha256:c3bceae840e0be75a9201544d65f9578e41cd9e61bcb9e236b2e9a6c78d739ac — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
+// SYNC: topcoat-ui-registry@0.8.1 sha256:a4cfcb51a2b5f8d887e5a03bef008c42518ef5cc90d562418c0ec0cf8d73855d — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
 use topcoat::{
     Result,
     view::{Attributes, Child, StaticClass, View, class, component, view},
@@ -57,7 +57,7 @@ pub async fn hover_card(
 /// work, as `all` does not carry the visibility along.
 const PANEL: StaticClass = class!(
     "invisible absolute top-full left-0 z-50 mt-2 w-64 rounded-lg border \
-     border-border bg-background p-4 text-foreground opacity-0 shadow-sm \
+     border-border bg-popover p-4 text-popover-foreground opacity-0 shadow-sm \
      [transition:opacity_150ms_ease-out_300ms,visibility_150ms_allow-discrete_300ms] \
      group-hover:visible group-hover:opacity-100 \
      group-focus-within:visible group-focus-within:opacity-100",

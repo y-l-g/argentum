@@ -1,4 +1,4 @@
-// SYNC: topcoat-ui-registry@0.8.1 sha256:32369968a7163a9ff383e5c8602c1fbb6e97b632d0cb30a716b1c3358b704256 — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
+// SYNC: topcoat-ui-registry@0.8.1 sha256:445157f59464f4e2d0e764d8500b7331438fd9b8d648013db07307eef2b16161 — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
 use topcoat::{
     Result,
     icon::{icon, iconify::iconify_icon},
@@ -89,8 +89,8 @@ pub async fn dropdown_menu_trigger(
 /// `z-50` lifts it over later content. It sets its own background and text
 /// color, so it reads the same on any ancestor.
 const PANEL: StaticClass = class!(
-    "absolute z-50 min-w-40 rounded-lg border border-border bg-background p-1 \
-     text-foreground shadow-sm",
+    "absolute z-50 min-w-40 rounded-lg border border-border bg-popover p-1 \
+     text-popover-foreground shadow-sm",
 );
 
 /// The floating panel of a [`dropdown_menu`], holding the menu's items.

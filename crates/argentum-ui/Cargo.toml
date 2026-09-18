@@ -9,7 +9,7 @@ description = "Beautiful Topcoat UI primitives for Argentum — owned library ov
 [dependencies]
 http = "1"
 syntect = "5"
-topcoat = { workspace = true, features = ["tailwind", "font", "font-fontsource", "asset", "icon", "icon-iconify"] }
+topcoat = { workspace = true, features = ["tailwind", "font", "font-fontsource", "asset", "icon", "icon-iconify", "runtime"] }
 
 [dev-dependencies]
 tokio = { workspace = true }

@@ -1,8 +1,9 @@
 # Storefront: Axum + Maud
 
-The hand-written Axum + Maud baseline under the benchmark harness. Stub:
-serves a single page as plain functions returning `maud` templates, with no
-framework layer on top.
+The hand-written Axum + Maud smoke stub under the benchmark harness (GH #159:
+compile-only, not comparable). Serves a single static page as plain functions
+returning `maud` templates, with no framework layer on top — it renders no
+50-row workload.
 
 ```sh
 cargo run

@@ -121,3 +121,77 @@ async fn posts_export_streams_csv_with_content_disposition() {
         csv
     );
 }
+
+#[tokio::test]
+async fn export_over_cap_413s_at_route_level() {
+    // GH #136 §4: the 413 mapping is unit-tested (`export_cap_maps_one_row…`);
+    // this pins the route wiring — a table past the cap answers 413.
+    use argentum_core::{Resource, Schema, Table, TextColumn, TextInput};
+    use common::TestClient;
+    use toasty::Db;
+
+    #[derive(Debug, toasty::Model)]
+    struct Dummy {
+        #[key]
+        #[auto]
+        id: uuid::Uuid,
+        name: String,
+    }
+
+    struct BigResource;
+    impl Resource for BigResource {
+        type Model = Dummy;
+        fn slug() -> String {
+            "dummies".to_string()
+        }
+        fn can_view_any(_cx: &topcoat::context::Cx) -> bool {
+            true
+        }
+        fn can_view(_cx: &topcoat::context::Cx, _record: &Dummy) -> bool {
+            true
+        }
+        fn table(cx: &topcoat::context::Cx) -> Table<Dummy> {
+            Table::r#for(cx)
+                .id(|d: &Dummy| d.id.to_string())
+                .columns(TextColumn::r#for(Dummy::fields().name(), |d: &Dummy| {
+                    d.name.clone()
+                }))
+        }
+        fn form(_cx: &topcoat::context::Cx) -> Schema {
+            Schema::new(TextInput::r#for(Dummy::fields().name()))
+        }
+    }
+
+    let mut db = Db::builder()
+        .models(toasty::models!(Dummy))
+        .connect("sqlite::memory:")
+        .await
+        .unwrap();
+    db.push_schema().await.unwrap();
+    // One row past the 10_000 cap, in batches so the seed stays fast.
+    for batch in 0..11 {
+        let base = batch * 1000;
+        let end = (base + 1000).min(10_001);
+        for i in base..end {
+            toasty::create!(Dummy {
+                name: format!("row-{i:05}")
+            })
+            .exec(&mut db)
+            .await
+            .unwrap();
+        }
+    }
+    let router = argentum_core::Panel::new("admin")
+        .app_context(db)
+        .auth(argentum_core::Auth::disabled())
+        .resource::<BigResource>()
+        .build();
+    let client = TestClient::new(&router);
+    let resp = client.get("/admin/dummies/export").await;
+    assert_eq!(
+        resp.status(),
+        413,
+        "an over-cap export must be 413, got {}",
+        resp.status()
+    );
+}

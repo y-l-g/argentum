@@ -2,10 +2,12 @@
 
 Server-rendering performance harness for Argentum (Phase 2).
 
-The harness measures the Argentum admin list (Topcoat-based) against
-hand-written **Axum + Maud** and **Leptos** baselines for the same page,
-following the methodology of `tokio-rs/topcoat/benchmarks/` (loopback
-HTTP/1.1 document requests, `oha` load generator, parity checks).
+The harness measures the Argentum admin list (Topcoat-based) for the
+Phase-2 workload, following the methodology of
+`tokio-rs/topcoat/benchmarks/` (loopback HTTP/1.1 document requests,
+`oha` load generator). The hand-written **Axum + Maud** and **Leptos**
+apps are compile-only smoke (stubs, not comparable) since GH #159 — they
+render no 50-row workload, so no cross-framework comparison exists.
 
 Phase-2 workload: **list with 50 rows, 2 includes (`author` + `comments`),
 all `Policy`-checked, `Table` as `Boundary` with `#[memoize]`**, plus
@@ -18,9 +20,9 @@ Layout:
 ```
 benchmarks/
   argentum/    Argentum/Topcoat app under test (Phase-2 workload, --bench flag)
-  axum-maud/   Axum + Maud baseline (stub, same 50-row HTML)
-  leptos/      Leptos SSR comparator (stub)
-  scripts/     bench.sh (oha matrix), verify_parity.sh
+  axum-maud/   Axum + Maud smoke stub (compiles; renders no 50-row workload)
+  leptos/      Leptos SSR smoke stub (compiles; renders no 50-row workload)
+  scripts/     bench.sh (argentum oha + in-process bench; baselines smoke-only), verify_parity.sh
   results/     benchmark output (gitignored)
 ```
 
@@ -38,11 +40,11 @@ cargo run --manifest-path benchmarks/argentum/Cargo.toml -- --bench --iterations
 # CI's bench-check job compiles the harness with --locked and enforces the
 # lockstep pins; it does not run the benchmark itself.
 
-# Full matrix vs baselines (requires `oha`):
+# Budget-gated bench (requires `oha` for the HTTP leg):
 ./benchmarks/scripts/bench.sh
-# -> benchmarks/results/bench.json + results.md
+# -> benchmarks/results/bench.json + results.md (argentum only; baselines smoke-only)
 
-# Verify parity (all three render the same 50 rows):
+# Smoke + self-check (argentum 50 rows + baseline compiles):
 ./benchmarks/scripts/verify_parity.sh
 ```
 
@@ -69,7 +71,7 @@ The harness is intentionally detached so `cargo test --workspace` stays fast.
 
 ## Parity
 
-`verify_parity.sh` fetches `http://localhost:3000/` from each comparator and
-diffs the normalized HTML (ignoring whitespace and `data-boundary` ids) to
-ensure the baselines render the same 50 rows as Argentum. See
-`benchmarks/scripts/verify_parity.sh`.
+Cross-framework HTML parity was dropped in GH #159 (stubs are
+non-comparable). `verify_parity.sh` asserts the Argentum list renders the
+50 rows (`Post 00..Post 49` with `Author` includes) and that both baseline
+stubs still compile. See `benchmarks/scripts/verify_parity.sh`.

@@ -26,8 +26,8 @@ async fn posts_create_shows_fileupload_and_repeater() {
         html
     );
     assert!(
-        html.contains("grid gap-1.5"),
-        "missing grid gap-1.5 {}",
+        html.contains("data-slot=\"field\""),
+        "missing field wrapper {}",
         html
     );
     assert!(
