@@ -559,6 +559,108 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn live_search_input_debounces_keystrokes() {
+        // GH #172 decision 4: the visible input is unbound (keystrokes stay
+        // local until the debounce delay), the hidden transport carries the
+        // bound `@change` write, and the GET form survives as the no-JS
+        // fallback.
+        use crate::resource::Resource;
+        use http_body_util::BodyExt;
+        use std::collections::HashMap;
+
+        #[derive(Debug, toasty::Model)]
+        struct Dummy {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            name: String,
+        }
+        struct LiveResource;
+        impl Resource for LiveResource {
+            type Model = Dummy;
+            fn slug() -> String {
+                "dummies".to_string()
+            }
+            fn can_view_any(_cx: &Cx) -> bool {
+                true
+            }
+            fn can_view(_cx: &Cx, _record: &Dummy) -> bool {
+                true
+            }
+            fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
+                crate::resource::Table::r#for(cx)
+                    .id(|d: &Dummy| d.id.to_string())
+                    .pk(|d: &Dummy| d.id.to_string())
+                    .columns(
+                        crate::resource::TextColumn::r#for(Dummy::fields().name(), |d: &Dummy| {
+                            d.name.clone()
+                        })
+                        .searchable()
+                        .sortable(),
+                    )
+                    .paginate(25)
+                    .live_search(true)
+            }
+            fn hydrate_form_values(_record: &Dummy) -> HashMap<String, String> {
+                HashMap::new()
+            }
+        }
+
+        let mut db = Db::builder()
+            .models(toasty::models!(Dummy))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        toasty::create!(Dummy {
+            name: "Ada".to_string(),
+        })
+        .exec(&mut db)
+        .await
+        .unwrap();
+        let router = Panel::new("admin")
+            .app_context(db)
+            .resource::<LiveResource>()
+            .auth(crate::Auth::disabled())
+            .build();
+        let resp = router
+            .handle(
+                http::Request::builder()
+                    .uri("/admin/dummies")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await;
+        assert!(resp.status().is_success());
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let html = String::from_utf8_lossy(&body);
+        assert!(
+            html.contains("data-live-search-input"),
+            "visible input must carry the debounce hook, got {html}"
+        );
+        assert!(
+            html.contains("data-debounce-ms=\"200\""),
+            "debounce delay must be pinned in the markup, got {html}"
+        );
+        assert!(
+            html.contains("data-live-search-transport"),
+            "hidden transport must carry the bound write, got {html}"
+        );
+        assert!(
+            html.contains("data-topcoat-on:change"),
+            "transport must write signals on change, got {html}"
+        );
+        assert!(
+            !html.contains("data-topcoat-on:input"),
+            "visible input must be unbound (debounce owns keystrokes), got {html}"
+        );
+        assert!(
+            html.contains("<noscript>") && html.contains("name=\"q\""),
+            "live table must keep the GET fallback, got {html}"
+        );
+    }
+
+    #[tokio::test]
     async fn read_only_resource_hides_delete_chrome() {
         use crate::resource::Resource;
         use http_body_util::BodyExt;

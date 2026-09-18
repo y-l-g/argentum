@@ -17,6 +17,14 @@ use super::super::filter::Filter;
 use super::super::state::{TablePage, TableSignals, TableState, encode_path_segment, row_dom_id};
 use super::Table;
 
+/// Keystroke-quiet delay before a live search input reloads the grid
+/// (GH #172, ~150-250ms): `assets/live-search.js` waits this long after the
+/// last keystroke, then forwards the value through the bound transport below,
+/// so typing "published" triggers one reload instead of nine. The forwarded
+/// write is an ordinary signal write, so Topcoat's abort-in-flight
+/// coalescing still applies to the resulting rerun.
+pub(crate) const LIVE_SEARCH_DEBOUNCE_MS: u32 = 200;
+
 impl<M> Table<M> {
     /// Render the table for the given loaded page.
     ///
@@ -685,8 +693,11 @@ impl<M> Table<M> {
     /// lives in the streamed region ([`Self::render_live_invocation`]) so the
     /// grid can only ever render once per response.
     ///
-    /// Typing writes `q` and clears the cursors (a new term is a new result
-    /// set); the shard re-renders in place (GH #151).
+    /// The visible input is deliberately unbound (GH #172): typing stays
+    /// local until it pauses for [`LIVE_SEARCH_DEBOUNCE_MS`], then
+    /// `assets/live-search.js` forwards the value through the bound hidden
+    /// transport, whose `@change` writes `q` and clears the cursors (a new
+    /// term is a new result set). The shard re-renders in place (GH #151).
     ///
     /// Public so a page owning its own signals can render the same toolbar
     /// above its own shard (the showcase demos, GH #154 §2); resource lists
@@ -702,6 +713,7 @@ impl<M> Table<M> {
         // normalize for the `<noscript>` fallback links (GH #153).
         let state = self.normalize_state(state);
         let fallback = self.render_search_bar(cx, &state, path).await?;
+        let q_display = state.search.clone().unwrap_or_default();
         let q = signals.q.clone();
         let (after, before) = (signals.after.clone(), signals.before.clone());
         Ok(view! {
@@ -711,16 +723,23 @@ impl<M> Table<M> {
                 data-live-search=""
             >
                 <input
+                    type="search"
+                    value=(q_display)
+                    placeholder="Prefix search…"
+                    aria-label="Live prefix search table"
+                    class="w-64"
+                    data-live-search-input=""
+                    data-debounce-ms=(LIVE_SEARCH_DEBOUNCE_MS)
+                >
+                <input
+                    type="hidden"
                     :value=$(q.get())
-                    @input=$(|e: Event| {
+                    @change=$(|e: Event| {
                         q.set(e.target.value);
                         after.set("".to_owned());
                         before.set("".to_owned());
                     })
-                    type="search"
-                    placeholder="Prefix search…"
-                    aria-label="Live prefix search table"
-                    class="w-64"
+                    data-live-search-transport=""
                 >
                 <noscript>(fallback)</noscript>
             </div>
@@ -1571,6 +1590,16 @@ mod tests {
         assert!(
             err.to_string().contains("per_page > 0"),
             "error must name the contract, got {err}"
+        );
+    }
+
+    #[test]
+    fn live_search_debounce_sits_in_the_locked_band() {
+        // GH #172 decision 4: ~150-250ms at the `@input` handler. The
+        // markup test below pins the rendered value; this pins the range.
+        assert!(
+            (150..=250).contains(&LIVE_SEARCH_DEBOUNCE_MS),
+            "debounce must sit in the 150-250ms band, got {LIVE_SEARCH_DEBOUNCE_MS}"
         );
     }
 

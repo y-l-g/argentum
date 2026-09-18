@@ -337,8 +337,9 @@ impl<M> Table<M> {
     /// Keystroke-live search via the `table_search` shard (GH #104).
     ///
     /// When enabled, the toolbar renders a signal-backed input that
-    /// re-renders the grid on every keystroke (morphing in place, so focus
-    /// and typing survive) instead of a GET submit. The `?q=` GET form stays
+    /// re-renders the grid after a short keystroke-quiet delay (GH #172,
+    /// [`LIVE_SEARCH_DEBOUNCE_MS`]), morphing in place so focus
+    /// and typing survive, instead of a GET submit. The `?q=` GET form stays
     /// inside `<noscript>` as the no-JS fallback. Opt-in per resource; the
     /// shard authorizes itself (`can_view_any` + tenancy via
     /// `Resource::query`) and every arg is validated like the GET path.
@@ -346,7 +347,8 @@ impl<M> Table<M> {
     /// page-local row filtering would mislabel pagination, so row scoping
     /// belongs in `Resource::query` (GH #86).
     /// Note: Topcoat coalesces same-tick keystrokes and aborts in-flight
-    /// reruns (latest wins) but does no time-based debounce.
+    /// reruns (latest wins); the time-based debounce above composes with
+    /// that (delayed writes rerun normally).
     pub fn live_search(mut self, enabled: bool) -> Self {
         self.live_search = enabled;
         self
@@ -528,6 +530,27 @@ impl<M> Table<M> {
         }
         let out = self.order_bys();
         if out.is_empty() && self.page_size.is_some() {
+            return Self::pk_order_bys();
+        }
+        out
+    }
+
+    /// Resolve the query ordering for the CSV export (GH #172).
+    ///
+    /// Same as [`Self::order_bys_for_state`], except the PK fallback applies
+    /// whenever no sortable column is declared — not only for paginated
+    /// tables. The export walks the filtered query in cursor chunks, and
+    /// cursor pagination requires a deterministic order even when the table
+    /// never paginates. For an unordered table this pins the export to PK
+    /// order (previously whatever the database returned); a non-root model
+    /// still resolves to empty and the engine reports its descriptive
+    /// "requires an ORDER BY" error at export time.
+    pub(crate) fn order_bys_for_export(&self, state: &TableState) -> Vec<OrderByExpr>
+    where
+        M: toasty::schema::Model,
+    {
+        let out = self.order_bys_for_state(state);
+        if out.is_empty() {
             return Self::pk_order_bys();
         }
         out
@@ -1253,19 +1276,33 @@ mod tests {
         );
     }
 
-    /// Counts sqlite driver executions inside `f`. The driver emits one
-    /// `tracing` event per execution (`driver exec`), so a scoped subscriber
-    /// observes the query count without touching the engine.
-    struct DriverExecCounter {
+    /// Counts sqlite driver executions inside the `gh172-budget` marker span.
+    /// Tracing caches per-callsite interest globally at first use: a sibling
+    /// test executing first pins the driver's callsite as `never`, after
+    /// which no thread-local subscriber can observe it. So the budget test
+    /// installs this as the *global* default once (registration then sticks
+    /// at `always`) and attributes execs by span — sibling tests' execs fall
+    /// outside the marker span and are ignored.
+    struct BudgetState {
         count: std::sync::atomic::AtomicUsize,
+        next_span: std::sync::atomic::AtomicU64,
     }
 
-    struct DriverExecVisitor {
+    /// Marker span attributing driver execs to the budget measurement.
+    const BUDGET_SPAN: &str = "gh172-budget";
+
+    thread_local! {
+        static BUDGET_MARKERS: std::cell::RefCell<std::collections::HashSet<u64>> =
+            std::cell::RefCell::new(std::collections::HashSet::new());
+        static BUDGET_DEPTH: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+    }
+
+    struct BudgetVisitor {
         driver: Option<String>,
         message: String,
     }
 
-    impl tracing::field::Visit for DriverExecVisitor {
+    impl tracing::field::Visit for BudgetVisitor {
         fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
             if field.name() == "driver" {
                 self.driver = Some(value.to_string());
@@ -1280,13 +1317,22 @@ mod tests {
         }
     }
 
-    impl tracing::Subscriber for DriverExecCounter {
+    impl tracing::Subscriber for BudgetState {
         fn enabled(&self, metadata: &tracing::Metadata<'_>) -> bool {
             metadata.target().starts_with("toasty_driver_sqlite")
+                || (metadata.is_span() && metadata.name() == BUDGET_SPAN)
         }
 
-        fn new_span(&self, _span: &tracing::span::Attributes<'_>) -> tracing::span::Id {
-            tracing::span::Id::from_u64(1)
+        fn new_span(&self, span: &tracing::span::Attributes<'_>) -> tracing::span::Id {
+            let id = self
+                .next_span
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            if span.metadata().name() == BUDGET_SPAN {
+                BUDGET_MARKERS.with(|markers| {
+                    markers.borrow_mut().insert(id);
+                });
+            }
+            tracing::span::Id::from_u64(id)
         }
 
         fn record(&self, _span: &tracing::span::Id, _values: &tracing::span::Record<'_>) {}
@@ -1294,7 +1340,11 @@ mod tests {
         fn record_follows_from(&self, _span: &tracing::span::Id, _follows: &tracing::span::Id) {}
 
         fn event(&self, event: &tracing::Event<'_>) {
-            let mut visitor = DriverExecVisitor {
+            let in_scope = BUDGET_DEPTH.with(|depth| depth.get() > 0);
+            if !in_scope {
+                return;
+            }
+            let mut visitor = BudgetVisitor {
                 driver: None,
                 message: String::new(),
             };
@@ -1306,9 +1356,43 @@ mod tests {
             }
         }
 
-        fn enter(&self, _span: &tracing::span::Id) {}
+        fn enter(&self, span: &tracing::span::Id) {
+            let is_marker =
+                BUDGET_MARKERS.with(|markers| markers.borrow().contains(&span.into_u64()));
+            if is_marker {
+                BUDGET_DEPTH.with(|depth| depth.set(depth.get() + 1));
+            }
+        }
 
-        fn exit(&self, _span: &tracing::span::Id) {}
+        fn exit(&self, span: &tracing::span::Id) {
+            let is_marker =
+                BUDGET_MARKERS.with(|markers| markers.borrow().contains(&span.into_u64()));
+            if is_marker {
+                BUDGET_DEPTH.with(|depth| depth.set(depth.get().saturating_sub(1)));
+            }
+        }
+    }
+
+    static BUDGET_INSTALL: std::sync::OnceLock<std::sync::Arc<BudgetState>> =
+        std::sync::OnceLock::new();
+
+    /// Install the budget counter as the process-global default (once) and
+    /// hand back its handle. Later interest-cache state cannot regress: no
+    /// other subscriber exists in this binary, so the driver's callsite stays
+    /// `always` from here on.
+    fn install_budget_counter() -> std::sync::Arc<BudgetState> {
+        BUDGET_INSTALL
+            .get_or_init(|| {
+                let state = std::sync::Arc::new(BudgetState {
+                    count: std::sync::atomic::AtomicUsize::new(0),
+                    next_span: std::sync::atomic::AtomicU64::new(1),
+                });
+                tracing::subscriber::set_global_default(state.clone())
+                    .expect("budget counter installs once");
+                tracing::callsite::rebuild_interest_cache();
+                state
+            })
+            .clone()
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -1318,20 +1402,19 @@ mod tests {
         // backward landings (each direction probes only the edge that can
         // lie). A short forward page costs the main fetch alone. Counts are
         // calibrated in-test against bare toasty execs, so no
-        // engine-internal constant is pinned. `current_thread`: the scoped
-        // thread-local dispatcher sees every poll (no thread hops).
+        // engine-internal constant is pinned. `current_thread`: the marker
+        // span is entered and polled on one thread (no hops), so the
+        // thread-local attribution below holds.
         use std::sync::atomic::Ordering;
         let cx = seeded_users(&["u01", "u02", "u03", "u04"]).await;
         let tbl = paged_users_table(&cx, 2);
-        let counter = std::sync::Arc::new(DriverExecCounter {
-            count: std::sync::atomic::AtomicUsize::new(0),
-        });
-        let _guard = tracing::subscriber::set_default(counter.clone());
+        let budget = install_budget_counter();
+        let _scope = tracing::info_span!(BUDGET_SPAN).entered();
         let count_around = |reset: bool| {
             if reset {
-                counter.count.store(0, Ordering::SeqCst);
+                budget.count.store(0, Ordering::SeqCst);
             }
-            counter.count.load(Ordering::SeqCst)
+            budget.count.load(Ordering::SeqCst)
         };
         let ordered = || User::all().order_by(User::fields().name().asc());
         let mut db = crate::db::db(&cx);

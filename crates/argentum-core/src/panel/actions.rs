@@ -18,7 +18,7 @@ use super::forms::{parse_form_values, truthy};
 use super::{enforce_auth, enforce_tenant, list_url};
 use crate::db::db;
 use crate::notification::{Notification, set_notification};
-use crate::resource::{Resource, TablePage, TableState, clamp_query_term};
+use crate::resource::{Resource, Table, TableState, clamp_query_term};
 use crate::schema::OptionLoadError;
 
 /// Fetch one record by its URL `id` through the tenancy-scoped query seam.
@@ -202,33 +202,26 @@ pub(crate) fn resource_bulk_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<
 /// Max ids accepted by bulk delete (GH #85): bounds the `IN` list.
 const MAX_BULK_IDS: usize = 400;
 
-/// Max rows an export will materialize (GH #94): the filtered query carries
-/// `limit(MAX_EXPORT_ROWS + 1)` and anything past the cap is a 413, so a
-/// 100k-row table stays bounded in memory instead of buffering `Vec<Model>` +
-/// `String` without end.
+/// Max receivable rows an export will deliver (GH #94): the chunked walk
+/// scans at most `MAX_EXPORT_ROWS + 1` raw rows and anything past the cap is
+/// a 413, so a 100k-row table stays bounded instead of buffering `Vec<Model>`
+/// + `String` without end.
 const MAX_EXPORT_ROWS: usize = 10_000;
 
-/// Reject an export whose filtered query returned one row past the cap
-/// (GH #94). Extracted from the handler so the 413 mapping is testable at the
-/// boundary without materializing 10k rows in a test database.
-fn enforce_export_cap<T>(rows: Vec<T>) -> Result<Vec<T>, topcoat::Error> {
-    if rows.len() > MAX_EXPORT_ROWS {
+/// Rows per cursor chunk on the export walk (GH #172): each phase fetches
+/// this many models at a time instead of materializing the whole export
+/// window, so a 10k-row export holds one chunk plus one CSV fragment.
+const EXPORT_CHUNK_ROWS: usize = 500;
+
+/// Reject an export whose visible row count ran past the cap (GH #94).
+/// Extracted from the handler so the 413 mapping is testable at the boundary
+/// without materializing 10k rows in a test database.
+fn enforce_export_cap_count(count: usize) -> Result<(), topcoat::Error> {
+    if count > MAX_EXPORT_ROWS {
         Err(topcoat::router::error::content_too_large().into())
     } else {
-        Ok(rows)
+        Ok(())
     }
-}
-
-/// Filter an export's rows to those the caller may view, then apply the cap
-/// (GH #86, GH #145): the 413 reflects what the caller may actually receive —
-/// never the pre-visibility count, which would both 413 tables whose visible
-/// rows fit and leak the existence/count of denied rows.
-fn filter_then_cap<T>(
-    mut rows: Vec<T>,
-    can_view: impl Fn(&T) -> bool,
-) -> Result<Vec<T>, topcoat::Error> {
-    rows.retain(|r| can_view(r));
-    enforce_export_cap(rows)
 }
 
 /// The longest slug a `Content-Disposition` filename keeps (GH #145): the
@@ -295,10 +288,19 @@ fn parse_bulk_ids(raw: &str, max: usize) -> Vec<String> {
 
 /// CSV export — reuses `Resource::query` + `Table` filters/sort, downloads `text/csv`.
 ///
-/// The filtered query is capped at [`MAX_EXPORT_ROWS`] + 1 rows at the query
-/// layer so a 100k-row table cannot OOM the handler; visibility is applied
-/// before the cap (`filter_then_cap`, GH #145) so the 413 reflects what the
-/// caller may receive, formula cells are defused per OWASP in
+/// Streams the response as a chunked body (GH #172): the filtered query is
+/// walked in cursor chunks ([`EXPORT_CHUNK_ROWS`] rows at a time) and each
+/// chunk's CSV is written incrementally, so a 10k-row export holds one chunk
+/// plus one CSV fragment instead of `Vec<Model>` + one joined `String`.
+///
+/// Two passes keep that compatible with the exact pre-body contracts. First a
+/// bounded visibility scan counts receivable rows inside the same
+/// `MAX_EXPORT_ROWS + 1` raw window the old single fetch used — the 413 still
+/// reflects what the caller may receive (GH #86, GH #145), decided before any
+/// byte is sent. Then the streaming pass re-walks the same window and emits
+/// header + rows. A concurrent mutation landing between the passes can only
+/// push the second past the cap — that aborts the stream loudly instead of
+/// truncating silently. Formula cells are defused per OWASP in
 /// [`Table::to_csv`], and `?bom=1` prepends a UTF-8 BOM for Excel interop
 /// (GH #94).
 pub(crate) fn resource_export<R: Resource>(cx: &Cx, _body: Body) -> RouteFuture<'_> {
@@ -324,41 +326,74 @@ pub(crate) fn resource_export<R: Resource>(cx: &Cx, _body: Body) -> RouteFuture<
             ))
             .into());
         }
-        let mut query = R::query(cx);
-        if let Some(term) = &state.search
-            && let Some(expr) = table.search_expr(term)
-        {
-            query = query.filter(expr);
+        // Phase 1: bounded visibility scan — count receivable rows inside the
+        // raw cap window, so the 413 below fires before any response bytes.
+        let mut chunker = ExportChunker::new(export_base_query::<R>(cx, &table, &state));
+        let mut db_handle = db(cx);
+        let mut visible = 0usize;
+        while let Some(rows) = chunker.next_chunk(&mut db_handle).await? {
+            visible += rows.iter().filter(|r| R::can_view(cx, r)).count();
         }
-        if let Some(expr) = table.filter_expr(&state) {
-            query = query.filter(expr);
-        }
-        for ord in table.order_bys_for_state(&state) {
-            query = query.order_by(ord);
-        }
-        // Bound the export at the query layer (GH #94): the DB returns at
-        // most one row past the cap, so memory stays bounded.
-        query = query.limit(MAX_EXPORT_ROWS + 1);
-        let mut db = db(cx);
-        let rows: Vec<R::Model> = query.exec(&mut db).await.map_err(crate::db::unavailable)?;
-        // Visibility first, cap second (GH #86, GH #145) — see
-        // `filter_then_cap` for why the cap counts only receivable rows.
-        // Bounded over-fetch (the issue's accepted alternative): a 200 holds
-        // the visible rows of the first MAX+1 fetched rows, so when denied
-        // rows interleave in query order, visible rows past the window are
-        // not exported. No truncation signal is emitted for that case: any
-        // window-full marker would leak the pre-visibility row count, which
-        // the same acceptance criterion forbids ("no count leak").
-        let rows = filter_then_cap(rows, |r| R::can_view(cx, r))?;
-        // Build TablePage without pagination for CSV (all rows)
-        let page: TablePage<R::Model> = rows.into();
-        let mut csv = table.to_csv(&page);
-        // Opt-in BOM for Excel (GH #94): `?bom=1` prepends U+FEFF so
-        // non-ASCII cells open correctly; default stays BOM-free so existing
-        // clients/tests see a plain UTF-8 body.
-        if export_wants_bom(cx) {
-            csv.insert(0, '\u{FEFF}');
-        }
+        enforce_export_cap_count(visible)?;
+        // Phase 2: re-walk the window, streaming CSV fragments into a bounded
+        // channel the response body reads from (chunked, no Content-Length).
+        // The walk moves onto a spawned task with an owned `Cx` clone, so a
+        // slow consumer back-pressures the fetch instead of holding the
+        // handler — and never an unbounded buffer.
+        let want_bom = export_wants_bom(cx);
+        let (tx, body) = http_body_util::Channel::<bytes::Bytes, std::io::Error>::new(8);
+        let cx2 = cx.clone();
+        tokio::spawn(async move {
+            let mut tx = tx;
+            let mut chunker = ExportChunker::new(export_base_query::<R>(&cx2, &table, &state));
+            let mut db_handle = crate::db::db(&cx2);
+            let mut first = true;
+            let mut visible = 0usize;
+            loop {
+                let rows = match chunker.next_chunk(&mut db_handle).await {
+                    Ok(Some(rows)) => rows,
+                    Ok(None) => break,
+                    Err(error) => {
+                        tracing::error!(resource = R::slug(), error = %error, "export stream failed");
+                        tx.abort(std::io::Error::other("export unavailable"));
+                        return;
+                    }
+                };
+                let mut fragment = String::new();
+                if first {
+                    first = false;
+                    let mut head = table.csv_header();
+                    // Opt-in BOM for Excel (GH #94): `?bom=1` prepends U+FEFF
+                    // so non-ASCII cells open correctly; default stays
+                    // BOM-free so existing clients/tests see plain UTF-8.
+                    if want_bom {
+                        head.insert(0, '\u{FEFF}');
+                    }
+                    fragment.push_str(&head);
+                }
+                for row in &rows {
+                    if R::can_view(&cx2, row) {
+                        visible += 1;
+                        if visible > MAX_EXPORT_ROWS {
+                            // TOCTOU overrun: rows changed between the scan
+                            // and this pass. Abort loudly — never truncate a
+                            // 200 CSV silently.
+                            tracing::error!(
+                                resource = R::slug(),
+                                "export overflowed its cap mid-stream"
+                            );
+                            tx.abort(std::io::Error::other("export overflowed its cap"));
+                            return;
+                        }
+                        fragment.push_str(&table.csv_row(row));
+                    }
+                }
+                if !fragment.is_empty() && tx.send_data(bytes::Bytes::from(fragment)).await.is_err()
+                {
+                    return;
+                }
+            }
+        });
         let filename = export_filename(&R::slug());
         let res = http::Response::builder()
             .status(200)
@@ -368,10 +403,95 @@ pub(crate) fn resource_export<R: Resource>(cx: &Cx, _body: Body) -> RouteFuture<
                 http::header::CONTENT_DISPOSITION,
                 format!("attachment; filename=\"{}\"", filename),
             )
-            .body(Body::from(csv))
+            .body(Body::new(body))
             .map_err(|e| std::io::Error::other(e.to_string()))?;
         Ok(res)
     })
+}
+
+/// The export's filtered + ordered base query (GH #172): `R::query` wholesale
+/// (tenancy seam, ADR-0002 — narrowing to needed includes is tracked
+/// separately as GH #177) plus the table's search/filters and the export
+/// ordering (PK-pinned when no sortable column is declared, so the chunked
+/// cursor walk is deterministic).
+fn export_base_query<R: Resource>(
+    cx: &Cx,
+    table: &Table<R::Model>,
+    state: &TableState,
+) -> toasty::stmt::Query<toasty::stmt::List<R::Model>> {
+    let mut query = R::query(cx);
+    if let Some(term) = &state.search
+        && let Some(expr) = table.search_expr(term)
+    {
+        query = query.filter(expr);
+    }
+    if let Some(expr) = table.filter_expr(state) {
+        query = query.filter(expr);
+    }
+    for ord in table.order_bys_for_export(state) {
+        query = query.order_by(ord);
+    }
+    query
+}
+
+/// One cursor-chunked pass over an export base query (GH #172).
+///
+/// Yields the raw `MAX_EXPORT_ROWS + 1` window (the bounded over-fetch the
+/// cap counts within, GH #145) a chunk at a time and stops at a short chunk,
+/// so callers hold one chunk instead of the window. Chaining reuses the
+/// engine's `next_cursor`, which is present exactly when a chunk comes back
+/// full.
+struct ExportChunker<M> {
+    query: toasty::stmt::Query<toasty::stmt::List<M>>,
+    after: Option<toasty_core::stmt::Value>,
+    raw_scanned: usize,
+    exhausted: bool,
+}
+
+impl<M> ExportChunker<M>
+where
+    M: toasty::schema::Model + Send + Sync + 'static,
+{
+    fn new(query: toasty::stmt::Query<toasty::stmt::List<M>>) -> Self {
+        Self {
+            query,
+            after: None,
+            raw_scanned: 0,
+            exhausted: false,
+        }
+    }
+
+    async fn next_chunk(&mut self, db: &mut toasty::Db) -> Result<Option<Vec<M>>, topcoat::Error> {
+        if self.exhausted {
+            return Ok(None);
+        }
+        let remaining = (MAX_EXPORT_ROWS + 1).saturating_sub(self.raw_scanned);
+        if remaining == 0 {
+            return Ok(None);
+        }
+        let take = remaining.min(EXPORT_CHUNK_ROWS);
+        let mut page = toasty::stmt::Paginate::new(self.query.clone(), take);
+        if let Some(cursor) = self.after.take() {
+            page = page.after(cursor);
+        }
+        let loaded = page.exec(db).await.map_err(crate::db::unavailable)?;
+        if loaded.items.is_empty() {
+            self.exhausted = true;
+            return Ok(None);
+        }
+        let full = loaded.items.len() == take;
+        self.raw_scanned += loaded.items.len();
+        self.after = loaded.next_cursor;
+        let items = loaded.items;
+        if !full {
+            // Short chunk: the table is exhausted — chaining the (absent)
+            // cursor, or re-fetching cursor-free, would rescan from the
+            // start, so stop here.
+            self.exhausted = true;
+            self.after = None;
+        }
+        Ok(Some(items))
+    }
 }
 
 /// Relationship option search endpoint (GH #150 D2/D5).
@@ -1093,9 +1213,8 @@ mod tests {
         // GH #94: the cap branch must produce a content-too-large error, not
         // just a constant that happens to equal 10_000. Exercised at the
         // boundary.
-        let under_cap = enforce_export_cap(vec![0u8; MAX_EXPORT_ROWS]).unwrap();
-        assert_eq!(under_cap.len(), MAX_EXPORT_ROWS);
-        let err = enforce_export_cap(vec![0u8; MAX_EXPORT_ROWS + 1]).unwrap_err();
+        enforce_export_cap_count(MAX_EXPORT_ROWS).unwrap();
+        let err = enforce_export_cap_count(MAX_EXPORT_ROWS + 1).unwrap_err();
         assert!(
             err.downcast_ref::<topcoat::router::error::ContentTooLargeError>()
                 .is_some(),
@@ -1103,45 +1222,345 @@ mod tests {
         );
     }
 
-    #[test]
-    fn export_cap_counts_only_viewable_rows() {
-        // GH #145 (with GH #86): visibility is applied before the cap, so a
-        // table with many invisible rows exports its visible rows instead of
-        // 413ing — the 413 also no longer leaks the invisible-row count.
-        let all_denied = filter_then_cap(vec![0u8; MAX_EXPORT_ROWS + 1], |_| false).unwrap();
-        assert!(
-            all_denied.is_empty(),
-            "an all-denied export returns 200 with zero rows, never 413"
-        );
+    #[tokio::test]
+    async fn export_streams_csv_in_chunks_with_parity() {
+        // GH #172: the streamed body reassembles byte-for-byte to the
+        // buffered CSV (header + rows, BOM variant included), arrives without
+        // a Content-Length (chunked), and multi-chunk tables cross chunk
+        // boundaries without repeating or dropping rows.
+        use crate::resource::Resource;
+        use http_body_util::BodyExt;
+        use std::collections::HashMap;
 
-        // MAX visible rows plus one denied row fits under the cap.
-        let mut rows = vec![1u8; MAX_EXPORT_ROWS];
-        rows.push(2u8);
-        let capped = filter_then_cap(rows, |r| *r == 1).unwrap();
-        assert_eq!(capped.len(), MAX_EXPORT_ROWS);
+        #[derive(Debug, Clone, toasty::Model)]
+        struct Dummy {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            name: String,
+        }
+        struct ChunkedResource;
+        impl Resource for ChunkedResource {
+            type Model = Dummy;
+            fn slug() -> String {
+                "dummies".to_string()
+            }
+            fn can_view_any(_cx: &Cx) -> bool {
+                true
+            }
+            fn can_view(_cx: &Cx, _record: &Dummy) -> bool {
+                true
+            }
+            fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
+                crate::resource::Table::r#for(cx)
+                    .id(|d: &Dummy| d.id.to_string())
+                    .pk(|d: &Dummy| d.id.to_string())
+                    .columns(crate::resource::TextColumn::r#for(
+                        Dummy::fields().name(),
+                        |d: &Dummy| d.name.clone(),
+                    ))
+            }
+            fn hydrate_form_values(_record: &Dummy) -> HashMap<String, String> {
+                HashMap::new()
+            }
+        }
 
-        // Mixed interleave (bounded over-fetch, GH #145): a full MAX+1
-        // window with denied rows inside it exports only the visible ones —
-        // visibly fewer than the caller could receive — without 413. This is
-        // the issue's accepted alternative ("or document over-fetch"); no
-        // truncation signal is emitted because a window-full marker would
-        // leak the pre-visibility row count ("no count leak").
-        let mixed: Vec<usize> = (0..MAX_EXPORT_ROWS + 1)
-            .map(|i| if i % 2 == 0 { i } else { usize::MAX })
-            .collect();
-        let visible = filter_then_cap(mixed, |r| *r != usize::MAX).unwrap();
+        // 2 * chunk + a tail: crosses two chunk boundaries (500/500/203).
+        let total = 2 * EXPORT_CHUNK_ROWS + 203;
+        let mut db = Db::builder()
+            .models(toasty::models!(Dummy))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        for i in 0..total {
+            toasty::create!(Dummy {
+                name: format!("user-{i:05}"),
+            })
+            .exec(&mut db)
+            .await
+            .unwrap();
+        }
+        let router = Panel::new("admin")
+            .app_context(db)
+            .resource::<ChunkedResource>()
+            .auth(crate::Auth::disabled())
+            .build();
+        let get_csv = async |uri: &str| {
+            let resp = router
+                .handle(
+                    http::Request::builder()
+                        .uri(uri)
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await;
+            assert!(
+                resp.status().is_success(),
+                "export {uri} failed: {}",
+                resp.status()
+            );
+            let content_length = resp.headers().get(http::header::CONTENT_LENGTH).cloned();
+            assert!(
+                content_length.is_none(),
+                "streamed export must not set Content-Length, got {content_length:?}"
+            );
+            assert_eq!(
+                resp.headers()
+                    .get(http::header::CONTENT_TYPE)
+                    .map(|v| v.to_str().unwrap_or("")),
+                Some("text/csv; charset=utf-8")
+            );
+            let body = resp.into_body().collect().await.unwrap().to_bytes();
+            String::from_utf8(body.to_vec()).unwrap()
+        };
+        let csv = get_csv("/admin/dummies/export").await;
+        let mut lines = csv.lines();
+        assert_eq!(lines.next(), Some("Name"));
+        let mut names: Vec<&str> = lines.collect();
+        assert_eq!(names.len(), total);
+        // The export pins PK order when no sortable column is declared
+        // (GH #172: cursor chunks need a deterministic order), so compare as
+        // a set — chunking must neither drop nor repeat rows.
+        names.sort_unstable();
+        let mut expected: Vec<String> = (0..total).map(|i| format!("user-{i:05}")).collect();
+        expected.sort();
         assert_eq!(
-            visible.len(),
-            (MAX_EXPORT_ROWS + 1).div_ceil(2),
-            "mixed window exports its visible rows silently"
+            names,
+            expected.iter().map(String::as_str).collect::<Vec<_>>()
         );
+        // BOM variant: same rows, FEFF-prefixed.
+        let bom = get_csv("/admin/dummies/export?bom=1").await;
+        assert!(bom.starts_with('\u{FEFF}'), "BOM must lead, got {bom:?}");
+        assert_eq!(&bom['\u{FEFF}'.len_utf8()..], csv);
+    }
 
-        // More visible rows than the cap still 413.
-        let err = filter_then_cap(vec![0u8; MAX_EXPORT_ROWS + 1], |_| true).unwrap_err();
+    #[tokio::test]
+    async fn export_counts_only_viewable_rows_within_the_window() {
+        // GH #145 (with GH #86), preserved under streaming: visibility is
+        // counted before the cap inside the raw MAX+1 window, so interleaved
+        // denied rows yield a 200 with the visible subset — never a 413, and
+        // no count leak.
+        use crate::resource::Resource;
+        use http_body_util::BodyExt;
+        use std::collections::HashMap;
+
+        #[derive(Debug, Clone, toasty::Model)]
+        struct Dummy {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            name: String,
+        }
+        struct MixedResource;
+        impl Resource for MixedResource {
+            type Model = Dummy;
+            fn slug() -> String {
+                "dummies".to_string()
+            }
+            fn can_view_any(_cx: &Cx) -> bool {
+                true
+            }
+            fn can_view(_cx: &Cx, record: &Dummy) -> bool {
+                !record.name.starts_with("denied-")
+            }
+            fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
+                crate::resource::Table::r#for(cx)
+                    .id(|d: &Dummy| d.id.to_string())
+                    .pk(|d: &Dummy| d.id.to_string())
+                    .columns(crate::resource::TextColumn::r#for(
+                        Dummy::fields().name(),
+                        |d: &Dummy| d.name.clone(),
+                    ))
+            }
+            fn hydrate_form_values(_record: &Dummy) -> HashMap<String, String> {
+                HashMap::new()
+            }
+        }
+
+        let mut db = Db::builder()
+            .models(toasty::models!(Dummy))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        for i in 0..MAX_EXPORT_ROWS + 1 {
+            let name = if i % 2 == 0 {
+                format!("allowed-{i:05}")
+            } else {
+                format!("denied-{i:05}")
+            };
+            toasty::create!(Dummy { name }).exec(&mut db).await.unwrap();
+        }
+        let router = Panel::new("admin")
+            .app_context(db)
+            .resource::<MixedResource>()
+            .auth(crate::Auth::disabled())
+            .build();
+        let resp = router
+            .handle(
+                http::Request::builder()
+                    .uri("/admin/dummies/export")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await;
+        assert!(resp.status().is_success());
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let csv = String::from_utf8(body.to_vec()).unwrap();
+        let rows: Vec<&str> = csv.lines().skip(1).collect();
+        assert_eq!(rows.len(), (MAX_EXPORT_ROWS + 1).div_ceil(2));
+        assert!(rows.iter().all(|r| r.starts_with("allowed-")));
+        assert!(!csv.contains("denied-"));
+    }
+
+    #[tokio::test]
+    async fn export_chunker_stops_at_a_short_chunk() {
+        // GH #172: a short chunk ends the walk — re-fetching cursor-free
+        // would rescan from the start and multiply the visible count past
+        // the cap.
+        use crate::resource::Resource;
+        use std::collections::HashMap;
+
+        #[derive(Debug, Clone, toasty::Model)]
+        struct Dummy {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            name: String,
+        }
+        struct TinyResource;
+        impl Resource for TinyResource {
+            type Model = Dummy;
+            fn slug() -> String {
+                "dummies".to_string()
+            }
+            fn can_view_any(_cx: &Cx) -> bool {
+                true
+            }
+            fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
+                crate::resource::Table::r#for(cx)
+                    .id(|d: &Dummy| d.id.to_string())
+                    .pk(|d: &Dummy| d.id.to_string())
+                    .columns(crate::resource::TextColumn::r#for(
+                        Dummy::fields().name(),
+                        |d: &Dummy| d.name.clone(),
+                    ))
+            }
+            fn hydrate_form_values(_record: &Dummy) -> HashMap<String, String> {
+                HashMap::new()
+            }
+        }
+
+        let mut db = Db::builder()
+            .models(toasty::models!(Dummy))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        for name in ["Ada", "Bob", "Cara"] {
+            toasty::create!(Dummy {
+                name: name.to_string(),
+            })
+            .exec(&mut db)
+            .await
+            .unwrap();
+        }
+        let cx = topcoat::context::CxTestBuilder::new()
+            .app_context(db.clone())
+            .build();
+        let table = TinyResource::table(&cx);
+        let state = crate::resource::TableState::default();
+        let mut chunker =
+            ExportChunker::new(export_base_query::<TinyResource>(&cx, &table, &state));
+        let first = chunker
+            .next_chunk(&mut db)
+            .await
+            .unwrap()
+            .expect("short first chunk");
+        assert_eq!(first.len(), 3);
         assert!(
-            err.downcast_ref::<topcoat::router::error::ContentTooLargeError>()
-                .is_some(),
-            "cap must map to content-too-large (413), got {err}"
+            chunker.next_chunk(&mut db).await.unwrap().is_none(),
+            "short chunk must end the walk, not rescan"
+        );
+        assert!(
+            chunker.next_chunk(&mut db).await.unwrap().is_none(),
+            "exhausted walk stays exhausted"
+        );
+    }
+
+    #[tokio::test]
+    async fn export_413s_above_the_cap_before_streaming() {
+        // GH #172 decision 2: the MAX_EXPORT_ROWS cap stays as the backstop
+        // above streaming — decided by the pre-body visibility scan, so the
+        // 413 carries no partial CSV.
+        use crate::resource::Resource;
+        use std::collections::HashMap;
+
+        #[derive(Debug, Clone, toasty::Model)]
+        struct Dummy {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            name: String,
+        }
+        struct CappedResource;
+        impl Resource for CappedResource {
+            type Model = Dummy;
+            fn slug() -> String {
+                "dummies".to_string()
+            }
+            fn can_view_any(_cx: &Cx) -> bool {
+                true
+            }
+            fn can_view(_cx: &Cx, _record: &Dummy) -> bool {
+                true
+            }
+            fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
+                crate::resource::Table::r#for(cx)
+                    .id(|d: &Dummy| d.id.to_string())
+                    .pk(|d: &Dummy| d.id.to_string())
+                    .columns(crate::resource::TextColumn::r#for(
+                        Dummy::fields().name(),
+                        |d: &Dummy| d.name.clone(),
+                    ))
+            }
+            fn hydrate_form_values(_record: &Dummy) -> HashMap<String, String> {
+                HashMap::new()
+            }
+        }
+
+        let mut db = Db::builder()
+            .models(toasty::models!(Dummy))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        for i in 0..MAX_EXPORT_ROWS + 1 {
+            toasty::create!(Dummy {
+                name: format!("user-{i:05}"),
+            })
+            .exec(&mut db)
+            .await
+            .unwrap();
+        }
+        let router = Panel::new("admin")
+            .app_context(db)
+            .resource::<CappedResource>()
+            .auth(crate::Auth::disabled())
+            .build();
+        let resp = router
+            .handle(
+                http::Request::builder()
+                    .uri("/admin/dummies/export")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await;
+        assert_eq!(
+            resp.status(),
+            http::StatusCode::PAYLOAD_TOO_LARGE,
+            "one row past the cap must 413"
         );
     }
 

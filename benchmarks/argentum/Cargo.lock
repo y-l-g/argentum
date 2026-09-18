@@ -127,15 +127,18 @@ dependencies = [
  "argentum-macros",
  "argentum-ui",
  "argon2",
+ "bytes",
  "form_urlencoded",
  "heck",
  "http",
+ "http-body-util",
  "jiff",
  "password-hash",
  "serde",
  "subtle",
  "toasty",
  "toasty-core",
+ "tokio",
  "topcoat",
  "tracing",
  "uuid",
@@ -1530,6 +1533,7 @@ dependencies = [
  "http",
  "http-body",
  "pin-project-lite",
+ "tokio",
 ]
 
 [[package]]

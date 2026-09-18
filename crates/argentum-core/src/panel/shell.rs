@@ -434,7 +434,7 @@ impl Panel {
     /// it; the standalone login page (ADR-0013) uses the same document so
     /// brand and dark mode carry over.
     ///
-    /// The eight shell scripts ship `defer`red (deliberate all-load policy,
+    /// The nine shell scripts ship `defer`red (deliberate all-load policy,
     /// ADR-0014): parsing never waits for them, and every one is safe
     /// deferred — document-level listeners install after parse, and the
     /// `DOMContentLoaded` handlers still run, since deferred scripts execute
@@ -460,6 +460,7 @@ impl Panel {
                 <script src=(argentum_ui::CODE_BLOCK_JS) defer=""></script>
                 <script src=(argentum_ui::BULK_JS) defer=""></script>
                 <script src=(argentum_ui::FILTERS_JS) defer=""></script>
+                <script src=(argentum_ui::LIVE_SEARCH_JS) defer=""></script>
                 <script src=(argentum_ui::SELECTS_JS) defer=""></script>
                 <script src=(argentum_ui::NOTIFICATION_JS) defer=""></script>
             }
