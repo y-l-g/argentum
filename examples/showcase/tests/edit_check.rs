@@ -293,3 +293,51 @@ async fn hydrate_form_values_match_schema_fields() {
     // the unique unchanged-skip.
     assert_hydrate_keys_are_form_fields::<UserResource>(&cx, user);
 }
+
+#[tokio::test]
+async fn edit_sso_managed_user_is_forbidden() {
+    // Row-level Policy on the update path: Ken's page and POST both deny.
+    let db = seeded_db().await;
+    let router = router(db.clone());
+    let client = demo_client(&router).await;
+    let mut db_q = db.clone();
+    let ken = showcase::models::User::filter(
+        showcase::models::User::fields().name().eq("Ken Thompson".to_string()),
+    )
+    .first()
+    .exec(&mut db_q)
+    .await
+    .unwrap()
+    .expect("Ken seed");
+    let resp = client.get(&format!("/admin/users/{}/edit", ken.id)).await;
+    assert_eq!(
+        resp.status(),
+        403,
+        "protected row edit page must be forbidden, got {}",
+        resp.status()
+    );
+    let csrf = uuid::Uuid::new_v4().to_string();
+    let resp = client
+        .csrf(&csrf)
+        .post_form(
+            &format!("/admin/users/{}/edit", ken.id),
+            format!("name=Ken+Hacked&email=ken%40example.com&csrf_token={csrf}"),
+        )
+        .await;
+    assert_eq!(
+        resp.status(),
+        403,
+        "protected row edit POST must be forbidden, got {}",
+        resp.status()
+    );
+    let mut db_check = db.clone();
+    let unchanged = showcase::models::User::filter(
+        showcase::models::User::fields().email().eq("ken@example.com".to_string()),
+    )
+    .first()
+    .exec(&mut db_check)
+    .await
+    .unwrap()
+    .expect("Ken unchanged");
+    assert_eq!(unchanged.name, "Ken Thompson");
+}

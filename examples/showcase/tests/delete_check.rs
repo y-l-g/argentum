@@ -359,3 +359,35 @@ async fn delete_policy_deny() {
     let count = DummyUser::all().exec(&mut db_check).await.unwrap().len();
     assert_eq!(count, 1, "should not delete when denied");
 }
+
+#[tokio::test]
+async fn delete_sso_managed_user_is_forbidden() {
+    // Row-level Policy over HTTP: Ken's SSO-managed account cannot be
+    // deleted from the panel, while every other row still can.
+    let db = seeded_db().await;
+    let router = router(db.clone());
+    let client = demo_client(&router).await;
+    let mut db_q = db.clone();
+    let ken = User::filter(User::fields().name().eq("Ken Thompson".to_string()))
+        .first()
+        .exec(&mut db_q)
+        .await
+        .unwrap()
+        .expect("Ken seed");
+    let csrf = uuid::Uuid::new_v4().to_string();
+    let resp = client
+        .csrf(&csrf)
+        .post_form(
+            &format!("/admin/users/{}/delete", ken.id),
+            format!("confirm=1&csrf_token={csrf}"),
+        )
+        .await;
+    assert_eq!(
+        resp.status(),
+        403,
+        "protected row delete must be forbidden, got {}",
+        resp.status()
+    );
+    let remaining = User::all().exec(&mut db_q).await.unwrap();
+    assert_eq!(remaining.len(), 8, "forbidden delete must remove nothing");
+}

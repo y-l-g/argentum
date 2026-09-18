@@ -85,7 +85,7 @@ async fn per_tenant_policy_deny_yields_403() {
     let (db, _, _) = tenanted_db().await;
     let router = router(db);
     let client = demo_client(&router).await;
-    let blocked = uuid::Uuid::from_u128(9999);
+    let blocked = showcase::models::BLOCKED_TENANT;
     let resp = client.tenant(blocked).get("/admin/posts").await;
     assert_eq!(
         resp.status(),

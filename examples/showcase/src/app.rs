@@ -16,7 +16,7 @@ use topcoat::{
     view::View,
 };
 
-use crate::models::{Author, Comment, Post, User};
+use crate::models::{Author, Comment, Post, User, BLOCKED_TENANT};
 
 /// The theme's sans font, pulled from Fontsource and self-hosted as a Topcoat asset.
 const GEIST: Font = fontsource_font!(GEIST, host: Asset);
@@ -50,11 +50,14 @@ impl Resource for UserResource {
     fn can_create(_cx: &Cx) -> bool {
         true
     }
-    fn can_update(_cx: &Cx, _record: &User) -> bool {
-        true
+    fn can_update(_cx: &Cx, record: &User) -> bool {
+        // Row-level rule: Ken's account is SSO-managed outside the panel,
+        // so the panel never writes it (reads still flow).
+        record.name != "Ken Thompson"
     }
-    fn can_delete(_cx: &Cx, _record: &User) -> bool {
-        true
+    fn can_delete(_cx: &Cx, record: &User) -> bool {
+        // Same SSO guard on the delete path: per-row Policy proven over HTTP.
+        record.name != "Ken Thompson"
     }
 
     fn table(cx: &Cx) -> Table<User> {
@@ -261,9 +264,7 @@ impl Resource for AuthorResource {
     }
 
     fn can_view_any(cx: &Cx) -> bool {
-        if let Some(tid) = tenant_id(cx)
-            && tid == uuid::Uuid::from_u128(9999)
-        {
+        if tenant_id(cx).is_some_and(|tid| tid == BLOCKED_TENANT) {
             return false;
         }
         true
@@ -444,9 +445,7 @@ impl Resource for PostResource {
     }
 
     fn can_view_any(cx: &Cx) -> bool {
-        if let Some(tid) = tenant_id(cx)
-            && tid == uuid::Uuid::from_u128(9999)
-        {
+        if tenant_id(cx).is_some_and(|tid| tid == BLOCKED_TENANT) {
             return false;
         }
         true

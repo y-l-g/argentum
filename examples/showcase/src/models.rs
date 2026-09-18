@@ -177,6 +177,10 @@ pub async fn seed(db: &mut Db) -> toasty::Result<()> {
 /// nil-tenant orphans, and the demo admin owns it.
 pub const DEMO_TENANT: uuid::Uuid = uuid::Uuid::from_u128(100);
 
+/// A tenant whose Policy denies everything: the legible deny path for
+/// tenancy tests (no magic values at call sites).
+pub const BLOCKED_TENANT: uuid::Uuid = uuid::Uuid::from_u128(9999);
+
 /// Demo administrator credentials, shown on the login page and in the README.
 pub const DEMO_ADMIN_EMAIL: &str = "admin@example.com";
 pub const DEMO_ADMIN_PASSWORD: &str = "password";

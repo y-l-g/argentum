@@ -351,3 +351,49 @@ async fn posts_create_omitted_lifecycle_fields_default_to_draft() {
     assert_eq!(created.status, "draft");
     assert!(!created.featured);
 }
+
+#[tokio::test]
+async fn post_author_options_are_tenant_scoped() {
+    // Relationship loads funnel through the tenant-scoped query: a foreign
+    // tenant sees none of this tenant's writers.
+    let db = full_db().await;
+    let router = router(db.clone());
+    let client = demo_client(&router).await;
+
+    let resp = client.get("/admin/posts/options?field=author_id").await;
+    assert!(resp.status().is_success());
+    let html = body_string(resp).await;
+    assert!(
+        html.contains("Ada Author"),
+        "own-tenant options must list writers: {html}"
+    );
+
+    let foreign = client
+        .tenant(uuid::Uuid::from_u128(4242))
+        .get("/admin/posts/options?field=author_id")
+        .await;
+    assert!(foreign.status().is_success());
+    let html = body_string(foreign).await;
+    assert!(
+        !html.contains("Ada Author"),
+        "foreign tenant must not see writers: {html}"
+    );
+}
+
+#[tokio::test]
+async fn post_author_options_deny_blocked_tenant() {
+    // Policy denial fails the options load closed: no options, no leak.
+    let db = full_db().await;
+    let router = router(db.clone());
+    let client = demo_client(&router).await;
+    let resp = client
+        .tenant(showcase::models::BLOCKED_TENANT)
+        .get("/admin/posts/options?field=author_id")
+        .await;
+    assert_eq!(
+        resp.status(),
+        403,
+        "blocked tenant options must be forbidden, got {}",
+        resp.status()
+    );
+}
