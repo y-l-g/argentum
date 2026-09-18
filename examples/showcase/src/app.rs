@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use argentum_core::{
-    Brand, DateFilter, FileUpload, Grid, NavigationItem, Panel, Repeater, Resource, Schema,
-    Section, Select, SelectFilter, Table, TernaryFilter, TextColumn, TextInput, tenant_id,
+    Brand, DateFilter, FileUpload, Grid, Panel, Repeater, Resource, Schema, Section, Select,
+    SelectFilter, Table, TernaryFilter, TextColumn, TextInput, tenant_id,
 };
 use toasty::Db;
 use topcoat::{
@@ -10,7 +10,7 @@ use topcoat::{
     asset::AssetBundle,
     context::Cx,
     font::{Font, fontsource::fontsource_font},
-    router::{Router, Slot, href, layout},
+    router::{Router, Slot, layout},
     tailwind,
     view::View,
 };
@@ -73,14 +73,13 @@ impl Resource for UserResource {
 
     fn form(_cx: &Cx) -> Schema {
         // Canonical Resource::form seam (spec #6 solution) — typed lens → TextInput.
-        // Proves both Resource entry points are wired; showcase pages use this
-        // indirectly via Schema::new, but resource owners declare forms here.
+        // Proves both Resource entry points are wired; resource owners declare
+        // forms here.
         Schema::new((
-            TextInput::r#for(User::fields().name()).required(),
-            TextInput::r#for(User::fields().email())
-                .required()
-                .email()
-                .unique(),
+            // Required is inferred from the non-nullable columns (GH #100);
+            // no redundant `.required()` call.
+            TextInput::r#for(User::fields().name()),
+            TextInput::r#for(User::fields().email()).email().unique(),
         ))
     }
 
@@ -251,11 +250,8 @@ impl Resource for AuthorResource {
 
     fn form(_cx: &Cx) -> Schema {
         Schema::new((
-            TextInput::r#for(Author::fields().name()).required(),
-            TextInput::r#for(Author::fields().email())
-                .required()
-                .email()
-                .unique(),
+            TextInput::r#for(Author::fields().name()),
+            TextInput::r#for(Author::fields().email()).email().unique(),
         ))
     }
 
@@ -476,24 +472,19 @@ impl Resource for PostResource {
     fn form(_cx: &Cx) -> Schema {
         Schema::new((
             Section::new("Post Details").schema((
-                TextInput::r#for(Post::fields().title()).required(),
+                TextInput::r#for(Post::fields().title()),
                 Select::r#for(Post::fields().author_id())
                     .relationship::<AuthorResource>(
                         AuthorResource::query,
                         |a: &Author| a.id,
                         |a: &Author| a.name.clone(),
                     )
-                    .required()
                     .searchable()
                     .label("Author"),
             )),
             Grid::new(2).schema((
-                FileUpload::r#for(Post::fields().image_path()).required(),
-                Repeater::new("Tags").schema(
-                    TextInput::r#for(Post::fields().tags())
-                        .required()
-                        .label("Tag"),
-                ),
+                FileUpload::r#for(Post::fields().image_path()),
+                Repeater::new("Tags").schema(TextInput::r#for(Post::fields().tags()).label("Tag")),
             )),
         ))
     }
@@ -717,12 +708,7 @@ fn build_router(db: Db, bundle: Option<AssetBundle>) -> Router {
         ))
         .resource::<UserResource>()
         .resource::<AuthorResource>()
-        .resource::<PostResource>()
-        .navigation(NavigationItem::from_href(
-            "Showcase",
-            href!("/admin/showcase"),
-            "/admin/showcase",
-        ));
+        .resource::<PostResource>();
     match bundle {
         Some(bundle) => panel
             .assets(bundle)

@@ -13,3 +13,7 @@ Five canonical roles map 1:1 to `needs-triage`, `needs-info`, `ready-for-agent`,
 ### Domain docs
 
 Single-context: one `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+
+## Git
+
+Land branches fast-forward when `master` hasn't diverged (no empty merge commits); use `--no-ff` only for true merges.

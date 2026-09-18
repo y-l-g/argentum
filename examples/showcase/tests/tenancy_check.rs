@@ -236,3 +236,67 @@ async fn x_tenant_id_header_no_longer_grants_a_tenant() {
         "x-tenant-id must not grant a tenant (GH #131)"
     );
 }
+
+#[tokio::test]
+async fn bulk_delete_wrong_tenant_404s_and_deletes_nothing() {
+    // GH #136 extension: `bulk_check.rs` had zero `tenant` references — the
+    // handler scopes through `R::query`, but no HTTP test proved a
+    // cross-tenant batch comes back short and 404s.
+    let (db, t1, t2) = tenanted_db().await;
+    let router = router(db.clone());
+    let client = demo_client(&router).await;
+    let mut db_q = db.clone();
+    let t1_post = Post::filter(Post::fields().tenant_id().eq(t1))
+        .first()
+        .exec(&mut db_q)
+        .await
+        .unwrap()
+        .expect("t1 post");
+    let csrf = uuid::Uuid::new_v4().to_string();
+    let resp = client
+        .tenant(t2)
+        .csrf(&csrf)
+        .post_form(
+            "/admin/posts/bulk-delete",
+            format!("ids={}&csrf_token={csrf}", t1_post.id),
+        )
+        .await;
+    assert_eq!(
+        resp.status(),
+        404,
+        "cross-tenant bulk delete must 404, got {}",
+        resp.status()
+    );
+    let remaining = Post::filter(Post::fields().tenant_id().eq(t1))
+        .exec(&mut db_q)
+        .await
+        .unwrap();
+    assert_eq!(remaining.len(), 1, "cross-tenant batch deletes nothing");
+}
+
+#[tokio::test]
+async fn export_is_scoped_by_tenant() {
+    // GH #136 extension: `group_export_check.rs` had zero `tenant`
+    // references — export reuses `R::query`, so each tenant sees only its
+    // own rows.
+    let (db, t1, t2) = tenanted_db().await;
+    let router = router(db.clone());
+    let client = demo_client(&router).await;
+    let resp = client.tenant(t1).get("/admin/posts/export").await;
+    assert!(resp.status().is_success());
+    let csv = body_string(resp).await;
+    assert!(
+        csv.contains("T1 Post"),
+        "t1 export must contain T1 Post, got {csv}"
+    );
+    assert!(
+        !csv.contains("T2 Post"),
+        "t1 export must not contain T2 Post, got {csv}"
+    );
+    let resp = client.tenant(t2).get("/admin/posts/export").await;
+    let csv = body_string(resp).await;
+    assert!(
+        csv.contains("T2 Post") && !csv.contains("T1 Post"),
+        "t2 export must be scoped, got {csv}"
+    );
+}

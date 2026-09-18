@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# verify_parity.sh — ensure all comparators render the same 50 rows.
-# For Phase 2, parity is: Argentum list with 50 rows 2 includes matches
-# axum-maud and leptos stubs on visible text (ignoring whitespace and
-# data-boundary ids). Mirrors tokio-rs/topcoat/benchmarks/scripts/verify_parity.sh.
+# verify_parity.sh — Argentum 50-row self-check + baseline compile smoke.
+# Cross-framework HTML parity was dropped in GH #159: the axum-maud/leptos
+# apps render stubs, so diffing them against Argentum is non-comparable.
+# This script asserts Argentum renders Post 00..49 with Author includes,
+# and that both baselines still compile.
 
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -10,8 +11,6 @@ ROOT="$(cd "$HERE/../.." && pwd)"
 BENCH="$ROOT/benchmarks"
 
 PORT_ARGENTUM="${PORT_ARGENTUM:-3000}"
-PORT_AXUM="${PORT_AXUM:-8090}"
-PORT_LEPTOS="${PORT_LEPTOS:-8091}"
 
 wait_ready() {
   local url="$1"
@@ -40,7 +39,7 @@ fetch_normalized() {
 TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"; pkill -P $$ 2>/dev/null || true; kill $(jobs -p) 2>/dev/null || true' EXIT INT TERM
 
-echo "verify_parity: starting comparators..."
+echo "verify_parity: starting argentum..."
 
 # Start argentum
 echo "  argentum -> http://localhost:$PORT_ARGENTUM/admin/posts"
@@ -52,42 +51,25 @@ if ! wait_ready "http://localhost:$PORT_ARGENTUM/admin/posts"; then
   exit 1
 fi
 
-# Start axum-maud
-echo "  axum-maud -> http://localhost:$PORT_AXUM/"
-cargo run --manifest-path "$BENCH/axum-maud/Cargo.toml" >/tmp/verify-axum.log 2>&1 &
-PID_AXUM=$!
-if ! wait_ready "http://localhost:$PORT_AXUM/"; then
-  echo "axum-maud failed (stub ok)"
-  # don't fail — stub may not match 50 rows, just report
-  HAS_AXUM=0
+# Baseline compile smoke (GH #159): stubs, not comparable — build only.
+echo "  smoke: axum-maud compiles"
+if cargo build --manifest-path "$BENCH/axum-maud/Cargo.toml" >/dev/null 2>&1; then
+  echo "  smoke axum-maud: PASS"
 else
-  HAS_AXUM=1
+  echo "  smoke axum-maud: FAIL"
+  exit 1
 fi
-
-# Leptos is stub — skip actual server, just check it builds
-HAS_LEPTOS=0
+echo "  smoke: leptos compiles"
 if cargo build --manifest-path "$BENCH/leptos/Cargo.toml" --features ssr >/dev/null 2>&1; then
-  HAS_LEPTOS=1
+  echo "  smoke leptos: PASS"
+else
+  echo "  smoke leptos: FAIL"
+  exit 1
 fi
 
 # Fetch and normalize
 fetch_normalized "http://localhost:$PORT_ARGENTUM/admin/posts" "$TMPDIR/argentum.txt"
 echo "  fetched argentum ($(wc -l <"$TMPDIR/argentum.txt") lines)"
-
-if [ "$HAS_AXUM" -eq 1 ]; then
-  fetch_normalized "http://localhost:$PORT_AXUM/" "$TMPDIR/axum.txt"
-  echo "  fetched axum-maud ($(wc -l <"$TMPDIR/axum.txt") lines)"
-  if diff -u "$TMPDIR/argentum.txt" "$TMPDIR/axum.txt" >/tmp/parity-axum.diff 2>&1; then
-    echo "  parity axum-maud: OK (exact)"
-  else
-    echo "  parity axum-maud: DIFF (expected — stub renders different 50-row HTML)"
-    echo "  diff head:"
-    head -n 20 /tmp/parity-axum.diff || true
-    # Don't fail — stub is intentionally different
-  fi
-else
-  echo "  parity axum-maud: SKIP (not running)"
-fi
 
 # Argentum self-check: ensure 50 rows are visible (titles Post 00..49)
 if grep -q "Post 00" "$TMPDIR/argentum.txt" && grep -q "Post 49" "$TMPDIR/argentum.txt"; then
@@ -109,8 +91,6 @@ fi
 
 # Cleanup
 kill "$PID_ARGENTUM" 2>/dev/null || true
-if [ -n "${PID_AXUM:-}" ]; then kill "$PID_AXUM" 2>/dev/null || true; fi
 wait "$PID_ARGENTUM" 2>/dev/null || true
-wait "$PID_AXUM" 2>/dev/null || true
 
-echo "verify_parity: done (argentum 50-row + 2 includes verified)"
+echo "verify_parity: done (argentum 50-row + 2 includes verified; baselines smoke-only, GH #159)"
