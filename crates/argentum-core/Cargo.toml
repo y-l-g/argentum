@@ -19,7 +19,7 @@ subtle = "2"
 serde.workspace = true
 toasty.workspace = true
 toasty-core.workspace = true
-topcoat = { workspace = true, features = ["view", "router", "discover", "asset", "font", "runtime", "cookie", "multipart"] }
+topcoat = { workspace = true, features = ["view", "router", "discover", "asset", "font", "runtime", "cookie", "multipart", "icon"] }
 tracing = "0.1"
 uuid.workspace = true
 

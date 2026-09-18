@@ -159,13 +159,16 @@ impl<'a> TestClient<'a> {
     }
 
     /// Attach every `(name, value)` pair, e.g. the cookies a response set.
+    /// Like a browser jar: a later value for the same name replaces the
+    /// earlier one instead of appending a duplicate `Cookie` entry.
     pub fn cookies(&self, cookies: &[(String, String)]) -> Self {
         let mut client = self.clone();
-        client.cookies.extend(
-            cookies
-                .iter()
-                .map(|(name, value)| (name.clone(), value.clone())),
-        );
+        for (name, value) in cookies {
+            match client.cookies.iter_mut().find(|(kept, _)| kept == name) {
+                Some(existing) => existing.1 = value.clone(),
+                None => client.cookies.push((name.clone(), value.clone())),
+            }
+        }
         client
     }
 
@@ -214,6 +217,22 @@ impl<'a> TestClient<'a> {
             format!("multipart/form-data; boundary={boundary}")
                 .parse()
                 .expect("multipart content type"),
+        );
+        *request.body_mut() = Body::from(body);
+        self.router.handle(request).await
+    }
+
+    /// POST a JSON body to a runtime endpoint (a shard or procedure), with the
+    /// page identity header the browser runtime sends (GH #154 §2 tests).
+    pub async fn post_json(&self, uri: &str, body: String, identity: &str) -> http::Response<Body> {
+        let mut request = self.request(http::Method::POST, uri);
+        request.headers_mut().insert(
+            CONTENT_TYPE,
+            http::HeaderValue::from_static("application/json"),
+        );
+        request.headers_mut().insert(
+            topcoat::router::request::IDENTITY_HEADER,
+            http::HeaderValue::from_str(identity).expect("identity header"),
         );
         *request.body_mut() = Body::from(body);
         self.router.handle(request).await
@@ -328,17 +347,26 @@ pub fn form_body(pairs: &[(&str, &str)]) -> String {
 
 /// The `value` attribute of the named `<input>` in rendered HTML, in either
 /// attribute order.
+///
+/// Handles both quote styles (`value="…"` and `value='…'`); the controlled
+/// UUID markup only emits double quotes today, but an encoder change must
+/// not silently turn every lookup into `None` (GH #136 harness hardening).
 pub fn input_value(html: &str, name: &str) -> Option<String> {
-    let name_attr = format!("name=\"{name}\"");
+    let double = format!("name=\"{name}\"");
+    let single = format!("name='{name}'");
     for tag in html.split('<').skip(1) {
-        if !tag.contains(&name_attr) {
+        if !tag.contains(&double) && !tag.contains(&single) {
             continue;
         }
         let attrs = &tag[..tag.find('>')?];
-        if let Some(start) = attrs.find("value=\"") {
-            let rest = &attrs[start + "value=\"".len()..];
-            if let Some(end) = rest.find('"') {
-                return Some(rest[..end].to_string());
+        for (prefix, term) in [("value=\"", '"'), ("value='", '\'')] {
+            if let Some(start) = attrs.find(prefix) {
+                let rest = &attrs[start + prefix.len()..];
+                if let Some(end) = rest.find(term) {
+                    // Unescape the matching quote entity the encoder may emit.
+                    let raw = &rest[..end];
+                    return Some(raw.replace("&quot;", "\"").replace("&#x27;", "'"));
+                }
             }
         }
     }

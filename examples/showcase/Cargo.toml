@@ -5,7 +5,7 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 publish = false
-description = "Showcase: single example demonstrating every Argentum feature with snippets + rendered results."
+description = "Showcase: real-world Panel demo (Users, Authors, Posts) exercising every Argentum feature through real resources."
 
 [dependencies]
 argentum-core = { path = "../../crates/argentum-core" }

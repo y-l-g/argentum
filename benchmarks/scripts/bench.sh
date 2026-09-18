@@ -1,10 +1,15 @@
 #!/usr/bin/env bash
-# Argentum Phase 2 bench — loopback oha matrix vs baselines.
-# Mirrors tokio-rs/topcoat/benchmarks/scripts/bench.sh but scoped to the
-# Argentum storefront (50 rows, 2 includes, Table as Boundary with #[memoize]).
+# Argentum Phase 2 bench — in-process cold-path gate for the Argentum list
+# (50 rows, 2 includes, Table as Boundary with #[memoize]).
+# Baselines (axum-maud, leptos) are compile-only smoke, not comparable
+# (GH #159): they render stubs, so no cross-framework oha matrix exists.
+# Mirrors tokio-rs/topcoat/benchmarks/scripts/bench.sh methodology
+# (loopback HTTP/1.1, oha) for the Argentum target only.
 #
 # Usage:
 #   ./benchmarks/scripts/bench.sh [argentum|axum-maud|leptos]   (default: argentum)
+#   argentum runs the oha + in-process bench; axum-maud/leptos only verify
+#   the baseline still compiles (smoke).
 # Tunables:
 #   DURATION=5s WARMUP=2s CONNECTIONS=32 RATE=100 RUNS=1 PORT=3000
 #
@@ -123,30 +128,14 @@ for fw in "${FRAMEWORKS[@]}"; do
       fi
       ;;
     axum-maud|axum_maud)
-      echo "==> building axum-maud"
+      echo "==> building axum-maud (compile smoke only, GH #159 — stub, not comparable)"
       cargo build --manifest-path "$BENCH/axum-maud/Cargo.toml" --release 2>&1 | tail -n 5
-      if [ "$HAS_OHA" -eq 1 ]; then
-        echo "==> starting axum-maud on http://localhost:8090"
-        cargo run --manifest-path "$BENCH/axum-maud/Cargo.toml" --release >/tmp/axum-maud-bench.log 2>&1 &
-        SERVER_PID=$!
-        trap 'kill_tree "$SERVER_PID"' EXIT INT TERM
-        if wait_ready "http://localhost:8090/"; then
-          for run in $(seq 1 "$RUNS"); do
-            run_oha "http://localhost:8090/" "$RESULTS_DIR/axum-maud_run${run}.json"
-          done
-        else
-          echo "axum-maud failed to start"
-          cat /tmp/axum-maud-bench.log || true
-        fi
-        kill_tree "$SERVER_PID"
-        trap - EXIT INT TERM
-        sleep 1
-      fi
+      echo "==> axum-maud smoke passed (no oha leg; stub renders no 50-row workload)"
       ;;
     leptos)
-      echo "==> building leptos (stub, cargo check only)"
+      echo "==> building leptos (compile smoke only, GH #159 — stub, not comparable)"
       cargo build --manifest-path "$BENCH/leptos/Cargo.toml" --features ssr 2>&1 | tail -n 5 || true
-      echo "==> leptos bench is stub — no server to benchmark (cargo check passed)"
+      echo "==> leptos smoke passed (no server to benchmark; template stub only)"
       ;;
     *)
       echo "unknown framework $fw (expected argentum|axum-maud|leptos)" >&2
@@ -180,7 +169,7 @@ done
     cat "$RESULTS_DIR"/argentum_bench.txt 2>/dev/null || echo "no bench.txt"
   fi
   echo ""
-  echo "Budget: Phase 2 list (50 rows, 2 includes, filters+group_by) <40ms p50 (see README.md §8)."
+  echo "Budget: Phase 2 Argentum list (50 rows, 2 includes) <40ms p50 on the in-process cold path (see README.md). Baselines are smoke-only, not comparable (GH #159)."
 } | tee "$RESULTS_DIR/results.md"
 
 echo "bench.sh: done -> $RESULTS_DIR/results.md"
