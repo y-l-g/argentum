@@ -17,8 +17,8 @@ use topcoat::runtime::Signal;
 /// the pager, the filter transport, and the clear links rendered by the table
 /// write them.
 ///
-/// `q`/`filters`/`sort`/`dir` reset the cursors when they change; `after` and
-/// `before` page within the current result set. All values are untrusted by
+/// `q`/`filters`/`sort`/`dir`/`group_by` reset the cursors when they change;
+/// `after` and `before` page within the current result set. All values are untrusted by
 /// the time the shard reads them back (the client owns the signal).
 #[derive(Clone)]
 pub struct TableSignals {
@@ -34,6 +34,12 @@ pub struct TableSignals {
     pub after: Signal<String>,
     /// `?before=` — the backward cursor.
     pub before: Signal<String>,
+    /// `?group_by=` — the active grouping (`""` = ungrouped, GH #157).
+    /// Seeded from the page-load state and changed via navigation
+    /// (`?group_by=` links); no live control writes it yet, so it persists
+    /// across in-place reruns. A future control writing it must reset the
+    /// cursors like the other result-set dimensions.
+    pub group_by: Signal<String>,
 }
 
 /// One executed page of rows for [`Table::render`].

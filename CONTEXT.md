@@ -41,7 +41,7 @@ _Avoid_: Form, Infolist, Fieldset (as top-level term), statePath
 ### Table
 The declarative description of a list view. Declares columns, filters, search, sort, pagination, and row/bulk actions. It also declares how to query — searchable and filterable columns produce Toasty predicates, sortable columns map to order_by. Owns the row loop: row identity is mandatory and typed, declared once via the table's row-key closure (`Table::id(|u| u.id.to_string())`) until Toasty exposes instance→PK extraction, and render errors without it — never a loop index.
 
-A `live_search(true)` table hands its chrome to the page's `TableSignals`: the shard's tracked reads re-render the grid in place when search, sort, filters, or pagination write a signal (GH #151). A page can own the same seam directly — create the `TableSignals`, render the live toolbar, and let its own shard load through `Table::load` and re-render with `Table::render_live_with_state` — which is how the showcase table demos stay live without being resources (GH #154 §2).
+A `live_search(true)` table hands its chrome to the page's `TableSignals`: the shard's tracked reads re-render the grid in place when search, sort, filters, or pagination write a signal (GH #151). Grouping rides the same signal set, seeded from the page-load `?group_by=` and changed via navigation until a live control ships (GH #157). A page can own the same seam directly — create the `TableSignals`, render the live toolbar, and let its own shard load through `Table::load` and re-render with `Table::render_live_with_state` — which is how the showcase table demos stay live without being resources (GH #154 §2).
 
 _Avoid_: Grid, Listing, DataTable
 

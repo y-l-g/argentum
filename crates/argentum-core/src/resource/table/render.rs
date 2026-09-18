@@ -716,15 +716,17 @@ impl<M> Table<M> {
     pub(crate) async fn render_live_invocation<'a>(
         &self,
         cx: &'a Cx,
-        state: &TableState,
+        _state: &TableState,
         path: &str,
         signals: TableSignals,
     ) -> Result<BoxView<'a>> {
         use crate::panel::table_search;
 
-        let state = self.normalize_state(state);
+        // No snapshot here (GH #157): grouping travels as the `group_by`
+        // live signal (seeded from the page state by the caller) and the
+        // shard normalizes on read (GH #153) — `_state` stays only so the
+        // seam keeps its shape for a future grouping control.
         let live_path = path.to_string();
-        let live_group = state.group_by.clone().unwrap_or_default();
         let TableSignals {
             q,
             filters,
@@ -732,6 +734,7 @@ impl<M> Table<M> {
             dir,
             after,
             before,
+            group_by,
         } = signals;
         Ok(view! {
             cx =>
@@ -743,7 +746,7 @@ impl<M> Table<M> {
                 dir: $(dir),
                 after: $(after),
                 before: $(before),
-                group_by: $(live_group.clone())
+                group_by: $(group_by)
             )
         }
         .boxed())

@@ -189,7 +189,7 @@ pub(crate) fn resource_list<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
 
 /// Live list page for `Table::live_search` tables (GH #104, GH #151): the
 /// page owns the interaction signals (`q`, `filters`, `sort`, `dir`,
-/// `after`, `before`) and renders the search toolbar eagerly above the
+/// `after`, `before`, `group_by`) and renders the search toolbar eagerly above the
 /// streamed region while the `table_search` shard invocation fills the grid
 /// below — one grid per response, so rows can never duplicate. Every
 /// interaction writes a signal, so search, sort, filters, and pagination
@@ -226,6 +226,7 @@ pub(crate) fn resource_list_live<R: Resource>(
             }),
             after: signal(cx, || state.after.clone().unwrap_or_default()),
             before: signal(cx, || state.before.clone().unwrap_or_default()),
+            group_by: signal(cx, || state.group_by.clone().unwrap_or_default()),
         };
         let host = if table.search_enabled() {
             Some(
@@ -413,13 +414,14 @@ mod tests {
                           after: &str,
                           before: &str| {
             format!(
-                r#"["{path}",{}, {}, {}, {}, {}, {}, ""]"#,
+                r#"["{path}",{}, {}, {}, {}, {}, {}, {}]"#,
                 sig(1, q),
                 sig(2, filters),
                 sig(3, sort),
                 sig(4, dir),
                 sig(5, after),
-                sig(6, before)
+                sig(6, before),
+                sig(7, "")
             )
         };
         async fn call_shard(

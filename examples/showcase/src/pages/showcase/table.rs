@@ -80,14 +80,15 @@ pub async fn table_demo(
     let page = table.load(cx, UserResource::query(cx), &state).await?;
     let signals = TableSignals {
         q: q.clone(),
-        // The demos do not paginate or filter; the cursors and the filters
-        // transport still need handles for the shared controls, so the shard
-        // creates inert ones (a shard body keeps its signals across reruns).
+        // The demos do not paginate, filter, or group; the cursors and the
+        // filters/grouping transports still need handles for the shared controls,
+        // so the shard creates inert ones (a shard body keeps its signals across reruns).
         filters: signal(cx, String::new),
         sort: sort.clone(),
         dir: dir.clone(),
         after: signal(cx, String::new),
         before: signal(cx, String::new),
+        group_by: signal(cx, String::new),
     };
     table
         .render_live_with_state(cx, page, &state, PATH, signals)
@@ -136,6 +137,7 @@ async fn table_showcase(cx: &Cx) -> Result<impl View> {
         dir: searchable_dir.clone(),
         after: signal(cx, String::new),
         before: signal(cx, String::new),
+        group_by: signal(cx, String::new),
     };
     let searchable_table = demo_table(cx, "searchable").expect("declared demo");
     let searchable_host = searchable_table
@@ -184,6 +186,7 @@ async fn table_showcase(cx: &Cx) -> Result<impl View> {
         dir: both_dir.clone(),
         after: signal(cx, String::new),
         before: signal(cx, String::new),
+        group_by: signal(cx, String::new),
     };
     let both_table = demo_table(cx, "both").expect("declared demo");
     let both_host = both_table

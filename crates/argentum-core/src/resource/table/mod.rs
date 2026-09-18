@@ -220,6 +220,10 @@ impl<M> Table<M> {
     /// (e.g. `"status"`); any other value renders no group headers and is
     /// dropped from pager/sort/filter links (GH #92) instead of silently
     /// grouping by the single declared key. Counts are page-local.
+    ///
+    /// In live tables the page-load value seeds the `group_by` interaction
+    /// signal (GH #157) and persists across in-place reruns; changing it is
+    /// still a navigation (`?group_by=` links) until a live control ships.
     pub fn group_by(
         mut self,
         name: impl Into<String>,

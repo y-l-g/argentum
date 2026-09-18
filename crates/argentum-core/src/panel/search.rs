@@ -129,7 +129,7 @@ mod shard_body {
         dir: topcoat::runtime::Signal<String>,
         after: topcoat::runtime::Signal<String>,
         before: topcoat::runtime::Signal<String>,
-        group_by: String,
+        group_by: topcoat::runtime::Signal<String>,
     ) -> Result<impl View> {
         let entry = search_entry(cx, &path)?;
         let signals = crate::resource::TableSignals {
@@ -139,6 +139,7 @@ mod shard_body {
             dir,
             after,
             before,
+            group_by,
         };
         // One shared bound (GH #148): the GET `?q=` path and the shard clamp
         // through the same helper, so a term too long for the URL is too long
@@ -151,7 +152,7 @@ mod shard_body {
             &signals.filters.get(),
             &signals.sort.get(),
             &signals.dir.get(),
-            &group_by,
+            &signals.group_by.get(),
         );
         let after = signals.after.get();
         if !after.trim().is_empty() {
@@ -339,13 +340,14 @@ mod tests {
         let sig = |n: u8, v: &str| format!(r#"{{"t":"Signal","id":"{:032x}","v":"{v}"}}"#, n);
         let shard_args = |after: &str, before: &str, group_by: &str| {
             format!(
-                r#"["/admin/dummies",{}, {}, {}, {}, {}, {}, "{group_by}"]"#,
+                r#"["/admin/dummies",{}, {}, {}, {}, {}, {}, {}]"#,
                 sig(1, ""),
                 sig(2, ""),
                 sig(3, ""),
                 sig(4, ""),
                 sig(5, after),
                 sig(6, before),
+                sig(7, group_by),
             )
         };
         let shard = topcoat::runtime::Shard::id(&table_search);
@@ -423,6 +425,128 @@ mod tests {
         assert!(
             !grid_html.contains("group_by"),
             "an unknown group_by must not echo through the shard retry link: {grid_html}"
+        );
+    }
+
+    #[tokio::test]
+    async fn live_shard_group_by_signal_drives_grouping() {
+        // GH #157: grouping travels as a live signal, not a page-load
+        // snapshot — the shard groups by the signal value, so a rerun with
+        // the signal set renders headers and a rerun with it cleared does not.
+        use crate::resource::Resource;
+        use http_body_util::BodyExt;
+        use std::collections::HashMap;
+
+        #[derive(Debug, toasty::Model)]
+        struct Dummy {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            name: String,
+        }
+        struct GroupedResource;
+        impl Resource for GroupedResource {
+            type Model = Dummy;
+            fn slug() -> String {
+                "dummies".to_string()
+            }
+            fn can_view_any(_cx: &Cx) -> bool {
+                true
+            }
+            fn can_view(_cx: &Cx, _record: &Dummy) -> bool {
+                true
+            }
+            fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
+                crate::resource::Table::r#for(cx)
+                    .id(|d: &Dummy| d.id.to_string())
+                    .columns(
+                        crate::resource::TextColumn::r#for(Dummy::fields().name(), |d: &Dummy| {
+                            d.name.clone()
+                        })
+                        .searchable()
+                        .sortable(),
+                    )
+                    .group_by("name", |d: &Dummy| d.name.clone())
+                    .live_search(true)
+            }
+            fn hydrate_form_values(_record: &Dummy) -> HashMap<String, String> {
+                HashMap::new()
+            }
+        }
+
+        let mut db = Db::builder()
+            .models(toasty::models!(Dummy))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        for name in ["Ada", "Grace"] {
+            toasty::create!(Dummy {
+                name: name.to_string(),
+            })
+            .exec(&mut db)
+            .await
+            .unwrap();
+        }
+        let router = Panel::new("admin")
+            .app_context(db)
+            .resource::<GroupedResource>()
+            .auth(crate::Auth::disabled())
+            .build();
+
+        let sig = |n: u8, v: &str| format!(r#"{{"t":"Signal","id":"{:032x}","v":"{v}"}}"#, n);
+        let shard_args = |group_by: &str| {
+            format!(
+                r#"["/admin/dummies",{}, {}, {}, {}, {}, {}, {}]"#,
+                sig(1, ""),
+                sig(2, ""),
+                sig(3, ""),
+                sig(4, ""),
+                sig(5, ""),
+                sig(6, ""),
+                sig(7, group_by),
+            )
+        };
+        let post_shard = |args: String| {
+            router.handle(
+                http::Request::builder()
+                    .method(http::Method::POST)
+                    .uri(format!(
+                        "/_topcoat/runtime/shards/{}",
+                        topcoat::runtime::Shard::id(&table_search).as_str()
+                    ))
+                    .header(http::header::CONTENT_TYPE, "application/json")
+                    .header(topcoat::router::request::IDENTITY_HEADER, "A".repeat(22))
+                    .body(Body::from(format!(r#"{{"args":{args},"signals":{{}}}}"#)))
+                    .unwrap(),
+            )
+        };
+
+        let grid = post_shard(shard_args("name")).await;
+        assert_eq!(
+            grid.status(),
+            http::StatusCode::OK,
+            "grouped shard rerun must succeed"
+        );
+        let bytes = grid.into_body().collect().await.unwrap().to_bytes();
+        let grid_html = String::from_utf8_lossy(&bytes).to_string();
+        assert!(
+            grid_html.contains("Ada (1 on this page)")
+                && grid_html.contains("Grace (1 on this page)"),
+            "group_by signal must drive group headers in the shard output: {grid_html}"
+        );
+
+        let grid = post_shard(shard_args("")).await;
+        assert_eq!(
+            grid.status(),
+            http::StatusCode::OK,
+            "ungrouped shard rerun must succeed"
+        );
+        let bytes = grid.into_body().collect().await.unwrap().to_bytes();
+        let grid_html = String::from_utf8_lossy(&bytes).to_string();
+        assert!(
+            !grid_html.contains("on this page"),
+            "cleared group_by signal must render no group headers: {grid_html}"
         );
     }
 }
