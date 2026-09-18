@@ -1,0 +1,1326 @@
+//! Delete / bulk-delete / CSV export handlers plus their caps and parsers.
+//!
+//! Fetch, policy checks, and writes share one framework transaction (GH #84):
+//! a mid-loop failure deletes zero rows.
+
+use topcoat::view::internal::ThenView;
+use topcoat::{
+    Result,
+    context::Cx,
+    router::{
+        Body, RouteFuture,
+        error::{forbidden, see_other},
+    },
+    view::{BoxView, HoistView},
+};
+
+use super::forms::{parse_form_values, truthy};
+use super::{enforce_auth, enforce_tenant, list_url};
+use crate::db::db;
+use crate::notification::{Notification, set_notification};
+use crate::resource::{Resource, TablePage, TableState, clamp_query_term};
+use crate::schema::OptionLoadError;
+
+/// Fetch one record by its URL `id` through the tenancy-scoped query seam.
+///
+/// The string id is parsed against the model's primary-key type and the PK
+/// filter is ANDed onto [`Resource::query`](crate::resource::Resource::query)
+/// (ADR-0002), so tenancy/soft-delete scoping holds. Replaces the #75 item-1
+/// pattern of fetching every row and matching `Table::key_for` in memory —
+/// O(N) rows per edit/delete, leaking the whole table before the policy
+/// check.
+///
+/// A malformed or unknown id maps to 404, not a query error.
+///
+/// Runs on the caller's executor: mutation handlers pass the open framework
+/// transaction (GH #84) so the fetched snapshot is the checked snapshot.
+pub(crate) async fn find_by_key<R: Resource>(
+    cx: &Cx,
+    id: &str,
+    ex: &mut dyn toasty::Executor,
+) -> Result<R::Model> {
+    let Some(expr) = crate::schema::pk_eq_expr::<R::Model>(id) else {
+        // Composite PKs have no URL representation (GH #95): fail loudly so
+        // the misconfiguration surfaces instead of 404ing every id.
+        if crate::schema::pk_is_composite::<R::Model>() {
+            tracing::error!(
+                resource = R::slug(),
+                "composite primary key has no URL representation"
+            );
+            return Err(topcoat::Error::from(std::io::Error::other(format!(
+                "resource '{}' has a composite primary key, which has no URL representation (GH #95)",
+                R::slug()
+            ))));
+        }
+        return Err(topcoat::router::error::not_found().into());
+    };
+    R::query(cx)
+        .filter(expr)
+        .first()
+        .exec(&mut *ex)
+        .await
+        .map_err(topcoat::Error::from)?
+        .ok_or_else(topcoat::router::error::not_found)
+        .map_err(Into::into)
+}
+
+/// Delete action POST — confirmation-marked, policy-checked, and run in the
+/// framework transaction (GH #84): the checked record flows into the write.
+///
+/// The confirmation is the row's alert dialog on the list page (GH #151): the
+/// Delete link opens `?delete=<key>` and the dialog's form POSTs here with
+/// `confirm=1`. Authentication comes before any DB work (GH #144): the CSRF
+/// check and the confirmation marker run first, so a forged POST answers 403
+/// without opening a transaction, holding a pooled connection across the body
+/// read, or probing record existence (create/bulk-delete ordering, GH #84).
+/// The dialog itself is deliberately fetch-free and policy-blind: it carries
+/// no record data and embeds only the caller's own CSRF token, and the
+/// policy/tenancy checks run against the loaded record here.
+pub(crate) fn resource_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
+    Box::pin(HoistView::new(ThenView::<_, BoxView<'_>>::new(
+        async move {
+            enforce_auth(cx)?;
+            enforce_tenant::<R>(cx)?;
+            let values = parse_form_values(cx, body).await?;
+            crate::csrf::verify(cx, &values)?;
+            let confirmed = values.get("confirm").is_some_and(|v| truthy(v));
+            if !confirmed {
+                // The confirmation UI is the list-page alert dialog (GH #151):
+                // the row link opens `?delete=<key>` and the dialog's form carries
+                // `confirm=1`. This route only accepts that confirmed POST, so a
+                // missing marker is a malformed client, not a user path.
+                return Err(
+                    topcoat::router::error::bad_request("delete requires confirmation").into(),
+                );
+            }
+            // Confirmed and authenticated: open the transaction only now (GH
+            // #144), fetch through the tenancy seam, check Policy against the
+            // loaded record, and delete inside the tx — commit makes the checked
+            // delete durable, any error rolls it back (GH #84).
+            let mut db = db(cx);
+            let mut tx = db.transaction().await.map_err(topcoat::Error::from)?;
+            let id = topcoat::router::path_param_segment(cx, "id").to_string();
+            let record = find_by_key::<R>(cx, &id, &mut tx).await?;
+            if !R::can_delete(cx, &record) {
+                return Err(forbidden().into());
+            }
+            R::delete_record(cx, record, &mut tx).await?;
+            tx.commit().await.map_err(topcoat::Error::from)?;
+            set_notification(cx, Notification::success("Deleted"));
+            Err(see_other(list_url(cx, &R::slug())).into())
+        },
+    )))
+}
+
+/// Bulk delete POST — ids via `ids` form field (comma-separated).
+///
+/// Identity is the typed PK fetch alone (GH #85): the display closure
+/// `Table::id` is never re-matched, so non-canonical keys (uppercase UUID,
+/// email key) cannot 404 a batch whose rows exist. Bounded by
+/// `MAX_BULK_IDS` so the `IN` list cannot be amplified into a DoS.
+/// Fetch, policy checks, and deletes share one framework transaction
+/// (GH #84): a mid-loop failure deletes zero rows.
+pub(crate) fn resource_bulk_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
+    Box::pin(HoistView::new(ThenView::<_, BoxView<'_>>::new(
+        async move {
+            enforce_auth(cx)?;
+            enforce_tenant::<R>(cx)?;
+            let values = parse_form_values(cx, body).await?;
+            crate::csrf::verify(cx, &values)?;
+            let ids_raw = values.get("ids").cloned().unwrap_or_default();
+            let ids = parse_bulk_ids(&ids_raw, MAX_BULK_IDS);
+            if ids.is_empty() {
+                // No ids is a validation miss, not a raw 400 page (GH #151):
+                // the bulk bar disables its submit until a row is checked, so
+                // only a crafted (or stale) POST gets here — answer like any
+                // other mutation, with the list and the reason.
+                set_notification(cx, Notification::error("Select at least one row to delete"));
+                return Err(see_other(list_url(cx, &R::slug())).into());
+            }
+            if ids.len() > MAX_BULK_IDS {
+                return Err(topcoat::router::error::bad_request(format!(
+                    "too many ids (max {MAX_BULK_IDS})"
+                ))
+                .into());
+            }
+            // Fetch only the requested rows through the tenancy-scoped seam:
+            // one `pk IN (…)` query replaces the #75 item-1
+            // fetch-everything-then-match loop. A malformed id cannot exist and
+            // maps to 404; a missing/wrong-tenant id makes the fetch come back
+            // short and 404s as well.
+            let keys: Vec<&str> = ids.iter().map(String::as_str).collect();
+            let Some(pk_filter) = crate::schema::pk_in_expr::<R::Model>(&keys) else {
+                if crate::schema::pk_is_composite::<R::Model>() {
+                    tracing::error!(
+                        resource = R::slug(),
+                        "composite primary key has no URL representation"
+                    );
+                    return Err(topcoat::Error::from(std::io::Error::other(format!(
+                        "resource '{}' has a composite primary key, which has no URL representation (GH #95)",
+                        R::slug()
+                    ))));
+                }
+                return Err(topcoat::router::error::not_found().into());
+            };
+            let mut db = db(cx);
+            let mut tx = db.transaction().await.map_err(topcoat::Error::from)?;
+            let rows = R::query(cx)
+                .filter(pk_filter)
+                .exec(&mut tx)
+                .await
+                .map_err(topcoat::Error::from)?;
+            if rows.len() != ids.len() {
+                return Err(topcoat::router::error::not_found().into());
+            }
+            for rec in &rows {
+                if !R::can_delete(cx, rec) {
+                    return Err(forbidden().into());
+                }
+            }
+            // All checks passed — perform bulk delete inside the tx, then
+            // commit once. Any error drops `tx` uncommitted: zero rows
+            // deleted, never half-applied.
+            R::bulk_delete_records(cx, rows, &mut tx).await?;
+            tx.commit().await.map_err(topcoat::Error::from)?;
+            set_notification(cx, Notification::success("Bulk deleted"));
+            Err(see_other(list_url(cx, &R::slug())).into())
+        },
+    )))
+}
+
+/// Max ids accepted by bulk delete (GH #85): bounds the `IN` list.
+const MAX_BULK_IDS: usize = 400;
+
+/// Max rows an export will materialize (GH #94): the filtered query carries
+/// `limit(MAX_EXPORT_ROWS + 1)` and anything past the cap is a 413, so a
+/// 100k-row table stays bounded in memory instead of buffering `Vec<Model>` +
+/// `String` without end.
+const MAX_EXPORT_ROWS: usize = 10_000;
+
+/// Reject an export whose filtered query returned one row past the cap
+/// (GH #94). Extracted from the handler so the 413 mapping is testable at the
+/// boundary without materializing 10k rows in a test database.
+fn enforce_export_cap<T>(rows: Vec<T>) -> Result<Vec<T>, topcoat::Error> {
+    if rows.len() > MAX_EXPORT_ROWS {
+        Err(topcoat::router::error::content_too_large().into())
+    } else {
+        Ok(rows)
+    }
+}
+
+/// Filter an export's rows to those the caller may view, then apply the cap
+/// (GH #86, GH #145): the 413 reflects what the caller may actually receive —
+/// never the pre-visibility count, which would both 413 tables whose visible
+/// rows fit and leak the existence/count of denied rows.
+fn filter_then_cap<T>(
+    mut rows: Vec<T>,
+    can_view: impl Fn(&T) -> bool,
+) -> Result<Vec<T>, topcoat::Error> {
+    rows.retain(|r| can_view(r));
+    enforce_export_cap(rows)
+}
+
+/// The longest slug a `Content-Disposition` filename keeps (GH #145): the
+/// header value stays bounded even for an oversized override.
+const MAX_EXPORT_FILENAME_LEN: usize = 100;
+
+/// Sanitize the export's `Content-Disposition` filename (GH #145): `slug()`
+/// is an overridable free-form `String`, and Topcoat route validation accepts
+/// quote and CR/LF segments, so a hostile override would otherwise split the
+/// response header. Quote, backslash, and control characters are dropped and
+/// the length is capped before the `.csv` suffix. Non-ASCII overrides pass
+/// through as obs-text (browsers render them; an RFC 6266 `filename*` is
+/// future work).
+fn export_filename(slug: &str) -> String {
+    let safe: String = slug
+        .chars()
+        .filter(|c| !c.is_control() && *c != '"' && *c != '\\')
+        .take(MAX_EXPORT_FILENAME_LEN)
+        .collect();
+    if safe.is_empty() {
+        "export.csv".to_string()
+    } else {
+        format!("{safe}.csv")
+    }
+}
+
+/// `?bom=1` opts into a UTF-8 BOM prefix on the CSV body for Excel (GH #94).
+fn export_wants_bom(cx: &Cx) -> bool {
+    let Some(parts) = topcoat::context::try_request_context::<http::request::Parts>(cx) else {
+        return false;
+    };
+    let Some(query) = parts.uri.query() else {
+        return false;
+    };
+    form_urlencoded::parse(query.as_bytes()).any(|(k, v)| k == "bom" && v == "1")
+}
+
+/// Parse + dedupe bulk `ids` while preserving order, so a repeated id can't
+/// make the fetched-rows count check misfire.
+///
+/// `max` bounds the parse itself, not just the final list (GH #85): a 10 MiB
+/// body of distinct ids stops at `max + 1` entries (which the handler then
+/// rejects with 400) instead of allocating millions of strings while the
+/// `MAX_BULK_IDS` check waits for the parse to finish. Deduping uses a set —
+/// the previous `Vec::contains` scan was quadratic.
+///
+/// Known limit (GH #85): the split happens after url-decoding, so a
+/// `String`-PK id containing a literal comma (`%2C`) splits into phantom
+/// ids and the batch 404s. Comma-bearing string PKs need a different
+/// transport (future work); all other PK types are comma-free.
+fn parse_bulk_ids(raw: &str, max: usize) -> Vec<String> {
+    let mut ids: Vec<String> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for s in raw.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+        if seen.insert(s) {
+            ids.push(s.to_string());
+            if ids.len() > max {
+                break;
+            }
+        }
+    }
+    ids
+}
+
+/// CSV export — reuses `Resource::query` + `Table` filters/sort, downloads `text/csv`.
+///
+/// The filtered query is capped at [`MAX_EXPORT_ROWS`] + 1 rows at the query
+/// layer so a 100k-row table cannot OOM the handler; visibility is applied
+/// before the cap (`filter_then_cap`, GH #145) so the 413 reflects what the
+/// caller may receive, formula cells are defused per OWASP in
+/// [`Table::to_csv`], and `?bom=1` prepends a UTF-8 BOM for Excel interop
+/// (GH #94).
+pub(crate) fn resource_export<R: Resource>(cx: &Cx, _body: Body) -> RouteFuture<'_> {
+    Box::pin(async move {
+        enforce_auth(cx)?;
+        enforce_tenant::<R>(cx)?;
+        if !R::can_view_any(cx) {
+            return Err(forbidden().into());
+        }
+        let state = TableState::from_cx(cx);
+        let table = R::table(cx);
+        // Fail closed on unapplied filters (GH #93): a typo'd `?filters=`
+        // must not silently export the unfiltered table.
+        if !table.unapplied_filters(&state).is_empty() {
+            return Err(topcoat::router::error::bad_request(format!(
+                "invalid filters: {}",
+                table
+                    .unapplied_filters(&state)
+                    .iter()
+                    .map(|(pair, reason)| format!("{pair} ({reason})"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ))
+            .into());
+        }
+        let mut query = R::query(cx);
+        if let Some(term) = &state.search
+            && let Some(expr) = table.search_expr(term)
+        {
+            query = query.filter(expr);
+        }
+        if let Some(expr) = table.filter_expr(&state) {
+            query = query.filter(expr);
+        }
+        for ord in table.order_bys_for_state(&state) {
+            query = query.order_by(ord);
+        }
+        // Bound the export at the query layer (GH #94): the DB returns at
+        // most one row past the cap, so memory stays bounded.
+        query = query.limit(MAX_EXPORT_ROWS + 1);
+        let mut db = db(cx);
+        let rows: Vec<R::Model> = query.exec(&mut db).await.map_err(topcoat::Error::from)?;
+        // Visibility first, cap second (GH #86, GH #145) — see
+        // `filter_then_cap` for why the cap counts only receivable rows.
+        // Bounded over-fetch (the issue's accepted alternative): a 200 holds
+        // the visible rows of the first MAX+1 fetched rows, so when denied
+        // rows interleave in query order, visible rows past the window are
+        // not exported. No truncation signal is emitted for that case: any
+        // window-full marker would leak the pre-visibility row count, which
+        // the same acceptance criterion forbids ("no count leak").
+        let rows = filter_then_cap(rows, |r| R::can_view(cx, r))?;
+        // Build TablePage without pagination for CSV (all rows)
+        let page: TablePage<R::Model> = rows.into();
+        let mut csv = table.to_csv(&page);
+        // Opt-in BOM for Excel (GH #94): `?bom=1` prepends U+FEFF so
+        // non-ASCII cells open correctly; default stays BOM-free so existing
+        // clients/tests see a plain UTF-8 body.
+        if export_wants_bom(cx) {
+            csv.insert(0, '\u{FEFF}');
+        }
+        let filename = export_filename(&R::slug());
+        let res = http::Response::builder()
+            .status(200)
+            .header(http::header::CONTENT_TYPE, "text/csv; charset=utf-8")
+            .header(
+                http::header::CONTENT_DISPOSITION,
+                format!("attachment; filename=\"{}\"", filename),
+            )
+            .body(Body::from(csv))
+            .map_err(|e| std::io::Error::other(e.to_string()))?;
+        Ok(res)
+    })
+}
+
+/// Relationship option search endpoint (GH #150 D2/D5).
+///
+/// `GET {parent_list_url}/options?field=&q=` — server-side narrowing for
+/// tables above the option cap. `field` allow-lists to a declared searchable
+/// relationship `Select` in `R::form(cx)` (400 otherwise); non-searchable
+/// selects keep today's cap error and never call here. `q` is trimmed and
+/// clamped to the shared query bound; empty `q` returns the bounded head.
+///
+/// Gates: `enforce_auth` + `enforce_tenant::<R>` (parent), then the related
+/// gates inside the search (`can_view_any` + tenant + `can_view` filtering
+/// before labels). Parent form policy (`can_create` / `can_view`+`can_update`)
+/// stays on the form pages themselves: requiring parent `can_view_any` here
+/// would lock create-only users out of a form they may use, and adds no
+/// visibility the related list does not already expose. `Denied` → 403, driver failure → 500, filtered overflow →
+/// 200 with a "keep typing" hint option (client keeps its hint element).
+/// Success → 200 `text/html` with `<option>` markup, bounded to
+/// `MAX_RELATIONSHIP_OPTIONS`, values are typed PK strings, labels escaped.
+pub(crate) fn resource_options<R: Resource>(cx: &Cx, _body: Body) -> RouteFuture<'_> {
+    Box::pin(async move {
+        enforce_auth(cx)?;
+        enforce_tenant::<R>(cx)?;
+        let (field, q) = options_query(cx);
+        let field = field.trim();
+        if field.is_empty() {
+            return Err(topcoat::router::error::bad_request("missing field").into());
+        }
+        let q = clamp_query_term(&q);
+        let form = R::form(cx);
+        let selects = form.select_inputs();
+        let Some(select) = selects.get(field) else {
+            return Err(topcoat::router::error::bad_request("unknown field").into());
+        };
+        if !select.is_relationship() {
+            return Err(topcoat::router::error::bad_request("not a relationship select").into());
+        }
+        if !select.is_searchable() {
+            return Err(topcoat::router::error::bad_request("not searchable").into());
+        }
+        match select.search_options(cx, &q).await {
+            Ok(opts) => {
+                let mut html = String::with_capacity(opts.len() * 32);
+                for (v, lab) in opts {
+                    html.push_str(&format!(
+                        "<option value=\"{}\">{}</option>",
+                        escape_option(&v),
+                        escape_option(&lab)
+                    ));
+                }
+                let res = http::Response::builder()
+                    .status(200)
+                    .header(http::header::CONTENT_TYPE, "text/html; charset=utf-8")
+                    .body(Body::from(html))
+                    .map_err(|e| std::io::Error::other(e.to_string()))?;
+                Ok(res)
+            }
+            Err(OptionLoadError::Denied) => Err(forbidden().into()),
+            Err(OptionLoadError::LoadFailed) => Err(topcoat::Error::from(std::io::Error::other(
+                "option search failed",
+            ))),
+            Err(OptionLoadError::Overflow) => {
+                let html = "<option value=\"\" disabled>Too many results — keep typing</option>"
+                    .to_string();
+                let res = http::Response::builder()
+                    .status(200)
+                    .header(http::header::CONTENT_TYPE, "text/html; charset=utf-8")
+                    .body(Body::from(html))
+                    .map_err(|e| std::io::Error::other(e.to_string()))?;
+                Ok(res)
+            }
+        }
+    })
+}
+
+/// Parse `?field=` + `?q=` for the options endpoint (first-wins, like the
+/// table state parser).
+fn options_query(cx: &Cx) -> (String, String) {
+    let Some(parts) = topcoat::context::try_request_context::<http::request::Parts>(cx) else {
+        return (String::new(), String::new());
+    };
+    let query = parts.uri.query().unwrap_or("");
+    let mut field = String::new();
+    let mut q = String::new();
+    let mut seen_field = false;
+    let mut seen_q = false;
+    for (k, v) in form_urlencoded::parse(query.as_bytes()) {
+        if k == "field" && !seen_field {
+            field = v.into_owned();
+            seen_field = true;
+        } else if k == "q" && !seen_q {
+            q = v.into_owned();
+            seen_q = true;
+        }
+    }
+    (field, q)
+}
+
+/// Escape a value/label for `<option>` markup.
+fn escape_option(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&#39;"),
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::Panel;
+    use super::*;
+    use toasty::Db;
+
+    #[test]
+    fn parse_bulk_ids_dedupes_and_trims() {
+        assert!(parse_bulk_ids("", MAX_BULK_IDS).is_empty());
+        assert_eq!(
+            parse_bulk_ids("a, b ,a,, c", MAX_BULK_IDS),
+            vec!["a", "b", "c"]
+        );
+        // The cap bounds the parse too: stop at max + 1 for the handler's 400.
+        assert_eq!(parse_bulk_ids("a,b,c,d,e", 3).len(), 4);
+    }
+
+    #[tokio::test]
+    async fn bulk_delete_caps_ids_and_ignores_display_key() {
+        use crate::resource::Resource;
+        use std::collections::HashMap;
+
+        #[derive(Debug, toasty::Model)]
+        struct Dummy {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            name: String,
+        }
+        struct UpperKeyResource;
+        impl Resource for UpperKeyResource {
+            type Model = Dummy;
+            fn slug() -> String {
+                "dummies".to_string()
+            }
+            fn can_delete(_cx: &Cx, _record: &Dummy) -> bool {
+                true
+            }
+            fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
+                // Non-canonical display key (GH #85): bulk must still resolve
+                // via the typed PK fetch alone.
+                crate::resource::Table::r#for(cx)
+                    .id(|d: &Dummy| d.id.to_string().to_uppercase())
+                    .columns(crate::resource::TextColumn::r#for(
+                        Dummy::fields().name(),
+                        |d: &Dummy| d.name.clone(),
+                    ))
+            }
+            async fn bulk_delete_records(
+                _cx: &Cx,
+                _records: Vec<Dummy>,
+                _ex: &mut dyn toasty::Executor,
+            ) -> Result<()> {
+                Ok(())
+            }
+            fn hydrate_form_values(_record: &Dummy) -> HashMap<String, String> {
+                HashMap::new()
+            }
+        }
+
+        let mut db = Db::builder()
+            .models(toasty::models!(Dummy))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        let row = toasty::create!(Dummy {
+            name: "Ada".to_string(),
+        })
+        .exec(&mut db)
+        .await
+        .unwrap();
+        let router = Panel::new("admin")
+            .app_context(db)
+            .resource::<UpperKeyResource>()
+            .auth(crate::Auth::disabled())
+            .build();
+        // Canonical lowercase id succeeds despite uppercase Table::id.
+        let token = uuid::Uuid::new_v4().to_string();
+        let ok = router
+            .handle(
+                http::Request::builder()
+                    .uri("/admin/dummies/bulk-delete")
+                    .method(http::Method::POST)
+                    .header(
+                        http::header::CONTENT_TYPE,
+                        "application/x-www-form-urlencoded",
+                    )
+                    .header(
+                        http::header::COOKIE,
+                        format!("{}={token}", crate::csrf::COOKIE_NAME),
+                    )
+                    .body(Body::from(format!("ids={}&csrf_token={token}", row.id)))
+                    .unwrap(),
+            )
+            .await;
+        assert!(
+            ok.status().is_redirection(),
+            "PK-authenticated bulk must not 404 on display-key mismatch, got {}",
+            ok.status()
+        );
+        // Over-cap batch is a clear 400 before any DB work.
+        let big = (0..(MAX_BULK_IDS + 1))
+            .map(|i| format!("00000000-0000-0000-0000-{:012}", i))
+            .collect::<Vec<_>>()
+            .join(",");
+        let capped = router
+            .handle(
+                http::Request::builder()
+                    .uri("/admin/dummies/bulk-delete")
+                    .method(http::Method::POST)
+                    .header(
+                        http::header::CONTENT_TYPE,
+                        "application/x-www-form-urlencoded",
+                    )
+                    .header(
+                        http::header::COOKIE,
+                        format!("{}={token}", crate::csrf::COOKIE_NAME),
+                    )
+                    .body(Body::from(format!("ids={big}&csrf_token={token}")))
+                    .unwrap(),
+            )
+            .await;
+        assert_eq!(capped.status(), http::StatusCode::BAD_REQUEST);
+        // Missing token is 403 (GH #99).
+        let no_token = router
+            .handle(
+                http::Request::builder()
+                    .uri("/admin/dummies/bulk-delete")
+                    .method(http::Method::POST)
+                    .header(
+                        http::header::CONTENT_TYPE,
+                        "application/x-www-form-urlencoded",
+                    )
+                    .body(Body::from(format!("ids={}", row.id)))
+                    .unwrap(),
+            )
+            .await;
+        assert_eq!(no_token.status(), http::StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn bulk_delete_mid_loop_failure_deletes_zero_rows() {
+        // GH #84 acceptance: fetch, policy checks, and deletes share one
+        // framework transaction — an impl that fails halfway rolls everything
+        // back instead of half-applying.
+        use crate::resource::Resource;
+        use std::collections::HashMap;
+
+        #[derive(Debug, toasty::Model)]
+        struct Dummy {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            name: String,
+        }
+        struct FlakyBulkResource;
+        impl Resource for FlakyBulkResource {
+            type Model = Dummy;
+            fn slug() -> String {
+                "dummies".to_string()
+            }
+            fn can_delete(_cx: &Cx, _record: &Dummy) -> bool {
+                true
+            }
+            fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
+                crate::resource::Table::r#for(cx)
+                    .id(|d: &Dummy| d.id.to_string())
+                    .columns(crate::resource::TextColumn::r#for(
+                        Dummy::fields().name(),
+                        |d: &Dummy| d.name.clone(),
+                    ))
+            }
+            async fn bulk_delete_records(
+                _cx: &Cx,
+                records: Vec<Dummy>,
+                ex: &mut dyn toasty::Executor,
+            ) -> Result<()> {
+                // Delete the first row, then blow up: without the
+                // framework tx the first delete would stick.
+                let first = records.into_iter().next().unwrap();
+                Dummy::filter(Dummy::fields().id().eq(first.id))
+                    .delete()
+                    .exec(&mut *ex)
+                    .await
+                    .map_err(topcoat::Error::from)?;
+                Err(std::io::Error::other("boom").into())
+            }
+            fn hydrate_form_values(_record: &Dummy) -> HashMap<String, String> {
+                HashMap::new()
+            }
+        }
+
+        let mut db = Db::builder()
+            .models(toasty::models!(Dummy))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        for name in ["one", "two"] {
+            toasty::create!(Dummy {
+                name: name.to_string(),
+            })
+            .exec(&mut db)
+            .await
+            .unwrap();
+        }
+        let mut db_ids = db.clone();
+        let rows = Dummy::all().exec(&mut db_ids).await.unwrap();
+        assert_eq!(rows.len(), 2);
+        let ids = rows
+            .iter()
+            .map(|r| r.id.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+        let router = Panel::new("admin")
+            .app_context(db.clone())
+            .resource::<FlakyBulkResource>()
+            .auth(crate::Auth::disabled())
+            .build();
+        let token = uuid::Uuid::new_v4().to_string();
+        let resp = router
+            .handle(
+                http::Request::builder()
+                    .uri("/admin/dummies/bulk-delete")
+                    .method(http::Method::POST)
+                    .header(
+                        http::header::CONTENT_TYPE,
+                        "application/x-www-form-urlencoded",
+                    )
+                    .header(
+                        http::header::COOKIE,
+                        format!("{}={token}", crate::csrf::COOKIE_NAME),
+                    )
+                    .body(Body::from(format!("ids={ids}&csrf_token={token}")))
+                    .unwrap(),
+            )
+            .await;
+        assert!(
+            resp.status().is_server_error(),
+            "mid-loop failure must error, got {}",
+            resp.status()
+        );
+        let rows = Dummy::all().exec(&mut db_ids).await.unwrap();
+        assert_eq!(
+            rows.len(),
+            2,
+            "rollback must leave zero rows deleted, got {}",
+            2 - rows.len()
+        );
+    }
+
+    #[tokio::test]
+    async fn export_drops_rows_failing_can_view() {
+        use crate::resource::Resource;
+        use http_body_util::BodyExt;
+        use std::collections::HashMap;
+
+        #[derive(Debug, toasty::Model)]
+        struct Dummy {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            name: String,
+        }
+        struct RowPolicyResource;
+        impl Resource for RowPolicyResource {
+            type Model = Dummy;
+            fn slug() -> String {
+                "dummies".to_string()
+            }
+            fn can_view_any(_cx: &Cx) -> bool {
+                true
+            }
+            fn can_view(_cx: &Cx, record: &Dummy) -> bool {
+                record.name != "denied"
+            }
+            fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
+                crate::resource::Table::r#for(cx)
+                    .id(|d: &Dummy| d.id.to_string())
+                    .columns(crate::resource::TextColumn::r#for(
+                        Dummy::fields().name(),
+                        |d: &Dummy| d.name.clone(),
+                    ))
+            }
+            fn hydrate_form_values(_record: &Dummy) -> HashMap<String, String> {
+                HashMap::new()
+            }
+        }
+
+        let mut db = Db::builder()
+            .models(toasty::models!(Dummy))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        for name in ["allowed", "denied"] {
+            toasty::create!(Dummy {
+                name: name.to_string(),
+            })
+            .exec(&mut db)
+            .await
+            .unwrap();
+        }
+        let router = Panel::new("admin")
+            .app_context(db)
+            .resource::<RowPolicyResource>()
+            .auth(crate::Auth::disabled())
+            .build();
+        let resp = router
+            .handle(
+                http::Request::builder()
+                    .uri("/admin/dummies/export")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await;
+        assert!(resp.status().is_success());
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let csv = String::from_utf8_lossy(&body);
+        assert!(
+            csv.contains("allowed"),
+            "export must keep viewable rows, got {csv}"
+        );
+        assert!(
+            !csv.contains("denied"),
+            "export must not exceed row visibility (GH #86), got {csv}"
+        );
+    }
+
+    #[test]
+    fn export_bom_flag_reads_bom_query_param() {
+        use topcoat::context::CxTestBuilder;
+
+        fn cx_for(uri: &str) -> Cx {
+            let (parts, ()) = http::Request::builder()
+                .uri(uri)
+                .body(())
+                .unwrap()
+                .into_parts();
+            CxTestBuilder::new().request_context(parts).build()
+        }
+
+        assert!(export_wants_bom(&cx_for("/admin/users/export?bom=1")));
+        assert!(!export_wants_bom(&cx_for("/admin/users/export")));
+        assert!(!export_wants_bom(&cx_for("/admin/users/export?bom=0")));
+        assert!(!export_wants_bom(&cx_for("/admin/users/export?BOM=1")));
+    }
+
+    #[test]
+    fn export_cap_maps_one_row_past_the_limit_to_413() {
+        // GH #94: the cap branch must produce a content-too-large error, not
+        // just a constant that happens to equal 10_000. Exercised at the
+        // boundary.
+        let under_cap = enforce_export_cap(vec![0u8; MAX_EXPORT_ROWS]).unwrap();
+        assert_eq!(under_cap.len(), MAX_EXPORT_ROWS);
+        let err = enforce_export_cap(vec![0u8; MAX_EXPORT_ROWS + 1]).unwrap_err();
+        assert!(
+            err.downcast_ref::<topcoat::router::error::ContentTooLargeError>()
+                .is_some(),
+            "cap must map to content-too-large (413), got {err}"
+        );
+    }
+
+    #[test]
+    fn export_cap_counts_only_viewable_rows() {
+        // GH #145 (with GH #86): visibility is applied before the cap, so a
+        // table with many invisible rows exports its visible rows instead of
+        // 413ing — the 413 also no longer leaks the invisible-row count.
+        let all_denied = filter_then_cap(vec![0u8; MAX_EXPORT_ROWS + 1], |_| false).unwrap();
+        assert!(
+            all_denied.is_empty(),
+            "an all-denied export returns 200 with zero rows, never 413"
+        );
+
+        // MAX visible rows plus one denied row fits under the cap.
+        let mut rows = vec![1u8; MAX_EXPORT_ROWS];
+        rows.push(2u8);
+        let capped = filter_then_cap(rows, |r| *r == 1).unwrap();
+        assert_eq!(capped.len(), MAX_EXPORT_ROWS);
+
+        // Mixed interleave (bounded over-fetch, GH #145): a full MAX+1
+        // window with denied rows inside it exports only the visible ones —
+        // visibly fewer than the caller could receive — without 413. This is
+        // the issue's accepted alternative ("or document over-fetch"); no
+        // truncation signal is emitted because a window-full marker would
+        // leak the pre-visibility row count ("no count leak").
+        let mixed: Vec<usize> = (0..MAX_EXPORT_ROWS + 1)
+            .map(|i| if i % 2 == 0 { i } else { usize::MAX })
+            .collect();
+        let visible = filter_then_cap(mixed, |r| *r != usize::MAX).unwrap();
+        assert_eq!(
+            visible.len(),
+            (MAX_EXPORT_ROWS + 1).div_ceil(2),
+            "mixed window exports its visible rows silently"
+        );
+
+        // More visible rows than the cap still 413.
+        let err = filter_then_cap(vec![0u8; MAX_EXPORT_ROWS + 1], |_| true).unwrap_err();
+        assert!(
+            err.downcast_ref::<topcoat::router::error::ContentTooLargeError>()
+                .is_some(),
+            "cap must map to content-too-large (413), got {err}"
+        );
+    }
+
+    #[test]
+    fn export_filename_cannot_split_the_disposition_header() {
+        // GH #145: `slug()` is an overridable free-form String, so quote and
+        // control characters must never reach the Content-Disposition header.
+        assert_eq!(export_filename("users"), "users.csv");
+        for hostile in [
+            "a\"b\r\nContent-Length: 0",
+            "a\\\"b",
+            "\nadmin",
+            "bad\u{0}name",
+        ] {
+            let filename = export_filename(hostile);
+            assert!(
+                !filename.contains('"')
+                    && !filename.contains('\\')
+                    && !filename.contains('\r')
+                    && !filename.contains('\n')
+                    && !filename.chars().any(char::is_control),
+                "hostile slug {hostile:?} must be defused, got {filename:?}"
+            );
+            assert!(filename.ends_with(".csv"), "suffix kept: {filename:?}");
+        }
+        // A slug that defuses to nothing falls back to a usable filename.
+        assert_eq!(export_filename(""), "export.csv");
+        assert_eq!(export_filename("\""), "export.csv");
+        // Bounded header value.
+        let long = "x".repeat(500);
+        assert_eq!(export_filename(&long).len(), 100 + ".csv".len());
+    }
+
+    #[tokio::test]
+    async fn find_by_key_loads_one_row_scoped_and_404s_malformed() {
+        use topcoat::context::CxTestBuilder;
+
+        #[derive(Debug, toasty::Model)]
+        struct Subscriber {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            #[unique]
+            email: String,
+        }
+        struct SubscriberResource;
+        impl Resource for SubscriberResource {
+            type Model = Subscriber;
+        }
+
+        let mut db = Db::builder()
+            .models(toasty::models!(Subscriber))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        let a = toasty::create!(Subscriber { email: "a@b.c" })
+            .exec(&mut db)
+            .await
+            .unwrap();
+        toasty::create!(Subscriber { email: "z@b.c" })
+            .exec(&mut db)
+            .await
+            .unwrap();
+        let cx = CxTestBuilder::new().app_context(db).build();
+        let mut ex = crate::db::db(&cx);
+
+        // Existing id → exactly that row (typed PK filter, not a full scan).
+        let got = find_by_key::<SubscriberResource>(&cx, &a.id.to_string(), &mut ex)
+            .await
+            .unwrap();
+        assert_eq!(got.id, a.id);
+
+        // Well-formed but unknown id → 404.
+        let missing = uuid::Uuid::new_v4().to_string();
+        assert!(
+            find_by_key::<SubscriberResource>(&cx, &missing, &mut ex)
+                .await
+                .is_err(),
+            "unknown id must not resolve"
+        );
+
+        // Malformed id (not a Uuid) → 404, not a query error.
+        assert!(
+            find_by_key::<SubscriberResource>(&cx, "not-a-uuid", &mut ex)
+                .await
+                .is_err(),
+            "malformed id must not resolve"
+        );
+    }
+
+    #[tokio::test]
+    async fn composite_pk_edit_fails_loudly_not_404() {
+        // GH #95: a composite-PK resource is a programming error the URL
+        // scheme cannot serve — 500 with a message, never per-id 404s.
+        use crate::resource::Resource;
+        use std::collections::HashMap;
+
+        #[derive(Debug, Clone, toasty::Model)]
+        struct Pair {
+            #[key]
+            a: String,
+            #[key]
+            b: String,
+            name: String,
+        }
+        struct PairResource;
+        impl Resource for PairResource {
+            type Model = Pair;
+            fn slug() -> String {
+                "pairs".to_string()
+            }
+            fn can_view_any(_cx: &Cx) -> bool {
+                true
+            }
+            fn can_view(_cx: &Cx, _record: &Pair) -> bool {
+                true
+            }
+            fn can_update(_cx: &Cx, _record: &Pair) -> bool {
+                true
+            }
+            fn table(cx: &Cx) -> crate::resource::Table<Pair> {
+                crate::resource::Table::r#for(cx)
+                    .id(|p: &Pair| format!("{}-{}", p.a, p.b))
+                    .columns(crate::resource::TextColumn::r#for(
+                        Pair::fields().name(),
+                        |p: &Pair| p.name.clone(),
+                    ))
+            }
+            fn hydrate_form_values(_record: &Pair) -> HashMap<String, String> {
+                HashMap::new()
+            }
+        }
+
+        let db = Db::builder()
+            .models(toasty::models!(Pair))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        let router = Panel::new("admin")
+            .app_context(db)
+            .resource::<PairResource>()
+            .auth(crate::Auth::disabled())
+            .build();
+        let resp = router
+            .handle(
+                http::Request::builder()
+                    .uri("/admin/pairs/whatever/edit")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await;
+        assert_eq!(
+            resp.status(),
+            http::StatusCode::INTERNAL_SERVER_ERROR,
+            "composite PK must fail loudly, got {}",
+            resp.status()
+        );
+    }
+
+    #[tokio::test]
+    async fn options_endpoint_searches_and_gates() {
+        // GH #150: `GET {parent}/options?field=&q=` narrows server-side,
+        // allow-lists to searchable relationship selects, and mirrors gates.
+        use crate::resource::Resource;
+        use http_body_util::BodyExt;
+
+        #[derive(Debug, toasty::Model)]
+        struct OptAuthor {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            name: String,
+        }
+        struct OptAuthorResource;
+        impl Resource for OptAuthorResource {
+            type Model = OptAuthor;
+            fn slug() -> String {
+                "opt-authors".to_string()
+            }
+            fn can_view_any(_cx: &Cx) -> bool {
+                true
+            }
+            fn can_view(_cx: &Cx, _record: &OptAuthor) -> bool {
+                true
+            }
+            fn table(cx: &Cx) -> crate::resource::Table<OptAuthor> {
+                crate::resource::Table::r#for(cx)
+                    .id(|a: &OptAuthor| a.id.to_string())
+                    .columns(
+                        crate::resource::TextColumn::r#for(
+                            OptAuthor::fields().name(),
+                            |a: &OptAuthor| a.name.clone(),
+                        )
+                        .searchable(),
+                    )
+            }
+        }
+
+        #[derive(Debug, toasty::Model)]
+        struct OptPost {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            author_id: uuid::Uuid,
+            title: String,
+        }
+        struct OptPostResource;
+        impl Resource for OptPostResource {
+            type Model = OptPost;
+            fn slug() -> String {
+                "opt-posts".to_string()
+            }
+            fn can_view_any(_cx: &Cx) -> bool {
+                true
+            }
+            fn can_view(_cx: &Cx, _record: &OptPost) -> bool {
+                true
+            }
+            fn table(cx: &Cx) -> crate::resource::Table<OptPost> {
+                crate::resource::Table::r#for(cx)
+                    .id(|p: &OptPost| p.id.to_string())
+                    .columns(crate::resource::TextColumn::r#for(
+                        OptPost::fields().title(),
+                        |p: &OptPost| p.title.clone(),
+                    ))
+            }
+            fn form(_cx: &Cx) -> crate::schema::Schema {
+                crate::schema::Schema::new(
+                    crate::schema::Select::r#for(OptPost::fields().author_id())
+                        .relationship::<OptAuthorResource>(
+                            OptAuthorResource::query,
+                            |a: &OptAuthor| a.id,
+                            |a: &OptAuthor| a.name.clone(),
+                        )
+                        .searchable(),
+                )
+            }
+        }
+
+        async fn body_text(resp: http::Response<Body>) -> String {
+            let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+            String::from_utf8_lossy(&bytes).to_string()
+        }
+
+        let mut db = Db::builder()
+            .models(toasty::models!(OptAuthor, OptPost))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        for name in ["Ada", "Grace", "Alan"] {
+            toasty::create!(OptAuthor {
+                name: name.to_string(),
+            })
+            .exec(&mut db)
+            .await
+            .unwrap();
+        }
+        let router = Panel::new("admin")
+            .app_context(db)
+            .resource::<OptPostResource>()
+            .resource::<OptAuthorResource>()
+            .auth(crate::Auth::disabled())
+            .build();
+
+        // Narrowing works.
+        let resp = router
+            .handle(
+                http::Request::builder()
+                    .uri("/admin/opt-posts/options?field=author_id&q=Ada")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await;
+        assert_eq!(resp.status(), http::StatusCode::OK);
+        let html = body_text(resp).await;
+        assert!(html.contains("Ada"), "search must return Ada, got {html}");
+        assert!(!html.contains("Grace"), "search must narrow, got {html}");
+
+        // Unknown field → 400.
+        let resp = router
+            .handle(
+                http::Request::builder()
+                    .uri("/admin/opt-posts/options?field=nope&q=Ada")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await;
+        assert_eq!(resp.status(), http::StatusCode::BAD_REQUEST);
+
+        // Missing field → 400.
+        let resp = router
+            .handle(
+                http::Request::builder()
+                    .uri("/admin/opt-posts/options?q=Ada")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await;
+        assert_eq!(resp.status(), http::StatusCode::BAD_REQUEST);
+
+        // Labels escape (no raw HTML passthrough).
+        assert!(!html.contains("<script"), "options must escape, got {html}");
+    }
+
+    #[tokio::test]
+    async fn options_endpoint_rejects_non_searchable_and_overflows() {
+        // GH #150 D5/D6: non-searchable selects never serve search (400);
+        // filtered overflow answers 200 with the keep-typing hint.
+        use crate::resource::Resource;
+        use http_body_util::BodyExt;
+
+        #[derive(Debug, toasty::Model)]
+        struct BigA {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            name: String,
+        }
+        struct BigAResource;
+        impl Resource for BigAResource {
+            type Model = BigA;
+            fn slug() -> String {
+                "big-as".to_string()
+            }
+            fn can_view_any(_cx: &Cx) -> bool {
+                true
+            }
+            fn can_view(_cx: &Cx, _record: &BigA) -> bool {
+                true
+            }
+            fn table(cx: &Cx) -> crate::resource::Table<BigA> {
+                crate::resource::Table::r#for(cx)
+                    .id(|a: &BigA| a.id.to_string())
+                    .columns(
+                        crate::resource::TextColumn::r#for(BigA::fields().name(), |a: &BigA| {
+                            a.name.clone()
+                        })
+                        .searchable(),
+                    )
+            }
+        }
+
+        #[derive(Debug, toasty::Model)]
+        struct BigP {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            author_id: uuid::Uuid,
+        }
+        struct SearchableParent;
+        impl Resource for SearchableParent {
+            type Model = BigP;
+            fn slug() -> String {
+                "big-ps".to_string()
+            }
+            fn form(_cx: &Cx) -> crate::schema::Schema {
+                crate::schema::Schema::new(
+                    crate::schema::Select::r#for(BigP::fields().author_id())
+                        .relationship::<BigAResource>(
+                            BigAResource::query,
+                            |a: &BigA| a.id,
+                            |a: &BigA| a.name.clone(),
+                        )
+                        .searchable(),
+                )
+            }
+        }
+        struct PlainParent;
+        impl Resource for PlainParent {
+            type Model = BigP;
+            fn slug() -> String {
+                "plain-ps".to_string()
+            }
+            fn form(_cx: &Cx) -> crate::schema::Schema {
+                crate::schema::Schema::new(
+                    crate::schema::Select::r#for(BigP::fields().author_id())
+                        .relationship::<BigAResource>(
+                            BigAResource::query,
+                            |a: &BigA| a.id,
+                            |a: &BigA| a.name.clone(),
+                        ),
+                )
+            }
+        }
+
+        let mut db = Db::builder()
+            .models(toasty::models!(BigA, BigP))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        for i in 0..=crate::schema::MAX_RELATIONSHIP_OPTIONS {
+            toasty::create!(BigA {
+                name: format!("author-{i}"),
+            })
+            .exec(&mut db)
+            .await
+            .unwrap();
+        }
+        let router = Panel::new("admin")
+            .app_context(db)
+            .resource::<SearchableParent>()
+            .resource::<PlainParent>()
+            .auth(crate::Auth::disabled())
+            .build();
+
+        // Non-searchable → 400 (keeps today's cap error path, never search).
+        let resp = router
+            .handle(
+                http::Request::builder()
+                    .uri("/admin/plain-ps/options?field=author_id&q=author-1")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await;
+        assert_eq!(resp.status(), http::StatusCode::BAD_REQUEST);
+
+        // Empty q on over-cap searchable → 200 with keep-typing hint.
+        let resp = router
+            .handle(
+                http::Request::builder()
+                    .uri("/admin/big-ps/options?field=author_id&q=")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await;
+        assert_eq!(resp.status(), http::StatusCode::OK);
+        let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+        let html = String::from_utf8_lossy(&bytes).to_string();
+        assert!(
+            html.contains("keep typing"),
+            "filtered overflow must hint, got {html}"
+        );
+    }
+
+    #[test]
+    fn options_query_parses_first_wins_and_escapes() {
+        assert_eq!(escape_option("a&b<c>\"'"), "a&amp;b&lt;c&gt;&quot;&#39;");
+        assert_eq!(
+            escape_option("550e8400-e29b-41d4-a716-446655440000"),
+            "550e8400-e29b-41d4-a716-446655440000"
+        );
+    }
+}

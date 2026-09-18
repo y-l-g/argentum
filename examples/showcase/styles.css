@@ -23,6 +23,10 @@
   --font-sans: "Geist", sans-serif;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
   --color-muted: var(--muted);
   --color-muted-foreground: var(--muted-foreground);
   --color-primary: var(--primary);
@@ -45,8 +49,12 @@
 
 :root {
   color-scheme: light;
-  --background: oklch(0.995 0.003 260);
+  --background: oklch(0.9875 0.003 260);
   --foreground: oklch(0.24 0.012 260);
+  --card: oklch(0.995 0.003 260);
+  --card-foreground: oklch(0.24 0.012 260);
+  --popover: oklch(0.995 0.003 260);
+  --popover-foreground: oklch(0.24 0.012 260);
   --muted: oklch(0.96 0.005 260);
   --muted-foreground: oklch(0.51 0.014 260);
   --primary: oklch(0.31 0.02 260);
@@ -59,13 +67,13 @@
   --shadow-sm:
     0 1px 2px oklch(0.24 0.02 260 / 10%),
     0 2px 8px -2px oklch(0.24 0.02 260 / 9%);
-  /* Sidebar tokens per ADR-0009 — shadcn parity. */
-  --sidebar: var(--background);
-  --sidebar-foreground: var(--foreground);
+  /* Sidebar tokens per ADR-0009 — the upstream sidebar's own palette. */
+  --sidebar: oklch(0.995 0.003 260);
+  --sidebar-foreground: oklch(0.24 0.012 260);
   --sidebar-primary: var(--primary);
   --sidebar-primary-foreground: var(--primary-foreground);
-  --sidebar-accent: var(--muted);
-  --sidebar-accent-foreground: var(--foreground);
+  --sidebar-accent: color-mix(in oklab, var(--sidebar-foreground) 10%, var(--sidebar));
+  --sidebar-accent-foreground: oklch(0.24 0.012 260);
   --sidebar-border: var(--border);
   --sidebar-ring: var(--ring);
 }
@@ -74,6 +82,10 @@
   color-scheme: dark;
   --background: oklch(0.17 0.012 260);
   --foreground: oklch(0.93 0.006 260);
+  --card: oklch(0.22 0.012 260);
+  --card-foreground: oklch(0.93 0.006 260);
+  --popover: oklch(0.22 0.012 260);
+  --popover-foreground: oklch(0.93 0.006 260);
   --muted: oklch(0.22 0.01 260);
   --muted-foreground: oklch(0.68 0.012 260);
   --primary: oklch(0.92 0.008 260);
@@ -85,13 +97,13 @@
   /* Light-mode shadows disappear on a dark background, so these are deeper. */
   --shadow-xs: 0 1px 2px oklch(0 0 0 / 35%);
   --shadow-sm: 0 1px 2px oklch(0 0 0 / 35%), 0 2px 8px -2px oklch(0 0 0 / 30%);
-  /* Sidebar tokens — dark variants mirror light via muted. */
-  --sidebar: var(--background);
-  --sidebar-foreground: var(--foreground);
+  /* Sidebar tokens — the dark variants of the upstream sidebar palette. */
+  --sidebar: oklch(0.22 0.012 260);
+  --sidebar-foreground: oklch(0.93 0.006 260);
   --sidebar-primary: var(--primary);
   --sidebar-primary-foreground: var(--primary-foreground);
-  --sidebar-accent: var(--muted);
-  --sidebar-accent-foreground: var(--foreground);
+  --sidebar-accent: color-mix(in oklab, var(--sidebar-foreground) 10%, var(--sidebar));
+  --sidebar-accent-foreground: oklch(0.93 0.006 260);
   --sidebar-border: var(--border);
   --sidebar-ring: var(--ring);
 }

@@ -1,6 +1,7 @@
-// SYNC: topcoat-ui-registry@0.8.1 sha256:b1c4415dd58a3bd9374a52f4da4b75e62540dc5a506ed985f09785c72868a27c — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
+// SYNC: topcoat-ui-registry@0.8.1 sha256:7286fc577fb10cca6420654f7bea067988e0992137eea5573cabdeb89f0e6f15 — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
 use topcoat::{
     Result,
+    runtime::Expr,
     view::{Attributes, Child, StaticClass, View, class, component, view},
 };
 
@@ -35,9 +36,8 @@ const FADE: StaticClass = class!(
 /// It is a [`dialog`](super::dialog::dialog) laid against a side rather than
 /// centered, for the things a dialog is too small for: filters, a form, a
 /// detail view of the row being read. Everything else is the dialog's: its
-/// open state is the `open` parameter, so a link or a form that changes the
-/// state behind it is what opens and closes the sheet, and dismissing it in
-/// the browser alone needs scripting.
+/// open state is the `open` parameter, which accepts a boolean for a fixed
+/// state or a runtime expression to open and close it in the browser.
 ///
 /// Child nodes are the sheet's content, normally a single [`sheet_content`]
 /// panel, whose `side` decides which edge it lies against. Build the inside
@@ -63,7 +63,8 @@ const FADE: StaticClass = class!(
 #[component]
 pub async fn sheet(
     /// Whether the sheet shows.
-    open: bool,
+    #[into]
+    open: Expr<bool>,
     /// Extra attributes for the `<dialog>` element.
     #[default]
     mut attrs: Attributes,
@@ -73,7 +74,7 @@ pub async fn sheet(
 ) -> Result<impl View> {
     Ok(view! {
         <dialog
-            open=(open)
+            :open=(open)
             class=(class!(OVERLAY, FADE, attrs.remove("class")))
             (attrs)
         >
@@ -153,8 +154,8 @@ impl SheetSide {
 /// scrolls within itself once there is more in it than the edge it lies
 /// against is long.
 const CONTENT: StaticClass = class!(
-    "flex flex-col gap-4 overflow-y-auto border-border bg-background p-6 \
-     text-foreground shadow-sm [transition:translate_200ms_ease-out]",
+    "flex flex-col gap-4 overflow-y-auto border-border bg-card p-6 \
+     text-card-foreground shadow-sm [transition:translate_200ms_ease-out]",
 );
 
 /// The panel of a [`sheet`], holding its sections.

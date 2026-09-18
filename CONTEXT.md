@@ -1,8 +1,8 @@
 # Argentum
 
-Admin toolkit for Rust — server-rendered on Topcoat, persisted with Toasty. Provides the CRUD core of Filament (Panel + Resource → Table + Schema, deletes via Resource record fns) with no Livewire port, explicit preloading and cursor pagination, and a narrow reactivity seam: streamed `suspense` regions ship the list shell first and swap the loaded grid in, while reruns morph in place (focus survives) and tables opting into `Table::live_search` re-render their grid keystroke-live through the slug-dispatched `table_search` shard (ticket #104).
+Admin toolkit for Rust — server-rendered on Topcoat, persisted with Toasty. Provides the CRUD core of Filament (Panel + Resource → Table + Schema, deletes via Resource record fns) with no Livewire port, explicit preloading and cursor pagination, and a narrow reactivity seam: streamed `suspense` regions ship the list shell first and swap the loaded grid in, while reruns morph in place (focus survives) and tables opting into `Table::live_search` re-render their grid in place through the slug-dispatched `table_search` shard: search, sort, filters, and pagination write signals, and the grid morphs without a navigation (ticket #104, GH #151).
 
-> **Shipped vs spec:** every term below is vocabulary-level truth. As of Phase 2 (Relations & polish, spec #63, tickets #64–#71, ADR-0011/0012), post-Phase-2 polish (multipart `FileUpload`, single-entry `Repeater`, `VariantFilter`, honest bulk/filter chrome, in-region `ErrorState`), and authentication (spec #127, tickets #128–#132, ADR-0013) — **Panel** (with opt-in `Brand` + `DarkMode`, `Router`/`Db`/`Shell` + `Resource` routes, default-on auth gate), **Resource** (`query` tenancy seam + `include` + `TextColumn::computed`/`Select::relationship`), **Table** (`data-boundary` wrapper + streamed `suspense` grid, `searchable`/`sortable`, cursor pagination, `SelectFilter`/`TernaryFilter`/`DateFilter`/`VariantFilter` + `?filters=`, `group_by`/`count` + `to_csv` export, checkbox bulk column), **Schema** (`Section`/`Group`/`Grid`/`Tabs`/`Wizard` + `TextInput`/`Select`/`FileUpload`/`Repeater` + `required`/`email`/`unique` + `relationship`), **deletes** (per-row + bulk via `Resource` record fns, policy-checked), **Policy** (`can_*`, default-deny), **Notification**, **Navigation**, **Query**, **Tenancy** (`Tenant` via `Cx::with` + `tenant_id(cx)`, fed by the logged-in user), **Authentication** (shipped `AdminUser`/`AuthSession`, `PasswordAuth`, `Authenticator` override, `CurrentUser`), **Filter**, **Field** ship in `argentum-core` with showcase at `/admin/users` + `/admin/authors` + `/admin/posts` (search/sort/paginate/create/edit/delete/bulk-delete, filters/grouping/export, all policy-checked, notification, tenancy, signed-in shell, `benchmarks/` Phase-2 budget 50 rows 2 includes `<40ms p50`). **custom Panel pages, Theme/Token beyond brand/dark_mode, ChartWidget/StatsOverview, via many-to-many, GROUP BY aggregates** remain future work (tracking issue #38 is closed; see README §10).
+> **Shipped vs spec:** every term below is vocabulary-level truth. As of Phase 2 (Relations & polish, spec #63, tickets #64–#71, ADR-0011/0012), post-Phase-2 polish (multipart `FileUpload`, single-entry `Repeater`, `VariantFilter`, honest bulk/filter chrome, in-region `ErrorState`), and authentication (spec #127, tickets #128–#132, ADR-0013) — **Panel** (with opt-in `Brand` + `DarkMode`, `Router`/`Db`/`Shell` + `Resource` routes, default-on auth gate), **Resource** (`query` tenancy seam + `include` + `TextColumn::computed`/`Select::relationship`), **Table** (`data-boundary` wrapper + streamed `suspense` grid, `searchable`/`sortable`, cursor pagination, `SelectFilter`/`TernaryFilter`/`DateFilter`/`VariantFilter` + `?filters=`, `group_by`/`count` + `to_csv` export, checkbox bulk column, live in-place search/sort/filters/pagination via `Table::live_search` + shard signals, GH #151), **Schema** (`Section`/`Group`/`Grid`/`Tabs`/`Wizard` + `TextInput`/`Select`/`FileUpload`/`Repeater` + `required`/`email`/`unique` + `relationship`), **deletes** (per-row + bulk via `Resource` record fns, policy-checked), **Policy** (`can_*`, default-deny), **Notification**, **Navigation**, **Query**, **Tenancy** (`Tenant` via `Cx::with` + `tenant_id(cx)`, fed by the logged-in user), **Authentication** (shipped `AdminUser`/`AuthSession`, `PasswordAuth`, `Authenticator` override, `CurrentUser`), **Filter**, **Field** ship in `argentum-core` with showcase at `/admin/users` + `/admin/authors` + `/admin/posts` (search/sort/paginate/create/edit/delete/bulk-delete, filters/grouping/export, all policy-checked, notification, tenancy, signed-in shell, `benchmarks/` Phase-2 budget 50 rows 2 includes `<40ms p50`). **custom Panel pages, Theme/Token beyond brand/dark_mode, ChartWidget/StatsOverview, via many-to-many, GROUP BY aggregates** remain future work (tracking issue #38 is closed; see README §10).
 
 ## Language
 
@@ -10,6 +10,8 @@ Admin toolkit for Rust — server-rendered on Topcoat, persisted with Toasty. Pr
 The admin application. Owns the Router, the Db in app_context, the layout Shell, its declared Resources, and the default-on authentication gate (ADR-0013). Declaring a Panel with Resources yields resource routes and navigation; an app's layout delegates to `Panel::layout_shell` for the Shell with no manual document HTML.
 
 _Avoid_: Admin, Dashboard, App, Site
+
+_Documented exceptions_: shipped `AdminUser` model retains the `Admin` prefix (auth seam, ADR-0013); the `/admin` mount default is generic English for the URL prefix, not Panel vocabulary.
 
 ### Authenticator
 The one authentication seam (ADR-0013). An object-safe trait resolving credentials into the erased `CurrentUser` and a live session back to it; `PasswordAuth` is the shipped default over `AdminUser`, `Panel::auth(Auth::custom(..))` swaps in an app implementation over its own user table, and `Auth::disabled()` is the explicit, greppable opt-out. Sessions stay framework-owned (`AuthSession`) whichever implementation is in use.
@@ -38,6 +40,8 @@ _Avoid_: Form, Infolist, Fieldset (as top-level term), statePath
 
 ### Table
 The declarative description of a list view. Declares columns, filters, search, sort, pagination, and row/bulk actions. It also declares how to query — searchable and filterable columns produce Toasty predicates, sortable columns map to order_by. Owns the row loop: row identity is mandatory and typed, declared once via the table's row-key closure (`Table::id(|u| u.id.to_string())`) until Toasty exposes instance→PK extraction, and render errors without it — never a loop index.
+
+A `live_search(true)` table hands its chrome to the page's `TableSignals`: the shard's tracked reads re-render the grid in place when search, sort, filters, or pagination write a signal (GH #151). Grouping rides the same signal set, seeded from the page-load `?group_by=` and changed via navigation until a live control ships (GH #157). A page can own the same seam directly — create the `TableSignals`, render the live toolbar, and let its own shard load through `Table::load` and re-render with `Table::render_live_with_state` — which is how the showcase table demos stay live without being resources (GH #154 §2).
 
 _Avoid_: Grid, Listing, DataTable
 
@@ -72,19 +76,19 @@ A predicate contributed to a Table's query. A typed wrapper around a Toasty Expr
 _Avoid_: Scope, Constraint, Where
 
 ### Field
-A typed input bound to a Model lens inside a Schema. Bound via its field lens and column name; `required` defaults from Toasty column nullability (GH #100, GH #147 — `TextInput`, `Select`, `FileUpload` alike, opt out with `.optional()`), while uniqueness metadata is future work (upstream gap #115; non-`TextInput` uniqueness is not declared). Hydrates from the Model into Create/Update projections. A `Repeater` group whose inner values are all empty is "absent": its inner `required` inputs do not fire, and a `required` group yields one label-keyed error (GH #147).
+A typed input bound to a Model lens inside a Schema. Bound via its field lens and column name; `required` defaults from Toasty column nullability (GH #100, GH #147 — `TextInput`, `Select`, `FileUpload` alike, opt out with `.optional()`), while uniqueness metadata is future work (upstream gap #115; non-`TextInput` uniqueness is not declared). Hydrates from the Model into Create/Update projections. Renders through the upstream `field` family (topcoat#420): `field` + `field_label` follow the invalid/disabled state, `aria-invalid` drives the control's destructive border/ring, the `ac-error` slot carries `role="alert"`, and a `Repeater` renders as `field_set` + `field_legend`. A `Repeater` group whose inner values are all empty is "absent": its inner `required` inputs do not fire, and a `required` group yields one label-keyed error (GH #147).
 
 _Avoid_: Input, Control, Widget (in form context), statePath
 
 ### Streamed region
-A `suspense` region of the page whose content swaps in after the first render. The resource list streams its grid: skeleton first (`Table::render_skeleton`), loaded rows swap in without a client library. Later reruns (page/shard) morph in place per Topcoat #392 — focus, scroll, and typing survive; reorderable rows need stable `id`s (ticket #104 covers the keystroke-live shard via `Signal<T>` params, #393). `Table::boundary(true)`/`defer(true)` remain as the eager-render demo hooks.
+A `suspense` region of the page whose content swaps in after the first render. The resource list streams its grid: skeleton first (`Table::render_skeleton`), loaded rows swap in without a client library. Later reruns (page/shard) morph in place per Topcoat #392 — focus, scroll, and typing survive; reorderable rows need stable `id`s (ticket #104 and GH #151 cover the live shard: `Signal<T>` params, #393, written by search/sort/filters/pagination). `Table::boundary(true)`/`defer(true)` remain as the eager-render demo hooks.
 
 _Avoid_: Shard (as domain term), Region, Island, Boundary (pre-#373 topcoat component, removed upstream)
 
 ### Notification
-A transient user-visible message (status + title, auto-dismissed after ~4s by `notifications.js` with manual dismiss) produced by a record operation's result, rendered in a shell-level stack owned by the Panel layout so it survives table swaps.
+A transient user-visible message (status + title + optional description, rendered as a shadcn/Sonner toast, auto-dismissed after ~4s by `notifications.js` with a close button) produced by a record operation's result, rendered in a shell-level stack owned by the Panel layout so it survives table swaps. A page can also mount one in place — `notification::live_toast` signals plus the shell's `live_toaster` shard — so a procedure's result becomes a toast without a navigation (GH #154 §3).
 
-_Avoid_: Toast, Flash, Alert (as domain term)
+_Avoid_: Toast (as domain term; the shadcn UI surface is a toast), Flash, Alert
 
 ### EmptyState
 The Table's zero-rows rendering (icon + title + optional action), shown for "no records" and "no search results".
@@ -102,7 +106,7 @@ The top-level layout that frames every admin page. Owns the Sidebar, topbar, and
 _Avoid_: Layout, Wrapper, Chrome
 
 ### Sidebar
-The persistent navigation region inside the Shell. Composes header, content, footer, groups and menus, collapsing to an icon rail or sheet drawer on small viewports.
+The persistent navigation region inside the Shell. The upstream Topcoat `sidebar` primitive (synced into `argentum-ui`, topcoat#419): header, content, footer, groups and menus, collapsing to offcanvas on desktop and to its own sheet drawer below `md`. Its open state is runtime signals — `Panel::render_shell` seeds `open` from the `sidebar_state` cookie, the trigger pair carries `@click` handlers, and `assets/sidebar.js` mirrors changes back to the cookie.
 
 _Avoid_: Nav, Menu, Drawer
 
@@ -127,6 +131,6 @@ A re-exported Topcoat UI component (button, card, badge, table, input...) vendor
 _Avoid_: Component (when meaning synced primitive), Widget
 
 ### Component
-An owned Topcoat `#[component]` in `argentum-ui/src/components/composites/` (Sidebar, Page, CodeBlock) that composes Primitives and Tokens. Hand-written, never overwritten by sync.
+An owned Topcoat `#[component]` in `argentum-ui/src/components/composites/` (Page, CodeBlock, ErrorState, Theme, Toast) that composes Primitives and Tokens. Hand-written, never overwritten by sync.
 
 _Avoid_: Primitive, Widget, Element, View

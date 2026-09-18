@@ -296,7 +296,6 @@ async fn unauthenticated_panel_pages_redirect_to_login_with_validated_next() {
         "/admin/authors",
         "/admin/posts",
         "/admin/posts?filters=status%3Apublished",
-        "/admin/showcase",
     ] {
         let response = TestClient::new(&router).get(path).await;
         assert_eq!(response.status(), 307, "{path}");

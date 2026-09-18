@@ -19,21 +19,18 @@ async fn manual_create_check() {
     println!("GET /admin/users/create status: {}", resp.status());
     assert!(resp.status().is_success(), "GET create should be 200");
     let html = body_string(resp).await;
+    // GH #136 layer rule: core (`text_input_renders_with_label_and_ac_field`)
+    // owns the field detail (wrapper, Tokens, for/id, error slot); this pins
+    // the HTTP wiring — the create page serves the declared fields.
     assert!(
-        html.contains("grid gap-1.5"),
-        "missing grid gap-1.5 in {}",
-        html
+        html.contains("<form"),
+        "missing form in {}",
+        &html[..html.len().min(2000)]
     );
-    assert!(html.contains("border-border"), "missing border-border");
-    assert!(html.contains("<input"), "missing input");
     assert!(
-        html.contains("for=\"name\"") || html.contains("for="),
-        "missing for"
-    );
-    assert!(html.contains("text-destructive"), "missing required star");
-    assert!(
-        html.contains("text-sm text-destructive"),
-        "missing error slot"
+        html.contains("name=\"name\"") && html.contains("name=\"email\""),
+        "missing declared fields in {}",
+        &html[..html.len().min(2000)]
     );
 
     // Test POST empty name
@@ -134,8 +131,8 @@ async fn manual_create_check() {
     // So we need to fetch page 2 via pagination? Or increase page size? But list page default shows page 1 (Ada, Alan). New User not on page1.
     // Let's check DB directly that user was created, and also check that notification appears.
     assert!(
-        html2.contains("fixed top-4 right-4"),
-        "missing notification fixed top-4 right-4 in {}",
+        html2.contains("data-sonner-toaster") && html2.contains("bottom-4"),
+        "missing the bottom-right toast stack in {}",
         html2
     );
     assert!(
@@ -144,10 +141,11 @@ async fn manual_create_check() {
         html2
     );
     assert!(
-        html2.contains("border-border")
-            && html2.contains("bg-background")
-            && html2.contains("shadow-sm"),
-        "missing notification card tokens"
+        html2.contains("data-sonner-toast")
+            && html2.contains("data-type=\"success\"")
+            && html2.contains("shadow-lg"),
+        "missing the shadcn/Sonner toast surface, got {}",
+        html2
     );
     let mut db_check2 = db.clone();
     let count2 = User::all().exec(&mut db_check2).await.unwrap().len();

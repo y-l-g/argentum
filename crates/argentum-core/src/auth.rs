@@ -675,8 +675,8 @@ async fn render_login_page<'a>(
                             argentum_ui::alert_title((error))
                         )
                     }
-                    <div class="grid gap-2">
-                        argentum_ui::label(
+                    argentum_ui::field(
+                        argentum_ui::field_label(
                             attrs: topcoat::view::attributes! { for="email" },
                             "Email or username"
                         )
@@ -690,9 +690,9 @@ async fn render_login_page<'a>(
                                 autofocus=""
                             }
                         )
-                    </div>
-                    <div class="grid gap-2">
-                        argentum_ui::label(
+                    )
+                    argentum_ui::field(
+                        argentum_ui::field_label(
                             attrs: topcoat::view::attributes! { for="password" },
                             "Password"
                         )
@@ -705,10 +705,10 @@ async fn render_login_page<'a>(
                                 autocomplete="current-password"
                             }
                         )
-                    </div>
+                    )
                     argentum_ui::button(
                         variant: argentum_ui::ButtonVariant::Primary,
-                        attrs: topcoat::view::attributes! { r#type="submit" class="w-full" },
+                        attrs: topcoat::view::attributes! { type="submit" class="w-full" },
                         "Sign in"
                     )
                 </form>

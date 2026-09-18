@@ -1,4 +1,4 @@
-// SYNC: topcoat-ui-registry@0.8.1 sha256:c932d8c876fb5bb1f82a2178006febf453bb12a38fd36942b35fe791228fec20 — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
+// SYNC: topcoat-ui-registry@0.8.1 sha256:e39c3ac299eb6b26ff9c6a710a654c3ff6f02bca10abd89ac4b925e6d7ea895a — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
 use topcoat::{
     Result,
     view::{Attributes, Child, StaticClass, View, class, component, view},
@@ -48,12 +48,12 @@ pub async fn radio_group(
 ///
 /// The native glyph is suppressed with `appearance-none` so the component can
 /// draw its own dot, which keeps the control looking the same across
-/// browsers. The circle matches the input control's border and shadow, and
+/// browsers. The circle matches the input control's border, and
 /// picking it recolors the ring rather than filling it, which leaves room for
 /// the dot inside.
 const RADIO: StaticClass = class!(
     "peer size-4 shrink-0 appearance-none rounded-full border border-border \
-     bg-background shadow-xs transition-colors outline-none checked:border-primary \
+     bg-background transition-colors outline-none checked:border-primary \
      focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 \
      focus-visible:ring-offset-background disabled:pointer-events-none",
 );
@@ -77,7 +77,7 @@ pub async fn radio_group_item(#[default] mut attrs: Attributes) -> Result<impl V
     Ok(view! {
         <span
             class=(class!(
-                "relative inline-flex shrink-0 has-[:disabled]:opacity-50",
+                "peer relative inline-flex shrink-0 has-[:disabled]:opacity-50",
                 attrs.remove("class"),
             ))
         >

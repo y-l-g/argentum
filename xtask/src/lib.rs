@@ -284,3 +284,292 @@ pub fn verify_sync() -> anyhow::Result<()> {
         anyhow::bail!("registry drift detected:\n{}", failures.join("\n"));
     }
 }
+
+/// The directory holding the hand-written shell JS assets (ADR-0014).
+pub fn assets_dir() -> PathBuf {
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    // xtask is at <repo>/xtask, so repo root is parent of manifest_dir
+    manifest_dir
+        .parent()
+        .unwrap_or(Path::new("."))
+        .join("crates/argentum-ui/assets")
+}
+
+/// Shell JS assets (GH #152, ADR-0014): the file under `assets/` plus the
+/// `argentum-ui` constant that wires it into the document head.
+pub const ASSET_FILES: &[(&str, &str)] = &[
+    ("sidebar.js", "SIDEBAR_JS"),
+    ("theme.js", "THEME_JS"),
+    ("dialog.js", "DIALOG_JS"),
+    ("code_block.js", "CODE_BLOCK_JS"),
+    ("bulk.js", "BULK_JS"),
+    ("filters.js", "FILTERS_JS"),
+    ("selects.js", "SELECTS_JS"),
+    ("notifications.js", "NOTIFICATION_JS"),
+];
+
+/// One hook-contract entry (GH #152, ADR-0014): `js` must appear in the
+/// asset's source and `rust` must appear somewhere in the Rust render sources
+/// (`argentum-ui/src` + `argentum-core/src`, render sites and their tests).
+/// Usually both are the same attribute hook; dataset-mapped hooks name each
+/// side's spelling (`dialogOpenParam` reads `data-dialog-open-param`).
+pub struct AssetHook {
+    /// The asset file under `assets/` that consumes the hook.
+    pub asset: &'static str,
+    /// The needle that must appear in the asset's source.
+    pub js: &'static str,
+    /// The needle that must appear in the Rust sources.
+    pub rust: &'static str,
+}
+
+/// The checked-in hook list (GH #152). Deliberately attribute hooks only —
+/// structural selectors (`.relative`, `pre code`, `select option`,
+/// `dialog[open]`, `#mobile-sidebar-sheet`, which has no JS consumer: the
+/// sheet backdrop is a runtime `@click` handler) and the inverse direction (a
+/// rendered hook with no consumer, e.g. `data-bulk-ids`) are out of scope, as
+/// are generic storage keys (`theme`, whose substring matches everything).
+/// Track new hooks here as they land.
+pub const ASSET_HOOKS: &[AssetHook] = &[
+    AssetHook {
+        asset: "sidebar.js",
+        js: "data-sidebar",
+        rust: "data-sidebar",
+    },
+    AssetHook {
+        asset: "sidebar.js",
+        js: "data-state",
+        rust: "data-state",
+    },
+    AssetHook {
+        asset: "sidebar.js",
+        js: "sidebar_state",
+        rust: "sidebar_state",
+    },
+    AssetHook {
+        asset: "theme.js",
+        js: "data-theme-toggle",
+        rust: "data-theme-toggle",
+    },
+    AssetHook {
+        asset: "dialog.js",
+        js: "data-dialog-close",
+        rust: "data-dialog-close",
+    },
+    AssetHook {
+        asset: "dialog.js",
+        js: "dialogOpenParam",
+        rust: "data-dialog-open-param",
+    },
+    AssetHook {
+        asset: "code_block.js",
+        js: "data-copy-button",
+        rust: "data-copy-button",
+    },
+    AssetHook {
+        asset: "bulk.js",
+        js: "data-bulk-form",
+        rust: "data-bulk-form",
+    },
+    AssetHook {
+        asset: "bulk.js",
+        js: "data-table-root",
+        rust: "data-table-root",
+    },
+    AssetHook {
+        asset: "bulk.js",
+        js: "data-bulk-submit",
+        rust: "data-bulk-submit",
+    },
+    AssetHook {
+        asset: "bulk.js",
+        js: "data-row-select",
+        rust: "data-row-select",
+    },
+    AssetHook {
+        asset: "bulk.js",
+        js: "data-bulk-select-all",
+        rust: "data-bulk-select-all",
+    },
+    AssetHook {
+        asset: "bulk.js",
+        js: "name=\"ids\"",
+        rust: "name=\"ids\"",
+    },
+    AssetHook {
+        asset: "filters.js",
+        js: "data-filter-name",
+        rust: "data-filter-name",
+    },
+    AssetHook {
+        asset: "filters.js",
+        js: "data-filters-form",
+        rust: "data-filters-form",
+    },
+    AssetHook {
+        asset: "filters.js",
+        js: "data-filters-transport",
+        rust: "data-filters-transport",
+    },
+    AssetHook {
+        asset: "filters.js",
+        js: "data-filters-live",
+        rust: "data-filters-live",
+    },
+    AssetHook {
+        asset: "selects.js",
+        js: "data-select-filterable",
+        rust: "data-select-filterable",
+    },
+    AssetHook {
+        asset: "selects.js",
+        js: "data-options-filter",
+        rust: "data-options-filter",
+    },
+    AssetHook {
+        asset: "notifications.js",
+        js: "data-sonner-toast",
+        rust: "data-sonner-toast",
+    },
+    AssetHook {
+        asset: "notifications.js",
+        js: "data-close-button",
+        rust: "data-close-button",
+    },
+    AssetHook {
+        asset: "notifications.js",
+        js: "dataset.mounted",
+        rust: "data-mounted",
+    },
+];
+
+/// Whether `needle` appears in `haystack` as a hook, not as a prefix of a
+/// longer name.
+///
+/// A plain substring check misses renames by extension (`data-copy-button` →
+/// `data-copy-button-2` still contains the old string), so an occurrence only
+/// counts when neither neighbor continues the name. Still structural: any
+/// spelling (`[data-x]`, `data-x=""`, `dataset.x`) matches.
+fn contains_hook(haystack: &str, needle: &str) -> bool {
+    if needle.is_empty() {
+        return true;
+    }
+    haystack.match_indices(needle).any(|(i, _)| {
+        let before = haystack[..i].chars().next_back();
+        let after = haystack[i + needle.len()..].chars().next();
+        !before.is_some_and(is_hook_char) && !after.is_some_and(is_hook_char)
+    })
+}
+
+/// Characters that continue a hook/identifier name.
+fn is_hook_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || c == '-' || c == '_'
+}
+
+/// What to do when the hook contract breaks.
+const HOOK_HINT: &str = "update the hook list and both sides together (GH #152, ADR-0014)";
+
+/// Collect every `.rs` file under `dir`, recursively.
+fn collect_rs(dir: &Path, out: &mut Vec<PathBuf>) -> anyhow::Result<()> {
+    for entry in std::fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_dir() {
+            collect_rs(&path, out)?;
+        } else if path.extension().is_some_and(|ext| ext == "rs") {
+            out.push(path);
+        }
+    }
+    Ok(())
+}
+
+/// Guard: every shell JS asset still exists and stays wired to its `lib.rs`
+/// constant, and every hook in [`ASSET_HOOKS`] still appears in both its JS
+/// asset and the Rust render sources.
+///
+/// This is the hook-contract counterpart of [`verify_sync`]: `asset!` does
+/// not stat its source at compile time, so a deleted/renamed `.js` passes
+/// `cargo test`, and a rename on either side of a string-selector coupling is
+/// otherwise silent. The check is structural on purpose (hook-name presence
+/// with identifier-boundary matching, never classes or pixel markup) so
+/// restyles cannot fail it.
+pub fn verify_asset_hooks() -> anyhow::Result<()> {
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let root = manifest_dir.parent().unwrap_or(Path::new("."));
+    let assets = assets_dir();
+    let mut failures = Vec::new();
+
+    let lib_rs = std::fs::read_to_string(root.join("crates/argentum-ui/src/lib.rs"))
+        .map_err(|error| anyhow::anyhow!("cannot read argentum-ui/src/lib.rs: {error}"))?;
+
+    // Every asset file exists and stays wired to its constant.
+    let mut sources: std::collections::HashMap<&str, String> = std::collections::HashMap::new();
+    for (file, constant) in ASSET_FILES {
+        let path = assets.join(file);
+        match std::fs::read_to_string(&path) {
+            Ok(src) if !src.trim().is_empty() => {
+                sources.insert(file, src);
+            }
+            Ok(_) => failures.push(format!("{file} is empty; {HOOK_HINT}")),
+            Err(error) => failures.push(format!(
+                "{} cannot be read: {error}; {HOOK_HINT}",
+                path.display()
+            )),
+        }
+        if !contains_hook(&lib_rs, constant) {
+            failures.push(format!(
+                "{constant} is gone from argentum-ui/src/lib.rs, so {file} is no longer wired into the document; {HOOK_HINT}"
+            ));
+        }
+    }
+
+    // Every hook appears in both its JS asset and the Rust sources.
+    let mut rust_sources = String::new();
+    let mut rs_files = Vec::new();
+    for dir in ["crates/argentum-ui/src", "crates/argentum-core/src"] {
+        if let Err(error) = collect_rs(&root.join(dir), &mut rs_files) {
+            failures.push(format!("cannot list {dir}: {error}; {HOOK_HINT}"));
+        }
+    }
+    for path in &rs_files {
+        match std::fs::read_to_string(path) {
+            Ok(src) => {
+                rust_sources.push_str(&src);
+                rust_sources.push('\n');
+            }
+            Err(error) => failures.push(format!(
+                "{} cannot be read: {error}; {HOOK_HINT}",
+                path.display()
+            )),
+        }
+    }
+    for hook in ASSET_HOOKS {
+        match sources.get(hook.asset) {
+            Some(src) if contains_hook(src, hook.js) => {}
+            Some(_) => failures.push(format!(
+                "{} no longer contains `{}`; {HOOK_HINT}",
+                hook.asset, hook.js
+            )),
+            None => failures.push(format!(
+                "{} is missing, so its `{}` hook cannot be checked; {HOOK_HINT}",
+                hook.asset, hook.js
+            )),
+        }
+        if !contains_hook(&rust_sources, hook.rust) {
+            failures.push(format!(
+                "`{}` (consumed by {}) is gone from the Rust sources; {HOOK_HINT}",
+                hook.rust, hook.asset
+            ));
+        }
+    }
+
+    if failures.is_empty() {
+        println!(
+            "verified: {} assets and {} hooks match the hook contract",
+            ASSET_FILES.len(),
+            ASSET_HOOKS.len()
+        );
+        Ok(())
+    } else {
+        anyhow::bail!("asset hook drift detected:\n{}", failures.join("\n"));
+    }
+}

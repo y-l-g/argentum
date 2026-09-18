@@ -1,6 +1,7 @@
-// SYNC: topcoat-ui-registry@0.8.1 sha256:0f111fa5da4ea208cbd4ba3fde25d7d9e02c06b3b3e9d6314d8f420ceec3c4ea — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
+// SYNC: topcoat-ui-registry@0.8.1 sha256:b8a681fc907446e13f2165f310d7b6bb10cd4d81bcc433b42ffcbcb862e915bc — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
 use topcoat::{
     Result,
+    runtime::Expr,
     view::{Attributes, Child, View, attributes, component, view},
 };
 
@@ -46,7 +47,8 @@ use super::dialog::dialog;
 #[component]
 pub async fn alert_dialog(
     /// Whether the alert dialog shows.
-    open: bool,
+    #[into]
+    open: Expr<bool>,
     /// Extra attributes for the `<dialog>` element.
     #[default]
     attrs: Attributes,
