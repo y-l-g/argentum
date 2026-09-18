@@ -87,13 +87,3 @@ pub fn tailwind_build() -> Result<std::path::PathBuf, topcoat::tailwind::BuildEr
         .input("styles.css")
         .render()
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn tailwind_build_fn_exists() {
-        // Just proves the symbol is linkable; actual build needs styles.css
-        let _ = tailwind_build as fn() -> Result<std::path::PathBuf, topcoat::tailwind::BuildError>;
-    }
-}

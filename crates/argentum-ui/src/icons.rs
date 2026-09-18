@@ -13,8 +13,6 @@ pub const ARROW_UP_DOWN: IconData = iconify_icon!("lucide:arrow-up-down");
 pub const ARROW_UP: IconData = iconify_icon!("lucide:arrow-up");
 /// Sortable column, sorted descending.
 pub const ARROW_DOWN: IconData = iconify_icon!("lucide:arrow-down");
-/// Searchable column: the prefix search covers it.
-pub const SEARCH: IconData = iconify_icon!("lucide:search");
 /// Toast success.
 pub const CIRCLE_CHECK: IconData = iconify_icon!("lucide:circle-check");
 /// Toast info.
