@@ -508,6 +508,54 @@ mod tests {
         assert_eq!(vec.len(), 1);
     }
 
+    #[test]
+    fn select_filter_to_expr_contract() {
+        // GH #136: the only direct SelectFilter coverage lived in the
+        // showcase (`table_state_parses_filters_and_filter_expr`); core owns
+        // the predicate contract, the showcase owns HTTP wiring.
+        let f = SelectFilter::r#for(
+            Task::fields().status(),
+            vec!["draft".to_string(), "published".to_string()],
+        );
+        assert_eq!(f.name(), "status");
+        assert!(f.to_expr("published").is_some());
+        assert!(f.to_expr("draft").is_some());
+        assert!(f.to_expr("").is_none(), "empty yields no filter");
+        assert!(f.to_expr("   ").is_none(), "blank yields no filter");
+        assert!(
+            f.to_expr("unknown").is_none(),
+            "off-allowlist yields no filter"
+        );
+        assert!(
+            f.to_expr("Published").is_none(),
+            "allowlist is case-sensitive"
+        );
+        // Whitespace trims before the allowlist check.
+        assert!(f.to_expr("  published  ").is_some());
+        // Via the Filter enum seam.
+        let via_enum: Filter<Task> = f.clone().into();
+        assert_eq!(via_enum.name(), "status");
+        assert!(via_enum.to_expr("published").is_some());
+        assert!(via_enum.to_expr("nope").is_none());
+    }
+
+    #[test]
+    fn ternary_filter_to_expr_contract() {
+        // GH #136: same relocation as the select contract above.
+        let f = TernaryFilter::r#for(Task::fields().featured());
+        assert_eq!(f.name(), "featured");
+        assert!(f.to_expr("true").is_some());
+        assert!(f.to_expr("false").is_some());
+        assert!(f.to_expr("").is_none(), "empty yields no filter");
+        assert!(f.to_expr("all").is_none(), "`all` yields no filter");
+        assert!(f.to_expr("yes").is_none());
+        assert!(f.to_expr("  true  ").is_some(), "value trims");
+        let via_enum: Filter<Task> = f.clone().into();
+        assert_eq!(via_enum.name(), "featured");
+        assert!(via_enum.to_expr("true").is_some());
+        assert!(via_enum.to_expr("all").is_none());
+    }
+
     #[tokio::test]
     async fn variant_filter_hits_only_the_variant() {
         let mut db = Db::builder()

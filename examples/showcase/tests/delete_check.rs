@@ -141,6 +141,10 @@ async fn delete_requires_confirmation_and_deletes() {
 
 #[tokio::test]
 async fn delete_404_for_missing_or_wrong_tenant() {
+    // GH #136 layer rule: core owns the loader unit; this pins the HTTP
+    // route for unknown ids (wrong-tenant scoping rides the same seam — see
+    // `tenancy_check.rs` for the edit path and the bulk/export extension
+    // below for the batch paths).
     let db = seeded_db().await;
     let router = router(db.clone());
     let client = demo_client(&router).await;

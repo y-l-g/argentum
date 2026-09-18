@@ -19,21 +19,18 @@ async fn manual_create_check() {
     println!("GET /admin/users/create status: {}", resp.status());
     assert!(resp.status().is_success(), "GET create should be 200");
     let html = body_string(resp).await;
+    // GH #136 layer rule: core (`text_input_renders_with_label_and_ac_field`)
+    // owns the field detail (wrapper, Tokens, for/id, error slot); this pins
+    // the HTTP wiring — the create page serves the declared fields.
     assert!(
-        html.contains("data-slot=\"field\""),
-        "missing field wrapper in {}",
-        html
+        html.contains("<form"),
+        "missing form in {}",
+        &html[..html.len().min(2000)]
     );
-    assert!(html.contains("border-border"), "missing border-border");
-    assert!(html.contains("<input"), "missing input");
     assert!(
-        html.contains("for=\"name\"") || html.contains("for="),
-        "missing for"
-    );
-    assert!(html.contains("text-destructive"), "missing required star");
-    assert!(
-        html.contains("text-sm text-destructive"),
-        "missing error slot"
+        html.contains("name=\"name\"") && html.contains("name=\"email\""),
+        "missing declared fields in {}",
+        &html[..html.len().min(2000)]
     );
 
     // Test POST empty name

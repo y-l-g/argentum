@@ -530,6 +530,42 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn tabs_and_wizard_validate_and_render_fields_end_to_end() {
+        // GH #136 extension: Tabs/Wizard had no end-to-end coverage — the only
+        // tabs test was the UI demo `?tab=`, and the showcase wires neither
+        // as Schema containers. This pins that required inputs inside the
+        // containers validate and render with values.
+        let cx = cx();
+        for make in [
+            |input: TextInput| Schema::new(Tabs::new().schema(input)),
+            |input: TextInput| Schema::new(Wizard::new().schema(input)),
+        ] {
+            let schema = make(TextInput::r#for(DummyUser::fields().name()).required());
+            let errors = schema.validate(&HashMap::new());
+            assert!(
+                errors.contains_key("name"),
+                "empty submit must fail the inner required input, got {errors:?}"
+            );
+            let mut values = HashMap::new();
+            values.insert("name".to_string(), "Ada".to_string());
+            let errors = schema.validate(&values);
+            assert!(errors.is_empty(), "filled submit must pass, got {errors:?}");
+            let html = schema
+                .render_with(&cx, &values, &errors)
+                .await
+                .unwrap()
+                .single()
+                .await
+                .unwrap()
+                .render(&cx);
+            assert!(
+                html.contains("value=\"Ada\""),
+                "container must render the field value, got {html}"
+            );
+        }
+    }
+
+    #[tokio::test]
     async fn nested_grid_inside_section() {
         let cx = cx();
         let schema = Schema::new(

@@ -770,6 +770,9 @@ mod tests {
 
     #[tokio::test]
     async fn panel_shell_renders_sidebar_with_active_and_tokens() {
+        // GH #136: structure/aria only — pixel Token/Tailwind classes live in
+        // the showcase (`admin_resource_list_page_serve_seeded_users`), so a
+        // restyle does not fail core without a behavior change.
         use crate::resource::NavigationItem;
         use topcoat::context::CxTestBuilder;
         use topcoat::view::view;
@@ -798,13 +801,6 @@ mod tests {
             .await
             .unwrap()
             .render(&cx);
-        // Sidebar chrome with Token classes — the upstream sidebar palette.
-        assert!(
-            html.contains("border-border")
-                && html.contains("bg-background")
-                && html.contains("text-sidebar-foreground"),
-            "missing Token border/bg/sidebar tokens in {html}"
-        );
         assert!(
             html.contains("data-sidebar=\"sidebar\""),
             "missing sidebar data attr in {html}"
@@ -820,21 +816,6 @@ mod tests {
         assert!(
             html.contains("data-sidebar=\"group\"") || html.contains("Navigation"),
             "missing sidebar group in {html}"
-        );
-        // Shadcn parity: sticky h-svh w-(--sidebar-width) panel
-        assert!(
-            html.contains("md:sticky") && html.contains("md:top-0"),
-            "missing md:sticky md:top-0 in {html}"
-        );
-        assert!(html.contains("md:h-svh"), "missing md:h-svh in {html}");
-        assert!(
-            html.contains("w-(--sidebar-width)") || html.contains("--sidebar-width"),
-            "missing --sidebar-width var in {html}"
-        );
-        // Header sticky (the inset's child selector)
-        assert!(
-            html.contains("sticky") && html.contains("top-0"),
-            "missing sticky top-0 in {html}"
         );
         // Data-state for collapsible, seeded by the signal (cookie default:
         // expanded) and bound for the browser runtime.
@@ -860,10 +841,6 @@ mod tests {
             html.contains("data-topcoat-on:click"),
             "missing runtime click bindings in {html}"
         );
-        assert!(
-            html.contains("max-md:hidden") && html.contains("md:hidden"),
-            "missing responsive trigger pair in {html}"
-        );
         // Active highlight + real navigation links (the href prop, not attrs)
         assert!(
             html.contains("data-active=\"true\"") && html.contains("aria-current=\"page\""),
@@ -872,11 +849,6 @@ mod tests {
         assert!(
             html.contains("<a") && html.contains("href=\"/admin/users\""),
             "navigation must render as links in {html}"
-        );
-        // Main container
-        assert!(
-            html.contains("max-w-7xl") && html.contains("p-6"),
-            "missing main max-w-7xl p-6 in {html}"
         );
         // Dark toggle
         assert!(

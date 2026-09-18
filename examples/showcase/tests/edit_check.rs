@@ -29,6 +29,8 @@ async fn edit_page_hydrates_and_updates() {
         resp.status()
     );
     let html = body_string(resp).await;
+    // GH #136 layer rule: core owns the field detail; the edit page pins
+    // hydration — the stored values arrive in the form.
     assert!(
         html.contains(&user.name),
         "edit should contain hydrated name {}, got {}",
@@ -38,14 +40,6 @@ async fn edit_page_hydrates_and_updates() {
     assert!(
         html.contains(&user.email),
         "edit should contain hydrated email"
-    );
-    assert!(
-        html.contains("data-slot=\"field\""),
-        "missing field wrapper"
-    );
-    assert!(
-        html.contains("for=\"name\"") || html.contains("for="),
-        "missing for/id"
     );
 
     // Invalid POST should re-render with errors and not mutate
@@ -119,6 +113,10 @@ async fn edit_page_hydrates_and_updates() {
 
 #[tokio::test]
 async fn edit_404_for_unknown_or_wrong_tenant() {
+    // GH #136 layer rule: core (`find_by_key_loads_one_row_scoped_and_404s_malformed`)
+    // owns the loader unit; this pins the HTTP route. Wrong-tenant scoping
+    // rides the same seam and is pinned in `tenancy_check.rs`
+    // (`edit_with_wrong_tenant_yields_404_via_resource_query`).
     let db = seeded_db().await;
     let router = router(db.clone());
     let client = demo_client(&router).await;
@@ -130,9 +128,6 @@ async fn edit_404_for_unknown_or_wrong_tenant() {
         "unknown id should be 404, got {}",
         resp.status()
     );
-
-    // Tenancy test: create a scoped resource that only sees Ada, try to edit Grace
-    // For now, just test that unknown id is 404 (tenancy via query would also be 404)
 }
 
 /// A forged edit POST must answer 403 before the advisory record lookup

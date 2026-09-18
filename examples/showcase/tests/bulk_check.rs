@@ -1,7 +1,6 @@
 use http::header::LOCATION;
 use showcase::{app::router_for_tests as router, models::User};
 use toasty::Db;
-use topcoat::view::ViewExt;
 
 mod common;
 use common::{
@@ -123,7 +122,46 @@ async fn bulk_delete_without_ids_redirects_with_the_reason() {
 }
 
 #[tokio::test]
+async fn bulk_delete_short_fetch_404s_and_deletes_nothing() {
+    // GH #136 §4: a batch naming a missing id comes back short from the
+    // tenancy-scoped `IN` fetch and 404s — never half-applied.
+    let db = seeded_db().await;
+    let router = router(db.clone());
+    let client = demo_client(&router).await;
+    let csrf = uuid::Uuid::new_v4().to_string();
+    let mut db_q = db.clone();
+    let users = User::all().exec(&mut db_q).await.unwrap();
+    let real = users.first().unwrap().id.to_string();
+    let missing = uuid::Uuid::new_v4().to_string();
+    let resp = client
+        .csrf(&csrf)
+        .post_form(
+            "/admin/users/bulk-delete",
+            format!("ids={real},{missing}&csrf_token={csrf}"),
+        )
+        .await;
+    assert_eq!(
+        resp.status(),
+        404,
+        "short-fetch bulk delete must 404, got {}",
+        resp.status()
+    );
+    let mut db_check = db.clone();
+    let remaining = User::all().exec(&mut db_check).await.unwrap();
+    assert_eq!(
+        remaining.len(),
+        3,
+        "a short-fetch batch must delete nothing, got {}",
+        remaining.len()
+    );
+}
+
+#[tokio::test]
 async fn bulk_bar_renders_checkboxes_with_row_keys() {
+    // GH #136 layer rule: core (`bulk_checkboxes_render_with_keys_and_select_all`)
+    // owns the bulk-chrome detail (select-all, hidden transport, disabled
+    // submit); this pins the HTTP wiring — pagination, filtering, and the
+    // checkbox-joined POST format.
     let db = seeded_db().await;
     let router = router(db.clone());
     let client = demo_client(&router).await;
@@ -156,25 +194,6 @@ async fn bulk_bar_renders_checkboxes_with_row_keys() {
     assert_eq!(
         found, 2,
         "both visible row keys should be checkbox values in {}",
-        html
-    );
-    assert!(
-        html.contains("data-bulk-select-all"),
-        "missing select-all in {}",
-        html
-    );
-    // Bulk form keeps the hidden ids transport (GH #151: no visible field)
-    // and a destructive submit that ships disabled until a row is checked.
-    assert!(
-        html.contains("data-bulk-form")
-            && html.contains("name=\"ids\"")
-            && html.contains("data-bulk-ids"),
-        "missing bulk form transport in {}",
-        html
-    );
-    assert!(
-        html.contains("data-bulk-submit=\"\"") && html.contains("disabled=\"\""),
-        "the bulk submit must ship disabled in {}",
         html
     );
     // A filtered list shows only the matching row's checkbox.
@@ -350,94 +369,5 @@ async fn view_any_deny_blocks_list() {
         403,
         "viewAny deny should be 403, got {}",
         resp.status()
-    );
-}
-
-#[tokio::test]
-async fn table_boundary_and_memoize() {
-    use argentum_core::{Table, TextColumn};
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    use topcoat::context::{CxTestBuilder, memoize};
-
-    #[derive(Debug, Clone, toasty::Model)]
-    struct DummyUser {
-        #[key]
-        #[auto]
-        id: uuid::Uuid,
-        name: String,
-    }
-
-    // Test Table is a Boundary by default
-    let cx = CxTestBuilder::new().build();
-    let table = Table::<DummyUser>::r#for(&cx)
-        .id(|u: &DummyUser| u.id.to_string())
-        .columns(TextColumn::r#for(
-            DummyUser::fields().name(),
-            |u: &DummyUser| u.name.clone(),
-        ));
-    assert!(table.is_boundary(), "Table should be a Boundary by default");
-    assert!(!table.is_defer(), "Table should not defer by default");
-    let table2 = Table::<DummyUser>::r#for(&cx)
-        .id(|u: &DummyUser| u.id.to_string())
-        .columns(TextColumn::r#for(
-            DummyUser::fields().name(),
-            |u: &DummyUser| u.name.clone(),
-        ))
-        .boundary(false);
-    assert!(!table2.is_boundary(), "boundary(false) should disable");
-    let table3 = Table::<DummyUser>::r#for(&cx)
-        .id(|u: &DummyUser| u.id.to_string())
-        .columns(TextColumn::r#for(
-            DummyUser::fields().name(),
-            |u: &DummyUser| u.name.clone(),
-        ))
-        .defer(true);
-    assert!(table3.is_defer(), "defer(true) should enable");
-    // Render with boundary should contain data-boundary
-    let page = argentum_core::TablePage::<DummyUser>::from(vec![]);
-    let html = table
-        .render(&cx, page.clone())
-        .await
-        .unwrap()
-        .single()
-        .await
-        .unwrap()
-        .render(&cx);
-    assert!(
-        html.contains("data-boundary=\"table\""),
-        "boundary should be in HTML, got {}",
-        html
-    );
-    let html2 = table2
-        .render(&cx, page)
-        .await
-        .unwrap()
-        .single()
-        .await
-        .unwrap()
-        .render(&cx);
-    assert!(
-        !html2.contains("data-boundary=\"table\""),
-        "boundary false should not be in HTML"
-    );
-
-    // Test memoize dedup
-    static COUNTER: AtomicUsize = AtomicUsize::new(0);
-    #[memoize]
-    async fn counted(cx: &Cx, n: usize) -> usize {
-        COUNTER.fetch_add(1, Ordering::SeqCst);
-        n * 2
-    }
-
-    let cx = CxTestBuilder::new().build();
-    COUNTER.store(0, Ordering::SeqCst);
-    let a = *counted(&cx, 5).await;
-    let b = *counted(&cx, 5).await;
-    assert_eq!(a, 10);
-    assert_eq!(b, 10);
-    assert_eq!(
-        COUNTER.load(Ordering::SeqCst),
-        1,
-        "memoize should dedup concurrent calls"
     );
 }

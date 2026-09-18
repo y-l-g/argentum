@@ -16,16 +16,7 @@ use topcoat::router::{Body, Router};
 
 /// `Db` with the phase-1 users seed applied.
 pub async fn seeded_db() -> Db {
-    let mut db = Db::builder()
-        .models(toasty::models!(
-            showcase::models::User,
-            argentum_core::auth::AdminUser,
-            argentum_core::auth::AuthSession
-        ))
-        .connect("sqlite::memory:")
-        .await
-        .expect("connect");
-    db.push_schema().await.expect("push_schema");
+    let mut db = test_db().await;
     seed(&mut db).await.expect("seed");
     db
 }
@@ -33,7 +24,18 @@ pub async fn seeded_db() -> Db {
 /// `Db` with both seed phases (users, authors, posts, comments) and the
 /// shipped auth models.
 pub async fn full_db() -> Db {
-    let mut db = Db::builder()
+    let mut db = test_db().await;
+    seed(&mut db).await.expect("seed");
+    seed_phase2(&mut db).await.expect("seed_phase2");
+    db
+}
+
+/// One `Db::builder` for the showcase fixtures (GH #136 harness hardening):
+/// `seeded_db`/`full_db`/`tenanted_db` shared three copies of the model
+/// list + connect + push_schema.
+async fn test_db() -> Db {
+    // The showcase suites always need the full model set (auth + domain).
+    let db = Db::builder()
         .models(toasty::models!(
             showcase::models::User,
             showcase::models::Author,
@@ -46,8 +48,6 @@ pub async fn full_db() -> Db {
         .await
         .expect("connect");
     db.push_schema().await.expect("push_schema");
-    seed(&mut db).await.expect("seed");
-    seed_phase2(&mut db).await.expect("seed_phase2");
     db
 }
 
@@ -55,19 +55,7 @@ pub async fn full_db() -> Db {
 pub async fn tenanted_db() -> (Db, uuid::Uuid, uuid::Uuid) {
     let t1 = uuid::Uuid::from_u128(1);
     let t2 = uuid::Uuid::from_u128(2);
-    let mut db = Db::builder()
-        .models(toasty::models!(
-            showcase::models::User,
-            showcase::models::Author,
-            showcase::models::Post,
-            showcase::models::Comment,
-            argentum_core::auth::AdminUser,
-            argentum_core::auth::AuthSession
-        ))
-        .connect("sqlite::memory:")
-        .await
-        .expect("connect");
-    db.push_schema().await.expect("push_schema");
+    let mut db = test_db().await;
     create_admin(
         &mut db,
         DEMO_ADMIN_EMAIL,
@@ -159,13 +147,16 @@ impl<'a> TestClient<'a> {
     }
 
     /// Attach every `(name, value)` pair, e.g. the cookies a response set.
+    /// Like a browser jar: a later value for the same name replaces the
+    /// earlier one instead of appending a duplicate `Cookie` entry.
     pub fn cookies(&self, cookies: &[(String, String)]) -> Self {
         let mut client = self.clone();
-        client.cookies.extend(
-            cookies
-                .iter()
-                .map(|(name, value)| (name.clone(), value.clone())),
-        );
+        for (name, value) in cookies {
+            match client.cookies.iter_mut().find(|(kept, _)| kept == name) {
+                Some(existing) => existing.1 = value.clone(),
+                None => client.cookies.push((name.clone(), value.clone())),
+            }
+        }
         client
     }
 
@@ -344,17 +335,26 @@ pub fn form_body(pairs: &[(&str, &str)]) -> String {
 
 /// The `value` attribute of the named `<input>` in rendered HTML, in either
 /// attribute order.
+///
+/// Handles both quote styles (`value="…"` and `value='…'`); the controlled
+/// UUID markup only emits double quotes today, but an encoder change must
+/// not silently turn every lookup into `None` (GH #136 harness hardening).
 pub fn input_value(html: &str, name: &str) -> Option<String> {
-    let name_attr = format!("name=\"{name}\"");
+    let double = format!("name=\"{name}\"");
+    let single = format!("name='{name}'");
     for tag in html.split('<').skip(1) {
-        if !tag.contains(&name_attr) {
+        if !tag.contains(&double) && !tag.contains(&single) {
             continue;
         }
         let attrs = &tag[..tag.find('>')?];
-        if let Some(start) = attrs.find("value=\"") {
-            let rest = &attrs[start + "value=\"".len()..];
-            if let Some(end) = rest.find('"') {
-                return Some(rest[..end].to_string());
+        for (prefix, term) in [("value=\"", '"'), ("value='", '\'')] {
+            if let Some(start) = attrs.find(prefix) {
+                let rest = &attrs[start + prefix.len()..];
+                if let Some(end) = rest.find(term) {
+                    // Unescape the matching quote entity the encoder may emit.
+                    let raw = &rest[..end];
+                    return Some(raw.replace("&quot;", "\"").replace("&#x27;", "'"));
+                }
             }
         }
     }

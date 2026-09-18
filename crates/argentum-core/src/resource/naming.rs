@@ -127,4 +127,30 @@ mod tests {
         assert_eq!(kebab_case("User2FA"), "user2-fa");
         assert_eq!(kebab_case("Blog_Post"), "blog-post");
     }
+
+    #[test]
+    fn naming_invariants_hold() {
+        // GH #136 §5 property candidates: kebab is lowercase + hyphen-only,
+        // pluralize never empties.
+        use super::{kebab_case, pluralize};
+        for word in [
+            "User", "BlogPost", "APIKey", "Category", "Box", "Person", "",
+        ] {
+            let kebab = kebab_case(word);
+            assert!(
+                kebab
+                    .chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+                    || kebab.is_empty(),
+                "kebab must be lower-hyphen, got {kebab:?} from {word:?}"
+            );
+            let plural = pluralize(word);
+            assert!(
+                word.is_empty() || !plural.is_empty(),
+                "plural must not empty {word:?}"
+            );
+        }
+        // kebab round-trips through slug vocabulary (no underscores).
+        assert!(!kebab_case("Audit_Log").contains('_'));
+    }
 }

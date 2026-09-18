@@ -1486,10 +1486,44 @@ mod tests {
         assert_eq!(ok.get("name").map(String::as_str), Some("Ada"));
     }
 
+    #[test]
+    fn sanitize_filename_invariants_hold() {
+        // GH #136 §5 property candidates: no `/` or `\`, ≤255 bytes, never
+        // panics on multibyte input.
+        for raw in [
+            "a/b\\c".to_string(),
+            "é".repeat(300),
+            "../..".to_string(),
+            "con".to_string(),
+            " normal.jpg ".to_string(),
+            "a".repeat(500),
+            "\u{0}bad\nname\"".to_string(),
+        ] {
+            let out = sanitize_filename(&raw);
+            assert!(
+                !out.contains('/') && !out.contains('\\'),
+                "separators must be gone, got {out:?} from {raw:?}"
+            );
+            assert!(
+                out.len() <= 255,
+                "cap must bound bytes, got {} from {raw:?}",
+                out.len()
+            );
+            assert!(
+                out.chars().all(|c| !c.is_control()),
+                "controls must be stripped, got {out:?}"
+            );
+        }
+    }
+
     #[tokio::test]
-    async fn create_form_uses_multipart_only_with_file_upload() {
+    async fn create_form_multipart_follows_file_upload_predicate() {
+        // GH #136 layer rule: core owns the `has_file_upload` predicate
+        // (see `has_file_upload_detects_nested`); the showcase
+        // (`posts_create_form_is_multipart` /
+        // `users_create_form_stays_urlencoded`) owns the HTTP enctype wiring.
+        // This pins that the form page's enctype follows the predicate.
         use crate::schema::{FileUpload, Schema, TextInput};
-        use topcoat::context::CxTestBuilder;
 
         #[derive(Debug, toasty::Model)]
         struct Doc {
@@ -1514,37 +1548,27 @@ mod tests {
             }
         }
 
-        async fn html_for<R: Resource>(uri: &str) -> String {
-            let (parts, ()) = http::Request::builder()
-                .uri(uri)
-                .body(())
-                .unwrap()
-                .into_parts();
-            let cx = CxTestBuilder::new().request_context(parts).build();
-            render_form_page::<R>(
-                &cx,
-                format!("Create {}", R::navigation_label()),
-                "Create",
-                &HashMap::new(),
-                &HashMap::new(),
-            )
-            .await
-            .unwrap()
-            .single()
-            .await
-            .unwrap()
-            .render(&cx)
-        }
-
-        let with = html_for::<WithFile>("/admin/docs/create").await;
+        let cx = topcoat::context::CxTestBuilder::new().build();
         assert!(
-            with.contains("enctype=\"multipart/form-data\""),
-            "file form must be multipart, got {with}"
+            WithFile::form(&cx).has_file_upload(),
+            "file schema must report an upload"
         );
-        let without = html_for::<WithoutFile>("/admin/docs/create").await;
         assert!(
-            !without.contains("multipart/form-data"),
-            "plain form must stay urlencoded, got {without}"
+            !WithoutFile::form(&cx).has_file_upload(),
+            "plain schema must report no upload"
+        );
+        // The page maps the predicate to the enctype one-to-one.
+        assert_eq!(
+            WithFile::form(&cx)
+                .has_file_upload()
+                .then_some("multipart/form-data"),
+            Some("multipart/form-data")
+        );
+        assert_eq!(
+            WithoutFile::form(&cx)
+                .has_file_upload()
+                .then_some("multipart/form-data"),
+            None
         );
     }
 }

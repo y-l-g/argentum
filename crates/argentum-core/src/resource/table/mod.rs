@@ -895,6 +895,64 @@ mod tests {
         assert_eq!(tp2.rows[0].name, "Bob", "cursor must resume after Ada");
     }
 
+    #[tokio::test]
+    async fn table_boundary_flags_and_render() {
+        // GH #136: relocated from the showcase (`table_boundary_and_memoize`)
+        // — core owns the boundary contract; the showcase owns HTTP wiring.
+        // The topcoat `#[memoize]` half stays upstream and is not re-pinned
+        // here.
+        use topcoat::view::ViewExt;
+
+        let cx = CxTestBuilder::new().build();
+        let table = Table::<User>::r#for(&cx)
+            .id(|u: &User| u.id.to_string())
+            .columns(TextColumn::r#for(User::fields().name(), |u: &User| {
+                u.name.clone()
+            }));
+        assert!(table.is_boundary(), "Table is a Boundary by default");
+        assert!(!table.is_defer(), "Table does not defer by default");
+        let plain = Table::<User>::r#for(&cx)
+            .id(|u: &User| u.id.to_string())
+            .columns(TextColumn::r#for(User::fields().name(), |u: &User| {
+                u.name.clone()
+            }))
+            .boundary(false);
+        assert!(!plain.is_boundary(), "boundary(false) disables");
+        let deferred = Table::<User>::r#for(&cx)
+            .id(|u: &User| u.id.to_string())
+            .columns(TextColumn::r#for(User::fields().name(), |u: &User| {
+                u.name.clone()
+            }))
+            .defer(true);
+        assert!(deferred.is_defer(), "defer(true) enables");
+
+        let page = crate::resource::TablePage::<User>::from(vec![]);
+        let html = table
+            .render(&cx, page.clone())
+            .await
+            .unwrap()
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
+        assert!(
+            html.contains("data-boundary=\"table\""),
+            "boundary should be in HTML, got {html}"
+        );
+        let html = plain
+            .render(&cx, page)
+            .await
+            .unwrap()
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
+        assert!(
+            !html.contains("data-boundary=\"table\""),
+            "boundary(false) must not render the wrapper"
+        );
+    }
+
     #[test]
     fn unapplied_filters_flags_unknown_keys_and_rejected_values() {
         // GH #93: typo'd keys and allowlist-missed values must be visible,

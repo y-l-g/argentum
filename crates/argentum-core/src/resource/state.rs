@@ -671,6 +671,19 @@ mod tests {
         );
     }
 
+    #[test]
+    fn live_args_filters_round_trip_through_transport() {
+        // GH #136 §5: the live `filters` string is the same transport the URL
+        // parses — encode/decode round-trips without loss.
+        let state =
+            TableState::from_live_args("Ada", "status:published,featured:true", "name", "desc", "");
+        let param = state.filters_param().expect("live filters serialize");
+        let back = TableState::from_live_args("Ada", &param, "name", "desc", "");
+        assert_eq!(back.filters, state.filters);
+        assert_eq!(back.search, state.search);
+        assert_eq!(back.sort, state.sort);
+    }
+
     fn cx_with_query(query: &str) -> Cx {
         let uri = if query.is_empty() {
             "/admin".to_string()
@@ -726,6 +739,24 @@ mod tests {
             "first occurrence must win, not vanish"
         );
         assert_eq!(state.search.as_deref(), Some("Ada"));
+    }
+
+    #[test]
+    fn table_state_parses_filters_param() {
+        // GH #136: relocated from the showcase
+        // (`table_state_parses_filters_and_filter_expr`) — core owns the
+        // parse contract, the showcase owns HTTP wiring.
+        let cx = cx_with_query("filters=status:published,featured:true");
+        let state = TableState::from_cx(&cx);
+        assert_eq!(
+            state.filters.get("status").map(String::as_str),
+            Some("published")
+        );
+        assert_eq!(
+            state.filters.get("featured").map(String::as_str),
+            Some("true")
+        );
+        assert!(state.malformed_filters.is_empty());
     }
 
     #[test]

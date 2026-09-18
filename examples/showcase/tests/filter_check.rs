@@ -5,6 +5,10 @@ use common::{body_string, demo_client, full_db};
 
 #[tokio::test]
 async fn posts_filter_widgets_render_typed_controls() {
+    // GH #136 layer rule: core (`filter_widgets_render_typed_controls`)
+    // owns the typed-control detail (select/ternary/date options, selected
+    // state, noscript fallback); this pins the HTTP wiring — the widgets
+    // arrive with the active value in the hidden transport.
     let db = full_db().await;
     let router = router(db);
     let client = demo_client(&router).await;
@@ -24,22 +28,6 @@ async fn posts_filter_widgets_render_typed_controls() {
     assert!(
         html.contains("data-filters-form"),
         "missing filters form in {}",
-        html
-    );
-    // Select options, ternary values, date input, current selection.
-    assert!(
-        html.contains("draft") && html.contains("published"),
-        "missing status options in {}",
-        html
-    );
-    assert!(
-        html.contains("value=\"true\"") && html.contains("value=\"false\""),
-        "missing ternary options in {}",
-        html
-    );
-    assert!(
-        html.contains("type=\"date\""),
-        "missing date control in {}",
         html
     );
     assert!(
@@ -170,57 +158,6 @@ async fn posts_filter_composes_and() {
 }
 
 #[tokio::test]
-async fn table_state_parses_filters_and_filter_expr() {
-    use argentum_core::{DateFilter, Filter, SelectFilter, TableState, TernaryFilter};
-    use showcase::models::Post;
-    use topcoat::context::CxTestBuilder;
-
-    // Test parsing
-    let (parts, ()) = http::Request::builder()
-        .uri("/admin/posts?filters=status:published,featured:true")
-        .body(())
-        .unwrap()
-        .into_parts();
-    let cx = CxTestBuilder::new().request_context(parts).build();
-    let state = TableState::from_cx(&cx);
-    assert_eq!(
-        state.filters.get("status").map(|s| s.as_str()),
-        Some("published")
-    );
-    assert_eq!(
-        state.filters.get("featured").map(|s| s.as_str()),
-        Some("true")
-    );
-
-    // Test SelectFilter expr
-    let f = SelectFilter::r#for(
-        Post::fields().status(),
-        vec!["draft".into(), "published".into()],
-    );
-    assert!(f.to_expr("published").is_some());
-    assert!(f.to_expr("").is_none());
-    assert!(f.to_expr("unknown").is_none());
-
-    // Ternary
-    let tf = TernaryFilter::r#for(Post::fields().featured());
-    assert!(tf.to_expr("true").is_some());
-    assert!(tf.to_expr("false").is_some());
-    assert!(tf.to_expr("").is_none());
-    assert!(tf.to_expr("all").is_none());
-
-    // Date
-    let df = DateFilter::r#for(Post::fields().created_at());
-    assert!(df.to_expr("2024-01-15T09:30:00Z").is_some());
-    assert!(df.to_expr("").is_none());
-    assert!(df.to_expr("not-a-date").is_none());
-
-    // Filter enum
-    let filter: Filter<Post> = f.into();
-    assert_eq!(filter.name(), "status");
-    assert!(filter.to_expr("published").is_some());
-}
-
-#[tokio::test]
 async fn typo_filter_warns_on_list_but_refuses_export() {
     // GH #93: unknown/typo'd filters warn visibly on the list (200) and fail
     // closed on export (400) instead of silently over-sharing.
@@ -294,4 +231,80 @@ async fn posts_list_renders_live_search_host() {
         html.contains("data-live-search"),
         "posts list must render the live host, got {html}"
     );
+}
+
+#[tokio::test]
+async fn posts_filter_with_cursor_paginates_filtered_rows() {
+    // GH #136 extension: `admin.rs` walked cursors unfiltered and
+    // `filter_check.rs` asserted filtered lists without following
+    // `after=`/`before=` — no `?filters=` + cursor test existed.
+    use showcase::models::{Author, Post};
+
+    let db = full_db().await;
+    let router = router(db.clone());
+    let client = demo_client(&router).await;
+    // The posts table paginates by 2: seed two more published rows so the
+    // `status:published` result spans two pages (Hello + 2 new).
+    let mut db_q = db.clone();
+    let authors = Author::all().exec(&mut db_q).await.unwrap();
+    let author_id = authors[0].id;
+    let tenant = authors[0].tenant_id;
+    for title in ["Third Published", "Fourth Published"] {
+        toasty::create!(Post {
+            tenant_id: tenant,
+            title: title,
+            body: "extra",
+            status: "published".to_string(),
+            featured: false,
+            created_at: "2024-02-01T00:00:00Z".parse::<jiff::Timestamp>().unwrap(),
+            image_path: "/images/extra.jpg".to_string(),
+            tags: "extra".to_string(),
+            author_id: author_id,
+        })
+        .exec(&mut db_q)
+        .await
+        .unwrap();
+    }
+    let resp = client.get("/admin/posts?filters=status:published").await;
+    assert!(resp.status().is_success());
+    let page1 = body_string(resp).await;
+    assert!(
+        !page1.contains("Second Post"),
+        "filtered page 1 must not show drafts: {page1}"
+    );
+    let next = find_href_with(&page1, "after=").expect("filtered page 1 needs a Next link");
+    assert!(
+        next.contains("filters="),
+        "the pager must preserve filters, got {next}"
+    );
+    let resp = client.get(&next).await;
+    assert!(resp.status().is_success());
+    let page2 = body_string(resp).await;
+    assert!(
+        !page2.contains("Second Post"),
+        "filtered page 2 must not show drafts: {page2}"
+    );
+    assert!(
+        find_href_with(&page2, "before=").is_some(),
+        "filtered page 2 needs a Previous link: {page2}"
+    );
+}
+
+/// Extracts the first `href="…"` containing `needle`.
+fn find_href_with(html: &str, needle: &str) -> Option<String> {
+    let mut rest = html;
+    loop {
+        let start = rest.find("href=\"")?;
+        rest = &rest[start + "href=\"".len()..];
+        let end = rest.find('"')?;
+        let href = &rest[..end];
+        if href.contains(needle) {
+            return Some(html_escape_back(href));
+        }
+        rest = &rest[end..];
+    }
+}
+
+fn html_escape_back(href: &str) -> String {
+    href.replace("&amp;", "&")
 }
