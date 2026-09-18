@@ -16,7 +16,7 @@ use topcoat::{
     view::View,
 };
 
-use crate::models::{Author, Comment, Post, User, BLOCKED_TENANT};
+use crate::models::{Author, BLOCKED_TENANT, Comment, Post, User};
 
 /// The theme's sans font, pulled from Fontsource and self-hosted as a Topcoat asset.
 const GEIST: Font = fontsource_font!(GEIST, host: Asset);
@@ -39,7 +39,6 @@ impl Resource for UserResource {
     fn navigation_label() -> String {
         "Team".to_string()
     }
-
 
     fn can_view_any(_cx: &Cx) -> bool {
         true
@@ -83,28 +82,32 @@ impl Resource for UserResource {
     fn form(_cx: &Cx) -> Schema {
         // Profile as a single-step wizard: the shipped Wizard seam grouping
         // a real section, not a throwaway demo page.
-        Schema::new(Wizard::new().schema(Section::new("Profile").schema((
-            TextInput::r#for(User::fields().name()).placeholder("Ada Lovelace"),
-            TextInput::r#for(User::fields().email())
-                .email()
-                .unique()
-                .placeholder("ada@example.com"),
-            // Static-options Select (the non-relationship kind): role
-            // vocabulary with presence defaulting from the column.
-            Select::r#for(User::fields().role())
-                .options(vec!["admin".to_string(), "member".to_string()])
-                .label("Role")
-                .optional(),
-            // Bool lens via static options: the shipped Field set has no
-            // checkbox, so Active renders as a Yes/No select.
-            Select::r#for(User::fields().active())
-                .options_with_labels(vec![
-                    ("true".to_string(), "Active".to_string()),
-                    ("false".to_string(), "Inactive".to_string()),
-                ])
-                .label("Active")
-                .optional(),
-        ))))
+        Schema::new(
+            Wizard::new().schema(
+                Section::new("Profile").schema((
+                    TextInput::r#for(User::fields().name()).placeholder("Ada Lovelace"),
+                    TextInput::r#for(User::fields().email())
+                        .email()
+                        .unique()
+                        .placeholder("ada@example.com"),
+                    // Static-options Select (the non-relationship kind): role
+                    // vocabulary with presence defaulting from the column.
+                    Select::r#for(User::fields().role())
+                        .options(vec!["admin".to_string(), "member".to_string()])
+                        .label("Role")
+                        .optional(),
+                    // Bool lens via static options: the shipped Field set has no
+                    // checkbox, so Active renders as a Yes/No select.
+                    Select::r#for(User::fields().active())
+                        .options_with_labels(vec![
+                            ("true".to_string(), "Active".to_string()),
+                            ("false".to_string(), "Inactive".to_string()),
+                        ])
+                        .label("Active")
+                        .optional(),
+                )),
+            ),
+        )
     }
 
     fn hydrate_form_values(record: &User) -> HashMap<String, String> {
@@ -142,10 +145,10 @@ impl Resource for UserResource {
             Some(r) if r == "admin" || r == "member" => r,
             _ => "member".to_string(),
         };
-        let active = match values.get("active").map(|s| s.trim().to_string()) {
-            Some(a) if a == "false" => false,
-            _ => true,
-        };
+        let active = !matches!(
+            values.get("active").map(|s| s.trim().to_string()),
+            Some(a) if a == "false"
+        );
         toasty::create!(User {
             name: name,
             email: email,
@@ -253,7 +256,6 @@ impl Resource for AuthorResource {
     fn navigation_label() -> String {
         "Writers".to_string()
     }
-
 
     fn query(cx: &Cx) -> toasty::stmt::Query<toasty::stmt::List<Author>> {
         let mut q = toasty::stmt::Query::<toasty::stmt::List<Author>>::all();
@@ -431,7 +433,6 @@ impl Resource for PostResource {
         "Blog Posts".to_string()
     }
 
-
     fn query(cx: &Cx) -> toasty::stmt::Query<toasty::stmt::List<Post>> {
         // Tenancy + explicit includes (one round-trip, no N+1).
         let mut q = toasty::stmt::Query::<toasty::stmt::List<Post>>::all();
@@ -565,8 +566,7 @@ impl Resource for PostResource {
             // Media as tabs: upload and tags grouped until tab JS lands.
             Tabs::new().schema((
                 FileUpload::r#for(Post::fields().image_path()),
-                Repeater::new("Tags")
-                    .schema(TextInput::r#for(Post::fields().tags()).label("Tag")),
+                Repeater::new("Tags").schema(TextInput::r#for(Post::fields().tags()).label("Tag")),
             )),
         ))
     }
@@ -723,9 +723,7 @@ impl Resource for PostResource {
                 None => rec.body.clone(),
             };
             let status = match values.get("status") {
-                Some(v) if v.trim() == "draft" || v.trim() == "published" => {
-                    v.trim().to_string()
-                }
+                Some(v) if v.trim() == "draft" || v.trim() == "published" => v.trim().to_string(),
                 _ => rec.status.clone(),
             };
             let featured = match values.get("featured") {
@@ -896,7 +894,9 @@ impl Resource for CommentResource {
             .unwrap_or_default()
             .trim()
             .parse::<uuid::Uuid>()
-            .map_err(|e| topcoat::Error::from(std::io::Error::other(format!("invalid post_id: {e}"))))?;
+            .map_err(|e| {
+                topcoat::Error::from(std::io::Error::other(format!("invalid post_id: {e}")))
+            })?;
         toasty::create!(Comment {
             body: body,
             post_id: post_id,

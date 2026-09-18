@@ -45,17 +45,26 @@ async fn admin_resource_list_page_serve_seeded_users() {
         html.contains("href=\"/admin/authors\"") || html.contains("/admin/authors"),
         "missing Writers navigation url in {html}"
     );
-    assert!(html.contains("Blog Posts"), "missing Blog Posts label in {html}");
+    assert!(
+        html.contains("Blog Posts"),
+        "missing Blog Posts label in {html}"
+    );
     assert!(
         html.contains("href=\"/admin/posts\"") || html.contains("/admin/posts"),
         "missing Blog Posts navigation url in {html}"
     );
-    assert!(html.contains("Discussion"), "missing Discussion label in {html}");
+    assert!(
+        html.contains("Discussion"),
+        "missing Discussion label in {html}"
+    );
     assert!(
         html.contains("href=\"/admin/comments\"") || html.contains("/admin/comments"),
         "missing Discussion navigation url in {html}"
     );
-    assert!(html.contains("Published"), "missing manual Published entry in {html}");
+    assert!(
+        html.contains("Published"),
+        "missing manual Published entry in {html}"
+    );
     assert!(
         html.contains("/admin/posts?filters=status:published")
             || html.contains("/admin/posts?filters=status%3Apublished")
@@ -249,7 +258,10 @@ async fn admin_list_pagination_walks_cursor_links() {
     // Page 1 (name asc, 25 per page): Ada + Alan + Grace, not the last user; a real Next link.
     assert!(page1.contains("Ada Lovelace"), "page1 missing Ada: {page1}");
     assert!(page1.contains("Alan Turing"), "page1 missing Alan: {page1}");
-    assert!(page1.contains("Grace Hopper"), "page1 missing Grace: {page1}");
+    assert!(
+        page1.contains("Grace Hopper"),
+        "page1 missing Grace: {page1}"
+    );
     assert!(
         !page1.contains("User 22"),
         "page1 must not show the last overflow row (page size 25): {page1}"

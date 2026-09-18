@@ -46,7 +46,10 @@ async fn comments_list_hides_delete_chrome() {
         !html.contains("/delete"),
         "read-only queue must not offer row delete: {html}"
     );
-    assert!(html.contains(">Edit<"), "queue must keep edit links: {html}");
+    assert!(
+        html.contains(">Edit<"),
+        "queue must keep edit links: {html}"
+    );
 }
 
 #[tokio::test]
@@ -62,10 +65,7 @@ async fn comments_create_form_shows_post_select() {
         html.contains("name=\"post_id\""),
         "missing post select: {html}"
     );
-    assert!(
-        html.contains("Hello Toasty"),
-        "missing post option: {html}"
-    );
+    assert!(html.contains("Hello Toasty"), "missing post option: {html}");
 }
 
 #[tokio::test]

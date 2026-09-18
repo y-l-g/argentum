@@ -324,7 +324,10 @@ async fn users_create_static_selects_set_role_and_active() {
     let resp = client.get("/admin/users/create").await;
     let html = body_string(resp).await;
     assert!(html.contains("Profile"), "missing wizard section: {html}");
-    assert!(html.contains("name=\"role\""), "missing role select: {html}");
+    assert!(
+        html.contains("name=\"role\""),
+        "missing role select: {html}"
+    );
     assert!(
         html.contains("name=\"active\""),
         "missing active select: {html}"
@@ -346,12 +349,16 @@ async fn users_create_static_selects_set_role_and_active() {
         resp.status()
     );
     let mut db_check = db.clone();
-    let created = User::filter(User::fields().email().eq("newadmin@example.com".to_string()))
-        .first()
-        .exec(&mut db_check)
-        .await
-        .unwrap()
-        .expect("created user");
+    let created = User::filter(
+        User::fields()
+            .email()
+            .eq("newadmin@example.com".to_string()),
+    )
+    .first()
+    .exec(&mut db_check)
+    .await
+    .unwrap()
+    .expect("created user");
     assert_eq!(created.role, "admin");
     assert!(!created.active);
 }

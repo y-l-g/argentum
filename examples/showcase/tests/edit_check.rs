@@ -302,7 +302,9 @@ async fn edit_sso_managed_user_is_forbidden() {
     let client = demo_client(&router).await;
     let mut db_q = db.clone();
     let ken = showcase::models::User::filter(
-        showcase::models::User::fields().name().eq("Ken Thompson".to_string()),
+        showcase::models::User::fields()
+            .name()
+            .eq("Ken Thompson".to_string()),
     )
     .first()
     .exec(&mut db_q)
@@ -332,7 +334,9 @@ async fn edit_sso_managed_user_is_forbidden() {
     );
     let mut db_check = db.clone();
     let unchanged = showcase::models::User::filter(
-        showcase::models::User::fields().email().eq("ken@example.com".to_string()),
+        showcase::models::User::fields()
+            .email()
+            .eq("ken@example.com".to_string()),
     )
     .first()
     .exec(&mut db_check)
