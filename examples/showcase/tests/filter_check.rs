@@ -284,9 +284,17 @@ async fn posts_filter_with_cursor_paginates_filtered_rows() {
         !page2.contains("Second Post"),
         "filtered page 2 must not show drafts: {page2}"
     );
+    let prev = find_href_with(&page2, "before=").expect("filtered page 2 needs a Previous link");
     assert!(
-        find_href_with(&page2, "before=").is_some(),
-        "filtered page 2 needs a Previous link: {page2}"
+        prev.contains("filters="),
+        "the Previous link must preserve filters, got {prev}"
+    );
+    let resp = client.get(&prev).await;
+    assert!(resp.status().is_success());
+    let back = body_string(resp).await;
+    assert!(
+        !back.contains("Second Post"),
+        "walking back must stay filtered: {back}"
     );
 }
 
@@ -299,12 +307,12 @@ fn find_href_with(html: &str, needle: &str) -> Option<String> {
         let end = rest.find('"')?;
         let href = &rest[..end];
         if href.contains(needle) {
-            return Some(html_escape_back(href));
+            return Some(unescape_href_entities(href));
         }
         rest = &rest[end..];
     }
 }
 
-fn html_escape_back(href: &str) -> String {
+fn unescape_href_entities(href: &str) -> String {
     href.replace("&amp;", "&")
 }

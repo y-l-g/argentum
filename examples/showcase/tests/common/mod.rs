@@ -16,7 +16,16 @@ use topcoat::router::{Body, Router};
 
 /// `Db` with the phase-1 users seed applied.
 pub async fn seeded_db() -> Db {
-    let mut db = test_db().await;
+    let mut db = Db::builder()
+        .models(toasty::models!(
+            showcase::models::User,
+            argentum_core::auth::AdminUser,
+            argentum_core::auth::AuthSession
+        ))
+        .connect("sqlite::memory:")
+        .await
+        .expect("connect");
+    db.push_schema().await.expect("push_schema");
     seed(&mut db).await.expect("seed");
     db
 }
@@ -24,18 +33,7 @@ pub async fn seeded_db() -> Db {
 /// `Db` with both seed phases (users, authors, posts, comments) and the
 /// shipped auth models.
 pub async fn full_db() -> Db {
-    let mut db = test_db().await;
-    seed(&mut db).await.expect("seed");
-    seed_phase2(&mut db).await.expect("seed_phase2");
-    db
-}
-
-/// One `Db::builder` for the showcase fixtures (GH #136 harness hardening):
-/// `seeded_db`/`full_db`/`tenanted_db` shared three copies of the model
-/// list + connect + push_schema.
-async fn test_db() -> Db {
-    // The showcase suites always need the full model set (auth + domain).
-    let db = Db::builder()
+    let mut db = Db::builder()
         .models(toasty::models!(
             showcase::models::User,
             showcase::models::Author,
@@ -48,6 +46,8 @@ async fn test_db() -> Db {
         .await
         .expect("connect");
     db.push_schema().await.expect("push_schema");
+    seed(&mut db).await.expect("seed");
+    seed_phase2(&mut db).await.expect("seed_phase2");
     db
 }
 
@@ -55,7 +55,19 @@ async fn test_db() -> Db {
 pub async fn tenanted_db() -> (Db, uuid::Uuid, uuid::Uuid) {
     let t1 = uuid::Uuid::from_u128(1);
     let t2 = uuid::Uuid::from_u128(2);
-    let mut db = test_db().await;
+    let mut db = Db::builder()
+        .models(toasty::models!(
+            showcase::models::User,
+            showcase::models::Author,
+            showcase::models::Post,
+            showcase::models::Comment,
+            argentum_core::auth::AdminUser,
+            argentum_core::auth::AuthSession
+        ))
+        .connect("sqlite::memory:")
+        .await
+        .expect("connect");
+    db.push_schema().await.expect("push_schema");
     create_admin(
         &mut db,
         DEMO_ADMIN_EMAIL,

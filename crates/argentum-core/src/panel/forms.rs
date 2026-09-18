@@ -1516,13 +1516,14 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn create_form_multipart_follows_file_upload_predicate() {
+    #[test]
+    fn create_form_multipart_predicate_follows_file_upload() {
         // GH #136 layer rule: core owns the `has_file_upload` predicate
-        // (see `has_file_upload_detects_nested`); the showcase
-        // (`posts_create_form_is_multipart` /
-        // `users_create_form_stays_urlencoded`) owns the HTTP enctype wiring.
-        // This pins that the form page's enctype follows the predicate.
+        // (see also `has_file_upload_detects_nested` for nested containers);
+        // the showcase (`posts_create_form_is_multipart` /
+        // `users_create_form_stays_urlencoded`) owns the HTTP enctype wiring
+        // (`render_form_page` maps this predicate to
+        // `enctype="multipart/form-data"` one-to-one).
         use crate::schema::{FileUpload, Schema, TextInput};
 
         #[derive(Debug, toasty::Model)]
@@ -1556,19 +1557,6 @@ mod tests {
         assert!(
             !WithoutFile::form(&cx).has_file_upload(),
             "plain schema must report no upload"
-        );
-        // The page maps the predicate to the enctype one-to-one.
-        assert_eq!(
-            WithFile::form(&cx)
-                .has_file_upload()
-                .then_some("multipart/form-data"),
-            Some("multipart/form-data")
-        );
-        assert_eq!(
-            WithoutFile::form(&cx)
-                .has_file_upload()
-                .then_some("multipart/form-data"),
-            None
         );
     }
 }
