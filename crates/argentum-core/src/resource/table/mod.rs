@@ -571,13 +571,9 @@ impl<M> Table<M> {
         match self.page_size {
             Some(per_page) => {
                 // Keep a cursor-free copy of the filtered+ordered query for
-                // cursor validation. Toasty's `Page` sets `next_cursor` when
-                // `len == page_size` and `prev_cursor` when `has_previous_page`,
-                // which leaves phantom cursors when the page sits exactly at a
-                // boundary (e.g. a `before` fetch that lands on the first page
-                // returns `len == page_size` so `prev_cursor` is set even though
-                // `before(prev_cursor)` is empty). Validate such cursors with a
-                // cheap `LIMIT 1` probe and hide phantoms.
+                // cursor validation: Toasty's `Page` sets `next_cursor`
+                // optimistically whenever `len == page_size`, which leaves a
+                // phantom cursor when the page sits exactly at a boundary.
                 let base_query = query.clone();
                 let mut paginated = toasty::stmt::Paginate::new(query, per_page);
                 // Toasty cursor pagination takes exactly one cursor (GH #155):
@@ -598,28 +594,50 @@ impl<M> Table<M> {
                     .await
                     .map_err(topcoat::Error::from)?;
                 let mut page = TablePage::from_toasty_page(loaded)?;
-                // Only probe for phantom cursors when the page is full
-                // (`len == per_page`); a short page cannot have a next page
-                // and probing would be a wasted round-trip (GH #75).
-                if page.rows.len() == per_page {
-                    if let Some(cursor) = page.next_cursor.clone() {
-                        let probe = toasty::stmt::Paginate::new(base_query.clone(), 1)
-                            .after(crate::cursor::decode(&cursor)?)
-                            .exec(&mut db)
-                            .await
-                            .map_err(topcoat::Error::from)?;
-                        if probe.items.is_empty() {
-                            page.next_cursor = None;
-                        }
-                    }
+                // Cursor-existence probes, one per landing direction (GH #172):
+                // the engine sets `next_cursor`/`prev_cursor` optimistically,
+                // so a page sitting exactly at a boundary carries a phantom
+                // cursor without validation. Each direction probes only the
+                // edge that can lie:
+                // - forward/first landing: prev is exact (absent on the first
+                //   page; otherwise the page we came from exists), next may be
+                //   phantom at the end boundary → probe next on full pages. A
+                //   short page cannot have a next page (GH #75).
+                // - backward landing: next is exact (the page we came from
+                //   follows), prev may be phantom when the fetch lands on the
+                //   first page → probe prev whenever one is reported.
+                //
+                // Deliberately NOT a `LIMIT per_page+1` fold: the engine
+                // derives `next_cursor` from the last *fetched* row, so
+                // trimming the extra row would anchor the next link past it —
+                // every `(per_page+1)`th row would vanish from forward walks.
+                // The probes keep the main fetch's cursors (which point at
+                // displayed rows) as the link anchors.
+                //
+                // Residual (same as ever): a concurrent delete landing between
+                // the main fetch and the click can still void a validated
+                // cursor — that degrades to the void-window recovery link
+                // (GH #98), never to silently skipped rows.
+                if state.before.is_some() {
                     if let Some(cursor) = page.prev_cursor.clone() {
-                        let probe = toasty::stmt::Paginate::new(base_query.clone(), 1)
+                        let probe = toasty::stmt::Paginate::new(base_query, 1)
                             .before(crate::cursor::decode(&cursor)?)
                             .exec(&mut db)
                             .await
                             .map_err(topcoat::Error::from)?;
                         if probe.items.is_empty() {
                             page.prev_cursor = None;
+                        }
+                    }
+                } else if page.rows.len() == per_page {
+                    if let Some(cursor) = page.next_cursor.clone() {
+                        let probe = toasty::stmt::Paginate::new(base_query, 1)
+                            .after(crate::cursor::decode(&cursor)?)
+                            .exec(&mut db)
+                            .await
+                            .map_err(topcoat::Error::from)?;
+                        if probe.items.is_empty() {
+                            page.next_cursor = None;
                         }
                     }
                 } else {
@@ -1118,5 +1136,318 @@ mod tests {
             TextColumn::r#for(User::fields().name(), |u: &User| u.name.clone()),
             TextColumn::r#for(User::fields().name(), |u: &User| u.name.clone()),
         ));
+    }
+
+    async fn seeded_users(names: &[&str]) -> topcoat::context::Cx {
+        let mut db = Db::builder()
+            .models(toasty::models!(User))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        for name in names {
+            toasty::create!(User {
+                name: name.to_string()
+            })
+            .exec(&mut db)
+            .await
+            .unwrap();
+        }
+        CxTestBuilder::new().app_context(db).build()
+    }
+
+    fn paged_users_table(cx: &topcoat::context::Cx, per_page: usize) -> Table<User> {
+        Table::<User>::r#for(cx)
+            .id(|u| u.id.to_string())
+            .pk(|u| u.id.to_string())
+            .columns(TextColumn::r#for(User::fields().name(), |u: &User| u.name.clone()).sortable())
+            .paginate(per_page)
+    }
+
+    #[tokio::test]
+    async fn full_walk_reaches_every_row_exactly_once_without_phantoms() {
+        // GH #172: prev/next existence must be exact at every boundary — no
+        // phantom links to empty pages, and no skipped rows. A `LIMIT
+        // per_page+1` fold with the extra row trimmed would anchor the next
+        // link past the extra row (the engine derives cursors from the last
+        // *fetched* row), dropping every `(per_page+1)`th row from forward
+        // walks — this walk fails loudly if that ever lands.
+        let cx = seeded_users(&["u01", "u02", "u03", "u04", "u05"]).await;
+        let tbl = paged_users_table(&cx, 2);
+        let query = || toasty::stmt::Query::<List<User>>::all();
+        // Forward walk from the first page to exhaustion.
+        let mut seen = Vec::new();
+        let mut state = TableState::default();
+        let mut last = tbl.load(&cx, query(), &state).await.unwrap();
+        assert!(last.prev_cursor.is_none(), "first page has no prev");
+        loop {
+            seen.extend(last.rows.iter().map(|u| u.name.clone()));
+            match last.next_cursor.clone() {
+                Some(cursor) => {
+                    state = TableState {
+                        after: Some(cursor),
+                        ..TableState::default()
+                    };
+                    last = tbl.load(&cx, query(), &state).await.unwrap();
+                }
+                None => break,
+            }
+        }
+        assert_eq!(seen, vec!["u01", "u02", "u03", "u04", "u05"]);
+        // Backward walk from the terminal page to the first.
+        let mut back = vec![last.rows.iter().map(|u| u.name.clone()).collect::<Vec<_>>()];
+        while let Some(cursor) = last.prev_cursor.clone() {
+            state = TableState {
+                before: Some(cursor),
+                ..TableState::default()
+            };
+            last = tbl.load(&cx, query(), &state).await.unwrap();
+            back.push(last.rows.iter().map(|u| u.name.clone()).collect::<Vec<_>>());
+        }
+        back.reverse();
+        assert_eq!(
+            back,
+            vec![
+                vec!["u01".to_string(), "u02".to_string()],
+                vec!["u03".to_string(), "u04".to_string()],
+                vec!["u05".to_string()],
+            ]
+        );
+        assert!(last.prev_cursor.is_none(), "first page has no prev");
+    }
+
+    #[tokio::test]
+    async fn exact_boundary_pages_carry_exact_cursors() {
+        // GH #172: a full page sitting exactly at the boundary (4 rows,
+        // `paginate(2)`) must report no next page — the engine's optimistic
+        // `next_cursor` alone would be a phantom link to an empty page.
+        let cx = seeded_users(&["u01", "u02", "u03", "u04"]).await;
+        let tbl = paged_users_table(&cx, 2);
+        let query = || toasty::stmt::Query::<List<User>>::all();
+        let first = tbl
+            .load(&cx, query(), &TableState::default())
+            .await
+            .unwrap();
+        assert_eq!(first.rows.len(), 2);
+        let cursor = first.next_cursor.clone().expect("page 1 of 2 has a next");
+        let state = TableState {
+            after: Some(cursor),
+            ..TableState::default()
+        };
+        let second = tbl.load(&cx, query(), &state).await.unwrap();
+        assert_eq!(
+            second
+                .rows
+                .iter()
+                .map(|u| u.name.clone())
+                .collect::<Vec<_>>(),
+            vec!["u03".to_string(), "u04".to_string()]
+        );
+        assert!(
+            second.next_cursor.is_none(),
+            "terminal full page must not offer a next page"
+        );
+        assert!(
+            second.prev_cursor.is_some(),
+            "second page must offer a prev page"
+        );
+    }
+
+    /// Counts sqlite driver executions inside `f`. The driver emits one
+    /// `tracing` event per execution (`driver exec`), so a scoped subscriber
+    /// observes the query count without touching the engine.
+    struct DriverExecCounter {
+        count: std::sync::atomic::AtomicUsize,
+    }
+
+    struct DriverExecVisitor {
+        driver: Option<String>,
+        message: String,
+    }
+
+    impl tracing::field::Visit for DriverExecVisitor {
+        fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
+            if field.name() == "driver" {
+                self.driver = Some(value.to_string());
+            }
+            self.record_debug(field, &format_args!("{value}"));
+        }
+
+        fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+            if field.name() == "message" {
+                self.message = format!("{value:?}");
+            }
+        }
+    }
+
+    impl tracing::Subscriber for DriverExecCounter {
+        fn enabled(&self, metadata: &tracing::Metadata<'_>) -> bool {
+            metadata.target().starts_with("toasty_driver_sqlite")
+        }
+
+        fn new_span(&self, _span: &tracing::span::Attributes<'_>) -> tracing::span::Id {
+            tracing::span::Id::from_u64(1)
+        }
+
+        fn record(&self, _span: &tracing::span::Id, _values: &tracing::span::Record<'_>) {}
+
+        fn record_follows_from(&self, _span: &tracing::span::Id, _follows: &tracing::span::Id) {}
+
+        fn event(&self, event: &tracing::Event<'_>) {
+            let mut visitor = DriverExecVisitor {
+                driver: None,
+                message: String::new(),
+            };
+            event.record(&mut visitor);
+            if visitor.driver.as_deref() == Some("sqlite")
+                && visitor.message.contains("driver exec")
+            {
+                self.count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }
+        }
+
+        fn enter(&self, _span: &tracing::span::Id) {}
+
+        fn exit(&self, _span: &tracing::span::Id) {}
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn full_page_costs_main_plus_single_direction_probe() {
+        // GH #172: a full page costs the main fetch plus exactly one `LIMIT
+        // 1` existence probe — next on forward/first landings, prev on
+        // backward landings (each direction probes only the edge that can
+        // lie). A short forward page costs the main fetch alone. Counts are
+        // calibrated in-test against bare toasty execs, so no
+        // engine-internal constant is pinned. `current_thread`: the scoped
+        // thread-local dispatcher sees every poll (no thread hops).
+        use std::sync::atomic::Ordering;
+        let cx = seeded_users(&["u01", "u02", "u03", "u04"]).await;
+        let tbl = paged_users_table(&cx, 2);
+        let counter = std::sync::Arc::new(DriverExecCounter {
+            count: std::sync::atomic::AtomicUsize::new(0),
+        });
+        let _guard = tracing::subscriber::set_default(counter.clone());
+        let count_around = |reset: bool| {
+            if reset {
+                counter.count.store(0, Ordering::SeqCst);
+            }
+            counter.count.load(Ordering::SeqCst)
+        };
+        let ordered = || User::all().order_by(User::fields().name().asc());
+        let mut db = crate::db::db(&cx);
+        // Baselines: one bare main-shaped exec and one bare probe-shaped exec.
+        count_around(true);
+        let bare_main = ordered().paginate(2).exec(&mut db).await.unwrap();
+        let bare_main_cost = count_around(false);
+        count_around(true);
+        let probe_cursor = bare_main.next_cursor.clone().unwrap();
+        ordered()
+            .paginate(1)
+            .after(probe_cursor)
+            .exec(&mut db)
+            .await
+            .unwrap();
+        let bare_probe_cost = count_around(false);
+        assert!(
+            bare_main_cost > 0 && bare_probe_cost > 0,
+            "the counter must observe driver execs, got main={bare_main_cost} probe={bare_probe_cost}"
+        );
+        // Full first page: main + exactly one next probe.
+        count_around(true);
+        let first = tbl
+            .load(
+                &cx,
+                toasty::stmt::Query::<List<User>>::all(),
+                &TableState::default(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            count_around(false),
+            bare_main_cost + bare_probe_cost,
+            "full page must cost exactly main + one next probe"
+        );
+        assert_eq!(first.rows.len(), 2);
+        // Short terminal page: main alone, no probe (paginate(3) over 4
+        // rows ends on a 1-row page).
+        let tbl3 = paged_users_table(&cx, 3);
+        count_around(true);
+        let head = tbl3
+            .load(
+                &cx,
+                toasty::stmt::Query::<List<User>>::all(),
+                &TableState::default(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(head.rows.len(), 3);
+        let tail_state = TableState {
+            after: head.next_cursor.clone(),
+            ..TableState::default()
+        };
+        count_around(true);
+        let tail = tbl3
+            .load(&cx, toasty::stmt::Query::<List<User>>::all(), &tail_state)
+            .await
+            .unwrap();
+        assert_eq!(tail.rows.len(), 1);
+        assert!(tail.next_cursor.is_none());
+        let short_cost = count_around(false);
+        count_around(true);
+        ordered().paginate(3).exec(&mut db).await.unwrap();
+        let bare_short_cost = count_around(false);
+        assert_eq!(
+            short_cost, bare_short_cost,
+            "short page must cost exactly one bare fetch (no probe)"
+        );
+        // Backward landing on a full page: main + exactly one prev probe
+        // (pp=2 table: page 2 [u03,u04], then back to full page 1).
+        let p1 = tbl
+            .load(
+                &cx,
+                toasty::stmt::Query::<List<User>>::all(),
+                &TableState::default(),
+            )
+            .await
+            .unwrap();
+        let p2_state = TableState {
+            after: p1.next_cursor.clone(),
+            ..TableState::default()
+        };
+        let p2 = tbl
+            .load(&cx, toasty::stmt::Query::<List<User>>::all(), &p2_state)
+            .await
+            .unwrap();
+        assert_eq!(p2.rows.len(), 2);
+        let back_to_first = TableState {
+            before: p2.prev_cursor.clone(),
+            ..TableState::default()
+        };
+        count_around(true);
+        let first_again = tbl
+            .load(
+                &cx,
+                toasty::stmt::Query::<List<User>>::all(),
+                &back_to_first,
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            first_again
+                .rows
+                .iter()
+                .map(|u| u.name.clone())
+                .collect::<Vec<_>>(),
+            vec!["u01".to_string(), "u02".to_string()]
+        );
+        assert!(
+            first_again.prev_cursor.is_none(),
+            "backward landing on the first page must hide the phantom prev"
+        );
+        assert_eq!(
+            count_around(false),
+            bare_main_cost + bare_probe_cost,
+            "backward landing must cost exactly main + one prev probe"
+        );
     }
 }

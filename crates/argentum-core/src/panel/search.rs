@@ -469,6 +469,7 @@ mod tests {
                         .sortable(),
                     )
                     .group_by("name", |d: &Dummy| d.name.clone())
+                    .paginate(25)
                     .live_search(true)
             }
             fn hydrate_form_values(_record: &Dummy) -> HashMap<String, String> {
