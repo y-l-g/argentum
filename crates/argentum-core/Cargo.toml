@@ -9,7 +9,7 @@ description = "The core toolkit types for Argentum, a server-rendered admin tool
 [dependencies]
 argentum-macros = { path = "../argentum-macros" }
 argentum-ui = { path = "../argentum-ui" }
-argon2 = { version = "0.6", optional = true, features = ["std"] }
+argon2 = { version = "0.6", optional = true }
 form_urlencoded = "1.2"
 heck = "0.5"
 http = "1"

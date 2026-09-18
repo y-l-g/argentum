@@ -209,18 +209,17 @@ impl Authenticator for PasswordAuth {
 /// Hash a password with Argon2id into a PHC string (the shipped storage
 /// format). Seeds and record fns call this; it never stores the plaintext.
 pub fn hash_password(password: &str) -> topcoat::Result<String> {
-    use argon2::password_hash::{PasswordHasher, SaltString, rand_core::OsRng};
+    use argon2::password_hash::PasswordHasher;
 
-    let salt = SaltString::generate(&mut OsRng);
     argon2::Argon2::default()
-        .hash_password(password.as_bytes(), &salt)
+        .hash_password(password.as_bytes())
         .map(|hash| hash.to_string())
         .map_err(topcoat::Error::from)
 }
 
 /// Verify a password against a PHC hash; `false` on any malformed input.
 fn verify_password(password: &str, phc: &str) -> bool {
-    use argon2::password_hash::{PasswordHash, PasswordVerifier};
+    use argon2::password_hash::{PasswordVerifier, phc::PasswordHash};
 
     let Ok(parsed) = PasswordHash::new(phc) else {
         return false;
