@@ -401,9 +401,10 @@ mod tests {
             html.matches("data-slot=\"field\"").count() >= 2,
             "expected 2 fields (data-slot=field) in {html}"
         );
-        assert!(
-            html.matches("text-sm text-destructive").count() >= 2,
-            "expected 2 error slots in {html}"
+        assert_eq!(
+            html.matches("text-sm text-destructive").count(),
+            0,
+            "valid fields render no error slot in {html}"
         );
     }
 

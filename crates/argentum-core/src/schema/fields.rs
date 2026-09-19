@@ -252,14 +252,16 @@ impl TextInput {
                         aria-describedby=(has_error.then_some(error_id.clone()))
                     }
                 )
-                ui_field_error(
-                    attrs: attributes! {
-                        id=(error_id.clone())
-                        class="ac-error"
-                        aria-live="polite"
-                    },
-                    (error_text)
-                )
+                if has_error {
+                    ui_field_error(
+                        attrs: attributes! {
+                            id=(error_id.clone())
+                            class="ac-error"
+                            aria-live="polite"
+                        },
+                        (error_text)
+                    )
+                }
             )
         }
         .boxed())
@@ -319,14 +321,16 @@ impl TextInput {
                         aria-describedby=(has_error.then_some(error_id.clone()))
                     }
                 )
-                ui_field_error(
-                    attrs: attributes! {
-                        id=(error_id.clone())
-                        class="ac-error"
-                        aria-live="polite"
-                    },
-                    (error_text)
-                )
+                if has_error {
+                    ui_field_error(
+                        attrs: attributes! {
+                            id=(error_id.clone())
+                            class="ac-error"
+                            aria-live="polite"
+                        },
+                        (error_text)
+                    )
+                }
             )
         }
         .boxed())
@@ -814,14 +818,16 @@ impl Select {
                         (opt)
                     }
                 </select>
-                ui_field_error(
-                    attrs: attributes! {
-                        id=(error_id.clone())
-                        class="ac-error"
-                        aria-live="polite"
-                    },
-                    (error_text)
-                )
+                if has_error {
+                    ui_field_error(
+                        attrs: attributes! {
+                            id=(error_id.clone())
+                            class="ac-error"
+                            aria-live="polite"
+                        },
+                        (error_text)
+                    )
+                }
             )
         }
         .boxed())
@@ -942,14 +948,16 @@ impl FileUpload {
                         aria-describedby=(has_error.then_some(error_id.clone()))
                     }
                 )
-                ui_field_error(
-                    attrs: attributes! {
-                        id=(error_id.clone())
-                        class="ac-error"
-                        aria-live="polite"
-                    },
-                    (error_text)
-                )
+                if has_error {
+                    ui_field_error(
+                        attrs: attributes! {
+                            id=(error_id.clone())
+                            class="ac-error"
+                            aria-live="polite"
+                        },
+                        (error_text)
+                    )
+                }
             )
         }
         .boxed())
@@ -1033,9 +1041,12 @@ mod tests {
             html.contains("for=\"name\""),
             "missing for/id linking in {html}"
         );
+        // No error → no error node: the primitive's contract is to render
+        // `field_error` only when there is an error, so a valid field leaves
+        // no empty `role="alert"` behind.
         assert!(
-            html.contains("text-sm text-destructive"),
-            "missing reserved error slot in {html}"
+            !html.contains("text-sm text-destructive") && !html.contains("role=\"alert\""),
+            "a valid field must not render an error slot in {html}"
         );
         // label derived from lens: DummyUser::fields().name() → "name" → "Name"
         assert!(html.contains(">Name"), "missing label in {html}");
@@ -1187,10 +1198,10 @@ mod tests {
             html_text.contains("type=\"text\"") && !html_text.contains("r#type"),
             "plain should render type=text, not r#type=text, in {html_text}"
         );
-        // reserved error slot
+        // A required-but-valid field renders no error node either.
         assert!(
-            html_req.contains("text-sm text-destructive"),
-            "error slot missing in {html_req}"
+            !html_req.contains("text-sm text-destructive"),
+            "a valid required field must not render an error slot in {html_req}"
         );
     }
 

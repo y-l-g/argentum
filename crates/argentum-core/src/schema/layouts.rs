@@ -236,10 +236,12 @@ impl Repeater {
                         }
                     )
                     <div class="grid gap-4">(child_view)</div>
-                    ui_field_error(
-                        attrs: attributes! { class="ac-error" aria-live="polite" },
-                        (error_text)
-                    )
+                    if has_error {
+                        ui_field_error(
+                            attrs: attributes! { class="ac-error" aria-live="polite" },
+                            (error_text)
+                        )
+                    }
                 )
             }
             .boxed())
@@ -255,10 +257,12 @@ impl Repeater {
                             <span class="text-destructive" aria-hidden="true">"*"</span>
                         }
                     )
-                    ui_field_error(
-                        attrs: attributes! { class="ac-error" aria-live="polite" },
-                        (error_text)
-                    )
+                    if has_error {
+                        ui_field_error(
+                            attrs: attributes! { class="ac-error" aria-live="polite" },
+                            (error_text)
+                        )
+                    }
                 )
             }
             .boxed())
