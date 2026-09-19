@@ -1,13 +1,15 @@
 use std::time::Instant;
 
-use argentum_core::{Panel, Resource, Schema, Table, TextColumn, TextInput, tenant_id};
+use argentum_core::{
+    Panel, Resource, Schema, Table, TableState, Tenant, TextColumn, TextInput, tenant_id,
+};
 use jiff::Timestamp;
 use toasty::{Db, Deferred};
 use topcoat::{
     Result,
-    context::{Cx, memoize},
+    context::{Cx, CxTestBuilder},
     router::{Router, Slot, layout},
-    view::View,
+    view::{View, ViewExt},
 };
 
 /// Author for bench — tenant_id + posts HasMany (mirrors showcase).
@@ -97,6 +99,18 @@ impl Resource for AuthorResource {
 pub struct PostResource;
 impl Resource for PostResource {
     type Model = Post;
+    // Bench policy (GH #171): the shipped list 403s unless `can_view_any`
+    // passes and a tenant is present — the harness asserts both per iteration
+    // so the measured path is the enforced one, not an open query.
+    fn can_view_any(_cx: &Cx) -> bool {
+        true
+    }
+    fn can_view(_cx: &Cx, _record: &Post) -> bool {
+        true
+    }
+    fn requires_tenant() -> bool {
+        true
+    }
     fn query(cx: &Cx) -> toasty::stmt::Query<toasty::stmt::List<Post>> {
         let mut q = toasty::stmt::Query::<toasty::stmt::List<Post>>::all();
         if let Some(tid) = tenant_id(cx) {
@@ -137,14 +151,7 @@ impl Resource for PostResource {
     }
 }
 
-#[memoize]
-async fn memoized_posts(cx: &Cx) -> Vec<Post> {
-    let mut db = argentum_core::db::db(cx);
-    PostResource::query(cx).exec(&mut db).await.expect("query")
-}
-
-async fn seed_50(db: &mut Db) {
-    let tenant = uuid::Uuid::nil();
+async fn seed_50(db: &mut Db, tenant: uuid::Uuid) {
     let mut author_ids = Vec::new();
     for i in 0..5 {
         let a = toasty::create!(Author {
@@ -188,52 +195,101 @@ async fn seed_50(db: &mut Db) {
     }
 }
 
-async fn run_bench(iterations: usize) {
-    let mut db = Db::builder()
-        .models(toasty::models!(Author, Post, Comment))
-        .connect("sqlite::memory:")
-        .await
-        .expect("connect");
-    db.push_schema().await.expect("push_schema");
-    seed_50(&mut db).await;
+/// Fresh request `Cx` for one bench iteration: the pooled `Db` on the app
+/// context, the run's tenant (the production seam — the auth layer injects
+/// `Tenant`, the bench sets it directly), and real request `Parts` carrying
+/// the list URI so `TableState::from_cx` parses a genuine (empty: first page,
+/// no search/filter/sort) query instead of the no-request-context early return.
+fn bench_cx(db: &Db, tenant: uuid::Uuid) -> Cx {
+    let parts = http::Request::builder()
+        .uri("/admin/posts")
+        .body(())
+        .expect("bench request parts")
+        .into_parts()
+        .0;
+    CxTestBuilder::new()
+        .app_context(db.clone())
+        .request_context(parts)
+        .request_context(Tenant(tenant))
+        .build()
+}
 
-    // Build Cx with Db in app_context (for memoize)
-    let cx = {
-        use topcoat::context::CxTestBuilder;
-        CxTestBuilder::new().app_context(db.clone()).build()
-    };
+fn summarize(mut times: Vec<f64>) -> (f64, f64, f64, f64, f64) {
+    times.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let n = times.len();
+    (
+        times[n / 2],
+        times[(n as f64 * 0.9) as usize % n],
+        times[(n as f64 * 0.99) as usize % n],
+        times[0],
+        times[n - 1],
+    )
+}
 
-    // Warmup memoized loader
-    let _ = memoized_posts(&cx).await;
-
-    let mut times_ms: Vec<f64> = Vec::with_capacity(iterations);
+/// The honest list path (GH #171): `TableState::from_cx` → `Table::load`
+/// (`Resource::query` + the declared `.paginate(50)`, tenancy set, policy
+/// enforced) → `render_with_state` → HTML. Fresh `Cx` per iteration (cold —
+/// no memoize hits across iterations).
+///
+/// This is the exact body of the shipped `panel::load_table_page`
+/// (`table.load(cx, R::query(cx), state)` behind its paginate guard —
+/// `load_table_page` itself is `pub(crate)`, so the detached harness mirrors
+/// it rather than calling through). The declared page size is asserted so the
+/// `.paginate(50)` on the resource table is genuinely exercised through the
+/// loader, not merely declared.
+async fn bench_list_path(db: &Db, tenant: uuid::Uuid, iterations: usize) -> Vec<f64> {
+    let mut times_ms = Vec::with_capacity(iterations);
     for _ in 0..iterations {
+        let cx = bench_cx(db, tenant);
+        // Policy gate, mirroring `panel::resource_list`: the shipped page
+        // 403s without these — a bench that skipped them would not be the
+        // list path.
+        argentum_core::tenancy::require_tenant(&cx).expect("bench Cx must carry a tenant");
+        assert!(
+            PostResource::can_view_any(&cx),
+            "bench resource must pass can_view_any"
+        );
         let start = Instant::now();
-        // The workload: 50 rows, 2 includes (author + comments), via Resource::query
-        // We measure the memoized path (cache hit after warmup) — this is the
-        // streaming re-render cost; the uncached query is also measured below.
-        let _ = memoized_posts(&cx).await;
-        let elapsed = start.elapsed().as_secs_f64() * 1000.0;
-        times_ms.push(elapsed);
+        let state = TableState::from_cx(&cx);
+        let table = PostResource::table(&cx);
+        assert_eq!(
+            table.page_size(),
+            Some(50),
+            "declared .paginate(50) must reach the loader"
+        );
+        let page = table
+            .load(&cx, PostResource::query(&cx), &state)
+            .await
+            .expect("table load");
+        assert_eq!(page.rows.len(), 50, "expected first page of 50 rows");
+        let html = table
+            .render_with_state(&cx, page, &state, "/admin/posts")
+            .await
+            .expect("table render")
+            .single()
+            .await
+            .expect("resolve view")
+            .render(&cx);
+        assert!(
+            html.contains("Post 00") && html.contains("Post 49"),
+            "rendered HTML must carry the 50 rows"
+        );
+        times_ms.push(start.elapsed().as_secs_f64() * 1000.0);
     }
-    times_ms.sort_by(|a, b| a.partial_cmp(b).unwrap());
-    let p50 = times_ms[iterations / 2];
-    let p90 = times_ms[(iterations as f64 * 0.9) as usize % iterations];
-    let p99 = times_ms[(iterations as f64 * 0.99) as usize % iterations];
-    let min = times_ms[0];
-    let max = times_ms[iterations - 1];
+    times_ms
+}
 
-    // Also measure uncached query (direct DB) for comparison
-    let mut uncached_times: Vec<f64> = Vec::with_capacity(20);
-    for _ in 0..20 {
-        let fresh_cx = {
-            use topcoat::context::CxTestBuilder;
-            // New Cx with same Db but different memoization key (bypass cache by using fresh Cx)
-            CxTestBuilder::new().app_context(db.clone()).build()
-        };
+/// Query-only diagnostic (GH #171): raw `Resource::query` exec + touching
+/// includes on a fresh `Cx` — no `Table::load`, no render. Kept as a labeled
+/// diagnostic next to the list-path number; it is not the budget path and is
+/// not gated.
+async fn bench_query_only(db: &Db, tenant: uuid::Uuid, iterations: usize) -> Vec<f64> {
+    let mut times_ms = Vec::with_capacity(iterations);
+    for _ in 0..iterations {
+        let cx = bench_cx(db, tenant);
         let start = Instant::now();
-        let mut db2 = argentum_core::db::db(&fresh_cx);
-        let rows: Vec<Post> = PostResource::query(&fresh_cx)
+        let mut db2 = argentum_core::db::db(&cx);
+        let rows: Vec<Post> = PostResource::query(&cx)
             .exec(&mut db2)
             .await
             .expect("query");
@@ -243,38 +299,80 @@ async fn run_bench(iterations: usize) {
             let _ = p.author.get().name.clone();
             let _ = p.comments.get().len();
         }
-        let elapsed = start.elapsed().as_secs_f64() * 1000.0;
-        uncached_times.push(elapsed);
+        times_ms.push(start.elapsed().as_secs_f64() * 1000.0);
     }
-    uncached_times.sort_by(|a, b| a.partial_cmp(b).unwrap());
-    let uncached_p50 = uncached_times[uncached_times.len() / 2];
+    times_ms
+}
 
-    println!("=== Argentum Phase 2 bench: 50 rows, 2 includes (author + comments) ===");
-    println!("iterations: {iterations} (memoized), 20 (uncached)");
+async fn run_leg(db: Db, label: &str, iterations: usize) {
+    // Fresh tenant per run: reruns (notably Postgres, a persistent server)
+    // stay exact without cleanup — prior runs' rows belong to dead tenants
+    // the tenancy-scoped query filters out.
+    let tenant = uuid::Uuid::new_v4();
+    let mut seed_db = db.clone();
+    seed_50(&mut seed_db, tenant).await;
+    let (p50, p90, p99, min, max) = summarize(bench_list_path(&db, tenant, iterations).await);
+    let (q50, _, _, _, _) = summarize(bench_query_only(&db, tenant, 20).await);
+    println!("--- {label} ---");
+    println!("tenant: {tenant} (fresh per run; 5 authors + 50 posts + 50 comments)");
     println!(
-        "memoized (cache hit) — p50: {p50:.2}ms p90: {p90:.2}ms p99: {p99:.2}ms min: {min:.2}ms max: {max:.2}ms"
+        "list path (from_cx -> load -> render_with_state -> HTML), {iterations} iters — p50: {p50:.2}ms p90: {p90:.2}ms p99: {p99:.2}ms min: {min:.2}ms max: {max:.2}ms"
     );
-    println!("uncached (1 query with 2 includes) — p50: {uncached_p50:.2}ms");
-    println!("budget: <40ms p50 (Phase 2, 50 rows, 2 includes)");
-    // The budget gates the COLD path (GH #103): fresh Cx per iteration, no
-    // memoize hits — the memoized figure is reporting only. FAIL exits
-    // nonzero so a local/on-demand run can gate on it; the default CI
-    // bench-check job compiles the harness and checks lockstep pins only.
-    let mut failed = false;
-    if p50 < 40.0 {
-        println!("PASS: p50 {p50:.2}ms < 40ms (memoized, informational)");
-    } else {
-        println!("WARN: memoized p50 {p50:.2}ms >= 40ms (informational only)");
+    println!("query-only diagnostic (cold Cx, no load/render), 20 iters — p50: {q50:.2}ms");
+}
+
+async fn run_bench(iterations: usize) {
+    println!("=== Argentum Phase-2 bench (GH #171, UNGATED): real list path ===");
+    println!("workload: 50 rows, 2 includes (author + comments), tenancy set, policy enforced");
+    println!(
+        "path: TableState::from_cx -> Table::load (Resource::query + .paginate(50)) -> render_with_state -> HTML"
+    );
+    println!(
+        "budget: <40ms p50 (Phase 2, 50 rows, 2 includes) — reference only; UNGATED while GH #171 collects numbers, gating follows in a follow-up"
+    );
+
+    // SQLite leg — always runs.
+    let sqlite = Db::builder()
+        .models(toasty::models!(Author, Post, Comment))
+        .connect("sqlite::memory:")
+        .await
+        .expect("connect sqlite");
+    sqlite.push_schema().await.expect("push_schema sqlite");
+    run_leg(sqlite, "sqlite (sqlite::memory:)", iterations).await;
+
+    // Postgres leg — runs when pointed at a server (GH #171: SQLite AND
+    // Postgres). No local Postgres is assumed: set
+    // ARGENTUM_BENCH_POSTGRES_URL to opt in (CI provides the service). The
+    // URL must name a disposable bench database — the leg resets it, pushes
+    // schema, and seeds under a fresh tenant each run.
+    match std::env::var("ARGENTUM_BENCH_POSTGRES_URL") {
+        Err(_) => println!(
+            "--- postgres --- skipped (set ARGENTUM_BENCH_POSTGRES_URL=postgresql://... to run)"
+        ),
+        Ok(url) => {
+            // The bench database is disposable by contract: drop it first so
+            // reruns start empty — `push_schema` is not idempotent on
+            // Postgres (`relation "authors" already exists` on the second
+            // run). Resetting drops the database out from under the handle's
+            // pool, so reconnect afterwards. Seeding then uses a fresh tenant
+            // per run regardless.
+            let pg = Db::builder()
+                .models(toasty::models!(Author, Post, Comment))
+                .connect(&url)
+                .await
+                .expect("connect postgres");
+            pg.reset_db().await.expect("reset_db postgres");
+            drop(pg);
+            let pg = Db::builder()
+                .models(toasty::models!(Author, Post, Comment))
+                .connect(&url)
+                .await
+                .expect("reconnect postgres");
+            pg.push_schema().await.expect("push_schema postgres");
+            run_leg(pg, "postgres (ARGENTUM_BENCH_POSTGRES_URL)", iterations).await;
+        }
     }
-    if uncached_p50 < 40.0 {
-        println!("PASS: uncached (cold Cx) p50 {uncached_p50:.2}ms < 40ms");
-    } else {
-        println!("FAIL: uncached (cold Cx) p50 {uncached_p50:.2}ms >= 40ms");
-        failed = true;
-    }
-    if failed {
-        std::process::exit(1);
-    }
+    println!("done (ungated — no PASS/FAIL; the p50 gate follows in a follow-up per GH #171)");
 }
 
 #[layout("/admin")]
@@ -313,7 +411,7 @@ async fn main() {
         .await
         .expect("connect");
     db.push_schema().await.expect("push_schema");
-    seed_50(&mut db).await;
+    seed_50(&mut db, uuid::Uuid::nil()).await;
     let router = router(db);
     println!("storefront-argentum listening on http://localhost:3000/ (try /admin/posts)");
     topcoat::start(router).await.unwrap();

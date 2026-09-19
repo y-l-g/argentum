@@ -1,10 +1,15 @@
 #!/usr/bin/env bash
-# Argentum Phase 2 bench — in-process cold-path gate for the Argentum list
-# (50 rows, 2 includes, Table as Boundary with #[memoize]).
+# Argentum Phase 2 bench — oha + in-process honest bench for the Argentum list
+# (50 rows, 2 includes, real list path with tenancy + policy, GH #171).
 # Baselines (axum-maud, leptos) are compile-only smoke, not comparable
 # (GH #159): they render stubs, so no cross-framework oha matrix exists.
 # Mirrors tokio-rs/topcoat/benchmarks/scripts/bench.sh methodology
 # (loopback HTTP/1.1, oha) for the Argentum target only.
+#
+# UNGATED (GH #171): the in-process leg collects numbers, it does not gate —
+# no PASS/FAIL on timings. The oha p50 print below is informational too.
+# Postgres leg: set ARGENTUM_BENCH_POSTGRES_URL (disposable bench database)
+# and the in-process run covers it alongside SQLite; otherwise SQLite only.
 #
 # Usage:
 #   ./benchmarks/scripts/bench.sh [argentum|axum-maud|leptos]   (default: argentum)
@@ -82,12 +87,7 @@ run_oha() {
     # oha reports p50 in seconds (float); convert to ms
     local p50ms
     p50ms=$(awk "BEGIN {print $p50*1000}")
-    printf "bench.sh: p50 %.2fms (budget <40ms) " "$p50ms"
-    if awk "BEGIN {exit !($p50ms < 40)}"; then
-      echo "PASS"
-    else
-      echo "FAIL"
-    fi
+    printf "bench.sh: p50 %.2fms (budget <40ms, reference only — UNGATED per GH #171)\n" "$p50ms"
   fi
 }
 
@@ -169,7 +169,7 @@ done
     cat "$RESULTS_DIR"/argentum_bench.txt 2>/dev/null || echo "no bench.txt"
   fi
   echo ""
-  echo "Budget: Phase 2 Argentum list (50 rows, 2 includes) <40ms p50 on the in-process cold path (see README.md). Baselines are smoke-only, not comparable (GH #159)."
+  echo "Budget: Phase 2 Argentum list (50 rows, 2 includes) <40ms p50 — reference only, UNGATED per GH #171 (numbers first, gate follows). Baselines are smoke-only, not comparable (GH #159)."
 } | tee "$RESULTS_DIR/results.md"
 
 echo "bench.sh: done -> $RESULTS_DIR/results.md"

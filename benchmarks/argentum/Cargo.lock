@@ -3706,6 +3706,7 @@ name = "storefront-argentum"
 version = "0.1.0"
 dependencies = [
  "argentum-core",
+ "http",
  "jiff",
  "toasty",
  "tokio",

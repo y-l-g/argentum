@@ -10,9 +10,11 @@ apps are compile-only smoke (stubs, not comparable) since GH #159 — they
 render no 50-row workload, so no cross-framework comparison exists.
 
 Phase-2 workload: **list with 50 rows, 2 includes (`author` + `comments`),
-all `Policy`-checked, `Table` as `Boundary` with `#[memoize]`**, plus
-`SelectFilter`/`TernaryFilter`/`DateFilter` composition and `group_by` in-memory.
-The budget is **< 40 ms p50** on SQLite/Postgres local (TTFB dominated by the
+tenancy set, `can_view_any` enforced**, measured on the real list path
+(`TableState::from_cx` → `Table::load` over `Resource::query` with the
+declared `.paginate(50)` → `render_with_state` → HTML). The raw query-only
+figure is kept as a labeled diagnostic alongside it. The budget is
+**< 40 ms p50** on SQLite/Postgres local (TTFB dominated by the
 slowest `defer` region's skeleton, not the query — `README.md:8`).
 
 Layout:
@@ -35,12 +37,21 @@ so the harness never interferes with `cargo test` / `clippy`.
 # Bench the Argentum list (50 rows, 2 includes) without starting a server:
 cargo run --manifest-path benchmarks/argentum/Cargo.toml -- --bench --iterations 100
 
-# The budget (<40ms p50) gates the COLD path (fresh Cx per iteration);
-# FAIL exits nonzero so the budget can gate a local or on-demand run (GH #103).
+# The numbers are UNGATED (GH #171): the harness measures the real list path
+# and prints the <40ms p50 budget for reference, but never PASS/FAILs on it —
+# numbers are collected first, the p50 gate follows in a follow-up. The
+# process exits nonzero only on harness errors (connect/load/render failure).
 # CI's bench-check job compiles the harness with --locked and enforces the
 # lockstep pins; it does not run the benchmark itself.
 
-# Budget-gated bench (requires `oha` for the HTTP leg):
+# Postgres leg (opt-in — no local Postgres assumed):
+# ARGENTUM_BENCH_POSTGRES_URL=postgresql://toasty:toasty@localhost:5432/toasty \
+#   cargo run --manifest-path benchmarks/argentum/Cargo.toml -- --bench
+# The URL must name a disposable bench database (the leg resets it, pushes
+# schema, and seeds under a fresh tenant each run). Without it, only the
+# SQLite leg runs.
+
+# Full bench incl. HTTP leg (requires `oha` for the HTTP leg; timings informational, ungated):
 ./benchmarks/scripts/bench.sh
 # -> benchmarks/results/bench.json + results.md (argentum only; baselines smoke-only)
 
@@ -62,7 +73,11 @@ starts the Topcoat server at `http://localhost:3000/` for manual inspection.
 * **Pagination** — cursor pagination (Toasty appends the PK tie-breaker internally).
 
 Budget v1 (Phase 1): list (25 rows, 2 includes, 1 count) `< 40 ms p50`.
-Budget v2 (Phase 2): list (50 rows, 2 includes) `< 40 ms p50` on the cold path.
+Budget v2 (Phase 2): list (50 rows, 2 includes) `< 40 ms p50` on the real
+list path (from_cx → load → render_with_state → HTML), tenancy set and policy
+enforced. GH #171 lands the honest bench UNGATED (numbers first, gate with
+headroom in a follow-up): the harness prints the budget for reference and
+never PASS/FAILs on it.
 
 Results are written per run under `benchmarks/results/` (gitignored). CI's
 bench-check job compiles the harness with `--locked` and verifies its

@@ -20,8 +20,13 @@ argentum-core = { path = "../../crates/argentum-core" }
 # `default-features = false` mirrors the workspace baseline (GH #175): without
 # it the bench builds upstream defaults (e.g. toasty's `rustls`) the shipped
 # toolkit never compiles against.
+# Feature-flag delta vs the workspace (GH #171, documented): `postgresql` is
+# enabled here only — the workspace ships sqlite-only, while the honest bench
+# must also measure the Postgres list path. Revs stay in lockstep per the pin
+# policy below; only features differ.
 topcoat = { git = "https://github.com/tokio-rs/topcoat", branch = "main", default-features = false, features = ["router", "serve", "runtime", "discover", "asset"] }
-toasty = { git = "https://github.com/tokio-rs/toasty", branch = "main", default-features = false, features = ["sqlite", "jiff"] }
+toasty = { git = "https://github.com/tokio-rs/toasty", branch = "main", default-features = false, features = ["sqlite", "postgresql", "jiff"] }
+http = "1"
 jiff = "0.2"
 uuid = { version = "1.23", features = ["v4"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
