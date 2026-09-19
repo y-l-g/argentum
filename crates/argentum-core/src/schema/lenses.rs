@@ -1,40 +1,40 @@
 //! Field lenses — typed Toasty paths and their app-level metadata.
 //!
 //! Base bridge layer (with `pk`): these two modules are the only schema
-//! modules that name `toasty_core` (upstream #114/#115), so upstream
+//! modules that name `toasty_core` (upstream #114/#183), so upstream
 //! churn has one blast radius. Everything above reads lenses through
 //! `FieldLens` and the helpers here.
+//!
+//! [`lens_field`] hands callers the built `app::Field`, so name, label,
+//! nullability, storage name, `FieldTy`, `auto`, and `constraints` all come
+//! from one walk. [`lens_field_unique`] covers the one property `Field` does
+//! not carry, because Toasty keeps uniqueness on the model's index list.
 
 /// Spec alias — ADR-0001 typed lens. Currently uses `toasty::stmt::Path` directly;
-/// a richer `FieldLens` trait (carrying `FieldTy`, nullability, etc.) will replace
-/// this alias when Toasty exposes the helpers publicly (see GH #11, upstream
-/// issue #115).
+/// a richer `FieldLens` trait will replace this alias if Toasty exposes the
+/// metadata walk directly (see GH #11, upstream issue #183).
 pub type FieldLens<M, T> = toasty::stmt::Path<M, T>;
 
-/// Resolve a typed lens to its app-level field name and capitalized label.
+/// Resolve a typed lens to the app-level [`Field`] behind it.
 ///
-/// Hides the `Path → toasty_core::stmt::Path → projection → M::schema()` walk
-/// (upstream issue #114). Used by `TextColumn` and the other table-side
-/// helpers; the form inputs use [`lens_field_name_label_and_nullable`], which
-/// adds the nullability their required-defaults read (GH #100, GH #147).
+/// The single walk over `Path → toasty_core::stmt::Path → projection`, reading
+/// off the model's built schema (upstream issues #114/#183). Callers read
+/// name, label, nullability, storage name, `FieldTy`, `auto`, and `constraints`
+/// off the result; uniqueness is the one property a `Field` cannot answer, so
+/// it has [`lens_field_unique`] of its own.
+///
+/// `model` is the owning `Model::schema()`, passed in so one form-input
+/// construction resolves the schema once (never per row) and shares it with
+/// [`lens_field_unique`]. The returned `Field` is owned because
+/// `Model::schema()` builds the model by value with no cache, so no borrow of
+/// it can escape — but only the one field is cloned.
 ///
 /// Traversal lenses are rejected (GH #100): a multi-step path has no single
 /// field name, and silently binding its first segment misbinds in release.
-pub(crate) fn lens_field_name_and_label<M, T>(path: FieldLens<M, T>) -> (String, String)
-where
-    M: toasty::schema::Model,
-{
-    let (field_name, label_str, _nullable) = lens_field_name_label_and_nullable(path);
-    (field_name, label_str)
-}
-
-/// Field name, label, and nullability behind a lens in one walk (GH #100) —
-/// the required-default needs all three, in `TextInput`, `Select`, and
-/// `FileUpload` (GH #147); walking once keeps the single `toasty_core`
-/// import site obvious.
-pub(crate) fn lens_field_name_label_and_nullable<M, T>(
+pub(crate) fn lens_field<M, T>(
     path: FieldLens<M, T>,
-) -> (String, String, bool)
+    model: &toasty::schema::app::Model,
+) -> toasty::schema::app::Field
 where
     M: toasty::schema::Model,
 {
@@ -46,18 +46,46 @@ where
         .first()
         .copied()
         .expect("field lens must have a projection");
-    let model = M::schema();
-    let (field_name, nullable) = model
-        .fields()
+    model
+        .as_root_unwrap()
+        .fields
         .get(idx)
-        .map(|f| (f.name.app_unwrap().to_string(), f.nullable))
+        .cloned()
         .unwrap_or_else(|| {
             panic!(
                 "field index {idx} out of bounds for {}",
                 std::any::type_name::<M>()
             )
-        });
-    (field_name.clone(), capitalize(&field_name), nullable)
+        })
+}
+
+/// The capitalized label for a field's app-level name.
+pub(crate) fn lens_label(field: &toasty::schema::app::Field) -> String {
+    capitalize(field.name.app_unwrap())
+}
+
+/// Whether `field` is backed by a single-field unique index.
+///
+/// Uniqueness is not a property of a `Field`: Toasty stores it on the model's
+/// index list, so this needs the owning `ModelRoot` too. Only a *single-field*
+/// unique index counts — the components of a composite `#[unique(a, b)]` are
+/// not unique on their own — and the primary key is excluded, since a key
+/// column is unique by construction rather than by a declared constraint.
+///
+/// This reports declared schema uniqueness, not a global uniqueness guarantee:
+/// SQL permits multiple `NULL`s in a unique index, and enum-variant columns are
+/// storage-nullable, so a nullable unique field can still repeat. That is the
+/// same caveat the app-side pre-check has always carried (`panel/forms.rs`).
+pub(crate) fn lens_field_unique(
+    field: &toasty::schema::app::Field,
+    model: &toasty::schema::app::ModelRoot,
+) -> bool {
+    model.indices.iter().any(|index| {
+        index.unique
+            && !index.primary_key
+            && index.fields.len() == 1
+            && index.fields[0].field == field.id
+    })
 }
 
 /// Panic unless a lens path addresses exactly one field (GH #100).
@@ -105,5 +133,50 @@ mod tests {
         two.chain(&toasty_core::stmt::Path::field(DummyUser::id(), 1));
         let result = std::panic::catch_unwind(|| require_single_segment(&two, "lens"));
         assert!(result.is_err(), "traversal lens must panic, not misbind");
+    }
+
+    /// The lens resolves to the field it names, labels it, and reports the
+    /// nullability the required-default reads.
+    #[test]
+    fn lens_field_resolves_name_label_and_nullability() {
+        use toasty::schema::Model;
+        let model = DummyUser::schema();
+
+        let email = lens_field(DummyUser::fields().email(), &model);
+        assert_eq!(email.name.app_unwrap(), "email");
+        assert_eq!(lens_label(&email), "Email");
+        assert!(!email.nullable());
+        assert_eq!(email.name.storage_name(), Some("email"));
+
+        let name = lens_field(DummyUser::fields().name(), &model);
+        assert_eq!(name.name.app_unwrap(), "name");
+        assert_eq!(lens_label(&name), "Name");
+    }
+
+    /// `#[unique]` lives on the model's index list, not the field, so
+    /// uniqueness is a separate lookup — and a bare field is not unique.
+    #[test]
+    fn lens_field_unique_reads_the_model_index_list() {
+        use toasty::schema::Model;
+        let model = DummyUser::schema();
+        let root = model.as_root_unwrap();
+
+        let email = lens_field(DummyUser::fields().email(), &model);
+        assert!(
+            lens_field_unique(&email, root),
+            "#[unique] on email must surface as a single-field unique index"
+        );
+
+        let name = lens_field(DummyUser::fields().name(), &model);
+        assert!(
+            !lens_field_unique(&name, root),
+            "a field with no unique index must not report unique"
+        );
+
+        let id = lens_field(DummyUser::fields().id(), &model);
+        assert!(
+            !lens_field_unique(&id, root),
+            "the primary key is unique by construction, not by declared constraint"
+        );
     }
 }

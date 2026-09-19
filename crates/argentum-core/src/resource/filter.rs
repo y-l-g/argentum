@@ -4,7 +4,7 @@
 
 use toasty::stmt::Expr;
 
-use crate::schema::{FieldLens, lens_field_name_and_label};
+use crate::schema::{FieldLens, lens_field, lens_label};
 
 /// Select filter — exact match on a `String` field (e.g. `status = "published"`).
 pub struct SelectFilter<M> {
@@ -41,7 +41,8 @@ where
 {
     /// Call sites read `SelectFilter::for(Post::fields().status(), vec![...])`.
     pub fn r#for(lens: FieldLens<M, String>, options: Vec<String>) -> Self {
-        let (name, label) = lens_field_name_and_label(lens.clone());
+        let field = lens_field(lens.clone(), &M::schema());
+        let (name, label) = (field.name.app_unwrap().to_string(), lens_label(&field));
         Self {
             name,
             label,
@@ -104,7 +105,8 @@ where
     M: toasty::schema::Model,
 {
     pub fn r#for(lens: FieldLens<M, bool>) -> Self {
-        let (name, label) = lens_field_name_and_label(lens.clone());
+        let field = lens_field(lens.clone(), &M::schema());
+        let (name, label) = (field.name.app_unwrap().to_string(), lens_label(&field));
         Self { name, label, lens }
     }
 
@@ -166,7 +168,8 @@ where
     M: toasty::schema::Model,
 {
     pub fn r#for(lens: FieldLens<M, jiff::Timestamp>) -> Self {
-        let (name, label) = lens_field_name_and_label(lens.clone());
+        let field = lens_field(lens.clone(), &M::schema());
+        let (name, label) = (field.name.app_unwrap().to_string(), lens_label(&field));
         Self { name, label, lens }
     }
 

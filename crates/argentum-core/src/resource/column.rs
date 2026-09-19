@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use toasty::stmt::{Expr, OrderByExpr};
 
-use crate::schema::{FieldLens, lens_field_name_and_label};
+use crate::schema::{FieldLens, lens_field, lens_label};
 
 /// Text column bound to a typed lens **and** a typed projection.
 ///
@@ -70,11 +70,11 @@ where
         path: FieldLens<M, String>,
         project: impl Fn(&M) -> String + Send + Sync + 'static,
     ) -> Self {
-        let (field_name, label) = lens_field_name_and_label(path.clone());
+        let field = lens_field(path.clone(), &M::schema());
         Self {
             path: Some(path),
-            name: field_name,
-            label,
+            name: field.name.app_unwrap().to_string(),
+            label: lens_label(&field),
             project: Arc::new(project),
             searchable: false,
             sortable: false,

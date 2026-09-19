@@ -10,7 +10,7 @@ use argentum_ui::{
 use topcoat::runtime::Signal;
 use topcoat::{Result, context::Cx, view::*};
 
-use super::lenses::lens_field_name_label_and_nullable;
+use super::lenses::{lens_field, lens_field_unique, lens_label};
 use super::relationship::{
     OptionLoadError, RelatedCheck, RelatedPrimaryKey, RelationshipCheckFuture, RelationshipChecker,
     RelationshipLoadFuture, RelationshipLoader, RelationshipSearchFuture, RelationshipSearchLoader,
@@ -53,20 +53,28 @@ impl TextInput {
     ///
     /// Only `String` lenses compile: binding a non-text field (a `Uuid` key,
     /// a `bool`, …) fails at compile time, mirroring `TextColumn`.
+    ///
+    /// `required` and `unique` default from the field's metadata (GH #100,
+    /// GH #183): a non-nullable column is required, and a field backed by a
+    /// single-field unique index is unique — so neither has to be restated by
+    /// hand. Both stay overridable with `.optional()` / `.unique()`.
     pub fn r#for<M>(path: toasty::stmt::Path<M, String>) -> Self
     where
         M: toasty::schema::Model,
     {
-        let (field_name, label_str, nullable) = lens_field_name_label_and_nullable(path);
+        let model = M::schema();
+        let field = lens_field(path, &model);
+        let label_str = lens_label(&field);
+        let unique = lens_field_unique(&field, model.as_root_unwrap());
         Self {
-            name: field_name,
+            name: field.name.app_unwrap().to_string(),
             label: label_str,
             // Non-nullable columns are required by default (GH #100): an
             // empty submit would die at the driver instead of failing
             // inline. Override with `.optional()` for nullable columns.
-            required: !nullable,
+            required: !field.nullable(),
             is_email: false,
-            unique: false,
+            unique,
             placeholder: None,
         }
     }
@@ -407,11 +415,11 @@ impl Select {
     where
         M: toasty::schema::Model,
     {
-        let (field_name, label_str, nullable) = lens_field_name_label_and_nullable(path);
+        let field = lens_field(path, &M::schema());
         Self {
-            name: field_name,
-            label: label_str,
-            required: !nullable,
+            name: field.name.app_unwrap().to_string(),
+            label: lens_label(&field),
+            required: !field.nullable(),
             searchable: false,
             options_static: Vec::new(),
             relationship: None,
@@ -863,16 +871,16 @@ impl FileUpload {
     /// non-nullable columns (`Option<String>` fields do not typecheck), so
     /// the default is always required and `.optional()` is the form-level
     /// opt-out; the nullability walk stays correct if the lens widens
-    /// upstream (#115).
+    /// upstream (#183).
     pub fn r#for<M>(path: toasty::stmt::Path<M, String>) -> Self
     where
         M: toasty::schema::Model,
     {
-        let (field_name, label_str, nullable) = lens_field_name_label_and_nullable(path);
+        let field = lens_field(path, &M::schema());
         Self {
-            name: field_name,
-            label: label_str,
-            required: !nullable,
+            name: field.name.app_unwrap().to_string(),
+            label: lens_label(&field),
+            required: !field.nullable(),
         }
     }
 
@@ -1347,7 +1355,7 @@ mod tests {
         // FileUpload's lens type only binds non-nullable `String` columns
         // (a nullable field is `Option<String>`), so its required default is
         // always on today; the nullability walk keeps it correct if the lens
-        // widens upstream (#115).
+        // widens upstream (#183).
     }
 
     /// A bare `Select` over a non-nullable FK must reject an empty submit

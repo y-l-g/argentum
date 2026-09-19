@@ -5,10 +5,12 @@
 //! combines them. The API mirrors Filament's `Schema::new(( ... ))` tuple
 //! form via the `IntoSchema` trait.
 //!
-//! Bridge note: `lens_field_name_label_and_nullable` reaches into
-//! `toasty_core` (see upstream issue #114), alongside the `pk_*` bridge
-//! helpers and `cursor.rs` cursor values; migrate to public
-//! `Path::field_name()`/nullability when Toasty exposes it (upstream #115).
+//! Bridge note: `lens_field` is the one walk reaching into `toasty_core`
+//! (upstream issue #114), alongside the `pk_*` bridge helpers and `cursor.rs`
+//! cursor values. It hands back the built `app::Field`, so field metadata no
+//! longer needs a helper per property; uniqueness comes from
+//! `lens_field_unique`, since Toasty keeps it on the model's index list rather
+//! than the field. Retire the walk when Toasty exposes it (upstream #183).
 
 mod fields;
 mod layouts;
@@ -24,7 +26,7 @@ pub use fields::{FileUpload, Select, TextInput};
 pub(crate) use fields::Text;
 pub use layouts::{Grid, Group, Repeater, Section, Tabs, Wizard};
 pub use lenses::FieldLens;
-pub(crate) use lenses::{capitalize, lens_field_name_and_label};
+pub(crate) use lenses::{capitalize, lens_field, lens_label};
 pub(crate) use pk::{pk_eq_expr, pk_in_expr, pk_is_composite};
 pub use relationship::MAX_RELATIONSHIP_OPTIONS;
 pub(crate) use relationship::OptionLoadError;
