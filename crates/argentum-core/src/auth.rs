@@ -661,7 +661,7 @@ async fn render_login_page<'a>(
         cx =>
         <div class="flex min-h-svh items-center justify-center bg-muted p-6">
             <div
-                class="flex w-full max-w-sm flex-col gap-6 rounded-xl border border-border bg-background p-6 shadow-sm"
+                class="flex w-full max-w-sm flex-col gap-6 rounded-xl border border-border bg-card p-6 text-card-foreground shadow-sm"
             >
                 if error.is_some() {
                     (http::StatusCode::FORBIDDEN)
