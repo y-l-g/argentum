@@ -11,6 +11,7 @@
 
 mod actions;
 mod forms;
+mod headers;
 mod list;
 mod search;
 mod shell;
@@ -66,6 +67,9 @@ pub struct Panel {
     root_target: Option<String>,
     slugs: Vec<String>,
     search_handlers: HashMap<String, SearchFn>,
+    /// `Content-Security-Policy: frame-ancestors …` for every response
+    /// (GH #176); `None` opts out. Defaults to `'self'`.
+    frame_ancestors: Option<String>,
     #[cfg(feature = "auth")]
     login_hint: Option<String>,
     #[cfg(feature = "auth")]
@@ -110,6 +114,7 @@ impl Panel {
             root_target: None,
             slugs: Vec::new(),
             search_handlers: HashMap::new(),
+            frame_ancestors: Some(headers::DEFAULT_FRAME_ANCESTORS.to_string()),
             #[cfg(feature = "auth")]
             login_hint: None,
             #[cfg(feature = "auth")]
@@ -261,6 +266,32 @@ impl Panel {
         self
     }
 
+    /// Set the `frame-ancestors` directive the panel sends (GH #176).
+    ///
+    /// Defaults to `'self'`: the admin only frames itself, so a hostile page
+    /// cannot clickjack it. Pass what your deployment needs — `"'self'
+    /// https://intranet.example"` to allow an internal portal, or `"'none'"`
+    /// to forbid framing outright.
+    ///
+    /// The layer only fills the gap, so an app that sets its own
+    /// `Content-Security-Policy` (its own layer or route) keeps it. Use
+    /// [`Self::without_frame_ancestors`] to send nothing at all and leave the
+    /// decision to a proxy.
+    pub fn frame_ancestors(mut self, ancestors: impl Into<String>) -> Self {
+        self.frame_ancestors = Some(ancestors.into());
+        self
+    }
+
+    /// Send no `frame-ancestors` directive (GH #176): the escape hatch for
+    /// deployments whose proxy owns the whole CSP.
+    ///
+    /// Off by default in the sense that nothing is *added* — the panel's
+    /// `'self'` default is what this opts out of.
+    pub fn without_frame_ancestors(mut self) -> Self {
+        self.frame_ancestors = None;
+        self
+    }
+
     /// Enable dark mode toggle persistence (cookie + localStorage via `theme.js`).
     pub fn dark_mode(mut self, enabled: bool) -> Self {
         self.dark_mode = Some(enabled);
@@ -313,6 +344,7 @@ impl Panel {
             root_target,
             slugs: _,
             search_handlers,
+            frame_ancestors,
             #[cfg(feature = "auth")]
             login_hint,
             #[cfg(feature = "auth")]
@@ -330,6 +362,13 @@ impl Panel {
             // 413 uploads the framework otherwise accepts.
             .layer(topcoat::router::BodyLimit::max(MAX_FORM_BYTES))
             .app_context(db);
+        // Clickjacking hardening (GH #176): a response anyone can frame is a
+        // threat on every deployment, so the panel ships the directive itself
+        // and apps that need framing opt out (or supply their own policy,
+        // which wins — the layer only fills the gap).
+        if let Some(directive) = frame_ancestors {
+            builder = builder.layer(headers::FrameAncestors::new(directive));
+        }
         // Auth (ADR-0013): sessions plus the resolving gate under the panel
         // and runtime prefixes, and the login/logout routes. Disabled skips
         // all three but still installs the `Auth` value for the shell.
@@ -675,6 +714,81 @@ mod tests {
     #[should_panic(expected = "Panel::build requires a Db")]
     fn panel_build_panics_without_db() {
         let _router = Panel::new("admin").build();
+    }
+
+    /// GH #176: every page the panel renders carries the clickjacking
+    /// directive by default, and both escape hatches work — a deployment
+    /// directive, and an opt-out for a proxy that owns the whole policy.
+    #[tokio::test]
+    async fn panel_sends_frame_ancestors_unless_opted_out() {
+        use crate::resource::Resource;
+
+        #[derive(Debug, toasty::Model)]
+        struct Dummy {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            name: String,
+        }
+        struct DummyResource;
+        impl Resource for DummyResource {
+            type Model = Dummy;
+
+            // A rendered page, not the default-deny 403: an error response is
+            // produced above the layer chain, so only a served document proves
+            // the header is installed.
+            fn can_view_any(_cx: &Cx) -> bool {
+                true
+            }
+        }
+
+        /// The directive the finished page carries.
+        async fn policy(panel: Panel) -> Option<String> {
+            let router = panel.build();
+            let response = router
+                .handle(
+                    http::Request::builder()
+                        .uri("/admin/dummies")
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await;
+            assert_eq!(response.status(), http::StatusCode::OK, "page must render");
+            response
+                .headers()
+                .get(http::header::CONTENT_SECURITY_POLICY)
+                .map(|value| value.to_str().unwrap().to_string())
+        }
+
+        let db = Db::builder()
+            .models(toasty::models!(Dummy))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        let base = || {
+            Panel::new("admin")
+                .app_context(db.clone())
+                .resource::<DummyResource>()
+                .auth(crate::Auth::disabled())
+        };
+
+        assert_eq!(
+            policy(base()).await.as_deref(),
+            Some("frame-ancestors 'self'"),
+            "a panel page must not be frameable by default"
+        );
+        assert_eq!(
+            policy(base().frame_ancestors("'self' https://intranet.example"))
+                .await
+                .as_deref(),
+            Some("frame-ancestors 'self' https://intranet.example"),
+            "a deployment that frames the panel says so"
+        );
+        assert!(
+            policy(base().without_frame_ancestors()).await.is_none(),
+            "an opted-out panel sends no policy of its own"
+        );
     }
 
     #[test]
