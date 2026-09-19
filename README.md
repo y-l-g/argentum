@@ -134,6 +134,12 @@ pub trait Resource: Sized + Send + Sync + 'static {
 What to know:
 
 - `slug()` and `navigation_label()` have working defaults. Override only to rename.
+- `navigation()` curates this resource's sidebar entry: override it to order or group the entry, e.g.
+  `NavigationItem::for_resource::<Self>().sorted(-1)` (lower `order` renders first, ties keep
+  declaration order). The URL is the Panel's call: `for_resource` names none, so the panel that mounts
+  the resource resolves it to `{prefix}/{slug}`, and a resource never links at `/admin` on a panel
+  mounted elsewhere. A URL you spell out instead (`NavigationItem::at(..)`, `from_href`) is kept
+  verbatim — use it to link somewhere other than the resource's list page.
 - `query()` is the scoping seam. All list, export, and relation loads use it. Put tenancy here.
 - `table()` and `form()` are hand-written. The derive only fills in `Model` and an optional `query`:
 

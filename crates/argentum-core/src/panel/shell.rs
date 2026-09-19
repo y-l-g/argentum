@@ -138,6 +138,14 @@ impl Panel {
         // Stable order (GH #102): explicit `order` first, declaration order
         // breaking ties — custom items interleave via `.sorted()`.
         nav_items.sort_by_key(|item| item.order);
+        // A Panel resolves every item it owns (`Panel::resource`,
+        // `Panel::navigation`); one that reaches the sidebar unresolved has no
+        // URL to render, which is a framework bug rather than user error
+        // (GH #165).
+        debug_assert!(
+            nav_items.iter().all(|item| item.url().is_some()),
+            "navigation items are resolved by the Panel that owns them"
+        );
         let current_path = current_path.to_string();
 
         Ok(view! {
@@ -147,8 +155,12 @@ impl Panel {
                 sidebar_group_content(
                     sidebar_menu(
                         for item in &nav_items {
-                            // Prefer typed Href when available, else fallback to path string.
-                            let is_active = if item.href_check.is_some() {
+                            // Prefer the item's own typed check when it has one
+                            // (`from_href`), else match the rendered path.
+                            let is_active = if matches!(
+                                item.target,
+                                crate::resource::NavTarget::Href { .. },
+                            ) {
                                 item.is_current(cx)
                             } else {
                                 item.is_current_path(&current_path)
@@ -156,7 +168,7 @@ impl Panel {
                             sidebar_menu_item(
                                 sidebar_menu_button(
                                     active: is_active,
-                                    href: Some(item.url.as_str()),
+                                    href: item.url(),
                                     tooltip: Some(item.label.as_str()),
                                     attrs: attributes! {
                                         // Tapping a link in the mobile sheet closes
@@ -438,12 +450,7 @@ impl Panel {
                             .map(|s| format!("/{s}"))
                             .unwrap_or_else(|| "/admin".to_string())
                     });
-                vec![NavigationItem {
-                    label: "Home".to_string(),
-                    url: prefix,
-                    href_check: None,
-                    order: 0,
-                }]
+                vec![NavigationItem::at("Home", prefix)]
             });
         let shell = Self::render_shell(cx, &nav_items, &current, slot, None).await?;
         let brand_title = try_app_context::<Brand>(cx)
@@ -530,7 +537,7 @@ mod tests {
 
     #[tokio::test]
     async fn layout_shell_renders_a_complete_document() {
-        use crate::resource::NavigationItem;
+        use crate::resource::{NavTarget, NavigationItem};
         use topcoat::context::CxTestBuilder;
         use topcoat::view::view;
 
@@ -543,8 +550,7 @@ mod tests {
             .request_context(parts)
             .app_context(vec![NavigationItem {
                 label: "Users".to_string(),
-                url: "/admin/users".to_string(),
-                href_check: None,
+                target: NavTarget::Url("/admin/users".to_string()),
                 order: 0,
             }])
             .build();
@@ -575,7 +581,7 @@ mod tests {
 
     #[tokio::test]
     async fn shell_escapes_brand_name_and_logo() {
-        use crate::resource::NavigationItem;
+        use crate::resource::{NavTarget, NavigationItem};
         use topcoat::context::CxTestBuilder;
         use topcoat::view::view;
 
@@ -594,8 +600,7 @@ mod tests {
             .build();
         let nav_items = vec![NavigationItem {
             label: "Users".to_string(),
-            url: "/admin/users".to_string(),
-            href_check: None,
+            target: NavTarget::Url("/admin/users".to_string()),
             order: 0,
         }];
         let cx_ref = &cx;
@@ -727,7 +732,7 @@ mod tests {
 
     /// Render the shell once with a flash cookie carrying `enc`.
     async fn shell_html_with_flash(enc: &str) -> String {
-        use crate::resource::NavigationItem;
+        use crate::resource::{NavTarget, NavigationItem};
         use topcoat::context::CxTestBuilder;
         use topcoat::cookie::CookieJarCell;
         use topcoat::view::view;
@@ -750,8 +755,7 @@ mod tests {
             .build();
         let nav_items = vec![NavigationItem {
             label: "Users".to_string(),
-            url: "/admin/users".to_string(),
-            href_check: None,
+            target: NavTarget::Url("/admin/users".to_string()),
             order: 0,
         }];
         let cx_ref = &cx;
@@ -769,7 +773,7 @@ mod tests {
     async fn sidebar_orders_custom_items_by_sort_key() {
         // GH #102: `.sorted(-1)` interleaves a custom item above the
         // resources; ties keep declaration order.
-        use crate::resource::NavigationItem;
+        use crate::resource::{NavTarget, NavigationItem};
         use topcoat::context::CxTestBuilder;
         use topcoat::view::view;
 
@@ -782,14 +786,12 @@ mod tests {
         let nav_items = vec![
             NavigationItem {
                 label: "Users".to_string(),
-                url: "/admin/users".to_string(),
-                href_check: None,
+                target: NavTarget::Url("/admin/users".to_string()),
                 order: 0,
             },
             NavigationItem {
                 label: "Showcase".to_string(),
-                url: "/admin/showcase".to_string(),
-                href_check: None,
+                target: NavTarget::Url("/admin/showcase".to_string()),
                 order: 0,
             }
             .sorted(-1),
@@ -816,7 +818,7 @@ mod tests {
         // GH #136: structure/aria only — pixel Token/Tailwind classes live in
         // the showcase (`admin_resource_list_page_serve_seeded_users`), so a
         // restyle does not fail core without a behavior change.
-        use crate::resource::NavigationItem;
+        use crate::resource::{NavTarget, NavigationItem};
         use topcoat::context::CxTestBuilder;
         use topcoat::view::view;
 
@@ -825,14 +827,12 @@ mod tests {
         let nav_items = vec![
             NavigationItem {
                 label: "Users".to_string(),
-                url: "/admin/users".to_string(),
-                href_check: None,
+                target: NavTarget::Url("/admin/users".to_string()),
                 order: 0,
             },
             NavigationItem {
                 label: "Showcase".to_string(),
-                url: "/admin/showcase".to_string(),
-                href_check: None,
+                target: NavTarget::Url("/admin/showcase".to_string()),
                 order: 0,
             },
         ];
@@ -1038,7 +1038,7 @@ mod tests {
         // initial value, so the first paint matches the last choice; from
         // hydration on, the browser owns the state (assets/sidebar.js mirrors
         // it back).
-        use crate::resource::NavigationItem;
+        use crate::resource::{NavTarget, NavigationItem};
         use topcoat::context::CxTestBuilder;
         use topcoat::view::view;
 
@@ -1052,8 +1052,7 @@ mod tests {
         let cx_ref = &cx;
         let nav_items = vec![NavigationItem {
             label: "Users".to_string(),
-            url: "/admin/users".to_string(),
-            href_check: None,
+            target: NavTarget::Url("/admin/users".to_string()),
             order: 0,
         }];
         let slot = view! { cx_ref => "hello" }.boxed().into();

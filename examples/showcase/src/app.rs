@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
 use argentum_core::{
-    Brand, DateFilter, FileUpload, Grid, Group, NavigationItem, Panel, Repeater, Resource, Schema,
-    Section, Select, SelectFilter, Table, Tabs, TernaryFilter, TextColumn, TextInput,
-    VariantFilter, Wizard, resource::HrefCheck, tenant_id,
+    Brand, DateFilter, FileUpload, Grid, Group, NavTarget, NavigationItem, Panel, Repeater,
+    Resource, Schema, Section, Select, SelectFilter, Table, Tabs, TernaryFilter, TextColumn,
+    TextInput, VariantFilter, Wizard, resource::HrefCheck, tenant_id,
 };
 use toasty::Db;
 use topcoat::{
@@ -1032,14 +1032,16 @@ fn build_router(db: Db, bundle: Option<AssetBundle>) -> Router {
         // could never highlight): active exactly on the published filter.
         .navigation(NavigationItem {
             label: "Published".to_string(),
-            url: "/admin/posts?filters=status:published".to_string(),
-            href_check: Some(std::sync::Arc::new(|cx: &Cx| {
-                let uri = topcoat::router::request::uri(cx);
-                uri.path() == "/admin/posts"
-                    && uri
-                        .query()
-                        .is_some_and(|q| q.contains("status:published"))
-            }) as HrefCheck),
+            target: NavTarget::Href {
+                url: "/admin/posts?filters=status:published".to_string(),
+                check: std::sync::Arc::new(|cx: &Cx| {
+                    let uri = topcoat::router::request::uri(cx);
+                    uri.path() == "/admin/posts"
+                        && uri
+                            .query()
+                            .is_some_and(|q| q.contains("status:published"))
+                }) as HrefCheck,
+            },
             order: 1,
         });
     // Demo credentials stay available for local development via

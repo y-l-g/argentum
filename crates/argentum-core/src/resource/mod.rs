@@ -25,7 +25,7 @@ mod table;
 
 pub use column::{Column, IntoColumns, TextColumn};
 pub use filter::{DateFilter, Filter, IntoFilters, SelectFilter, TernaryFilter, VariantFilter};
-pub use navigation::{HrefCheck, NavigationItem};
+pub use navigation::{HrefCheck, NavTarget, NavigationItem};
 #[cfg(test)]
 pub(crate) use state::MAX_QUERY_TERM;
 pub(crate) use state::clamp_query_term;
@@ -171,8 +171,22 @@ pub trait Resource: Sized + Send + Sync + 'static {
     }
 
     /// Sidebar entry for the resource.
+    ///
+    /// The default declares a label ([`Self::navigation_label`]) and no URL:
+    /// the Panel that owns the resource resolves where it is mounted, so this
+    /// entry never links at a mount the resource guessed (GH #165).
+    ///
+    /// Override to curate this resource's sidebar entry: `Panel::resource`
+    /// consumes the result through the panel-aware navigation seam, so a
+    /// `.sorted(..)` order, a custom label or a typed
+    /// [`NavigationItem::from_href`] item all take effect. Decorate the default
+    /// with [`NavigationItem::for_resource`]
+    /// (`NavigationItem::for_resource::<Self>().sorted(-1)`) to keep the
+    /// panel-owned URL; spell a URL out yourself ([`NavigationItem::at`]) only
+    /// to link somewhere other than this resource's list page — the Panel keeps
+    /// such a URL verbatim.
     fn navigation() -> NavigationItem {
-        NavigationItem::from_resource::<Self>()
+        NavigationItem::for_resource::<Self>()
     }
 
     /// Create a new record from form values.
