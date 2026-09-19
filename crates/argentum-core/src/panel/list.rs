@@ -301,11 +301,24 @@ pub(crate) fn resource_list_live<R: Resource>(
 /// Resolve the declared table (search / filters / sort / pagination) against
 /// `Resource::query` and execute it — the data-loading half of
 /// [`resource_list`], kept separate so the page shell can stream before it.
+///
+/// Resource lists must declare a page size (GH #172): without
+/// [`Table::paginate`] the load would be an unbounded `exec`, so the missing
+/// declaration fails loudly here — like a missing row key at render — instead
+/// of silently loading the whole table. Page-owned tables (the showcase
+/// demos, GH #154 §2) load through [`Table::load`] directly and keep the
+/// unbounded branch for previews.
 pub(crate) async fn load_table_page<R: Resource>(
     cx: &Cx,
     table: &Table<R::Model>,
     state: &TableState,
 ) -> Result<TablePage<R::Model>> {
+    if table.page_size().is_none() {
+        return Err(std::io::Error::other(
+            "resource list requires Table::paginate(..) — unbounded tables are previews only (GH #172)",
+        )
+        .into());
+    }
     table.load(cx, R::query(cx), state).await
 }
 
@@ -546,6 +559,108 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn live_search_input_debounces_keystrokes() {
+        // GH #172 decision 4: the visible input is unbound (keystrokes stay
+        // local until the debounce delay), the hidden transport carries the
+        // bound `@change` write, and the GET form survives as the no-JS
+        // fallback.
+        use crate::resource::Resource;
+        use http_body_util::BodyExt;
+        use std::collections::HashMap;
+
+        #[derive(Debug, toasty::Model)]
+        struct Dummy {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            name: String,
+        }
+        struct LiveResource;
+        impl Resource for LiveResource {
+            type Model = Dummy;
+            fn slug() -> String {
+                "dummies".to_string()
+            }
+            fn can_view_any(_cx: &Cx) -> bool {
+                true
+            }
+            fn can_view(_cx: &Cx, _record: &Dummy) -> bool {
+                true
+            }
+            fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
+                crate::resource::Table::r#for(cx)
+                    .id(|d: &Dummy| d.id.to_string())
+                    .pk(|d: &Dummy| d.id.to_string())
+                    .columns(
+                        crate::resource::TextColumn::r#for(Dummy::fields().name(), |d: &Dummy| {
+                            d.name.clone()
+                        })
+                        .searchable()
+                        .sortable(),
+                    )
+                    .paginate(25)
+                    .live_search(true)
+            }
+            fn hydrate_form_values(_record: &Dummy) -> HashMap<String, String> {
+                HashMap::new()
+            }
+        }
+
+        let mut db = Db::builder()
+            .models(toasty::models!(Dummy))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        toasty::create!(Dummy {
+            name: "Ada".to_string(),
+        })
+        .exec(&mut db)
+        .await
+        .unwrap();
+        let router = Panel::new("admin")
+            .app_context(db)
+            .resource::<LiveResource>()
+            .auth(crate::Auth::disabled())
+            .build();
+        let resp = router
+            .handle(
+                http::Request::builder()
+                    .uri("/admin/dummies")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await;
+        assert!(resp.status().is_success());
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let html = String::from_utf8_lossy(&body);
+        assert!(
+            html.contains("data-live-search-input"),
+            "visible input must carry the debounce hook, got {html}"
+        );
+        assert!(
+            html.contains("data-debounce-ms=\"200\""),
+            "debounce delay must be pinned in the markup, got {html}"
+        );
+        assert!(
+            html.contains("data-live-search-transport"),
+            "hidden transport must carry the bound write, got {html}"
+        );
+        assert!(
+            html.contains("data-topcoat-on:change"),
+            "transport must write signals on change, got {html}"
+        );
+        assert!(
+            !html.contains("data-topcoat-on:input"),
+            "visible input must be unbound (debounce owns keystrokes), got {html}"
+        );
+        assert!(
+            html.contains("<noscript>") && html.contains("name=\"q\""),
+            "live table must keep the GET fallback, got {html}"
+        );
+    }
+
+    #[tokio::test]
     async fn read_only_resource_hides_delete_chrome() {
         use crate::resource::Resource;
         use http_body_util::BodyExt;
@@ -578,6 +693,7 @@ mod tests {
                         Dummy::fields().name(),
                         |d: &Dummy| d.name.clone(),
                     ))
+                    .paginate(25)
             }
             fn hydrate_form_values(_record: &Dummy) -> HashMap<String, String> {
                 HashMap::new()
@@ -623,6 +739,134 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn unpaginated_resource_list_fails_loud_without_loading() {
+        // GH #172: a resource list without `Table::paginate` fails loudly in
+        // the grid region instead of unbounded-loading the whole table — the
+        // seeded row must not render, and the branded error state must.
+        use crate::resource::Resource;
+        use http_body_util::BodyExt;
+        use std::collections::HashMap;
+
+        #[derive(Debug, toasty::Model)]
+        struct Dummy {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            name: String,
+        }
+        struct UnpaginatedResource;
+        impl Resource for UnpaginatedResource {
+            type Model = Dummy;
+            fn slug() -> String {
+                "dummies".to_string()
+            }
+            fn deletable() -> bool {
+                false
+            }
+            fn can_view_any(_cx: &Cx) -> bool {
+                true
+            }
+            fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
+                crate::resource::Table::r#for(cx)
+                    .id(|d: &Dummy| d.id.to_string())
+                    .pk(|d: &Dummy| d.id.to_string())
+                    .columns(crate::resource::TextColumn::r#for(
+                        Dummy::fields().name(),
+                        |d: &Dummy| d.name.clone(),
+                    ))
+            }
+            fn hydrate_form_values(_record: &Dummy) -> HashMap<String, String> {
+                HashMap::new()
+            }
+        }
+
+        let mut db = Db::builder()
+            .models(toasty::models!(Dummy))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        toasty::create!(Dummy {
+            name: "Ada".to_string(),
+        })
+        .exec(&mut db)
+        .await
+        .unwrap();
+        let router = Panel::new("admin")
+            .app_context(db)
+            .resource::<UnpaginatedResource>()
+            .auth(crate::Auth::disabled())
+            .build();
+        let resp = router
+            .handle(
+                http::Request::builder()
+                    .uri("/admin/dummies")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await;
+        assert!(resp.status().is_success());
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let html = String::from_utf8_lossy(&body);
+        assert!(
+            html.contains("Couldn't load Dummies"),
+            "unpaginated list must render the error state, got {html}"
+        );
+        assert!(
+            !html.contains("Ada"),
+            "unpaginated list must not load rows, got {html}"
+        );
+    }
+
+    #[tokio::test]
+    async fn unpaginated_table_load_stays_unbounded_for_previews() {
+        // GH #172: the guard lives on the list path (`load_table_page`), not
+        // the `None` branch itself — page-owned tables and static previews
+        // keep loading unbounded through `Table::load` directly.
+        use crate::resource::{Table, TableState, TextColumn};
+        use topcoat::context::CxTestBuilder;
+
+        #[derive(Debug, Clone, toasty::Model)]
+        struct Dummy {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            name: String,
+        }
+        let mut db = Db::builder()
+            .models(toasty::models!(Dummy))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        for name in ["Ada", "Bob", "Cara"] {
+            toasty::create!(Dummy {
+                name: name.to_string(),
+            })
+            .exec(&mut db)
+            .await
+            .unwrap();
+        }
+        let cx = CxTestBuilder::new().app_context(db).build();
+        let preview = Table::<Dummy>::r#for(&cx)
+            .id(|d: &Dummy| d.id.to_string())
+            .columns(TextColumn::r#for(Dummy::fields().name(), |d: &Dummy| {
+                d.name.clone()
+            }))
+            .interactive(false);
+        assert!(preview.page_size().is_none());
+        let page = preview
+            .load(
+                &cx,
+                toasty::stmt::Query::<toasty::stmt::List<Dummy>>::all(),
+                &TableState::default(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(page.rows.len(), 3, "previews keep the unbounded branch");
+    }
+
+    #[tokio::test]
     async fn list_header_renders_create_entry_point_when_allowed() {
         // GH #162 (Filament's List page `CreateAction` in the page header):
         // the Create link is eager page chrome, gated on `can_create`.
@@ -657,6 +901,7 @@ mod tests {
                         Dummy::fields().name(),
                         |d: &Dummy| d.name.clone(),
                     ))
+                    .paginate(25)
             }
             fn hydrate_form_values(_record: &Dummy) -> HashMap<String, String> {
                 HashMap::new()
@@ -755,6 +1000,7 @@ mod tests {
                         Dummy::fields().name(),
                         |d: &Dummy| d.name.clone(),
                     ))
+                    .paginate(25)
             }
             fn hydrate_form_values(_record: &Dummy) -> HashMap<String, String> {
                 HashMap::new()
@@ -901,6 +1147,7 @@ mod tests {
                         Dummy::fields().name(),
                         |d: &Dummy| d.name.clone(),
                     ))
+                    .paginate(25)
             }
             fn hydrate_form_values(_record: &Dummy) -> HashMap<String, String> {
                 HashMap::new()

@@ -127,6 +127,7 @@ dependencies = [
  "argentum-macros",
  "argentum-ui",
  "argon2",
+ "bytes",
  "form_urlencoded",
  "heck",
  "http",
@@ -1535,6 +1536,7 @@ dependencies = [
  "http",
  "http-body",
  "pin-project-lite",
+ "tokio",
 ]
 
 [[package]]
