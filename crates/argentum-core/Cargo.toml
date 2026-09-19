@@ -6,6 +6,16 @@ license.workspace = true
 rust-version.workspace = true
 description = "The core toolkit types for Argentum, a server-rendered admin toolkit on Topcoat and Toasty."
 
+# GH #179 / ADR-0015: one integration-test binary per crate. Cargo autodiscovers
+# every file under `tests/` as its own target, which is exactly the per-file
+# link cost this consolidation removes — so the module files are declared as one
+# target and autodiscovery stays off.
+autotests = false
+
+[[test]]
+name = "it"
+path = "tests/it.rs"
+
 [dependencies]
 argentum-macros = { path = "../argentum-macros" }
 argentum-ui = { path = "../argentum-ui" }

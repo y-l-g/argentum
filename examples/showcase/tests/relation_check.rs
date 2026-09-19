@@ -4,8 +4,7 @@ use showcase::{
     models::{Author, Post},
 };
 
-mod common;
-use common::{assert_hydrate_keys_are_form_fields, body_string, demo_client, full_db};
+use crate::common::{assert_hydrate_keys_are_form_fields, body_string, demo_client, full_db};
 
 #[tokio::test]
 async fn posts_list_shows_author_name() {

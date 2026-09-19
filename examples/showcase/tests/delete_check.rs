@@ -2,8 +2,7 @@ use http::header::LOCATION;
 use showcase::{app::router_for_tests as router, models::User};
 use toasty::Db;
 
-mod common;
-use common::{
+use crate::common::{
     TestClient, body_string, demo_client, response_cookies, seeded_db, set_cookie_header,
 };
 

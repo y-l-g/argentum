@@ -3,8 +3,7 @@ use showcase::{
     models::{Author, Post},
 };
 
-mod common;
-use common::{body_string, demo_client, full_db};
+use crate::common::{body_string, demo_client, full_db};
 
 #[tokio::test]
 async fn posts_create_shows_fileupload_and_repeater() {

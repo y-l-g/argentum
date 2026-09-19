@@ -8,8 +8,7 @@ use showcase::{
 };
 use topcoat::router::Body;
 
-mod common;
-use common::{
+use crate::common::{
     SESSION_COOKIE, body_string, demo_client, full_db, login, login_next, session_cookie_value,
     tenanted_db,
 };

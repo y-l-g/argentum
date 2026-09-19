@@ -1,7 +1,6 @@
 use showcase::app::router_for_tests as router;
 
-mod common;
-use common::{body_string, demo_client, full_db};
+use crate::common::{body_string, demo_client, full_db};
 
 #[tokio::test]
 async fn posts_filter_widgets_render_typed_controls() {

@@ -10,8 +10,7 @@ use showcase::models::{DEMO_ADMIN_EMAIL, DEMO_ADMIN_PASSWORD};
 use topcoat::context::CxTestBuilder;
 use topcoat::router::Body;
 
-mod common;
-use common::{
+use crate::common::{
     SESSION_COOKIE, TestClient, body_string, form_body, full_db, input_value, login, login_next,
     response_cookies, session_cookie_value, set_cookie_header,
 };

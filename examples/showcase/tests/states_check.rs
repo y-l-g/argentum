@@ -3,8 +3,7 @@ use showcase::{
     models::{DEMO_ADMIN_EMAIL, DEMO_ADMIN_PASSWORD, DEMO_TENANT, User, create_admin},
 };
 
-mod common;
-use common::{body_string, demo_client, full_db, seeded_db};
+use crate::common::{body_string, demo_client, full_db, seeded_db};
 
 /// A Db with auth models and a demo admin but zero team rows.
 async fn empty_db() -> toasty::Db {

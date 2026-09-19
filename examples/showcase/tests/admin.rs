@@ -1,7 +1,6 @@
 use showcase::app::router_for_tests as router;
 
-mod common;
-use common::{body_string, demo_client, seeded_db};
+use crate::common::{body_string, demo_client, seeded_db};
 
 #[tokio::test]
 async fn admin_resource_list_page_serve_seeded_users() {

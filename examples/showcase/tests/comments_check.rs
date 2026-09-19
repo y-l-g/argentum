@@ -3,8 +3,7 @@ use showcase::{
     models::{Comment, Post},
 };
 
-mod common;
-use common::{
+use crate::common::{
     body_string, demo_client, form_body, full_db, input_value, response_cookies, tenanted_db,
 };
 

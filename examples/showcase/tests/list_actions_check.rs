@@ -1,7 +1,6 @@
 use showcase::{app::router_for_tests as router, models::User};
 
-mod common;
-use common::{body_string, demo_client, full_db, seeded_db};
+use crate::common::{body_string, demo_client, full_db, seeded_db};
 
 // GH #162 (Filament's List `CreateAction` + `recordActions` EditAction):
 // every list exposes its create/edit entry points as real links — the live
