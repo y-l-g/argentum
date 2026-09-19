@@ -11,7 +11,9 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  RUSTFLAGS: -Dwarnings
+# Warning denial lives in [workspace.lints.rust] (Cargo.toml), not in RUSTFLAGS:
+# RUSTFLAGS is hashed into every unit's fingerprint, so setting it here forced a
+# from-scratch rebuild whenever it differed from a contributor's local build.
 
 # Topcoat and Toasty are git dependencies (branch `main`) pinned by the
 # committed Cargo.lock — nothing to clone here. Bump them deliberately with
