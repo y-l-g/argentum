@@ -67,7 +67,10 @@
   --shadow-sm:
     0 1px 2px oklch(0.24 0.02 260 / 10%),
     0 2px 8px -2px oklch(0.24 0.02 260 / 9%);
-  /* Sidebar tokens per ADR-0009 — the upstream sidebar's own palette. */
+  /* Sidebar tokens per ADR-0009. Upstream's neutral theme spells out values
+     equal to its own page tokens for primary/border/ring; this theme re-tunes
+     --primary and --ring, so the sidebar aliases the page palette instead —
+     the sidebar keeps matching the app rather than upstream's numbers. */
   --sidebar: oklch(0.995 0.003 260);
   --sidebar-foreground: oklch(0.24 0.012 260);
   --sidebar-primary: var(--primary);
@@ -97,7 +100,8 @@
   /* Light-mode shadows disappear on a dark background, so these are deeper. */
   --shadow-xs: 0 1px 2px oklch(0 0 0 / 35%);
   --shadow-sm: 0 1px 2px oklch(0 0 0 / 35%), 0 2px 8px -2px oklch(0 0 0 / 30%);
-  /* Sidebar tokens — the dark variants of the upstream sidebar palette. */
+  /* Sidebar tokens — the dark variants, aliased to the page palette for the
+     same reason as the light block. */
   --sidebar: oklch(0.22 0.012 260);
   --sidebar-foreground: oklch(0.93 0.006 260);
   --sidebar-primary: var(--primary);
