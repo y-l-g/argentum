@@ -10,11 +10,12 @@ use topcoat::{
     Result,
     context::Cx,
     router::{Body, error::forbidden},
+    runtime::Event,
     view::{BoxView, HoistView, ViewExt, attributes, suspense, view},
 };
 
 use super::{enforce_auth, enforce_tenant, list_url};
-use crate::resource::{Resource, Table, TablePage, TableState};
+use crate::resource::{Resource, Table, TablePage, TableSignals, TableState};
 
 /// Retry link for a failed streamed grid load (GH #110).
 ///
@@ -46,14 +47,15 @@ pub(crate) fn retry_url_for_error(
 /// instead of rendering buttons that always 403.
 ///
 /// `live` selects the shard variant: the swapped region is everything except
-/// the search toolbar (the live host owns that slot, so swaps must never nest
-/// invocations or duplicate inputs), hence the shard forces
-/// `.without_skeleton().search(false)` while the streamed page keeps the
-/// declared table as-is.
+/// the toolbar the page owns eagerly (the live host owns those slots, so swaps
+/// must never nest invocations or duplicate inputs), hence the shard forces
+/// `.without_skeleton().search(false).filters(false)` while the streamed page
+/// keeps the declared table as-is. The filter bar joins the search toolbar
+/// there (GH #166): a control rebuilt by its own rerun loses focus.
 pub(crate) fn wire_table_actions<R: Resource>(cx: &Cx, live: bool) -> Table<R::Model> {
     let mut table = R::table(cx);
     if live {
-        table = table.without_skeleton().search(false);
+        table = table.without_skeleton().search(false).filter_bar(false);
     }
     if R::deletable() {
         table = table
@@ -70,15 +72,60 @@ pub(crate) fn wire_table_actions<R: Resource>(cx: &Cx, live: bool) -> Table<R::M
 /// live-search shard (GH #134, GH #158): the trace line, the cursor-aware
 /// retry link ([`retry_url_for_error`]), and the `ErrorState` render are one
 /// copy so the three load sites cannot drift.
+///
+/// On a live table (`signals`) the retry stays in place (GH #166): it writes
+/// the same reset its `href` spells out — dropping pagination for a cursor
+/// failure, the whole query for anything else — so recovering no longer throws
+/// away signal-held state with a full navigation. `href` stays as the no-JS
+/// fallback.
 pub(crate) fn grid_error_view<'a, R: Resource>(
     cx: &'a Cx,
     state: &TableState,
     error: &topcoat::Error,
     path: &str,
+    signals: Option<&TableSignals>,
 ) -> BoxView<'a> {
     tracing::error!(resource = R::slug(), error = %error, "table load failed");
     let retry = retry_url_for_error(state, error, path);
-    let action = view! { cx => <a href=(retry)>"Retry"</a> }.boxed();
+    let action: BoxView<'a> = match signals {
+        Some(signals) => {
+            let cursor = signals.cursor.clone();
+            let none = crate::resource::cursor_none();
+            let cursor_error = error
+                .downcast_ref::<crate::cursor::CursorDecodeError>()
+                .is_some();
+            if cursor_error {
+                let attrs = attributes! {
+                    cx =>
+                    href=(retry)
+                    @click=$(|e: Event| {
+                        e.prevent_default();
+                        cursor.set(none.clone());
+                    })
+                };
+                view! { cx => <a (attrs)>"Retry"</a> }.boxed()
+            } else {
+                let (q, filters, sort) = (
+                    signals.q.clone(),
+                    signals.filters.clone(),
+                    signals.sort.clone(),
+                );
+                let attrs = attributes! {
+                    cx =>
+                    href=(retry)
+                    @click=$(|e: Event| {
+                        e.prevent_default();
+                        q.set("".to_owned());
+                        filters.set("".to_owned());
+                        sort.set("".to_owned());
+                        cursor.set(none.clone());
+                    })
+                };
+                view! { cx => <a (attrs)>"Retry"</a> }.boxed()
+            }
+        }
+        None => view! { cx => <a href=(retry)>"Retry"</a> }.boxed(),
+    };
     view! {
         cx =>
         argentum_ui::error_state(
@@ -153,6 +200,7 @@ pub(crate) fn resource_list<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
                     &state,
                     &error,
                     &list_url(cx, &R::slug()),
+                    None,
                 )),
             }
         });
@@ -224,14 +272,30 @@ pub(crate) fn resource_list_live<R: Resource>(
                     .unwrap_or("asc")
                     .to_string()
             }),
-            after: signal(cx, || state.after.clone().unwrap_or_default()),
-            before: signal(cx, || state.before.clone().unwrap_or_default()),
+            cursor: signal(cx, || match (&state.after, &state.before) {
+                (Some(token), _) => crate::resource::cursor_after(token),
+                (None, Some(token)) => crate::resource::cursor_before(token),
+                (None, None) => crate::resource::cursor_none(),
+            }),
             group_by: signal(cx, || state.group_by.clone().unwrap_or_default()),
+            bulk: signal(cx, String::new),
         };
         let host = if table.search_enabled() {
             Some(
                 table
                     .render_live_search_bar(cx, &state, &list_path, &signals)
+                    .await?,
+            )
+        } else {
+            None
+        };
+        // The filter bar is hoisted next to the search host (GH #166): a
+        // `<select>` change re-renders the grid, and a control inside the
+        // swapped region would lose focus and collapse its popup mid-change.
+        let filter_bar = if table.filter_bar_enabled() {
+            Some(
+                table
+                    .render_live_filter_bar(cx, &state, &list_path, &signals)
                     .await?,
             )
         } else {
@@ -254,12 +318,21 @@ pub(crate) fn resource_list_live<R: Resource>(
         // echo an unknown `?group_by=`. The invocation normalizes internally.
         let state = table.normalize_state(&state);
         let lazy_rows = ThenView::new(async move {
+            // The retry link inside the grid writes the same signals the
+            // toolbar does (GH #166), so a bad cursor recovers in place.
+            let retry_signals = signals.clone();
             let grid = table
                 .render_live_invocation(cx, &state, &list_path, signals)
                 .await;
             match grid {
                 Ok(view) => Ok(view),
-                Err(error) => Ok(grid_error_view::<R>(cx, &state, &error, &list_path)),
+                Err(error) => Ok(grid_error_view::<R>(
+                    cx,
+                    &state,
+                    &error,
+                    &list_path,
+                    Some(&retry_signals),
+                )),
             }
         });
 
@@ -286,6 +359,9 @@ pub(crate) fn resource_list_live<R: Resource>(
                     <div class="flex flex-col gap-4">
                         if let Some(host) = host {
                             (host)
+                        }
+                        if let Some(bar) = filter_bar {
+                            (bar)
                         }
                         suspense(fallback: skeleton, (lazy_rows.boxed()))
                         if let Some(dialog) = delete_dialog {
@@ -344,6 +420,7 @@ mod tests {
             #[auto]
             id: uuid::Uuid,
             name: String,
+            featured: bool,
         }
         struct LiveResource;
         impl Resource for LiveResource {
@@ -368,6 +445,9 @@ mod tests {
                         .searchable()
                         .sortable(),
                     )
+                    .filters(crate::resource::TernaryFilter::r#for(
+                        Dummy::fields().featured(),
+                    ))
                     .paginate(1)
                     .live_search(true)
             }
@@ -384,6 +464,7 @@ mod tests {
         db.push_schema().await.unwrap();
         toasty::create!(Dummy {
             name: "Ada".to_string(),
+            featured: false,
         })
         .exec(&mut db)
         .await
@@ -410,6 +491,19 @@ mod tests {
             html.contains("data-live-search"),
             "opt-in table must render the shard host, got {html}"
         );
+        // GH #166: the filter bar is hoisted next to the search host — it
+        // renders eagerly, above the swapped region, so a filter change cannot
+        // rebuild the control the user is interacting with.
+        let filter_at = html
+            .find("data-filter-name=")
+            .unwrap_or_else(|| panic!("live page must render the filter bar eagerly, got {html}"));
+        let swapped_at = html
+            .find("topcoat::region::start")
+            .unwrap_or_else(|| panic!("live page must render the streamed region, got {html}"));
+        assert!(
+            filter_at < swapped_at,
+            "the filter bar must sit outside the swapped region, got {html}"
+        );
         assert!(
             html.contains("<noscript>"),
             "live table must keep the GET fallback, got {html}"
@@ -420,24 +514,22 @@ mod tests {
         // path renders rows and the live controls bound to the caller's
         // signals.
         let sig = |n: u8, v: &str| format!(r#"{{"t":"Signal","id":"{:032x}","v":"{v}"}}"#, n);
-        let shard_args = |path: &str,
-                          q: &str,
-                          filters: &str,
-                          sort: &str,
-                          dir: &str,
-                          after: &str,
-                          before: &str| {
-            format!(
-                r#"["{path}",{}, {}, {}, {}, {}, {}, {}]"#,
-                sig(1, q),
-                sig(2, filters),
-                sig(3, sort),
-                sig(4, dir),
-                sig(5, after),
-                sig(6, before),
-                sig(7, "")
-            )
-        };
+        // Args are positional shard inputs: q, filters, sort, dir, the single
+        // cursor wire (GH #166), group_by, and the bulk handle the grid binds
+        // its selection transport to.
+        let shard_args =
+            |path: &str, q: &str, filters: &str, sort: &str, dir: &str, cursor: &str| {
+                format!(
+                    r#"["{path}",{}, {}, {}, {}, {}, {}, {}]"#,
+                    sig(1, q),
+                    sig(2, filters),
+                    sig(3, sort),
+                    sig(4, dir),
+                    sig(5, cursor),
+                    sig(6, ""),
+                    sig(7, "")
+                )
+            };
         async fn call_shard(
             router: &topcoat::router::Router,
             args: String,
@@ -455,21 +547,13 @@ mod tests {
                 )
                 .await
         }
-        let nope = call_shard(
-            &router,
-            shard_args("/admin/nope", "Ada", "", "", "", "", ""),
-        )
-        .await;
+        let nope = call_shard(&router, shard_args("/admin/nope", "Ada", "", "", "", "")).await;
         assert!(
             nope.status().is_client_error(),
             "unknown shard path must fail, got {}",
             nope.status()
         );
-        let grid = call_shard(
-            &router,
-            shard_args("/admin/dummies", "Ada", "", "", "", "", ""),
-        )
-        .await;
+        let grid = call_shard(&router, shard_args("/admin/dummies", "Ada", "", "", "", "")).await;
         let status = grid.status();
         let bytes = grid.into_body().collect().await.unwrap().to_bytes();
         let grid_html = String::from_utf8_lossy(&bytes).to_string();
@@ -477,6 +561,29 @@ mod tests {
         assert!(
             grid_html.contains("Ada"),
             "live shard must render matching rows, got {grid_html}"
+        );
+        // ...and not render it a second time inside the swapped grid.
+        assert!(
+            !grid_html.contains("data-filter-name="),
+            "the swapped grid must not duplicate the hoisted filter bar, got {grid_html}"
+        );
+        // GH #166: the bulk selection is signal-backed — the grid binds its
+        // transport and the destructive submit to the selection signal, so a
+        // rerun re-renders the selection instead of dropping it...
+        assert!(
+            grid_html.contains(
+                r#"data-topcoat-bind:value="(cx.hydrate({&quot;t&quot;:&quot;Signal&quot;,&quot;id&quot;:&quot;00000000000000000000000000000007&quot;})).get()""#
+            ),
+            "the grid must bind the bulk transport to the selection signal, got {grid_html}"
+        );
+        assert!(
+            grid_html.contains("data-topcoat-bind:disabled"),
+            "the bulk submit must derive its disabled state from the selection, got {grid_html}"
+        );
+        // ...while never reading it: selecting a row must not re-run the query.
+        assert!(
+            !grid_html.contains(r#"::topcoat::dep("00000000000000000000000000000007")"#),
+            "the bulk signal must not become a shard dependency, got {grid_html}"
         );
         // GH #151: the grid's chrome is bound to the signals, so sort/pager
         // interactions re-render in place. `href` stays the no-JS fallback.
@@ -511,6 +618,7 @@ mod tests {
         for name in ["Bob", "Cara"] {
             toasty::create!(Dummy {
                 name: name.to_string(),
+                featured: false,
             })
             .exec(&mut crate::db::db(&cx))
             .await
@@ -522,15 +630,13 @@ mod tests {
                 .unwrap();
         assert_eq!(page1.rows.len(), 1);
         let first_name = page1.rows[0].name.clone();
-        let cursor = page1
-            .next_cursor
-            .clone()
-            .expect("page 1 must have a cursor");
-        let grid = call_shard(
-            &router,
-            shard_args("/admin/dummies", "", "", "", "", &cursor, ""),
-        )
-        .await;
+        let wire = crate::resource::cursor_after(
+            &page1
+                .next_cursor
+                .clone()
+                .expect("page 1 must have a cursor"),
+        );
+        let grid = call_shard(&router, shard_args("/admin/dummies", "", "", "", "", &wire)).await;
         assert_eq!(grid.status(), http::StatusCode::OK);
         let bytes = grid.into_body().collect().await.unwrap().to_bytes();
         let grid_html = String::from_utf8_lossy(&bytes);
@@ -544,11 +650,7 @@ mod tests {
             "live pager must bind its cursor handlers, got {grid_html}"
         );
         // A fresh search with no cursor starts a new result set.
-        let grid = call_shard(
-            &router,
-            shard_args("/admin/dummies", "Bob", "", "", "", "", ""),
-        )
-        .await;
+        let grid = call_shard(&router, shard_args("/admin/dummies", "Bob", "", "", "", "")).await;
         assert_eq!(grid.status(), http::StatusCode::OK);
         let bytes = grid.into_body().collect().await.unwrap().to_bytes();
         let grid_html = String::from_utf8_lossy(&bytes);

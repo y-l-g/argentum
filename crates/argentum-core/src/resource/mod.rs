@@ -30,6 +30,7 @@ pub use navigation::{HrefCheck, NavTarget, NavigationItem};
 pub(crate) use state::MAX_QUERY_TERM;
 pub(crate) use state::clamp_query_term;
 pub use state::{Sort, TablePage, TableSignals, TableState};
+pub(crate) use state::{cursor_after, cursor_before, cursor_none, split_cursor};
 pub use table::{GroupDef, GroupKey, RowKey, Table};
 
 use naming::{kebab_case, pluralize, type_short_name};

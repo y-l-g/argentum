@@ -67,6 +67,9 @@ pub(crate) fn search_handler_for<R: Resource>() -> SearchFn {
                 // client input — an unknown value must not echo through the
                 // retry link. The render re-normalizes internally.
                 let state = table.normalize_state(&state);
+                // The retry link inside a failed grid writes the same signals
+                // the toolbar does (GH #166), so keep a handle for it.
+                let retry_signals = signals.clone();
                 let grid = async {
                     let page = load_table_page::<R>(cx, &table, &state).await?;
                     table
@@ -75,7 +78,13 @@ pub(crate) fn search_handler_for<R: Resource>() -> SearchFn {
                 };
                 match grid.await {
                     Ok(view) => Ok(view),
-                    Err(error) => Ok(grid_error_view::<R>(cx, &state, &error, &path)),
+                    Err(error) => Ok(grid_error_view::<R>(
+                        cx,
+                        &state,
+                        &error,
+                        &path,
+                        Some(&retry_signals),
+                    )),
                 }
             })
         },
@@ -127,9 +136,9 @@ mod shard_body {
         filters: topcoat::runtime::Signal<String>,
         sort: topcoat::runtime::Signal<String>,
         dir: topcoat::runtime::Signal<String>,
-        after: topcoat::runtime::Signal<String>,
-        before: topcoat::runtime::Signal<String>,
+        cursor: topcoat::runtime::Signal<String>,
         group_by: topcoat::runtime::Signal<String>,
+        bulk: topcoat::runtime::Signal<String>,
     ) -> Result<impl View> {
         let entry = search_entry(cx, &path)?;
         let signals = crate::resource::TableSignals {
@@ -137,15 +146,15 @@ mod shard_body {
             filters,
             sort,
             dir,
-            after,
-            before,
+            cursor,
             group_by,
+            bulk,
         };
         // One shared bound (GH #148): the GET `?q=` path and the shard clamp
         // through the same helper, so a term too long for the URL is too long
-        // here. Cursors are honored as sent: search/sort/filter handlers clear
-        // them when the result set changes, so a live cursor always belongs to
-        // the current query.
+        // here. The cursor travels as one signal (GH #166), so the pair the
+        // loader rejects (GH #155) can no longer be written from the browser at
+        // all; a token that does not decode still fails loudly (GH #158).
         let q = crate::resource::clamp_query_term(&signals.q.get());
         let mut state = TableState::from_live_args(
             &q,
@@ -154,14 +163,7 @@ mod shard_body {
             &signals.dir.get(),
             &signals.group_by.get(),
         );
-        let after = signals.after.get();
-        if !after.trim().is_empty() {
-            state.after = Some(after.trim().to_string());
-        }
-        let before = signals.before.get();
-        if !before.trim().is_empty() {
-            state.before = Some(before.trim().to_string());
-        }
+        (state.after, state.before) = crate::resource::split_cursor(&signals.cursor.get());
         entry(cx, state, path, signals).await
     }
 }
@@ -339,16 +341,19 @@ mod tests {
             .build();
 
         let sig = |n: u8, v: &str| format!(r#"{{"t":"Signal","id":"{:032x}","v":"{v}"}}"#, n);
-        let shard_args = |after: &str, before: &str, group_by: &str| {
+        // Positional shard args: q, filters, sort, dir, the single cursor wire
+        // (GH #166), group_by, and the bulk handle the grid binds its
+        // selection transport to.
+        let shard_args = |cursor: &str, group_by: &str| {
             format!(
                 r#"["/admin/dummies",{}, {}, {}, {}, {}, {}, {}]"#,
                 sig(1, ""),
                 sig(2, ""),
                 sig(3, ""),
                 sig(4, ""),
-                sig(5, after),
-                sig(6, before),
-                sig(7, group_by),
+                sig(5, cursor),
+                sig(6, group_by),
+                sig(7, ""),
             )
         };
         let shard = topcoat::runtime::Shard::id(&table_search);
@@ -361,7 +366,7 @@ mod tests {
                     .header(topcoat::router::request::IDENTITY_HEADER, "A".repeat(22))
                     .body(Body::from(format!(
                         r#"{{"args":{},"signals":{{}}}}"#,
-                        shard_args("zz-not-a-cursor", "", "")
+                        shard_args(&crate::resource::cursor_after("zz-not-a-cursor"), "")
                     )))
                     .unwrap(),
             )
@@ -389,6 +394,18 @@ mod tests {
             !grid_html.contains("after="),
             "a malformed cursor must not travel into the retry link: {grid_html}"
         );
+        // GH #166: the retry writes the cursor signal in place — the same reset
+        // its href spells out — so recovering keeps the signal-held search,
+        // filters, and sort instead of reloading the page. The error state
+        // renders no other control, so any click binding here is the retry.
+        assert!(
+            grid_html.contains("data-topcoat-on:click"),
+            "live retry must write the signals instead of navigating: {grid_html}"
+        );
+        assert!(
+            grid_html.contains("set((cx.hydrate(&quot;&quot;)).clone())"),
+            "live retry must clear the cursor signal: {grid_html}"
+        );
 
         // The `before` signal path is symmetric: a tampered backward cursor
         // renders the same cursor-stripped ErrorState. A tampered `group_by`
@@ -403,7 +420,7 @@ mod tests {
                     .header(topcoat::router::request::IDENTITY_HEADER, "A".repeat(22))
                     .body(Body::from(format!(
                         r#"{{"args":{},"signals":{{}}}}"#,
-                        shard_args("", "zz-not-a-cursor", "nope")
+                        shard_args(&crate::resource::cursor_before("zz-not-a-cursor"), "nope")
                     )))
                     .unwrap(),
             )
@@ -506,8 +523,8 @@ mod tests {
                 sig(3, ""),
                 sig(4, ""),
                 sig(5, ""),
-                sig(6, ""),
-                sig(7, group_by),
+                sig(6, group_by),
+                sig(7, ""),
             )
         };
         let post_shard = |args: String| {

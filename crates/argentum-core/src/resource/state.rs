@@ -14,12 +14,13 @@ use topcoat::runtime::Signal;
 /// shard through [`Table::render_live_with_state`]; each tracked read inside
 /// the shard becomes a `dep` marker the browser watches, so writing any signal
 /// re-renders the grid in place — no navigation, no scroll jump. Sort links,
-/// the pager, the filter transport, and the clear links rendered by the table
-/// write them.
+/// the pager, the filter transport, the bulk selection, and the clear links
+/// rendered by the table write them.
 ///
-/// `q`/`filters`/`sort`/`dir`/`group_by` reset the cursors when they change;
-/// `after` and `before` page within the current result set. All values are untrusted by
-/// the time the shard reads them back (the client owns the signal).
+/// `q`/`filters`/`sort`/`dir`/`group_by` reset the cursor when they change;
+/// [`Self::cursor`] pages within the current result set. All values are
+/// untrusted by the time the shard reads them back (the client owns the
+/// signal).
 #[derive(Clone)]
 pub struct TableSignals {
     /// `?q=` — the prefix search term.
@@ -30,16 +31,84 @@ pub struct TableSignals {
     pub sort: Signal<String>,
     /// `?dir=` — `asc`/`desc` for [`Self::sort`].
     pub dir: Signal<String>,
-    /// `?after=` — the forward cursor.
-    pub after: Signal<String>,
-    /// `?before=` — the backward cursor.
-    pub before: Signal<String>,
+    /// The live cursor (GH #166), as one signal: `""` (no cursor),
+    /// `after:<token>` or `before:<token>`. One signal makes the
+    /// `after`+`before` pair Toasty rejects unrepresentable in the browser — no
+    /// cross-write interleaving can produce it — and lets every result-set
+    /// transition clear pagination with a single write. Written through
+    /// [`cursor_after`] / [`cursor_before`] / [`cursor_none`], read through
+    /// [`split_cursor`].
+    pub cursor: Signal<String>,
     /// `?group_by=` — the active grouping (`""` = ungrouped, GH #157).
     /// Seeded from the page-load state and changed via navigation
     /// (`?group_by=` links); no live control writes it yet, so it persists
-    /// across in-place reruns. A future control writing it must reset the
-    /// cursors like the other result-set dimensions.
+    /// across in-place reruns. A future control writing it must clear the
+    /// cursor like the other result-set dimensions.
     pub group_by: Signal<String>,
+    /// The bulk selection: comma-separated record keys, `""` when nothing is
+    /// selected (GH #166). Row checkboxes render `checked` from it and
+    /// `bulk.js` writes it through the bound transport, so a live rerun
+    /// re-renders the boxes from the selection instead of dropping it. The
+    /// shard carries the handle without reading it: the grid needs it to bind
+    /// the boxes, but a checkbox click must not reload rows.
+    pub bulk: Signal<String>,
+}
+
+/// The live cursor wire format (GH #166): `after:<token>` / `before:<token>`,
+/// with the empty string meaning "no cursor". One signal carries it, so the
+/// browser can never hold both cursors at once.
+const CURSOR_AFTER: &str = "after:";
+const CURSOR_BEFORE: &str = "before:";
+
+/// Wire value for a forward cursor (`?after=<token>`).
+pub(crate) fn cursor_after(token: &str) -> String {
+    format!("{CURSOR_AFTER}{token}")
+}
+
+/// Wire value for a backward cursor (`?before=<token>`).
+pub(crate) fn cursor_before(token: &str) -> String {
+    format!("{CURSOR_BEFORE}{token}")
+}
+
+/// Wire value for no cursor — what every result-set transition writes, and
+/// what a fresh page seeds.
+pub(crate) fn cursor_none() -> String {
+    String::new()
+}
+
+/// Split the live cursor wire value into the `(after, before)` pair the loader
+/// consumes. At most one side is ever `Some`: a value naming neither direction
+/// (a tampered signal, or one the client never sent) degrades to "no cursor" —
+/// the drop-pagination retry contract of GH #110 — rather than the pair error
+/// of GH #155, which the live path can no longer reach.
+pub(crate) fn split_cursor(wire: &str) -> (Option<String>, Option<String>) {
+    let wire = wire.trim();
+    for (prefix, forward) in [(CURSOR_AFTER, true), (CURSOR_BEFORE, false)] {
+        if let Some(token) = wire.strip_prefix(prefix) {
+            let token = token.trim();
+            if token.is_empty() {
+                break;
+            }
+            return if forward {
+                (Some(token.to_string()), None)
+            } else {
+                (None, Some(token.to_string()))
+            };
+        }
+    }
+    (None, None)
+}
+
+/// Whether `key` is selected in the live bulk wire (GH #166).
+///
+/// The wire is comma-delimited on both ends — `,a,b,`, empty when nothing is
+/// selected — so the client-side `checked` binding tests membership with a
+/// plain `contains(",<key>,")` instead of a substring test that would confuse
+/// `b` with `ab`. [`parse_bulk_ids`](crate::panel) already ignores the empty
+/// segments the delimiters produce, so the same wire is the form transport.
+#[cfg(test)]
+pub(crate) fn bulk_wire_contains(wire: &str, key: &str) -> bool {
+    wire.split(',').any(|segment| segment == key)
 }
 
 /// One executed page of rows for [`Table::render`].
@@ -989,5 +1058,49 @@ mod tests {
             reparse(&source.with_delete_dialog("/admin/users", "row-9")),
             expected
         );
+    }
+    /// GH #166: the live cursor travels as one wire value, so the browser can
+    /// never hold `after` and `before` at once — the pair Toasty rejects
+    /// (GH #155) is unreachable from the live path.
+    #[test]
+    fn cursor_wire_carries_at_most_one_direction() {
+        assert_eq!(cursor_after("tok"), "after:tok");
+        assert_eq!(cursor_before("tok"), "before:tok");
+        assert_eq!(cursor_none(), "");
+        assert_eq!(
+            split_cursor(&cursor_after("tok")),
+            (Some("tok".into()), None)
+        );
+        assert_eq!(
+            split_cursor(&cursor_before("tok")),
+            (None, Some("tok".into()))
+        );
+        assert_eq!(split_cursor(&cursor_none()), (None, None));
+        // Whitespace from the signal is tolerated, like the GET path's trims.
+        assert_eq!(
+            split_cursor("  after: tok  "),
+            (Some("tok".to_string()), None)
+        );
+        // A tampered or half-written value degrades to no cursor (GH #110's
+        // drop-pagination retry contract) instead of erroring the grid.
+        assert_eq!(split_cursor("tok"), (None, None));
+        assert_eq!(split_cursor("after:"), (None, None));
+        assert_eq!(split_cursor("before:"), (None, None));
+        // Only the prefix is a direction; a token may contain colons.
+        assert_eq!(split_cursor("after:a:b"), (Some("a:b".to_string()), None));
+    }
+
+    /// GH #166: the bulk wire is delimited on both ends so membership is exact
+    /// (`b` is not selected by `,ab,`), and the delimiters ride through the
+    /// form transport the bulk handler already parses.
+    #[test]
+    fn bulk_wire_membership_is_exact() {
+        let wire = ",row-1,row-2,";
+        assert!(bulk_wire_contains(wire, "row-1"));
+        assert!(bulk_wire_contains(wire, "row-2"));
+        assert!(!bulk_wire_contains(wire, "row"));
+        assert!(!bulk_wire_contains(wire, "row-1a"));
+        assert!(!bulk_wire_contains(",row-12,", "row-1"));
+        assert!(!bulk_wire_contains("", "row-1"));
     }
 }

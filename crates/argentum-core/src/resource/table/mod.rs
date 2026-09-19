@@ -47,6 +47,7 @@ pub struct Table<M> {
     record_key: Option<RowKey<M>>,
     page_size: Option<usize>,
     search_ui: Option<bool>,
+    filters_ui: Option<bool>,
     show_skeleton: bool,
     is_boundary: bool,
     delete_prefix: Option<String>,
@@ -67,6 +68,7 @@ impl<M> std::fmt::Debug for Table<M> {
             .field("record_key", &self.record_key.is_some())
             .field("page_size", &self.page_size)
             .field("search_ui", &self.search_ui)
+            .field("filters_ui", &self.filters_ui)
             .field("show_skeleton", &self.show_skeleton)
             .field("is_boundary", &self.is_boundary)
             .field("delete_prefix", &self.delete_prefix)
@@ -94,6 +96,7 @@ impl<M> Table<M> {
             record_key: None,
             page_size: None,
             search_ui: None,
+            filters_ui: None,
             show_skeleton: false,
             is_boundary: true,
             delete_prefix: None,
@@ -331,6 +334,18 @@ impl<M> Table<M> {
     /// `searchable()`, so the toolbar and the query stay in step.
     pub fn search(mut self, enabled: bool) -> Self {
         self.search_ui = Some(enabled);
+        self
+    }
+
+    /// Force the filter bar on or off.
+    ///
+    /// Defaults to showing the bar whenever the table declares filters. The
+    /// live list hoists the bar out of the swapped grid and turns it off here
+    /// (GH #166), mirroring how `search(false)` hands the search toolbar to the
+    /// page: a `<select>` that is rebuilt by its own rerun loses focus and
+    /// collapses its native popup.
+    pub fn filter_bar(mut self, enabled: bool) -> Self {
+        self.filters_ui = Some(enabled);
         self
     }
 
@@ -692,6 +707,16 @@ impl<M> Table<M> {
     /// Whether this table renders the keystroke-live search host (GH #104).
     pub(crate) fn is_live_search(&self) -> bool {
         self.live_search
+    }
+
+    /// Whether the filter bar renders inside the grid: the explicit
+    /// `filter_bar(bool)` value, or auto — the table declares at least one filter.
+    ///
+    /// Live tables turn it off (GH #166): the list page hoists the bar out of
+    /// the swapped region, the same way it owns the search toolbar, so a filter
+    /// change cannot rebuild the control the user is interacting with.
+    pub(crate) fn filter_bar_enabled(&self) -> bool {
+        self.interactive && self.filters_ui.unwrap_or(!self.filters.is_empty())
     }
 }
 

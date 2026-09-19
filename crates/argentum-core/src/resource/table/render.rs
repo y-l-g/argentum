@@ -158,7 +158,7 @@ impl<M> Table<M> {
         } else {
             None
         };
-        let show_filters = !self.filters.is_empty();
+        let show_filters = self.filter_bar_enabled();
         let filter_bar = if show_filters {
             Some(
                 self.render_filter_bar(cx, state, path, signals.as_ref())
@@ -170,10 +170,38 @@ impl<M> Table<M> {
         let bulk_bar_view: BoxView<'_> = if with_bulk {
             let bulk_action = format!("{}/bulk-delete", self.delete_prefix.clone().unwrap());
             let csrf = crate::csrf::current_token(cx);
-            // No visible `ids` field (GH #151): the transport is hidden and
-            // fed by the row checkboxes (`bulk.js`), and the destructive
-            // submit ships disabled so an empty submit cannot be produced
-            // from the UI — the script enables it once a row is checked.
+            // No visible `ids` field (GH #151): the transport is fed by the row
+            // checkboxes (`bulk.js`), and the destructive submit ships disabled
+            // so an empty submit cannot be produced from the UI. On a live
+            // table the selection lives in a signal instead (GH #166): the
+            // transport is bound to it and the submit's disabled state derives
+            // from it, so a shard rerun re-renders both from the selection
+            // rather than dropping it.
+            let (transport_attrs, submit_attrs) = match &signals {
+                Some(signals) => {
+                    let bulk = signals.bulk.clone();
+                    (
+                        attributes! {
+                            cx =>
+                            type="hidden"
+                            name="ids"
+                            :value=$(bulk.get())
+                            @change=$(|e: Event| bulk.set(e.target.value))
+                            data-bulk-ids=""
+                        },
+                        attributes! {
+                            cx =>
+                            type="submit"
+                            :disabled=$(bulk.get().is_empty())
+                            data-bulk-submit=""
+                        },
+                    )
+                }
+                None => (
+                    attributes! { cx => type="hidden" name="ids" value="" data-bulk-ids="" },
+                    attributes! { cx => type="submit" disabled="" data-bulk-submit="" },
+                ),
+            };
             view! {
                 cx =>
                 <form
@@ -183,11 +211,11 @@ impl<M> Table<M> {
                     data-bulk-form=""
                 >
                     <input type="hidden" name="csrf_token" value=(csrf)>
-                    <input type="hidden" name="ids" value="" data-bulk-ids="">
+                    <input (transport_attrs)>
                     button(
                         variant: ButtonVariant::Destructive,
                         size: ButtonSize::Md,
-                        attrs: attributes! { type="submit" disabled="" data-bulk-submit="" },
+                        attrs: submit_attrs,
                         "Bulk Delete"
                     )
                 </form>
@@ -718,7 +746,8 @@ impl<M> Table<M> {
         let fallback = self.render_search_bar(cx, &state, path).await?;
         let q_display = state.search.clone().unwrap_or_default();
         let q = signals.q.clone();
-        let (after, before) = (signals.after.clone(), signals.before.clone());
+        let cursor = signals.cursor.clone();
+        let none = crate::resource::cursor_none();
         Ok(view! {
             cx =>
             <div
@@ -739,8 +768,7 @@ impl<M> Table<M> {
                     :value=$(q.get())
                     @change=$(|e: Event| {
                         q.set(e.target.value);
-                        after.set("".to_owned());
-                        before.set("".to_owned());
+                        cursor.set(none.clone());
                     })
                     data-live-search-transport=""
                 >
@@ -774,9 +802,9 @@ impl<M> Table<M> {
             filters,
             sort,
             dir,
-            after,
-            before,
+            cursor,
             group_by,
+            bulk,
         } = signals;
         Ok(view! {
             cx =>
@@ -786,12 +814,37 @@ impl<M> Table<M> {
                 filters: $(filters),
                 sort: $(sort),
                 dir: $(dir),
-                after: $(after),
-                before: $(before),
-                group_by: $(group_by)
+                cursor: $(cursor),
+                group_by: $(group_by),
+                bulk: $(bulk)
             )
         }
         .boxed())
+    }
+
+    /// The filter bar for a live table, rendered eagerly by the page that owns
+    /// the signals (GH #166) — the counterpart of [`Self::render_live_search_bar`].
+    ///
+    /// Hoisting matters for focus: a `<select>` change writes the `filters`
+    /// signal, and a bar rebuilt by that rerun would collapse the native popup
+    /// and drop keyboard context. The grid renders without the bar
+    /// (`Table::filters(false)`), so the control the user touched is never
+    /// replaced.
+    pub async fn render_live_filter_bar<'a>(
+        &self,
+        cx: &'a Cx,
+        state: &TableState,
+        path: &str,
+        signals: &TableSignals,
+    ) -> Result<BoxView<'a>>
+    where
+        M: toasty::schema::Model,
+    {
+        // Called with raw page state (GH #153): normalize so the no-JS
+        // fallback form carries the same normalized values the GET path would.
+        let state = self.normalize_state(state);
+        self.render_filter_bar(cx, &state, path, Some(signals))
+            .await
     }
 
     /// The typed filter bar. For live tables (`signals`) the hidden `filters`
@@ -977,19 +1030,15 @@ impl<M> Table<M> {
         // composes and dispatches, the shard re-renders in place. Static
         // tables keep the server-rendered value the GET form submits.
         let transport_attrs = if let Some(signals) = signals {
-            let (filters, after, before) = (
-                signals.filters.clone(),
-                signals.after.clone(),
-                signals.before.clone(),
-            );
+            let (filters, cursor) = (signals.filters.clone(), signals.cursor.clone());
+            let none = crate::resource::cursor_none();
             attributes! {
                 cx =>
                 name="filters"
                 :value=$(filters.get())
                 @change=$(|e: Event| {
                     filters.set(e.target.value);
-                    after.set("".to_owned());
-                    before.set("".to_owned());
+                    cursor.set(none.clone());
                 })
                 data-filters-transport=""
             }
@@ -1004,19 +1053,15 @@ impl<M> Table<M> {
         let clear_link: Option<BoxView<'a>> = clear_url.map(|url| {
             let attrs = match signals {
                 Some(signals) => {
-                    let (filters, after, before) = (
-                        signals.filters.clone(),
-                        signals.after.clone(),
-                        signals.before.clone(),
-                    );
+                    let (filters, cursor) = (signals.filters.clone(), signals.cursor.clone());
+                    let none = crate::resource::cursor_none();
                     attributes! {
                         cx =>
                         href=(url.clone())
                         @click=$(|e: Event| {
                             e.prevent_default();
                             filters.set("".to_owned());
-                            after.set("".to_owned());
-                            before.set("".to_owned());
+                            cursor.set(none.clone());
                         })
                     }
                 }
@@ -1135,11 +1180,11 @@ impl<M> Table<M> {
         let clear_link: Option<BoxView<'a>> = clear_url.map(|url| {
             let attrs = match signals {
                 Some(signals) => {
-                    let (q, filters, after, before) = (
+                    let none = crate::resource::cursor_none();
+                    let (q, filters, cursor) = (
                         signals.q.clone(),
                         signals.filters.clone(),
-                        signals.after.clone(),
-                        signals.before.clone(),
+                        signals.cursor.clone(),
                     );
                     let clearing_search = state.search.is_some();
                     attributes! {
@@ -1152,8 +1197,7 @@ impl<M> Table<M> {
                             } else {
                                 filters.set("".to_owned());
                             }
-                            after.set("".to_owned());
-                            before.set("".to_owned());
+                            cursor.set(none.clone());
                         })
                     }
                 }
@@ -1170,14 +1214,14 @@ impl<M> Table<M> {
         let first_page_link: Option<BoxView<'a>> = first_page_url.map(|url| {
             let attrs = match signals {
                 Some(signals) => {
-                    let (after, before) = (signals.after.clone(), signals.before.clone());
+                    let cursor = signals.cursor.clone();
+                    let none = crate::resource::cursor_none();
                     attributes! {
                         cx =>
                         href=(url)
                         @click=$(|e: Event| {
                             e.prevent_default();
-                            after.set("".to_owned());
-                            before.set("".to_owned());
+                            cursor.set(none.clone());
                         })
                     }
                 }
@@ -1247,15 +1291,14 @@ impl<M> Table<M> {
         let prev_item: Option<BoxView<'a>> = prev_href.map(|href| {
             let attrs = match (signals, page.prev_cursor.as_deref()) {
                 (Some(signals), Some(cursor)) => {
-                    let (after, before) = (signals.after.clone(), signals.before.clone());
-                    let cursor = cursor.to_owned();
+                    let wire = crate::resource::cursor_before(cursor);
+                    let signal = signals.cursor.clone();
                     attributes! {
                         cx =>
                         href=(href.clone())
                         @click=$(|e: Event| {
                             e.prevent_default();
-                            before.set(cursor.clone());
-                            after.set("".to_owned());
+                            signal.set(wire.clone());
                         })
                     }
                 }
@@ -1266,15 +1309,14 @@ impl<M> Table<M> {
         let next_item: Option<BoxView<'a>> = next_href.map(|href| {
             let attrs = match (signals, page.next_cursor.as_deref()) {
                 (Some(signals), Some(cursor)) => {
-                    let (after, before) = (signals.after.clone(), signals.before.clone());
-                    let cursor = cursor.to_owned();
+                    let wire = crate::resource::cursor_after(cursor);
+                    let signal = signals.cursor.clone();
                     attributes! {
                         cx =>
                         href=(href.clone())
                         @click=$(|e: Event| {
                             e.prevent_default();
-                            after.set(cursor.clone());
-                            before.set("".to_owned());
+                            signal.set(wire.clone());
                         })
                     }
                 }
@@ -1357,11 +1399,11 @@ impl<M> Table<M> {
                     if next_desc { "descending" } else { "ascending" }
                 );
                 let link_attrs = if let Some(signals) = signals {
-                    let (sort, dir, after, before) = (
+                    let none = crate::resource::cursor_none();
+                    let (sort, dir, cursor) = (
                         signals.sort.clone(),
                         signals.dir.clone(),
-                        signals.after.clone(),
-                        signals.before.clone(),
+                        signals.cursor.clone(),
                     );
                     let column = col.name().to_string();
                     let next_dir = if next_desc { "desc" } else { "asc" }.to_owned();
@@ -1373,8 +1415,7 @@ impl<M> Table<M> {
                             e.prevent_default();
                             sort.set(column.clone());
                             dir.set(next_dir.clone());
-                            after.set("".to_owned());
-                            before.set("".to_owned());
+                            cursor.set(none.clone());
                         })
                     }
                 } else {
