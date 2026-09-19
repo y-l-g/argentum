@@ -94,6 +94,7 @@ impl Resource for MemberResource {
         Table::r#for(cx)
             .id(|member: &Member| member.id.to_string())
             .pk(|member: &Member| member.id.to_string())
+            .paginate(25)
             .columns(TextColumn::r#for(
                 Member::fields().handle(),
                 |member: &Member| member.handle.clone(),
