@@ -134,12 +134,11 @@ pub fn set_notification(cx: &Cx, notification: Notification) {
 /// whether the write went through. The title names the operation, never the
 /// driver's text — internals stay in the server log (GH #174 §1).
 ///
-/// Note the delivery: the flash rides a `Set-Cookie`, and Topcoat's cookie
-/// layer writes pending cookies only on the `Ok` path
-/// (`topcoat-cookie/src/router.rs` short-circuits on `Err`), so today this
-/// toast cannot reach a 500 page. It is set here regardless — the moment
-/// upstream flushes cookies on error responses (upstream #126) the existing
-/// handlers show it, with no further change.
+/// Delivery: the flash rides a `Set-Cookie`, and Topcoat's cookie layer writes
+/// pending cookies on **both** paths — on `Err` it stashes them in
+/// `response_headers`, which the router applies once the error response exists
+/// (`topcoat-router/src/router.rs`). So the toast renders on the 500 page too,
+/// which is the whole point of setting it before returning the error.
 pub(crate) fn notify_write_failure(cx: &Cx, action: &str) {
     set_notification(
         cx,
