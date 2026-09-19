@@ -802,6 +802,38 @@ impl Resource for PostResource {
 /// (`deletable() == false`): removals happen through the post lifecycle,
 /// never from the queue. Server policy still allows them, so the override is
 /// chrome-only.
+/// Re-resolve a comment's parent post through the tenant-scoped
+/// [`PostResource::query`] inside the caller's open transaction (GH #178).
+///
+/// `Schema::validate_async` / `Select::validate_async` already reject a
+/// `post_id` outside the tenant-scoped option set before the tx opens, but that
+/// is a pre-write check in a different window: a policy or tenant change between
+/// the two would slip through, and a direct `create_record` / `update_record`
+/// caller never ran it at all. Mirroring `PostResource`'s author double-check,
+/// this is the defense-in-depth half — one query on the seam that owns tenancy.
+///
+/// The miss is a 404, not the 500 `PostResource` uses for a missing author: a
+/// parent in another tenant is an authorization boundary, and "wrong tenant
+/// looks exactly like unknown id" is this panel's contract everywhere else
+/// (GH #86/#169).
+async fn ensure_post_in_tenant(
+    cx: &Cx,
+    post_id: uuid::Uuid,
+    ex: &mut dyn toasty::Executor,
+) -> Result<()> {
+    let in_tenant = PostResource::query(cx)
+        .filter(Post::fields().id().eq(post_id))
+        .first()
+        .exec(&mut *ex)
+        .await
+        .map_err(|e| -> topcoat::Error { e.into() })?
+        .is_some();
+    if !in_tenant {
+        return Err(topcoat::router::error::not_found().into());
+    }
+    Ok(())
+}
+
 pub struct CommentResource;
 
 impl Resource for CommentResource {
@@ -890,7 +922,7 @@ impl Resource for CommentResource {
     }
 
     async fn create_record(
-        _cx: &Cx,
+        cx: &Cx,
         values: HashMap<String, String>,
         ex: &mut dyn toasty::Executor,
     ) -> Result<()> {
@@ -909,6 +941,9 @@ impl Resource for CommentResource {
             .map_err(|e| {
                 topcoat::Error::from(std::io::Error::other(format!("invalid post_id: {e}")))
             })?;
+        // Tenancy double-check inside the tx (GH #178): the pre-tx option-set
+        // validation is not a write-time guarantee.
+        ensure_post_in_tenant(cx, post_id, ex).await?;
         toasty::create!(Comment {
             body: body,
             post_id: post_id,
@@ -920,7 +955,7 @@ impl Resource for CommentResource {
     }
 
     async fn update_record(
-        _cx: &Cx,
+        cx: &Cx,
         mut record: Comment,
         values: HashMap<String, String>,
         ex: &mut dyn toasty::Executor,
@@ -935,6 +970,9 @@ impl Resource for CommentResource {
             })?,
             None => record.post_id,
         };
+        // An update can re-point the comment at another post (GH #178), which
+        // is exactly the move the pre-tx check cannot be trusted to catch.
+        ensure_post_in_tenant(cx, post_id, ex).await?;
         toasty::update!(record {
             body: body,
             post_id: post_id,

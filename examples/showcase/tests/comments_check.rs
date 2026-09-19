@@ -4,7 +4,9 @@ use showcase::{
 };
 
 mod common;
-use common::{body_string, demo_client, form_body, full_db, input_value, response_cookies};
+use common::{
+    body_string, demo_client, form_body, full_db, input_value, response_cookies, tenanted_db,
+};
 
 #[tokio::test]
 async fn comments_list_shows_body_and_post_title() {
@@ -115,5 +117,106 @@ async fn comments_create_valid_redirects_and_creates() {
     assert!(
         html.contains("A thoughtful follow-up"),
         "new comment must render on the list: {html}"
+    );
+}
+
+/// GH #178: the pre-tx option-set validation is not a write-time guarantee.
+/// A direct `create_record` / `update_record` caller (or a policy flip between
+/// validation and the write) must still be stopped by the transaction itself —
+/// and an update must not be able to re-point a comment at another tenant's
+/// post.
+#[tokio::test]
+async fn comment_writes_recheck_the_parent_post_tenant_inside_the_transaction() {
+    use argentum_core::{Resource, Tenant, db::db as db_handle};
+    use showcase::app::{CommentResource, PostResource};
+    use std::collections::HashMap;
+    use topcoat::context::CxTestBuilder;
+    use topcoat::router::response::IntoResponse;
+
+    let (db, t1, t2) = tenanted_db().await;
+    let cx = CxTestBuilder::new()
+        .app_context(db.clone())
+        .request_context(Tenant(t1))
+        .build();
+
+    // A post that exists — in the other tenant.
+    let cx_t2 = cx.with(Tenant(t2));
+    let foreign = PostResource::query(&cx_t2)
+        .first()
+        .exec(&mut db_handle(&cx_t2))
+        .await
+        .unwrap()
+        .expect("t2 seeds one post");
+    // ...and one in this tenant, as the positive control.
+    let own = PostResource::query(&cx)
+        .first()
+        .exec(&mut db_handle(&cx))
+        .await
+        .unwrap()
+        .expect("t1 seeds one post");
+
+    let values = |post_id: uuid::Uuid| {
+        let mut v = HashMap::new();
+        v.insert("body".to_string(), "moderated".to_string());
+        v.insert("post_id".to_string(), post_id.to_string());
+        v
+    };
+
+    // Create against the foreign post: refused inside the tx.
+    let mut handle = db_handle(&cx);
+    let mut tx = handle.transaction().await.unwrap();
+    let refused =
+        <CommentResource as Resource>::create_record(&cx, values(foreign.id), &mut tx).await;
+    let error = refused.expect_err("a cross-tenant post must not accept a comment");
+    drop(tx);
+    // The guard's own 404, not a driver or FK failure: "wrong tenant looks
+    // exactly like unknown id" is the contract here (GH #86/#169).
+    let refusal = error
+        .into_response(&cx)
+        .expect("the refusal renders a response");
+    assert_eq!(
+        refusal.status(),
+        http::StatusCode::NOT_FOUND,
+        "a cross-tenant parent must read as not found"
+    );
+
+    // Create against this tenant's post: accepted, so the guard is not
+    // blanket-denying.
+    let mut handle = db_handle(&cx);
+    let mut tx = handle.transaction().await.unwrap();
+    <CommentResource as Resource>::create_record(&cx, values(own.id), &mut tx)
+        .await
+        .expect("the tenant's own post accepts a comment");
+    tx.commit().await.unwrap();
+
+    // Re-pointing that comment at the foreign post is refused too, and the
+    // stored row keeps its original parent.
+    let stored = CommentResource::query(&cx)
+        .first()
+        .exec(&mut db_handle(&cx))
+        .await
+        .unwrap()
+        .expect("the comment was written");
+    let original_post = stored.post_id;
+    let mut handle = db_handle(&cx);
+    let mut tx = handle.transaction().await.unwrap();
+    let repointed =
+        <CommentResource as Resource>::update_record(&cx, stored, values(foreign.id), &mut tx)
+            .await;
+    assert!(
+        repointed.is_err(),
+        "an update must not re-point a comment at another tenant's post"
+    );
+    drop(tx);
+
+    let after = CommentResource::query(&cx)
+        .first()
+        .exec(&mut db_handle(&cx))
+        .await
+        .unwrap()
+        .expect("the comment survives the refused update");
+    assert_eq!(
+        after.post_id, original_post,
+        "a refused re-point must not move the comment"
     );
 }
