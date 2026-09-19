@@ -251,12 +251,29 @@ async fn bench_list_path(db: &Db, tenant: uuid::Uuid, iterations: usize) -> Vec<
         );
         let start = Instant::now();
         let state = TableState::from_cx(&cx);
+        // Action wiring, mirroring `wire_table_actions` (panel/list.rs,
+        // `live = false`): the shipped page renders row Delete + bulk bar +
+        // Edit chrome per row — a bench without it would under-measure render
+        // cost. `wire_table_actions` itself is `pub(crate)`, so the detached
+        // harness repeats its steps against the same list URL.
         let table = PostResource::table(&cx);
         assert_eq!(
             table.page_size(),
             Some(50),
             "declared .paginate(50) must reach the loader"
         );
+        let table = if PostResource::deletable() {
+            table
+                .with_delete("/admin/posts".to_string())
+                .with_bulk_delete(true)
+        } else {
+            table
+        };
+        let table = if PostResource::editable() {
+            table.with_edit("/admin/posts".to_string())
+        } else {
+            table
+        };
         let page = table
             .load(&cx, PostResource::query(&cx), &state)
             .await
@@ -321,6 +338,44 @@ async fn run_leg(db: Db, label: &str, iterations: usize) {
     println!("query-only diagnostic (cold Cx, no load/render), 20 iters — p50: {q50:.2}ms");
 }
 
+/// Refuse a Postgres URL whose database does not look disposable (GH #171
+/// review): the leg drops the named database, so a production URL pasted
+/// into the env var must fail loud, never wipe.
+fn assert_bench_database(url: &str) {
+    let dbname = url
+        .rsplit_once('/')
+        .map(|(_, tail)| tail.split('?').next().unwrap_or(tail))
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    assert!(
+        dbname.contains("bench") || dbname.contains("test"),
+        "refusing to reset Postgres database {dbname:?}: name a disposable bench/test database"
+    );
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn bench_database_guard_accepts_bench_names_and_refuses_the_rest() {
+        for ok in [
+            "postgresql://localhost/argentum_bench",
+            "postgresql://u:p@host:5432/my-test-db?sslmode=require",
+            "postgresql://localhost/BENCH",
+        ] {
+            super::assert_bench_database(ok);
+        }
+        for bad in [
+            "postgresql://localhost/production",
+            "postgresql://localhost/app",
+            "postgresql://localhost/",
+            "not-a-url",
+        ] {
+            let refused = std::panic::catch_unwind(|| super::assert_bench_database(bad));
+            assert!(refused.is_err(), "{bad:?} must be refused");
+        }
+    }
+}
+
 async fn run_bench(iterations: usize) {
     println!("=== Argentum Phase-2 bench (GH #171, UNGATED): real list path ===");
     println!("workload: 50 rows, 2 includes (author + comments), tenancy set, policy enforced");
@@ -350,6 +405,10 @@ async fn run_bench(iterations: usize) {
             "--- postgres --- skipped (set ARGENTUM_BENCH_POSTGRES_URL=postgresql://... to run)"
         ),
         Ok(url) => {
+            // The leg drops the named database: refuse anything that does
+            // not look disposable, so a pasted production URL fails loud
+            // instead of wiping real data.
+            assert_bench_database(&url);
             // The bench database is disposable by contract: drop it first so
             // reruns start empty — `push_schema` is not idempotent on
             // Postgres (`relation "authors" already exists` on the second
