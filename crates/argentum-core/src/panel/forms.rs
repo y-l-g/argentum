@@ -348,7 +348,10 @@ async fn render_form_page<'a, R: Resource>(
                         )
                         <a
                             href=(list_url(cx, &R::slug()))
-                            class="inline-flex items-center justify-center rounded-md border border-border bg-background px-4 py-2 text-sm"
+                            class=(argentum_ui::button_variants(
+                                argentum_ui::ButtonVariant::Outline,
+                                argentum_ui::ButtonSize::Md,
+                            ))
                         >
                             "Cancel"
                         </a>
