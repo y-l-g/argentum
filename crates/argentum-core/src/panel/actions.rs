@@ -1562,6 +1562,13 @@ mod tests {
             http::StatusCode::PAYLOAD_TOO_LARGE,
             "one row past the cap must 413"
         );
+        use http_body_util::BodyExt;
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let body_text = String::from_utf8_lossy(&body);
+        assert!(
+            !body_text.contains("user-"),
+            "413 must carry no CSV rows, got {body_text:?}"
+        );
     }
 
     #[test]

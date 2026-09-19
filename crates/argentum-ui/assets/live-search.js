@@ -16,6 +16,11 @@
 // replace table markup need no re-installation. Per-input timers live in a
 // WeakMap keyed by the visible input; a timer firing for a detached (swapped
 // out) input is dropped, so a stale value can never overwrite a newer one.
+//
+// Wrapped in an IIFE: deferred classic scripts share the global lexical
+// environment, and generic names like `flush` must not collide with sibling
+// assets (bulk.js, filters.js, selects.js).
+(() => {
 const timers = new WeakMap();
 
 function transportFor(input) {
@@ -65,3 +70,4 @@ document.addEventListener('keydown', (e) => {
   }
   flush(input);
 });
+})();
