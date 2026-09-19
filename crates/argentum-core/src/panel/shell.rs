@@ -706,6 +706,25 @@ mod tests {
         );
     }
 
+    /// The opening tag that starts at `start`, sliced up to the `>` closing it.
+    ///
+    /// `Attributes` renders in no guaranteed order (topcoat#122), so a test
+    /// locates a tag by whichever attribute it can and asserts on the whole
+    /// tag. Quoting is honoured, so a `>` inside an attribute value (Tailwind
+    /// selectors and arrow-function handlers both carry them) does not end
+    /// the slice.
+    fn opening_tag_at(html: &str, start: usize) -> &str {
+        let mut quoted = false;
+        for (offset, byte) in html.as_bytes()[start..].iter().enumerate() {
+            match byte {
+                b'"' => quoted = !quoted,
+                b'>' if !quoted => return &html[start..start + offset],
+                _ => {}
+            }
+        }
+        panic!("unterminated tag at byte {start} in {html}");
+    }
+
     /// Render the shell once with a flash cookie carrying `enc`.
     async fn shell_html_with_flash(enc: &str) -> String {
         use crate::resource::NavigationItem;
@@ -911,9 +930,10 @@ mod tests {
             1,
             "the shell must expose exactly one main landmark, got {html}"
         );
+        let main_tag = opening_tag_at(&html, html.find("<main").expect("main landmark"));
         assert!(
-            html.contains("<main data-sidebar=\"inset\""),
-            "the inset stays the main landmark, got {html}"
+            main_tag.contains("data-sidebar=\"inset\""),
+            "the inset stays the main landmark, got {main_tag}"
         );
     }
 
@@ -939,14 +959,15 @@ mod tests {
         let label = html
             .find("aria-label=\"Close sidebar\"")
             .unwrap_or_else(|| panic!("missing Close sidebar control in {html}"));
-        // Attributes render in no guaranteed order, so slice the whole tag:
-        // from the nearest `<button` to the `>` that closes it.
-        let tag_start = html[..label].rfind("<button").expect("close control tag");
-        let tag_end = label + html[label..].find('>').expect("close control tag end");
-        let tag = &html[tag_start..tag_end];
+        // Find the tag by its label, then assert on the whole opening tag:
+        // `Attributes` renders in no guaranteed order (topcoat#122).
+        let tag_start = html[..label].rfind('<').expect("close control tag start");
+        let tag = opening_tag_at(&html, tag_start);
         assert!(
-            tag.contains("md:hidden") && tag.contains("data-topcoat-on:click"),
-            "close control must be mobile-only and wired to close the sheet, got {tag}"
+            tag.contains("<button")
+                && tag.contains("md:hidden")
+                && tag.contains("data-topcoat-on:click"),
+            "close control must be a mobile-only button wired to close the sheet, got {tag}"
         );
     }
 

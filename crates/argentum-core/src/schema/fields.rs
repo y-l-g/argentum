@@ -988,6 +988,24 @@ mod tests {
         email: String,
     }
 
+    /// The opening tag that starts at `start`, sliced up to the `>` closing it.
+    ///
+    /// `Attributes` renders in no guaranteed order (topcoat#122), so a test
+    /// locates a tag by whichever attribute it can and asserts on the whole
+    /// tag. Quoting is honoured, so a `>` inside an attribute value (Tailwind
+    /// selectors carry them) does not end the slice.
+    fn opening_tag_at(html: &str, start: usize) -> &str {
+        let mut quoted = false;
+        for (offset, byte) in html.as_bytes()[start..].iter().enumerate() {
+            match byte {
+                b'"' => quoted = !quoted,
+                b'>' if !quoted => return &html[start..start + offset],
+                _ => {}
+            }
+        }
+        panic!("unterminated tag at byte {start} in {html}");
+    }
+
     /// A nullable FK, for the optional-by-default select case.
     #[derive(Debug, toasty::Model)]
     struct NullableRef {
@@ -1440,16 +1458,11 @@ mod tests {
             !html.contains("bg-background px-3 py-1"),
             "the hand-rolled select chrome must be gone, got {html}"
         );
-        // The opening tag carries no `<` of its own (the picker classes use
-        // `>`, which is legal inside a quoted attribute), so the next `<`
-        // closes the slice at the first child element.
-        let start = html.find("<select").expect("native select element");
-        let attributes_start = start + "<select".len();
-        let tag_end = html[attributes_start..]
-            .find('<')
-            .map(|offset| attributes_start + offset)
-            .expect("select children");
-        let tag = &html[start..tag_end];
+        // `Attributes` renders in no guaranteed order (topcoat#122), so slice
+        // the whole opening tag; quoting is honoured, so a `>` inside the
+        // picker's Tailwind selectors does not end it early.
+        let select_start = html.find("<select").expect("native select element");
+        let tag = opening_tag_at(&html, select_start);
         assert!(
             tag.contains("name=\"name\"")
                 && tag.contains("id=\"name\"")
