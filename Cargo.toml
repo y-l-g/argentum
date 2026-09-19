@@ -21,6 +21,14 @@ rust-version = "1.98"
 
 [workspace.lints.rust]
 unsafe_code = "deny"
+# Deny warnings through cargo's lint channel rather than a global
+# `RUSTFLAGS=-Dwarnings`. RUSTFLAGS is hashed into every unit's fingerprint, so
+# toggling it (CI vs. local, or a one-off `RUSTFLAGS=-Dwarnings cargo clippy`)
+# invalidates the whole dependency graph; the lint table applies the same policy
+# as part of the profile, without partitioning the build cache. Members opt in
+# with `[lints] workspace = true`. This covers workspace members only, which is
+# the intent — denying warnings in dependencies is upstream's business.
+warnings = "deny"
 
 [workspace.lints.clippy]
 too_many_lines = "allow"
