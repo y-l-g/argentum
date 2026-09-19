@@ -804,7 +804,9 @@ impl Select {
                     )
                 }
                 if overflow_searchable {
-                    <div class="text-xs text-muted-foreground" data-options-hint="">(overflow_hint)</div>
+                    <div class="text-xs text-muted-foreground" data-options-hint="">
+                        (overflow_hint)
+                    </div>
                 }
                 ui_select(
                     attrs: attributes! {

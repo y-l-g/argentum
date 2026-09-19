@@ -330,7 +330,9 @@ impl<M> Table<M> {
                     group_views.push(
                         view! {
                             cx =>
-                            <div class="px-4 py-2 bg-muted text-sm font-medium">(text)</div>
+                            <div class="px-4 py-2 bg-muted text-sm font-medium">
+                                (text)
+                            </div>
                         }
                         .boxed(),
                     );
