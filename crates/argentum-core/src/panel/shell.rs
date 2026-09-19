@@ -6,6 +6,7 @@
 use super::{Panel, PanelPrefix};
 
 use http::header::COOKIE;
+use topcoat::icon::icon;
 use topcoat::runtime::{Event, Signal, signal};
 use topcoat::view::internal::ThenView;
 use topcoat::{
@@ -335,7 +336,26 @@ impl Panel {
                             }
                         })
                     },
-                    sidebar_header((sidebar_brand))
+                    sidebar_header(
+                        <div class="flex items-center gap-2">
+                            (sidebar_brand)
+                            // Below `md` the sheet covers the inset header,
+                            // so the sheet's own header carries the close
+                            // control (upstream `examples/ui`); the mobile
+                            // trigger in the inset header is behind the veil.
+                            argentum_ui::button(
+                                variant: argentum_ui::ButtonVariant::Ghost,
+                                size: argentum_ui::ButtonSize::Icon,
+                                attrs: attributes! {
+                                    type="button"
+                                    class="md:hidden ml-auto"
+                                    aria-label="Close sidebar"
+                                    @click=$(|_e: Event| mobile_open.set(false))
+                                },
+                                icon(data: argentum_ui::icons::X)
+                            )
+                        </div>
+                    )
                     sidebar_content((navigation))
                     sidebar_footer((sidebar_theme_toggle))
                 )
@@ -862,6 +882,39 @@ mod tests {
                 && !html.contains("ac-main")
                 && !html.contains("ac-nav-item"),
             "ac-* should not remain in shell, got {html}"
+        );
+    }
+
+    /// The sheet header carries a mobile-only close control (upstream
+    /// `examples/ui`, `sidebar`'s "Include a close button in the mobile
+    /// header"): below `md` the open sheet veils the inset header, so the
+    /// mobile trigger there is unreachable and the sheet needs its own.
+    #[tokio::test]
+    async fn sidebar_sheet_header_carries_a_mobile_close_button() {
+        use topcoat::context::CxTestBuilder;
+        use topcoat::view::view;
+
+        let cx = CxTestBuilder::new().build();
+        let cx_ref = &cx;
+        let slot = view! { cx_ref => "hello" }.boxed().into();
+        let html = Panel::render_shell(&cx, &[], "/admin", slot, None)
+            .await
+            .unwrap()
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
+        let label = html
+            .find("aria-label=\"Close sidebar\"")
+            .unwrap_or_else(|| panic!("missing Close sidebar control in {html}"));
+        // Attributes render in no guaranteed order, so slice the whole tag:
+        // from the nearest `<button` to the `>` that closes it.
+        let tag_start = html[..label].rfind("<button").expect("close control tag");
+        let tag_end = label + html[label..].find('>').expect("close control tag end");
+        let tag = &html[tag_start..tag_end];
+        assert!(
+            tag.contains("md:hidden") && tag.contains("data-topcoat-on:click"),
+            "close control must be mobile-only and wired to close the sheet, got {tag}"
         );
     }
 
