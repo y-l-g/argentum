@@ -19,10 +19,13 @@ use super::relationship::{
 
 /// Placeholder leaf — renders a text block. Used in T3 before typed fields land.
 #[derive(Debug, Clone)]
-pub struct Text(pub String);
+pub(crate) struct Text(pub String);
 
 impl Text {
-    pub fn new(content: impl Into<String>) -> Self {
+    /// Test-only since GH #173: the placeholder leaf left the public surface
+    /// (`pub(crate)`), and only the layout/tree unit tests still build one.
+    #[cfg(test)]
+    pub(crate) fn new(content: impl Into<String>) -> Self {
         Self(content.into())
     }
 

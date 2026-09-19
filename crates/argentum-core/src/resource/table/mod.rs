@@ -54,7 +54,6 @@ pub struct Table<M> {
     edit_prefix: Option<String>,
     bulk_delete: bool,
     live_search: bool,
-    interactive: bool,
     _marker: PhantomData<M>,
 }
 
@@ -75,7 +74,6 @@ impl<M> std::fmt::Debug for Table<M> {
             .field("edit_prefix", &self.edit_prefix)
             .field("bulk_delete", &self.bulk_delete)
             .field("live_search", &self.live_search)
-            .field("interactive", &self.interactive)
             .finish()
     }
 }
@@ -103,22 +101,8 @@ impl<M> Table<M> {
             edit_prefix: None,
             bulk_delete: false,
             live_search: false,
-            interactive: true,
             _marker: PhantomData,
         }
-    }
-
-    /// Render the list as a static preview: no search toolbar, no sort links,
-    /// no pager links — just labels and rows.
-    ///
-    /// Demo pages that show a `Table` for its declaration (`searchable()` /
-    /// `sortable()`) rather than its behavior use this, so a click cannot
-    /// promise an interaction the page does not honor (GH #151: the showcase
-    /// demos used to navigate to query strings the page ignored). Real
-    /// resource lists keep the default.
-    pub fn interactive(mut self, enabled: bool) -> Self {
-        self.interactive = enabled;
-        self
     }
 
     /// Create a table for the given model. `cx` is reserved for future tenancy/policy scoping.
@@ -698,10 +682,8 @@ impl<M> Table<M> {
     where
         M: toasty::schema::Model,
     {
-        self.interactive
-            && self
-                .search_ui
-                .unwrap_or_else(|| self.columns.iter().any(|c| c.is_searchable()))
+        self.search_ui
+            .unwrap_or_else(|| self.columns.iter().any(|c| c.is_searchable()))
     }
 
     /// Whether this table renders the keystroke-live search host (GH #104).
@@ -716,7 +698,7 @@ impl<M> Table<M> {
     /// the swapped region, the same way it owns the search toolbar, so a filter
     /// change cannot rebuild the control the user is interacting with.
     pub(crate) fn filter_bar_enabled(&self) -> bool {
-        self.interactive && self.filters_ui.unwrap_or(!self.filters.is_empty())
+        self.filters_ui.unwrap_or(!self.filters.is_empty())
     }
 }
 

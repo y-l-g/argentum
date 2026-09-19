@@ -17,7 +17,11 @@ mod pk;
 mod relationship;
 mod tree;
 
-pub use fields::{FileUpload, Select, Text, TextInput};
+pub use fields::{FileUpload, Select, TextInput};
+// GH #173: the placeholder leaf stays reachable to the unit tests without
+// widening the public surface; the render arm (tree.rs) imports it directly.
+#[cfg(test)]
+pub(crate) use fields::Text;
 pub use layouts::{Grid, Group, Repeater, Section, Tabs, Wizard};
 pub use lenses::FieldLens;
 pub(crate) use lenses::{capitalize, lens_field_name_and_label};

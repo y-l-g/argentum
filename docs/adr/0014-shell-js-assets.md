@@ -89,3 +89,5 @@ extend `ASSET_HOOKS` with both sides in the same commit; ADR-0009's two stale
 lines (two-asset claim, `render_shell` emitting scripts) are corrected and
 `README.md`'s brand/dark-mode seam is restated. `cargo xtask` still never
 touches `assets/` (ADR-0007 covers primitives only).
+
+**Status 2026-09-19 (GH #173):** `code_block.js` and its `data-copy-button` hook left the registry with the `code_block` composite — zero callers, and a per-page script for a snippet renderer nothing rendered. The shell ships seven assets; the copy-button row above is retired, so re-adding a snippet view means re-adding both sides together, as the contract requires.

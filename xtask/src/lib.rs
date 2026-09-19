@@ -351,7 +351,6 @@ pub const ASSET_FILES: &[(&str, &str)] = &[
     ("sidebar.js", "SIDEBAR_JS"),
     ("theme.js", "THEME_JS"),
     ("dialog.js", "DIALOG_JS"),
-    ("code_block.js", "CODE_BLOCK_JS"),
     ("bulk.js", "BULK_JS"),
     ("filters.js", "FILTERS_JS"),
     ("selects.js", "SELECTS_JS"),
@@ -409,11 +408,6 @@ pub const ASSET_HOOKS: &[AssetHook] = &[
         asset: "dialog.js",
         js: "dialogOpenParam",
         rust: "data-dialog-open-param",
-    },
-    AssetHook {
-        asset: "code_block.js",
-        js: "data-copy-button",
-        rust: "data-copy-button",
     },
     AssetHook {
         asset: "bulk.js",

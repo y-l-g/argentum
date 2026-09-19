@@ -1272,7 +1272,7 @@ impl<M> Table<M> {
         page: &TablePage<M>,
         signals: Option<&TableSignals>,
     ) -> Result<Vec<BoxView<'a>>> {
-        if self.page_size.is_none() || !self.interactive {
+        if self.page_size.is_none() {
             return Ok(Vec::new());
         }
         // Cursors only carry ordering values; the loader re-applies search and
@@ -1373,7 +1373,7 @@ impl<M> Table<M> {
             let label = col.label().to_string();
             // A static preview renders plain labels: no link to an interaction
             // the page does not honor (GH #151).
-            let sortable = self.interactive && col.is_sortable();
+            let sortable = col.is_sortable();
             let (head_class, aria_sort, header) = if sortable {
                 let (aria, sort_icon, next_desc) = match active {
                     Some(s) if s.column == col.name() => (
@@ -1772,45 +1772,6 @@ mod tests {
         assert!(
             !html.contains("Actions") && !html.contains(">Edit<"),
             "plain table must not render action chrome, got {html}"
-        );
-    }
-
-    #[tokio::test]
-    async fn interactive_false_renders_a_static_preview() {
-        // GH #151: a demo/preview table renders declarations, not the
-        // interactions — no search toolbar, no sort link, no sort state.
-        let cx = CxTestBuilder::new().build();
-        let preview = Table::<User>::r#for(&cx)
-            .id(|u| u.id.to_string())
-            .pk(|u| u.id.to_string())
-            .columns(
-                TextColumn::r#for(User::fields().name(), |u| u.name.clone())
-                    .searchable()
-                    .sortable(),
-            )
-            .interactive(false);
-        let rows = vec![User {
-            id: uuid::Uuid::new_v4(),
-            name: "Ada".to_string(),
-        }];
-        let page: TablePage<User> = rows.into();
-        let html = preview
-            .render(&cx, page)
-            .await
-            .unwrap()
-            .single()
-            .await
-            .unwrap()
-            .render(&cx);
-        assert!(
-            !html.contains("name=\"q\"")
-                && !html.contains("aria-sort")
-                && !html.contains("sort=name"),
-            "static preview must not render interactive chrome, got {html}"
-        );
-        assert!(
-            html.contains("Name") && html.contains("Ada"),
-            "static preview must still render labels and rows, got {html}"
         );
     }
 

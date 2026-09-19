@@ -34,7 +34,7 @@ pub use resource::{
     VariantFilter,
 };
 pub use schema::{
-    FieldLens, FileUpload, Grid, Group, IntoSchema, Repeater, Schema, Section, Select, Tabs, Text,
+    FieldLens, FileUpload, Grid, Group, IntoSchema, Repeater, Schema, Section, Select, Tabs,
     TextInput, Wizard,
 };
 pub use tenancy::{Tenant, tenant_id};

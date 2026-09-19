@@ -12,7 +12,6 @@ pub mod icons;
 // ergonomic `argentum_ui::card` etc.; edit the registry, not these.
 pub use components::primitives::alert::{AlertVariant, alert, alert_description, alert_title};
 pub use components::primitives::alert_dialog::alert_dialog;
-pub use components::primitives::badge::{BadgeVariant, badge, badge_variants};
 pub use components::primitives::button::{ButtonSize, ButtonVariant, button, button_variants};
 pub use components::primitives::card::{
     card, card_content, card_description, card_footer, card_header, card_title,
@@ -49,7 +48,6 @@ pub use components::primitives::table::{
 // Composites — owned Argentum components (ADR-0007). Re-exported here for
 // ergonomic `argentum_ui::page` etc.; they live in `components/composites/`.
 pub use components::composites::bound_input::bound_input;
-pub use components::composites::code_block::code_block;
 pub use components::composites::error_state::error_state;
 pub use components::composites::page::{
     page, page_content, page_description, page_header, page_title,
@@ -63,7 +61,6 @@ pub use components::composites::toast::{
 pub const SIDEBAR_JS: topcoat::asset::Asset = topcoat::asset::asset!("../assets/sidebar.js");
 pub const THEME_JS: topcoat::asset::Asset = topcoat::asset::asset!("../assets/theme.js");
 pub const DIALOG_JS: topcoat::asset::Asset = topcoat::asset::asset!("../assets/dialog.js");
-pub const CODE_BLOCK_JS: topcoat::asset::Asset = topcoat::asset::asset!("../assets/code_block.js");
 pub const BULK_JS: topcoat::asset::Asset = topcoat::asset::asset!("../assets/bulk.js");
 pub const FILTERS_JS: topcoat::asset::Asset = topcoat::asset::asset!("../assets/filters.js");
 pub const LIVE_SEARCH_JS: topcoat::asset::Asset =

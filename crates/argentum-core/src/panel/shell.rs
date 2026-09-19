@@ -487,7 +487,6 @@ impl Panel {
                 <script src=(argentum_ui::SIDEBAR_JS) defer=""></script>
                 <script src=(argentum_ui::THEME_JS) defer=""></script>
                 <script src=(argentum_ui::DIALOG_JS) defer=""></script>
-                <script src=(argentum_ui::CODE_BLOCK_JS) defer=""></script>
                 <script src=(argentum_ui::BULK_JS) defer=""></script>
                 <script src=(argentum_ui::FILTERS_JS) defer=""></script>
                 <script src=(argentum_ui::LIVE_SEARCH_JS) defer=""></script>

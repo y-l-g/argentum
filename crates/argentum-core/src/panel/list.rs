@@ -921,10 +921,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn unpaginated_table_load_stays_unbounded_for_previews() {
+    async fn unpaginated_table_load_stays_unbounded() {
         // GH #172: the guard lives on the list path (`load_table_page`), not
-        // the `None` branch itself — page-owned tables and static previews
-        // keep loading unbounded through `Table::load` directly.
+        // the `None` branch itself — page-owned tables keep loading
+        // unbounded through `Table::load` directly.
         use crate::resource::{Table, TableState, TextColumn};
         use topcoat::context::CxTestBuilder;
 
@@ -950,14 +950,13 @@ mod tests {
             .unwrap();
         }
         let cx = CxTestBuilder::new().app_context(db).build();
-        let preview = Table::<Dummy>::r#for(&cx)
+        let table = Table::<Dummy>::r#for(&cx)
             .id(|d: &Dummy| d.id.to_string())
             .columns(TextColumn::r#for(Dummy::fields().name(), |d: &Dummy| {
                 d.name.clone()
-            }))
-            .interactive(false);
-        assert!(preview.page_size().is_none());
-        let page = preview
+            }));
+        assert!(table.page_size().is_none());
+        let page = table
             .load(
                 &cx,
                 toasty::stmt::Query::<toasty::stmt::List<Dummy>>::all(),
@@ -965,7 +964,11 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(page.rows.len(), 3, "previews keep the unbounded branch");
+        assert_eq!(
+            page.rows.len(),
+            3,
+            "unpaginated tables keep the unbounded branch"
+        );
     }
 
     #[tokio::test]
