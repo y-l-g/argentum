@@ -387,7 +387,10 @@ impl Panel {
                             (header_theme_toggle)
                         </div>
                     )
-                    <main class="flex-1 mx-auto max-w-7xl w-full p-6">(slot)</main>
+                    // `sidebar_inset` is the document's one `<main>`; a second
+                    // nested landmark is invalid and confuses landmark
+                    // navigation (upstream `examples/ui` uses a plain div).
+                    <div class="flex-1 mx-auto max-w-7xl w-full p-6">(slot)</div>
                 )
                 // Toast stack — the shadcn/Sonner surface, fixed bottom-right
                 // and a polite live region so streamed swaps are announced
@@ -882,6 +885,35 @@ mod tests {
                 && !html.contains("ac-main")
                 && !html.contains("ac-nav-item"),
             "ac-* should not remain in shell, got {html}"
+        );
+    }
+
+    /// `sidebar_inset` renders the document's `<main>`; the slot wrapper must
+    /// be a plain element or the document carries two nested landmarks
+    /// (invalid HTML, and landmark navigation lists both).
+    #[tokio::test]
+    async fn shell_has_a_single_main_landmark() {
+        use topcoat::context::CxTestBuilder;
+        use topcoat::view::view;
+
+        let cx = CxTestBuilder::new().build();
+        let cx_ref = &cx;
+        let slot = view! { cx_ref => "hello" }.boxed().into();
+        let html = Panel::render_shell(&cx, &[], "/admin", slot, None)
+            .await
+            .unwrap()
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
+        assert_eq!(
+            html.matches("<main").count(),
+            1,
+            "the shell must expose exactly one main landmark, got {html}"
+        );
+        assert!(
+            html.contains("<main data-sidebar=\"inset\""),
+            "the inset stays the main landmark, got {html}"
         );
     }
 
