@@ -211,7 +211,8 @@ async fn create_policy_deny() {
         .app_context(db.clone())
         .auth(argentum_core::Auth::disabled())
         .resource::<DenyCreateResource>()
-        .build();
+        .build()
+        .expect("panel builds");
     let client = TestClient::new(&router);
 
     let slug = DenyCreateResource::slug();

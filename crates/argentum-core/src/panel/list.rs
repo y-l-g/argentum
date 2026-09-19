@@ -473,7 +473,8 @@ mod tests {
             .app_context(db.clone())
             .resource::<LiveResource>()
             .auth(crate::Auth::disabled())
-            .build();
+            .build()
+            .expect("panel builds");
 
         // List page carries the live host + GET fallback.
         let resp = router
@@ -724,7 +725,8 @@ mod tests {
             .app_context(db)
             .resource::<LiveResource>()
             .auth(crate::Auth::disabled())
-            .build();
+            .build()
+            .expect("panel builds");
         let resp = router
             .handle(
                 http::Request::builder()
@@ -818,7 +820,8 @@ mod tests {
             .app_context(db)
             .resource::<ReadOnlyResource>()
             .auth(crate::Auth::disabled())
-            .build();
+            .build()
+            .expect("panel builds");
         let resp = router
             .handle(
                 http::Request::builder()
@@ -898,7 +901,8 @@ mod tests {
             .app_context(db)
             .resource::<UnpaginatedResource>()
             .auth(crate::Auth::disabled())
-            .build();
+            .build()
+            .expect("panel builds");
         let resp = router
             .handle(
                 http::Request::builder()
@@ -1040,7 +1044,8 @@ mod tests {
                 .app_context(db)
                 .resource::<R>()
                 .auth(crate::Auth::disabled())
-                .build();
+                .build()
+                .expect("panel builds");
             let resp = router
                 .handle(
                     http::Request::builder()
@@ -1151,7 +1156,8 @@ mod tests {
                 .app_context(db)
                 .resource::<R>()
                 .auth(crate::Auth::disabled())
-                .build();
+                .build()
+                .expect("panel builds");
             let resp = router
                 .handle(
                     http::Request::builder()
@@ -1269,7 +1275,8 @@ mod tests {
             .app_context(db)
             .resource::<GatedResource>()
             .auth(crate::Auth::disabled())
-            .build();
+            .build()
+            .expect("panel builds");
         // No tenant anywhere → 403, not unscoped rows (GH #87).
         let resp = router
             .handle(
@@ -1368,7 +1375,8 @@ mod tests {
             .app_context(db)
             .resource::<SubscriberResource>()
             .auth(crate::Auth::disabled())
-            .build();
+            .build()
+            .expect("panel builds");
 
         // A tampered `?after=` cursor fails to decode inside the streamed
         // region (GH #79): the page has already streamed with status 200, so
@@ -1484,7 +1492,8 @@ mod tests {
             .app_context(db.clone())
             .resource::<SubscriberResource>()
             .auth(crate::Auth::disabled())
-            .build();
+            .build()
+            .expect("panel builds");
 
         // A valid cursor token: the first page of two rows has a next page.
         let (parts, ()) = http::Request::builder()

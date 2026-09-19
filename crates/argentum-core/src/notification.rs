@@ -125,6 +125,29 @@ pub fn set_notification(cx: &Cx, notification: Notification) {
     }
 }
 
+/// Flash the failure of a write that passed validation but did not land
+/// (GH #174).
+///
+/// Every mutation handler (create, update, delete, bulk delete) routes its
+/// write and commit failures through this before returning the error, so the
+/// user gets "couldn't …" instead of a bare 500 that leaves them guessing
+/// whether the write went through. The title names the operation, never the
+/// driver's text — internals stay in the server log (GH #174 §1).
+///
+/// Note the delivery: the flash rides a `Set-Cookie`, and Topcoat's cookie
+/// layer writes pending cookies only on the `Ok` path
+/// (`topcoat-cookie/src/router.rs` short-circuits on `Err`), so today this
+/// toast cannot reach a 500 page. It is set here regardless — the moment
+/// upstream flushes cookies on error responses (upstream #126) the existing
+/// handlers show it, with no further change.
+pub(crate) fn notify_write_failure(cx: &Cx, action: &str) {
+    set_notification(
+        cx,
+        Notification::error(format!("Couldn't {action}"))
+            .description("Nothing was changed — try again."),
+    );
+}
+
 /// Take the notification from the request (if present) and clear it.
 pub fn take_notification(cx: &Cx) -> Option<Notification> {
     try_request_context::<CookieJarCell>(cx)?;
@@ -314,6 +337,21 @@ mod tests {
             .request_context(builder)
             .request_context(CookieJarCell::new())
             .build()
+    }
+
+    /// GH #174: a failed write flashes an error the user can read — the
+    /// operation, not the driver's error text.
+    #[test]
+    fn write_failure_notification_names_the_operation() {
+        let cx = cx_with_cookie(None);
+        notify_write_failure(&cx, "create the record");
+        let notification = take_notification(&cx).expect("a failed write must flash");
+        assert_eq!(notification.status, NotificationStatus::Error);
+        assert_eq!(notification.title, "Couldn't create the record");
+        assert!(
+            notification.description.is_some(),
+            "the toast must say the write did not land"
+        );
     }
 
     #[test]

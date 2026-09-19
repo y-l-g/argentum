@@ -291,7 +291,8 @@ async fn bulk_delete_partial_deny_aborts() {
         .app_context(db.clone())
         .auth(argentum_core::Auth::disabled())
         .resource::<PartialDenyResource>()
-        .build();
+        .build()
+        .expect("panel builds");
     let client = TestClient::new(&router);
     let slug = PartialDenyResource::slug();
     let ids = format!("{},{}", a.id, b.id);
@@ -362,7 +363,8 @@ async fn view_any_deny_blocks_list() {
         .app_context(db.clone())
         .auth(argentum_core::Auth::disabled())
         .resource::<DenyViewAnyResource>()
-        .build();
+        .build()
+        .expect("panel builds");
     let client = TestClient::new(&router);
     let slug = DenyViewAnyResource::slug();
     let resp = client.get(&format!("/admin/{}", slug)).await;

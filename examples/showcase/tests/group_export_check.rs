@@ -194,7 +194,8 @@ async fn export_over_cap_413s_at_route_level() {
         .app_context(db)
         .auth(argentum_core::Auth::disabled())
         .resource::<BigResource>()
-        .build();
+        .build()
+        .expect("panel builds");
     let client = TestClient::new(&router);
     let resp = client.get("/admin/dummies/export").await;
     assert_eq!(

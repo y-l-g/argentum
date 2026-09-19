@@ -219,7 +219,8 @@ async fn edit_policy_deny() {
         .app_context(db.clone())
         .auth(argentum_core::Auth::disabled())
         .resource::<DenyUpdateResource>()
-        .build();
+        .build()
+        .expect("panel builds");
     let client = TestClient::new(&router);
     let slug = DenyUpdateResource::slug();
     let edit_url = format!("/admin/{}/{}/edit", slug, rec.id);

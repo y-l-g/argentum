@@ -244,7 +244,8 @@ async fn forged_delete_runs_no_record_query() {
         .app_context(db.clone())
         .auth(argentum_core::Auth::disabled())
         .resource::<CountingResource>()
-        .build();
+        .build()
+        .expect("panel builds");
     let client = TestClient::new(&router);
     let delete_url = format!("/admin/{}/{}/delete", CountingResource::slug(), rec.id);
     let csrf = uuid::Uuid::new_v4().to_string();
@@ -339,7 +340,8 @@ async fn delete_policy_deny() {
         .app_context(db.clone())
         .auth(argentum_core::Auth::disabled())
         .resource::<DenyDeleteResource>()
-        .build();
+        .build()
+        .expect("panel builds");
     let client = TestClient::new(&router);
     let slug = DenyDeleteResource::slug();
     let delete_url = format!("/admin/{}/{}/delete", slug, rec.id);

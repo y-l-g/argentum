@@ -52,7 +52,7 @@ use crate::resource::{NavigationItem, Resource};
 /// Panel::new("admin")
 ///     .app_context(db)
 ///     .resource::<UserResource>()
-///     .build()
+///     .build().expect("panel builds").expect("panel builds")
 /// ```
 pub struct Panel {
     prefix: String,
@@ -70,6 +70,10 @@ pub struct Panel {
     /// `Content-Security-Policy: frame-ancestors …` for every response
     /// (GH #176); `None` opts out. Defaults to `'self'`.
     frame_ancestors: Option<String>,
+    /// Registration failures collected by the declarative builders
+    /// (GH #174): `Panel::resource` cannot return `Result`, so a bad `slug()`
+    /// or a duplicate is recorded here and reported by `build`.
+    registration_errors: Vec<String>,
     #[cfg(feature = "auth")]
     login_hint: Option<String>,
     #[cfg(feature = "auth")]
@@ -101,6 +105,14 @@ impl Panel {
         } else {
             format!("/{trimmed}")
         };
+        // The prefix is free-form too, and every route path is built from it
+        // (GH #174): validate it once here rather than panicking at the first
+        // `route_path` call.
+        let registration_errors: Vec<String> = prefix
+            .trim_matches('/')
+            .split('/')
+            .filter_map(|segment| validate_route_segment("panel prefix", segment).err())
+            .collect();
         Self {
             prefix,
             db: None,
@@ -115,6 +127,7 @@ impl Panel {
             slugs: Vec::new(),
             search_handlers: HashMap::new(),
             frame_ancestors: Some(headers::DEFAULT_FRAME_ANCESTORS.to_string()),
+            registration_errors,
             #[cfg(feature = "auth")]
             login_hint: None,
             #[cfg(feature = "auth")]
@@ -163,14 +176,23 @@ impl Panel {
     /// [`Panel::navigation`](Self::navigation) items), defaulting to
     /// declaration order (GH #102/#165).
     ///
-    /// Panics on duplicate slugs (GH #102): two resources over the same slug
-    /// would shadow each other's routes with last-wins semantics.
+    /// A duplicate slug (GH #102) or a slug that is not one URL segment
+    /// (GH #174) is recorded here and reported by [`Panel::build`], which
+    /// returns `Err` instead of panicking: two resources over one slug would
+    /// shadow each other's routes, and a hostile `slug()` must not reach a
+    /// route path or a response header.
     pub fn resource<R: Resource>(mut self) -> Self {
         let slug = R::slug();
-        assert!(
-            !self.slugs.iter().any(|s| s == &slug),
-            "duplicate resource slug '{slug}': each Resource needs a distinct slug (see Resource::slug)"
-        );
+        if let Err(error) = validate_route_segment("Resource::slug", &slug) {
+            self.registration_errors.push(error);
+            return self;
+        }
+        if self.slugs.iter().any(|s| s == &slug) {
+            self.registration_errors.push(format!(
+                "duplicate resource slug '{slug}': each Resource needs a distinct slug (see Resource::slug)"
+            ));
+            return self;
+        }
         self.slugs.push(slug);
         let url = format!("{}/{}", self.prefix, R::slug());
         self.pages.push(PageFn::new(
@@ -325,12 +347,27 @@ impl Panel {
     /// registering each declared resource's list page, and pointing the
     /// panel root at the first resource.
     ///
-    /// Panics if no `Db` was provided via [`app_context`](Self::app_context).
-    pub fn build(self) -> Router {
-        assert!(
-            self.shell_assets.is_none() || self.assets.is_some(),
-            "Panel::build requires assets when shell_assets are configured"
-        );
+    /// # Errors
+    ///
+    /// Reports what the declarative builders could only record (GH #174):
+    /// a missing [`Db`], a duplicate or malformed resource slug, a malformed
+    /// panel prefix, or `shell_assets` declared without `assets`. Configuring
+    /// a panel wrong is a boot failure, not a request-time panic, so it comes
+    /// back as an error the caller can log or exit on.
+    pub fn build(self) -> topcoat::Result<Router> {
+        if !self.registration_errors.is_empty() {
+            return Err(std::io::Error::other(format!(
+                "Panel::build: {}",
+                self.registration_errors.join("; ")
+            ))
+            .into());
+        }
+        if self.shell_assets.is_some() && self.assets.is_none() {
+            return Err(std::io::Error::other(
+                "Panel::build requires assets when shell_assets are configured",
+            )
+            .into());
+        }
         let Panel {
             prefix,
             db,
@@ -345,12 +382,17 @@ impl Panel {
             slugs: _,
             search_handlers,
             frame_ancestors,
+            registration_errors: _,
             #[cfg(feature = "auth")]
             login_hint,
             #[cfg(feature = "auth")]
             auth,
         } = self;
-        let db = db.expect("Panel::build requires a Db via app_context");
+        let db = db.ok_or_else(|| {
+            topcoat::Error::from(std::io::Error::other(
+                "Panel::build requires a Db via app_context",
+            ))
+        })?;
         #[cfg(feature = "auth")]
         crate::auth::assert_models_registered(&db, &auth);
         let mut builder = Router::builder()
@@ -443,7 +485,7 @@ impl Panel {
                 builder = builder.app_context(LoginHint(hint));
             }
         }
-        builder.build()
+        Ok(builder.build())
     }
 }
 
@@ -470,8 +512,40 @@ impl Panel {
     }
 }
 
+/// Validate one path segment a panel derives routes from (GH #174): a
+/// `Resource::slug()` override, or a segment of the panel prefix.
+///
+/// Both reach a route path and, through the panel, a response body. A hostile
+/// value — quote, backslash, CR/LF, `..`, slash, URL punctuation — must fail at
+/// registration rather than at request time, so this is the export filename
+/// sanitizer's rule tightened to what a URL segment can be: the export drops
+/// the offending characters because it must still produce a download, while a
+/// route has no meaningful fallback.
+fn validate_route_segment(kind: &str, segment: &str) -> Result<(), String> {
+    if segment.is_empty() {
+        return Err(format!("{kind}: path segment must not be empty"));
+    }
+    if segment == "." || segment == ".." {
+        return Err(format!(
+            "{kind} '{segment}': a path segment may not be '.' or '..'"
+        ));
+    }
+    if let Some(bad) = segment.chars().find(|c| {
+        c.is_control()
+            || c.is_whitespace()
+            || matches!(c, '"' | '\\' | '/' | '?' | '#' | '%' | '&' | '=')
+    }) {
+        return Err(format!(
+            "{kind} '{segment}': a path segment may not contain {bad:?} (quotes, backslashes, control characters, whitespace, and URL punctuation are rejected)"
+        ));
+    }
+    Ok(())
+}
+
 /// Parse a panel route path, panicking on malformed input — the paths are
-/// built from the panel prefix and the resource slug, both validated earlier.
+/// built from the panel prefix and the resource slug, both validated at
+/// registration ([`validate_route_segment`]), so a malformed path here is a
+/// framework bug rather than user input.
 pub(crate) fn route_path(path: &str) -> topcoat::router::PathBuf {
     Path::from_str(path)
         .expect("panel route paths are well-formed")
@@ -620,7 +694,8 @@ mod tests {
             .app_context(db)
             .resource::<DummyResource>()
             .auth(crate::Auth::disabled())
-            .build();
+            .build()
+            .expect("panel builds");
 
         // The list page denies by default (default-deny policy → 403). A
         // POST through the runtime's page-rerun route rewrites into a GET
@@ -710,10 +785,17 @@ mod tests {
         assert_eq!(location, "/admin/users");
     }
 
+    /// GH #174: a panel with no `Db` is a configuration error, not a panic.
     #[test]
-    #[should_panic(expected = "Panel::build requires a Db")]
-    fn panel_build_panics_without_db() {
-        let _router = Panel::new("admin").build();
+    fn panel_build_errors_without_db() {
+        // `Router` has no `Debug`, so `expect_err` cannot report the Ok case.
+        let Err(error) = Panel::new("admin").build() else {
+            panic!("a panel without a Db must not build");
+        };
+        assert!(
+            format!("{error}").contains("requires a Db"),
+            "the error must name the missing Db, got {error}"
+        );
     }
 
     /// GH #176: every page the panel renders carries the clickjacking
@@ -744,7 +826,7 @@ mod tests {
 
         /// The directive the finished page carries.
         async fn policy(panel: Panel) -> Option<String> {
-            let router = panel.build();
+            let router = panel.build().expect("panel builds");
             let response = router
                 .handle(
                     http::Request::builder()
@@ -1066,9 +1148,10 @@ mod tests {
         assert_ne!(users.url(), categories.url());
     }
 
+    /// GH #174: duplicate slugs are reported by `build`, not asserted in the
+    /// declarative builder — a panel is configured, then validated once.
     #[test]
-    #[should_panic(expected = "duplicate resource slug")]
-    fn panel_rejects_duplicate_resource_slugs() {
+    fn panel_build_rejects_duplicate_resource_slugs() {
         use crate::resource::Resource;
 
         #[derive(Debug, toasty::Model)]
@@ -1093,8 +1176,48 @@ mod tests {
             }
         }
 
-        let _ = Panel::new("admin")
+        let Err(error) = Panel::new("admin")
             .resource::<FirstResource>()
-            .resource::<SecondResource>();
+            .resource::<SecondResource>()
+            .build()
+        else {
+            panic!("two resources over one slug must not build");
+        };
+        assert!(
+            format!("{error}").contains("duplicate resource slug"),
+            "the error must name the duplicate, got {error}"
+        );
+    }
+
+    /// GH #174: `slug()` is free-form and reaches route paths and response
+    /// headers, so a hostile value fails registration instead of splitting a
+    /// header or panicking in `route_path` at boot.
+    #[test]
+    fn panel_build_rejects_a_hostile_slug() {
+        use crate::resource::Resource;
+
+        #[derive(Debug, toasty::Model)]
+        struct Dummy {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            name: String,
+        }
+        struct HostileResource;
+        impl Resource for HostileResource {
+            type Model = Dummy;
+
+            fn slug() -> String {
+                "a\"b\r\n".to_string()
+            }
+        }
+
+        let Err(error) = Panel::new("admin").resource::<HostileResource>().build() else {
+            panic!("a slug with quotes and CRLF must not build");
+        };
+        assert!(
+            format!("{error}").contains("Resource::slug"),
+            "the error must name the offending slug, got {error}"
+        );
     }
 }

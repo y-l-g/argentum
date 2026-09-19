@@ -128,6 +128,7 @@ fn router(db: Db) -> Router {
         .auth(Auth::custom(MemberAuth))
         .resource::<MemberResource>()
         .build()
+        .expect("panel builds")
 }
 
 async fn get(router: &Router, uri: &str, cookies: &[(&str, String)]) -> Response<Body> {

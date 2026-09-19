@@ -338,7 +338,8 @@ mod tests {
             .app_context(db)
             .resource::<LiveResource>()
             .auth(crate::Auth::disabled())
-            .build();
+            .build()
+            .expect("panel builds");
 
         let sig = |n: u8, v: &str| format!(r#"{{"t":"Signal","id":"{:032x}","v":"{v}"}}"#, n);
         // Positional shard args: q, filters, sort, dir, the single cursor wire
@@ -512,7 +513,8 @@ mod tests {
             .app_context(db)
             .resource::<GroupedResource>()
             .auth(crate::Auth::disabled())
-            .build();
+            .build()
+            .expect("panel builds");
 
         let sig = |n: u8, v: &str| format!(r#"{{"t":"Signal","id":"{:032x}","v":"{v}"}}"#, n);
         let shard_args = |group_by: &str| {

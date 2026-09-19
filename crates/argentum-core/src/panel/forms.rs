@@ -20,7 +20,12 @@ use topcoat::{
 use super::actions::find_by_key;
 use super::{enforce_auth, enforce_tenant, list_url};
 use crate::db::db;
-use crate::notification::{Notification, set_notification};
+use crate::notification::{Notification, notify_write_failure, set_notification};
+
+/// Failure-toast wording for the create/update handlers (GH #174): one place,
+/// so the two paths cannot drift.
+const WRITE_CREATE: &str = "create the record";
+const WRITE_UPDATE: &str = "save the changes";
 use crate::resource::Resource;
 
 /// Helper: parse form bodies into a map — `application/x-www-form-urlencoded`
@@ -589,14 +594,20 @@ pub(crate) fn resource_create_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<
         }
         // Attempt creation via Resource hook, inside the tx.
         match R::create_record(cx, values.clone(), &mut tx).await {
-            Ok(()) => {
-                tx.commit().await.map_err(crate::db::unavailable)?;
-                Err(redirect_after_write::<R>(cx, "Created"))
-            }
+            Ok(()) => match tx.commit().await {
+                Ok(()) => Err(redirect_after_write::<R>(cx, "Created")),
+                Err(error) => {
+                    notify_write_failure(cx, WRITE_CREATE);
+                    Err(crate::db::unavailable(error))
+                }
+            },
             // A unique violation that slipped past the app-side check (a
             // concurrent insert) surfaces as an error, not a string-matched
-            // inline message (upstream gap #117).
-            Err(e) => Err(e),
+            // inline message (upstream gap #117) — and now with a toast.
+            Err(e) => {
+                notify_write_failure(cx, WRITE_CREATE);
+                Err(e)
+            }
         }
     })))
 }
@@ -708,14 +719,20 @@ pub(crate) fn resource_edit_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_
             .await;
         }
         match R::update_record(cx, record, values.clone(), &mut tx).await {
-            Ok(()) => {
-                tx.commit().await.map_err(crate::db::unavailable)?;
-                Err(redirect_after_write::<R>(cx, "Updated"))
-            }
+            Ok(()) => match tx.commit().await {
+                Ok(()) => Err(redirect_after_write::<R>(cx, "Updated")),
+                Err(error) => {
+                    notify_write_failure(cx, WRITE_UPDATE);
+                    Err(crate::db::unavailable(error))
+                }
+            },
             // A unique violation that slipped past the app-side check (a
             // concurrent update) surfaces as an error, not a string-matched
-            // inline message (upstream gap #117).
-            Err(e) => Err(e),
+            // inline message (upstream gap #117) — and now with a toast.
+            Err(e) => {
+                notify_write_failure(cx, WRITE_UPDATE);
+                Err(e)
+            }
         }
     })))
 }
@@ -779,7 +796,8 @@ mod tests {
             .app_context(db)
             .resource::<ViewDeniedResource>()
             .auth(crate::Auth::disabled())
-            .build();
+            .build()
+            .expect("panel builds");
         let url = format!("/admin/dummies/{}/edit", row.id);
         // GET already required both; POST must match (GH #86).
         let get = router
@@ -908,7 +926,8 @@ mod tests {
             .app_context(db)
             .resource::<CapturingResource>()
             .auth(crate::Auth::disabled())
-            .build();
+            .build()
+            .expect("panel builds");
         let csrf = uuid::Uuid::new_v4().to_string();
         let resp = router
             .handle(
@@ -1004,7 +1023,8 @@ mod tests {
             .app_context(db)
             .resource::<NotifyingResource>()
             .auth(crate::Auth::disabled())
-            .build();
+            .build()
+            .expect("panel builds");
         let token = uuid::Uuid::new_v4().to_string();
         let resp = router
             .handle(
@@ -1478,7 +1498,8 @@ mod tests {
             .app_context(db)
             .resource::<DummyResource>()
             .auth(crate::Auth::disabled())
-            .build();
+            .build()
+            .expect("panel builds");
         let boundary = "----Boundary123";
         let payload = "x".repeat(MAX_FORM_BYTES + 1024);
         let body = format!(

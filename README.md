@@ -80,7 +80,7 @@ fn router(db: toasty::Db) -> Router {
         // Minimal example: auth off. With default auth on, register
         // `AdminUser` + `AuthSession` in `toasty::models!` instead (see §7).
         .auth(Auth::disabled())
-        .build()
+        .build().expect("panel builds")
 }
 ```
 

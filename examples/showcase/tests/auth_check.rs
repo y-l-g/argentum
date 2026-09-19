@@ -437,7 +437,8 @@ async fn auth_disabled_serves_the_panel_without_login() {
         .app_context(db)
         .auth(argentum_core::Auth::disabled())
         .resource::<showcase::app::UserResource>()
-        .build();
+        .build()
+        .expect("panel builds");
 
     assert_eq!(
         TestClient::new(&router).get("/admin/users").await.status(),

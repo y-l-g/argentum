@@ -445,7 +445,7 @@ fn router(db: Db) -> Router {
         .auth(argentum_core::Auth::disabled())
         .resource::<AuthorResource>()
         .resource::<PostResource>()
-        .build()
+        .build().expect("panel builds")
 }
 
 #[tokio::main]

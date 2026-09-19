@@ -1056,8 +1056,9 @@ fn build_router(db: Db, bundle: Option<AssetBundle>) -> Router {
         Some(bundle) => panel
             .assets(bundle)
             .shell_assets(tailwind::stylesheet!(), GEIST)
-            .build(),
-        None => panel.build(),
+            .build()
+            .expect("showcase panel builds"),
+        None => panel.build().expect("showcase panel builds"),
     }
 }
 

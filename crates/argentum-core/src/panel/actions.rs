@@ -17,7 +17,11 @@ use topcoat::{
 use super::forms::{parse_form_values, truthy};
 use super::{enforce_auth, enforce_tenant, list_url};
 use crate::db::db;
-use crate::notification::{Notification, set_notification};
+use crate::notification::{Notification, notify_write_failure, set_notification};
+
+/// Failure-toast wording for the delete handlers (GH #174).
+const WRITE_DELETE: &str = "delete the record";
+const WRITE_BULK_DELETE: &str = "delete the selected rows";
 use crate::resource::{Resource, Table, TableState, clamp_query_term};
 use crate::schema::OptionLoadError;
 
@@ -110,8 +114,14 @@ pub(crate) fn resource_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
             if !R::can_delete(cx, &record) {
                 return Err(forbidden().into());
             }
-            R::delete_record(cx, record, &mut tx).await?;
-            tx.commit().await.map_err(crate::db::unavailable)?;
+            if let Err(error) = R::delete_record(cx, record, &mut tx).await {
+                notify_write_failure(cx, WRITE_DELETE);
+                return Err(error);
+            }
+            if let Err(error) = tx.commit().await {
+                notify_write_failure(cx, WRITE_DELETE);
+                return Err(crate::db::unavailable(error));
+            }
             set_notification(cx, Notification::success("Deleted"));
             Err(see_other(list_url(cx, &R::slug())).into())
         },
@@ -191,8 +201,14 @@ pub(crate) fn resource_bulk_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<
             // All checks passed — perform bulk delete inside the tx, then
             // commit once. Any error drops `tx` uncommitted: zero rows
             // deleted, never half-applied.
-            R::bulk_delete_records(cx, rows, &mut tx).await?;
-            tx.commit().await.map_err(crate::db::unavailable)?;
+            if let Err(error) = R::bulk_delete_records(cx, rows, &mut tx).await {
+                notify_write_failure(cx, WRITE_BULK_DELETE);
+                return Err(error);
+            }
+            if let Err(error) = tx.commit().await {
+                notify_write_failure(cx, WRITE_BULK_DELETE);
+                return Err(crate::db::unavailable(error));
+            }
             set_notification(cx, Notification::success("Bulk deleted"));
             Err(see_other(list_url(cx, &R::slug())).into())
         },
@@ -682,7 +698,8 @@ mod tests {
             .app_context(db)
             .resource::<ViewDeniedResource>()
             .auth(crate::Auth::disabled())
-            .build();
+            .build()
+            .expect("panel builds");
         let token = uuid::Uuid::new_v4().to_string();
         let post = |uri: String, body: String| {
             router.handle(
@@ -792,7 +809,8 @@ mod tests {
             .app_context(db)
             .resource::<UpperKeyResource>()
             .auth(crate::Auth::disabled())
-            .build();
+            .build()
+            .expect("panel builds");
         // Canonical lowercase id succeeds despite uppercase Table::id.
         let token = uuid::Uuid::new_v4().to_string();
         let ok = router
@@ -928,7 +946,8 @@ mod tests {
             .app_context(db)
             .resource::<NameKeyResource>()
             .auth(crate::Auth::disabled())
-            .build();
+            .build()
+            .expect("panel builds");
         let token = uuid::Uuid::new_v4().to_string();
         let post = |uri: String, body: String| {
             router.handle(
@@ -1077,7 +1096,8 @@ mod tests {
             .app_context(db.clone())
             .resource::<FlakyBulkResource>()
             .auth(crate::Auth::disabled())
-            .build();
+            .build()
+            .expect("panel builds");
         let token = uuid::Uuid::new_v4().to_string();
         let resp = router
             .handle(
@@ -1167,7 +1187,8 @@ mod tests {
             .app_context(db)
             .resource::<RowPolicyResource>()
             .auth(crate::Auth::disabled())
-            .build();
+            .build()
+            .expect("panel builds");
         let resp = router
             .handle(
                 http::Request::builder()
@@ -1285,7 +1306,8 @@ mod tests {
             .app_context(db)
             .resource::<ChunkedResource>()
             .auth(crate::Auth::disabled())
-            .build();
+            .build()
+            .expect("panel builds");
         let get_csv = async |uri: &str| {
             let resp = router
                 .handle(
@@ -1396,7 +1418,8 @@ mod tests {
             .app_context(db)
             .resource::<MixedResource>()
             .auth(crate::Auth::disabled())
-            .build();
+            .build()
+            .expect("panel builds");
         let resp = router
             .handle(
                 http::Request::builder()
@@ -1548,7 +1571,8 @@ mod tests {
             .app_context(db)
             .resource::<CappedResource>()
             .auth(crate::Auth::disabled())
-            .build();
+            .build()
+            .expect("panel builds");
         let resp = router
             .handle(
                 http::Request::builder()
@@ -1712,7 +1736,8 @@ mod tests {
             .app_context(db)
             .resource::<PairResource>()
             .auth(crate::Auth::disabled())
-            .build();
+            .build()
+            .expect("panel builds");
         let resp = router
             .handle(
                 http::Request::builder()
@@ -1835,7 +1860,8 @@ mod tests {
             .resource::<OptPostResource>()
             .resource::<OptAuthorResource>()
             .auth(crate::Auth::disabled())
-            .build();
+            .build()
+            .expect("panel builds");
 
         // Narrowing works.
         let resp = router
@@ -1978,7 +2004,8 @@ mod tests {
             .resource::<SearchableParent>()
             .resource::<PlainParent>()
             .auth(crate::Auth::disabled())
-            .build();
+            .build()
+            .expect("panel builds");
 
         // Non-searchable → 400 (keeps today's cap error path, never search).
         let resp = router
