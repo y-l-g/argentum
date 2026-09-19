@@ -322,14 +322,14 @@ async fn comments_search_is_scoped_through_parent_post() {
     // The search term is echoed in the empty-state message and sort links,
     // so assert on the empty state itself rather than term absence.
     assert!(
-        html.contains("No prefix matches"),
+        html.contains("No matches"),
         "t1 search for T2 comment must return zero rows: {html}"
     );
 
     let resp = client.tenant(t1).get("/admin/comments?q=T1+comment").await;
     let html = body_string(resp).await;
     assert!(
-        !html.contains("No prefix matches"),
+        !html.contains("No matches"),
         "t1 search must find its own comment: {html}"
     );
     assert!(

@@ -319,6 +319,59 @@ fn find_href_with(html: &str, needle: &str) -> Option<String> {
     }
 }
 
+/// GH #116: search matches anywhere in the value, not just a prefix, and the
+/// term is escaped — a literal `%` matches that character instead of acting as
+/// a wildcard (which would have matched every row).
+#[tokio::test]
+async fn admin_list_search_matches_substrings_and_escapes_wildcards() {
+    let db = seeded_db().await;
+    let router = router(db.clone());
+
+    // Mid-string term: "vela" sits inside "Ada Lovelace" -> 1 row.
+    let client = demo_client(&router).await;
+    let response = client.get("/admin/users?q=vela").await;
+    assert!(response.status().is_success());
+    let html = body_string(response).await;
+    assert!(
+        html.contains("Ada Lovelace"),
+        "a mid-string term must match: {html}"
+    );
+    assert!(
+        !html.contains("Alan Turing"),
+        "a mid-string term must not match the other rows: {html}"
+    );
+
+    // A user whose value contains a literal percent sign.
+    toasty::create!(showcase::models::User {
+        name: "100% Ada".to_string(),
+        email: "percent@example.com".to_string(),
+        role: "admin".to_string(),
+        active: true,
+        created_at: "2024-02-01T09:30:00Z"
+            .parse::<jiff::Timestamp>()
+            .expect("timestamp"),
+    })
+    .exec(&mut argentum_core::db::db(
+        &topcoat::context::CxTestBuilder::new()
+            .app_context(db)
+            .build(),
+    ))
+    .await
+    .expect("seed the percent user");
+
+    let client = demo_client(&router).await;
+    let response = client.get("/admin/users?q=100%25").await;
+    let html = body_string(response).await;
+    assert!(
+        html.contains("100% Ada"),
+        "an escaped literal percent must match its row: {html}"
+    );
+    assert!(
+        !html.contains("Ada Lovelace") && !html.contains("Grace Hopper"),
+        "an escaped percent must not act as a wildcard: {html}"
+    );
+}
+
 #[tokio::test]
 async fn admin_list_empty_search_shows_no_results_with_clear() {
     let db = seeded_db().await;
@@ -332,8 +385,8 @@ async fn admin_list_empty_search_shows_no_results_with_clear() {
     );
     let html = body_string(response).await;
     assert!(
-        html.contains("No prefix matches for"),
-        "search-empty state must say No prefix matches: {html}"
+        html.contains("No matches for"),
+        "search-empty state must say No matches: {html}"
     );
     assert!(
         !html.contains("No records yet"),

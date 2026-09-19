@@ -23,7 +23,7 @@ use topcoat::runtime::Signal;
 /// signal).
 #[derive(Clone)]
 pub struct TableSignals {
-    /// `?q=` — the prefix search term.
+    /// `?q=` — the search term (escaped substring match, GH #116).
     pub q: Signal<String>,
     /// `?filters=` — the composed `key:value,key2:value2` transport.
     pub filters: Signal<String>,

@@ -694,8 +694,8 @@ impl<M> Table<M> {
                         type="search"
                         name="q"
                         value=(q_display)
-                        placeholder="Prefix search…"
-                        aria-label="Prefix search table"
+                        placeholder="Search…"
+                        aria-label="Search table"
                         class="w-64"
                     }
                 )
@@ -757,8 +757,8 @@ impl<M> Table<M> {
                 <input
                     type="search"
                     value=(q_display)
-                    placeholder="Prefix search…"
-                    aria-label="Live prefix search table"
+                    placeholder="Search…"
+                    aria-label="Live search table"
                     class="w-64"
                     data-live-search-input=""
                     data-debounce-ms=(LIVE_SEARCH_DEBOUNCE_MS)
@@ -1157,10 +1157,10 @@ impl<M> Table<M> {
                 state.without_filters(path)
             }
         });
-        // Search is prefix-only (`starts_with`, GH #101): the empty copy says
-        // so instead of implying general search.
+        // Search matches anywhere in the value (GH #116), so the empty copy
+        // says "matches", not "prefix matches".
         let message = match &state.search {
-            Some(term) => format!("No prefix matches for \u{201c}{term}\u{201d}"),
+            Some(term) => format!("No matches for \u{201c}{term}\u{201d}"),
             None if !state.filters.is_empty() => "No results for these filters".to_string(),
             None => "No records yet".to_string(),
         };

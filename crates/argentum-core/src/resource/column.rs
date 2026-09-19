@@ -32,6 +32,30 @@ pub struct TextColumn<M> {
     sortable: bool,
 }
 
+/// The escape character the search pattern declares to `LIKE` (GH #116):
+/// backslash, escaped in the pattern by [`escape_like_pattern`].
+pub(crate) const LIKE_ESCAPE: char = '\\';
+
+/// Wrap `term` as a `LIKE` pattern matching it anywhere in the column, with
+/// `%`, `_` and the escape character itself escaped so the term stays literal
+/// (GH #116).
+///
+/// Toasty ships the SQL half (`like_with_escape`) but not this one: escaping is
+/// app-side because only the app knows whether it is building a literal or a
+/// pattern.
+pub(crate) fn escape_like_pattern(term: &str) -> String {
+    let mut pattern = String::with_capacity(term.len() + 2);
+    pattern.push('%');
+    for c in term.chars() {
+        if c == LIKE_ESCAPE || c == '%' || c == '_' {
+            pattern.push(LIKE_ESCAPE);
+        }
+        pattern.push(c);
+    }
+    pattern.push('%');
+    pattern
+}
+
 impl<M> TextColumn<M>
 where
     M: toasty::schema::Model,
@@ -123,12 +147,25 @@ where
         (self.project)(row)
     }
 
+    /// The search predicate for this column (GH #116): a portable, escaped
+    /// **substring** match.
+    ///
+    /// `like_with_escape` keeps the pattern parameterised and lowers to the
+    /// same `LIKE … ESCAPE '\\'` on every driver, and
+    /// [`escape_like_pattern`] makes the term literal — a `%` or `_` the user
+    /// typed matches that character, it does not act as a wildcard. Note the
+    /// driver difference `LIKE` brings: SQLite compares ASCII
+    /// case-insensitively, PostgreSQL case-sensitively.
     pub fn to_search_expr(&self, term: &str) -> Option<Expr<bool>> {
         let t = term.trim();
         if !self.searchable || t.is_empty() {
             return None;
         }
-        Some(self.path.clone()?.starts_with(t.to_string()))
+        Some(
+            self.path
+                .clone()?
+                .like_with_escape(escape_like_pattern(t), LIKE_ESCAPE),
+        )
     }
 
     pub fn to_order_by(&self, descending: bool) -> Option<OrderByExpr> {
@@ -309,8 +346,18 @@ mod tests {
         name: String,
     }
 
+    /// GH #116: `%` and `_` in a search term are literal characters, not
+    /// wildcards, and the term is wrapped for a substring match.
     #[test]
-    fn text_column_searchable_produces_starts_with() {
+    fn search_pattern_escapes_like_metacharacters() {
+        assert_eq!(escape_like_pattern("Ada"), "%Ada%");
+        assert_eq!(escape_like_pattern("100%"), "%100\\%%");
+        assert_eq!(escape_like_pattern("a_b"), "%a\\_b%");
+        assert_eq!(escape_like_pattern("back\\slash"), "%back\\\\slash%");
+    }
+
+    #[test]
+    fn text_column_searchable_produces_a_substring_pattern() {
         let col = TextColumn::r#for(User::fields().name(), |u| u.name.clone()).searchable();
         assert!(
             col.to_search_expr("Ada").is_some(),

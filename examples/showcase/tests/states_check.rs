@@ -57,7 +57,7 @@ async fn empty_team_list_shows_no_records_yet() {
         "genuinely empty list must say so: {html}"
     );
     assert!(
-        !html.contains("No prefix matches"),
+        !html.contains("No matches"),
         "empty list must not blame search: {html}"
     );
 }

@@ -187,7 +187,7 @@ Table::r#for(cx)
 Notes:
 
 - `.id(...)` is required. It keys rows for selection and live updates. Never use a loop index.
-- `searchable()` searches with `?q=` via portable `starts_with` (OR across searchable columns). `sortable()` sorts with `?sort=` and `?dir=`. Both work without JS.
+- `searchable()` searches with `?q=`: an escaped substring match (`like_with_escape`, OR across searchable columns), so a term containing `%` or `_` matches those characters literally. `LIKE` is ASCII-case-insensitive on SQLite and case-sensitive on PostgreSQL. `sortable()` sorts with `?sort=` and `?dir=`. Both work without JS.
 - The URL is the state: `?q=`, `?sort=`, `?dir=`, `?after=`, `?before=`, `?filters=`, `?group_by=` parse into `TableState`. Pagination is cursor based; Toasty appends the PK tie-breaker internally so cursors stay deterministic.
 - Computed columns render only. They do not affect search or sort.
 
@@ -339,7 +339,7 @@ User::filter(User::fields().name().starts_with(q))
     .order_by(User::fields().name().asc())
 ```
 
-Use `starts_with` for portable prefix search. Table search uses `starts_with` only; if you hand-write `like`, it is SQL-only and needs `%` and `_` escaped first. Never interpolate raw input into SQL.
+Table search builds its pattern through `like_with_escape` with `%`, `_` and the escape character escaped (`escape_like_pattern`), so it is parameterised and portable. If you hand-write a pattern, escape `%` and `_` first, and never interpolate raw input into SQL.
 
 Preload relations in one trip:
 

@@ -428,7 +428,12 @@ impl<M> Table<M> {
         self.bulk_delete && self.delete_prefix.is_some()
     }
 
-    /// Global search predicate — OR across searchable columns (portable `starts_with`).
+    /// Global search predicate — OR across searchable columns.
+    ///
+    /// Substring match (`?q=` anywhere in the value), escaped so a term
+    /// containing `%` or `_` stays literal (GH #116); see
+    /// [`TextColumn::to_search_expr`](crate::resource::TextColumn::to_search_expr)
+    /// for the driver case-sensitivity caveat.
     pub fn search_expr(&self, term: &str) -> Option<Expr<bool>>
     where
         M: toasty::schema::Model,
