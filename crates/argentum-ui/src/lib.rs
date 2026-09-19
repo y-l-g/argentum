@@ -30,6 +30,7 @@ pub use components::primitives::pagination::{
     pagination, pagination_content, pagination_ellipsis, pagination_item, pagination_link,
     pagination_next, pagination_previous,
 };
+pub use components::primitives::select::select;
 pub use components::primitives::separator::{SeparatorOrientation, separator};
 pub use components::primitives::sheet::{SheetSide, sheet, sheet_content};
 pub use components::primitives::sidebar::{

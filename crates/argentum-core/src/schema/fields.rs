@@ -5,7 +5,7 @@
 
 use argentum_ui::{
     field as ui_field, field_error as ui_field_error, field_label as ui_field_label,
-    input as ui_input,
+    input as ui_input, select as ui_select,
 };
 use topcoat::runtime::Signal;
 use topcoat::{Result, context::Cx, view::*};
@@ -755,9 +755,10 @@ impl Select {
                 .boxed(),
             );
         }
-        // The upstream `field` family (topcoat#420) with the reserved error
-        // slot kept for spec compat (GH #12). The raw control carries the
-        // same `aria-invalid` error styling as the `input` primitive.
+        // The upstream `field` family (topcoat#420): the `select` primitive
+        // brings the same `aria-invalid` error styling and focus ring as the
+        // `input` primitive, plus the chevron and the customizable picker —
+        // the control no longer hand-rolls the input chrome.
         let field_class = if has_error {
             "ac-field ac-field--error"
         } else {
@@ -805,19 +806,19 @@ impl Select {
                 if overflow_searchable {
                     <div class="text-xs text-muted-foreground" data-options-hint="">(overflow_hint)</div>
                 }
-                <select
-                    id=(name.clone())
-                    name=(name.clone())
-                    required=(required)
-                    aria-required=(required.then_some("true"))
-                    aria-invalid=(if has_error { "true" } else { "false" })
-                    aria-describedby=(has_error.then_some(error_id.clone()))
-                    class="flex h-9 w-full rounded-md border border-border bg-background px-3 py-1 text-sm shadow-xs aria-invalid:border-destructive aria-invalid:focus-visible:ring-destructive"
-                >
+                ui_select(
+                    attrs: attributes! {
+                        id=(name.clone())
+                        name=(name.clone())
+                        required=(required)
+                        aria-required=(required.then_some("true"))
+                        aria-invalid=(if has_error { "true" } else { "false" })
+                        aria-describedby=(has_error.then_some(error_id.clone()))
+                    },
                     for opt in option_views {
                         (opt)
                     }
-                </select>
+                )
                 if has_error {
                     ui_field_error(
                         attrs: attributes! {
@@ -1411,6 +1412,49 @@ mod tests {
         assert!(
             html.contains("data-select-filterable"),
             "searchable select must scope the filter, got {html}"
+        );
+    }
+
+    #[tokio::test]
+    async fn select_renders_through_the_select_primitive() {
+        // The schema select was a hand-rolled `<select>` on the old input
+        // chrome (`rounded-md`, page fill, no focus ring); it now composes the
+        // synced `select` primitive, so it matches the `input` beside it and
+        // `selects.js` keeps finding the control inside the filterable field.
+        let cx = CxTestBuilder::new().build();
+        let schema =
+            Schema::new(Select::r#for(DummyUser::fields().name()).options(vec!["a".to_string()]));
+        let html = schema
+            .render(&cx)
+            .await
+            .unwrap()
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
+        assert!(
+            html.contains("has-[:disabled]:opacity-50") && html.contains("focus-visible:ring-2"),
+            "select must compose the primitive's chrome, got {html}"
+        );
+        assert!(
+            !html.contains("bg-background px-3 py-1"),
+            "the hand-rolled select chrome must be gone, got {html}"
+        );
+        // The opening tag carries no `<` of its own (the picker classes use
+        // `>`, which is legal inside a quoted attribute), so the next `<`
+        // closes the slice at the first child element.
+        let start = html.find("<select").expect("native select element");
+        let attributes_start = start + "<select".len();
+        let tag_end = html[attributes_start..]
+            .find('<')
+            .map(|offset| attributes_start + offset)
+            .expect("select children");
+        let tag = &html[start..tag_end];
+        assert!(
+            tag.contains("name=\"name\"")
+                && tag.contains("id=\"name\"")
+                && tag.contains("aria-invalid=\"false\""),
+            "attributes must reach the native control, got {tag}"
         );
     }
 }
