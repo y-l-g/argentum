@@ -217,19 +217,32 @@ impl Repeater {
         };
         let has_error = !own_errors.is_empty();
         let error_text = own_errors.first().cloned().unwrap_or_default();
+        // The group's error is described by the fieldset, so it needs an id to
+        // be referenced by; the label is the key (GH #78), and a label is not
+        // usable as one (ids cannot carry whitespace).
+        let error_id = repeater_error_id(&self.label);
         let container_class = if has_error {
             "ac-field ac-field--error rounded-md border border-border p-4"
         } else {
             "ac-field rounded-md border border-border p-4"
         };
+        // `field_legend` (unlike `field_label`) has no invalid state of its
+        // own, so the group colors its legend when it is invalid.
+        let legend_class = if has_error { "text-destructive" } else { "" };
         if let Some(schema) = &self.children {
             let child_view = schema.render_source(cx, source).await?;
             Ok(view! {
                 cx =>
                 ui_field_set(
-                    attrs: attributes! { class=(container_class) },
+                    attrs: attributes! {
+                        class=(container_class)
+                        data-invalid=(has_error.then_some("true"))
+                        aria-invalid=(if has_error { "true" } else { "false" })
+                        aria-describedby=(has_error.then_some(error_id.clone()))
+                    },
                     ui_field_legend(
                         variant: FieldLegendVariant::Label,
+                        attrs: attributes! { class=(legend_class) },
                         (title)
                         if required {
                             <span class="text-destructive" aria-hidden="true">"*"</span>
@@ -238,7 +251,11 @@ impl Repeater {
                     <div class="grid gap-4">(child_view)</div>
                     if has_error {
                         ui_field_error(
-                            attrs: attributes! { class="ac-error" aria-live="polite" },
+                            attrs: attributes! {
+                                id=(error_id.clone())
+                                class="ac-error"
+                                aria-live="polite"
+                            },
                             (error_text)
                         )
                     }
@@ -249,9 +266,15 @@ impl Repeater {
             Ok(view! {
                 cx =>
                 ui_field_set(
-                    attrs: attributes! { class=(container_class) },
+                    attrs: attributes! {
+                        class=(container_class)
+                        data-invalid=(has_error.then_some("true"))
+                        aria-invalid=(if has_error { "true" } else { "false" })
+                        aria-describedby=(has_error.then_some(error_id.clone()))
+                    },
                     ui_field_legend(
                         variant: FieldLegendVariant::Label,
+                        attrs: attributes! { class=(legend_class) },
                         (title)
                         if required {
                             <span class="text-destructive" aria-hidden="true">"*"</span>
@@ -259,7 +282,11 @@ impl Repeater {
                     )
                     if has_error {
                         ui_field_error(
-                            attrs: attributes! { class="ac-error" aria-live="polite" },
+                            attrs: attributes! {
+                                id=(error_id.clone())
+                                class="ac-error"
+                                aria-live="polite"
+                            },
                             (error_text)
                         )
                     }
@@ -268,6 +295,24 @@ impl Repeater {
             .boxed())
         }
     }
+}
+
+/// The DOM id of a repeater's error node.
+///
+/// Repeaters are keyed by their label until they become field-bound
+/// (GH #78), and an id may not carry the label's whitespace, so the label is
+/// slugged: ASCII alphanumerics lowercased, every other run collapsed to one
+/// `-`.
+fn repeater_error_id(label: &str) -> String {
+    let mut slug = String::with_capacity(label.len());
+    for character in label.chars() {
+        if character.is_ascii_alphanumeric() {
+            slug.push(character.to_ascii_lowercase());
+        } else if !slug.ends_with('-') {
+            slug.push('-');
+        }
+    }
+    format!("{}-error", slug.trim_matches('-'))
 }
 
 /// Shared no-JS chrome for the `Tabs` / `Wizard` grouping containers (GH #73):
@@ -622,14 +667,32 @@ mod tests {
             html.contains("Tags is required"),
             "repeater error must reach the HTML, got {html}"
         );
-        // Same inline error contract as TextInput: ac-error slot + live region.
+        // Same inline error contract as TextInput, wired to the group: the
+        // fieldset carries the invalid state and describes itself with the
+        // error node's id, and the legend is colored (`field_legend`, unlike
+        // `field_label`, has no invalid state of its own).
         assert!(
-            html.contains("ac-error") && html.contains("text-destructive"),
+            html.contains("data-invalid=\"true\"")
+                && html.contains("aria-invalid=\"true\"")
+                && html.contains("aria-describedby=\"tags-error\""),
+            "repeater must expose its invalid state in {html}"
+        );
+        assert!(
+            html.contains("id=\"tags-error\"") && html.contains("ac-error"),
             "missing inline error slot in {html}"
         );
         assert!(
             html.contains("aria-live=\"polite\""),
             "missing aria-live in {html}"
+        );
+        let legend = html
+            .split("<legend")
+            .nth(1)
+            .and_then(|rest| rest.split('>').next())
+            .unwrap_or_default();
+        assert!(
+            legend.contains("text-destructive"),
+            "invalid repeater must color its legend, got {legend}"
         );
         // Non-empty inner value clears the error.
         let mut filled = HashMap::new();
@@ -638,6 +701,36 @@ mod tests {
         assert!(
             !errors.contains_key("Tags"),
             "filled repeater must pass, got {errors:?}"
+        );
+        // A valid group carries no invalid state and no error node.
+        let valid_html = schema
+            .render_with(&cx, &filled, &errors)
+            .await
+            .unwrap()
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
+        assert!(
+            !valid_html.contains("data-invalid")
+                && !valid_html.contains("role=\"alert\"")
+                && !valid_html.contains("tags-error"),
+            "a valid repeater must not render invalid state in {valid_html}"
+        );
+    }
+
+    #[test]
+    fn repeater_error_ids_slug_the_label() {
+        // Ids cannot carry the label's whitespace (GH #78 keys the error by
+        // label until repeaters are field-bound).
+        assert_eq!(repeater_error_id("Tags"), "tags-error");
+        assert_eq!(
+            repeater_error_id("Shipping Address"),
+            "shipping-address-error"
+        );
+        assert_eq!(
+            repeater_error_id("  Billing / Info  "),
+            "billing-info-error"
         );
     }
 
