@@ -36,6 +36,33 @@ pub use table::{GroupDef, GroupKey, RowKey, Table};
 use naming::{kebab_case, pluralize, type_short_name};
 
 /// Maps one Toasty `Model` to its admin UI.
+///
+/// # Contract (GH #138)
+///
+/// **Every method has a default**, so a resource compiles the moment it
+/// declares a [`Model`](Self::Model) — and an omission must therefore fail
+/// loudly rather than silently:
+///
+/// - **Checked at [`Panel::build`](crate::panel::Panel::build)**, which returns
+///   `Err` naming the type: the grid must be renderable
+///   ([`table`](Self::table) declares columns and a row key) and, where
+///   [`can_create`](Self::can_create) allows it, the
+///   [`form`](Self::form) must declare fields. `table`, `form` and `can_create`
+///   are declarations: they must not need request-scoped context, because the
+///   panel calls them once at boot with the app's values and no request.
+/// - **Loud at request time**: the record fns
+///   ([`create_record`](Self::create_record),
+///   [`update_record`](Self::update_record),
+///   [`delete_record`](Self::delete_record),
+///   [`bulk_delete_records`](Self::bulk_delete_records)) default to an error
+///   naming the type, so a resource that never implemented delete answers
+///   "delete not implemented for …" instead of writing nothing quietly.
+/// - **Claimed by the flags**: [`deletable`](Self::deletable) and
+///   [`editable`](Self::editable) default to `true`, which both registers the
+///   routes and renders the chrome. A read-only resource overrides them to
+///   `false`; that is the declaration that it has nothing to implement.
+/// - **Default-deny is untouched**: every `can_*` still defaults to `false`, so
+///   an unconfigured resource exposes no data and no mutation.
 pub trait Resource: Sized + Send + Sync + 'static {
     /// The persisted model this resource administers.
     ///

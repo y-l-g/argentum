@@ -43,6 +43,14 @@ pub struct Schema {
 }
 
 impl Schema {
+    /// Whether this schema declares nothing to render (GH #138).
+    ///
+    /// `Panel::build` refuses a resource that allows create but declares no
+    /// fields: the form would render empty and silently accept nothing.
+    pub(crate) fn is_empty(&self) -> bool {
+        self.nodes.is_empty()
+    }
+
     /// Build a `Schema` from any `IntoSchema` (single node, tuple, or `Schema`).
     ///
     /// Panics on duplicate field names (GH #100): two inputs sharing one name

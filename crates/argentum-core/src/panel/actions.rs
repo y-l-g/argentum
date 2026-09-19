@@ -1948,6 +1948,9 @@ mod tests {
             #[auto]
             id: uuid::Uuid,
             author_id: uuid::Uuid,
+            /// A text column for the grid declaration (GH #138): every
+            /// servable resource needs one, and `author_id` is a Uuid.
+            name: String,
         }
         struct SearchableParent;
         impl Resource for SearchableParent {
@@ -1966,6 +1969,14 @@ mod tests {
                         .searchable(),
                 )
             }
+            fn table(cx: &Cx) -> crate::resource::Table<BigP> {
+                crate::resource::Table::r#for(cx)
+                    .id(|r: &BigP| r.id.to_string())
+                    .columns(crate::resource::TextColumn::r#for(
+                        BigP::fields().name(),
+                        |r: &BigP| r.name.clone(),
+                    ))
+            }
         }
         struct PlainParent;
         impl Resource for PlainParent {
@@ -1982,6 +1993,14 @@ mod tests {
                             |a: &BigA| a.name.clone(),
                         ),
                 )
+            }
+            fn table(cx: &Cx) -> crate::resource::Table<BigP> {
+                crate::resource::Table::r#for(cx)
+                    .id(|r: &BigP| r.id.to_string())
+                    .columns(crate::resource::TextColumn::r#for(
+                        BigP::fields().name(),
+                        |r: &BigP| r.name.clone(),
+                    ))
             }
         }
 

@@ -680,6 +680,27 @@ impl<M> Table<M> {
         }
     }
 
+    /// The first declaration this table is missing, if any (GH #138).
+    ///
+    /// The same three checks [`Self::render`](Self::render_with_state) enforces
+    /// per request, lifted so [`Panel::build`](crate::panel::Panel::build) can
+    /// refuse to serve a resource whose grid could never render — the
+    /// declaration is knowable at boot, so a request is too late to report it.
+    pub(crate) fn missing_essentials(&self) -> Option<String> {
+        if self.page_size == Some(0) {
+            return Some("paginate requires per_page > 0".to_string());
+        }
+        if self.columns.is_empty() {
+            return Some(
+                "no columns declared — declare columns via Table::columns(..)".to_string(),
+            );
+        }
+        if self.row_key.is_none() {
+            return Some("no row key declared — declare one via Table::id(|row| ..)".to_string());
+        }
+        None
+    }
+
     /// Whether the search toolbar renders: the explicit `search(bool)` value,
     /// or auto — at least one `searchable()` column. A non-interactive
     /// preview never renders it (GH #151).

@@ -131,6 +131,24 @@ pub trait Resource: Sized + Send + Sync + 'static {
 }
 ```
 
+### The contract
+
+Every method is defaulted, so a resource compiles as soon as it names its model — which means an
+omission has to fail loudly instead of quietly:
+
+- **At `Panel::build`** (which returns `Result<Router>`): the grid must be renderable — `table()`
+  declares columns and a row key — and where `can_create` allows it, `form()` must declare fields.
+  A resource that overrides nothing fails the build, naming the type, instead of serving an error
+  state or an empty form. `table()`, `form()` and `can_create()` are declarations: the panel calls
+  them once at boot, so they must not need request-scoped context.
+- **At request time, loudly**: the record fns default to an error naming the type ("delete not
+  implemented for …"), so a missing implementation never looks like a successful no-op.
+- **`deletable()` / `editable()` default to `true`** and both register the routes and render the
+  chrome. A read-only resource overrides them to `false` — that is its declaration that there is
+  nothing to implement.
+- **Default-deny stands**: every `can_*` defaults to `false`, so an unconfigured resource exposes
+  no data and no mutation.
+
 What to know:
 
 - `slug()` and `navigation_label()` have working defaults. Override only to rename.

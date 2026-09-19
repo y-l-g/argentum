@@ -1015,6 +1015,9 @@ mod tests {
             fn hydrate_form_values(_record: &Dummy) -> HashMap<String, String> {
                 HashMap::new()
             }
+            fn form(_cx: &Cx) -> crate::schema::Schema {
+                crate::schema::Schema::new(crate::schema::TextInput::r#for(Dummy::fields().name()))
+            }
         }
         struct DenyCreateResource;
         impl Resource for DenyCreateResource {
@@ -1114,6 +1117,9 @@ mod tests {
             }
             fn hydrate_form_values(_record: &Dummy) -> HashMap<String, String> {
                 HashMap::new()
+            }
+            fn form(_cx: &Cx) -> crate::schema::Schema {
+                crate::schema::Schema::new(crate::schema::TextInput::r#for(Dummy::fields().name()))
             }
         }
         struct LockedResource;
@@ -1262,6 +1268,9 @@ mod tests {
             }
             fn hydrate_form_values(_record: &Dummy) -> HashMap<String, String> {
                 HashMap::new()
+            }
+            fn form(_cx: &Cx) -> crate::schema::Schema {
+                crate::schema::Schema::new(crate::schema::TextInput::r#for(Dummy::fields().name()))
             }
         }
 

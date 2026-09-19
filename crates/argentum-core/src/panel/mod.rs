@@ -70,6 +70,9 @@ pub struct Panel {
     /// `Content-Security-Policy: frame-ancestors …` for every response
     /// (GH #176); `None` opts out. Defaults to `'self'`.
     frame_ancestors: Option<String>,
+    /// Per-resource declaration checks (GH #138), monomorphized at
+    /// `resource::<R>()` and run by `build` before anything is served.
+    resource_checks: Vec<ResourceCheck>,
     /// Registration failures collected by the declarative builders
     /// (GH #174): `Panel::resource` cannot return `Result`, so a bad `slug()`
     /// or a duplicate is recorded here and reported by `build`.
@@ -128,6 +131,7 @@ impl Panel {
             search_handlers: HashMap::new(),
             frame_ancestors: Some(headers::DEFAULT_FRAME_ANCESTORS.to_string()),
             registration_errors,
+            resource_checks: Vec::new(),
             #[cfg(feature = "auth")]
             login_hint: None,
             #[cfg(feature = "auth")]
@@ -194,6 +198,7 @@ impl Panel {
             return self;
         }
         self.slugs.push(slug);
+        self.resource_checks.push(check_resource::<R>);
         let url = format!("{}/{}", self.prefix, R::slug());
         self.pages.push(PageFn::new(
             http::Method::GET,
@@ -383,6 +388,7 @@ impl Panel {
             search_handlers,
             frame_ancestors,
             registration_errors: _,
+            resource_checks,
             #[cfg(feature = "auth")]
             login_hint,
             #[cfg(feature = "auth")]
@@ -393,6 +399,25 @@ impl Panel {
                 "Panel::build requires a Db via app_context",
             ))
         })?;
+        // Declaration checks (GH #138): a resource whose grid or form could
+        // never render is a configuration error, and the declaration is
+        // knowable here — waiting for the first request only moves the failure
+        // somewhere less useful. `table`, `form` and `can_create` are pure
+        // declarations, so they must not need request-scoped context.
+        if !resource_checks.is_empty() {
+            let cx = validation_cx(&db);
+            let failures: Vec<String> = resource_checks
+                .iter()
+                .filter_map(|check| check(&cx).err())
+                .collect();
+            if !failures.is_empty() {
+                return Err(std::io::Error::other(format!(
+                    "Panel::build: {}",
+                    failures.join("; ")
+                ))
+                .into());
+            }
+        }
         #[cfg(feature = "auth")]
         crate::auth::assert_models_registered(&db, &auth);
         let mut builder = Router::builder()
@@ -542,6 +567,49 @@ fn validate_route_segment(kind: &str, segment: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// A resource's build-time declaration check (GH #138): monomorphized once per
+/// declared resource by [`Panel::resource`], run by [`Panel::build`] with the
+/// app's values and no request.
+type ResourceCheck = fn(&Cx) -> Result<(), String>;
+
+/// What a declared resource must be able to promise before the panel serves
+/// it (GH #138).
+///
+/// The trait ships every method with a default, so a resource that overrides
+/// nothing compiles and only fails when a user reaches a page. The two
+/// essentials that are *declarations* — a renderable grid and a form for the
+/// create page — are checked here, at build, and reported with the resource's
+/// type name. Runtime essentials (the record fns) keep their existing loud
+/// failure: a default stub answers "not implemented for <type>", never
+/// silently.
+fn check_resource<R: Resource>(cx: &Cx) -> Result<(), String> {
+    if let Some(missing) = R::table(cx).missing_essentials() {
+        return Err(format!(
+            "resource `{}` cannot serve its list: {missing}",
+            std::any::type_name::<R>()
+        ));
+    }
+    // The form is only required where the panel would serve one, and `create`
+    // is the statically checkable half of that (`can_update` needs a record).
+    // The default policy denies create, so a read-only resource is unaffected.
+    if R::can_create(cx) && R::form(cx).is_empty() {
+        return Err(format!(
+            "resource `{}` allows create but its form declares no fields — build it with Schema::new(..)",
+            std::any::type_name::<R>()
+        ));
+    }
+    Ok(())
+}
+
+/// A context for the build-time declaration checks: the app's own values, no
+/// request. Resources must be able to describe their table and form from this
+/// — that they cannot read a request here is the contract, not a limitation.
+fn validation_cx(db: &Db) -> Cx {
+    let mut app_context = topcoat::context::AppContext::new();
+    app_context.insert(db.clone());
+    Cx::new(std::sync::Arc::new(app_context))
+}
+
 /// Parse a panel route path, panicking on malformed input — the paths are
 /// built from the panel prefix and the resource slug, both validated at
 /// registration ([`validate_route_segment`]), so a malformed path here is a
@@ -687,6 +755,14 @@ mod tests {
         struct DummyResource;
         impl Resource for DummyResource {
             type Model = Dummy;
+            fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
+                crate::resource::Table::r#for(cx)
+                    .id(|d: &Dummy| d.id.to_string())
+                    .columns(crate::resource::TextColumn::r#for(
+                        Dummy::fields().name(),
+                        |d: &Dummy| d.name.clone(),
+                    ))
+            }
         }
 
         let db = Db::builder().connect("sqlite::memory:").await.unwrap();
@@ -821,6 +897,14 @@ mod tests {
             // the header is installed.
             fn can_view_any(_cx: &Cx) -> bool {
                 true
+            }
+            fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
+                crate::resource::Table::r#for(cx)
+                    .id(|d: &Dummy| d.id.to_string())
+                    .columns(crate::resource::TextColumn::r#for(
+                        Dummy::fields().name(),
+                        |d: &Dummy| d.name.clone(),
+                    ))
             }
         }
 

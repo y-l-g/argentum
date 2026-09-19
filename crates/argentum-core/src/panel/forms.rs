@@ -778,6 +778,14 @@ mod tests {
             ) -> Result<()> {
                 Ok(())
             }
+            fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
+                crate::resource::Table::r#for(cx)
+                    .id(|d: &Dummy| d.id.to_string())
+                    .columns(crate::resource::TextColumn::r#for(
+                        Dummy::fields().name(),
+                        |d: &Dummy| d.name.clone(),
+                    ))
+            }
         }
 
         let mut db = Db::builder()
@@ -999,7 +1007,12 @@ mod tests {
                 true
             }
             fn form(_cx: &Cx) -> crate::schema::Schema {
-                crate::schema::Schema::empty()
+                // A real field, optional so the test's csrf-only POST still
+                // passes validation — `Schema::empty()` is what GH #138's
+                // build check refuses for a resource that allows create.
+                crate::schema::Schema::new(
+                    crate::schema::TextInput::r#for(Dummy::fields().name()).optional(),
+                )
             }
             async fn create_record(
                 _cx: &Cx,
@@ -1010,6 +1023,14 @@ mod tests {
             }
             fn hydrate_form_values(_record: &Dummy) -> HashMap<String, String> {
                 HashMap::new()
+            }
+            fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
+                crate::resource::Table::r#for(cx)
+                    .id(|r: &Dummy| r.id.to_string())
+                    .columns(crate::resource::TextColumn::r#for(
+                        Dummy::fields().name(),
+                        |r: &Dummy| r.name.clone(),
+                    ))
             }
         }
 
