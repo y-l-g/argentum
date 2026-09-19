@@ -37,8 +37,9 @@ impl<M> Table<M> {
     /// numbers), and the empty state reflects whether a search was active.
     ///
     /// Composes the synced `argentum-ui` primitives and Token classes
-    /// (`bg-background`, `border-border`, `shadow-sm`, `text-muted-foreground`)
-    /// — no raw colors, no `ac-*`.
+    /// (`border-border` on the chrome, `bg-background`/`shadow-xs` on the
+    /// toolbar controls, `text-muted-foreground` on the captions) — no raw
+    /// colors, no `ac-*`.
     ///
     /// # Errors
     ///
