@@ -54,12 +54,12 @@ async fn admin_resource_list_page_serve_seeded_users() {
         "missing Blog Posts navigation url in {html}"
     );
     assert!(
-        html.contains("Discussion"),
-        "missing Discussion label in {html}"
+        html.contains("Comments"),
+        "missing Comments label in {html}"
     );
     assert!(
         html.contains("href=\"/admin/comments\"") || html.contains("/admin/comments"),
-        "missing Discussion navigation url in {html}"
+        "missing Comments navigation url in {html}"
     );
     assert!(
         html.contains("Published"),

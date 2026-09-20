@@ -122,7 +122,7 @@ pub async fn tenanted_db() -> (Db, uuid::Uuid, uuid::Uuid) {
     .await
     .expect("create post t2");
     // One comment per tenant post (GH #169): the inherit-through-the-relation
-    // fixture for the Discussion queue's tenant scoping.
+    // fixture for the Comments queue's tenant scoping.
     toasty::create!(showcase::models::Comment {
         body: "T1 comment",
         post_id: p1.id,
@@ -385,6 +385,29 @@ pub fn input_value(html: &str, name: &str) -> Option<String> {
                 }
             }
         }
+    }
+    None
+}
+
+/// The record key `kind` (`"delete"` or `"edit"`) from the first row action
+/// link, which carries it as a query parameter.
+///
+/// Reads the control the UI actually renders rather than re-deriving identity:
+/// `Table::id` is a display projection and `Table::pk` is the record key
+/// (GH #168), so a test that guessed from the display key would be asserting
+/// the wrong thing.
+pub fn row_link_key(html: &str, kind: &str) -> Option<String> {
+    let needle = format!("{kind}=");
+    let mut rest = html;
+    while let Some(at) = rest.find(&needle) {
+        let after = &rest[at + needle.len()..];
+        let end = after
+            .find(['&', '"', '\''])
+            .unwrap_or(after.len());
+        if end > 0 {
+            return Some(after[..end].to_string());
+        }
+        rest = &rest[at + needle.len()..];
     }
     None
 }

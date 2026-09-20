@@ -796,14 +796,18 @@ impl Resource for PostResource {
     }
 }
 
-/// Discussion resource over `Comment`: the moderation queue.
+/// Comments resource over `Comment`: the moderation queue.
 ///
 /// Comments carry no tenant of their own — they inherit visibility from their
 /// post (GH #169) — so the query scopes through the parent post's `tenant_id`
-/// and `requires_tenant` stays false. Deletes are hidden in the panel
-/// (`deletable() == false`): removals happen through the post lifecycle,
-/// never from the queue. Server policy still allows them, so the override is
-/// chrome-only.
+/// and `requires_tenant` stays false.
+///
+/// The queue moderates: row and bulk delete are enabled (GH #184), which is
+/// what `can_delete`, `delete_record` and `bulk_delete_records` were already
+/// written for. A resource that wants a read-only queue overrides
+/// [`Resource::deletable`] to `false` instead (GH #96).
+pub struct CommentResource;
+
 /// Re-resolve a comment's parent post through the tenant-scoped
 /// [`PostResource::query`] inside the caller's open transaction (GH #178).
 ///
@@ -836,17 +840,15 @@ async fn ensure_post_in_tenant(
     Ok(())
 }
 
-pub struct CommentResource;
-
 impl Resource for CommentResource {
     type Model = Comment;
 
     fn navigation_label() -> String {
-        "Discussion".to_string()
-    }
-
-    fn deletable() -> bool {
-        false
+        // "Comments", not "Discussion" (GH #184): the entity is a comment, the
+        // route and model say so, and a discussion — if it means anything here
+        // — would be the set of comments on one post, which is not a record the
+        // panel can list or moderate.
+        "Comments".to_string()
     }
 
     fn can_view_any(_cx: &Cx) -> bool {

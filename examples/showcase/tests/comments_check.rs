@@ -4,7 +4,8 @@ use showcase::{
 };
 
 use crate::common::{
-    body_string, demo_client, form_body, full_db, input_value, response_cookies, tenanted_db,
+    body_string, demo_client, form_body, full_db, input_value, response_cookies, row_link_key,
+    tenanted_db,
 };
 
 #[tokio::test]
@@ -15,7 +16,7 @@ async fn comments_list_shows_body_and_post_title() {
     let resp = client.get("/admin/comments").await;
     assert!(resp.status().is_success());
     let html = body_string(resp).await;
-    assert!(html.contains("Discussion</h1>"), "missing heading: {html}");
+    assert!(html.contains("Comments</h1>"), "missing heading: {html}");
     assert!(
         html.contains("Clear write-up"),
         "missing seeded comment body: {html}"
@@ -31,26 +32,63 @@ async fn comments_list_shows_body_and_post_title() {
 }
 
 #[tokio::test]
-async fn comments_list_hides_delete_chrome() {
-    // deletable() == false: the queue shows no row Delete buttons and no
-    // bulk bar, so moderators never reach a 403 after a confirmation.
+async fn comments_list_offers_row_and_bulk_delete() {
+    // GH #184: the queue moderates. `deletable()` is no longer overridden, so
+    // the row Delete control and the bulk bar render — and `can_delete`,
+    // `delete_record` and `bulk_delete_records` stop being unreachable.
     let db = full_db().await;
     let router = router(db);
     let client = demo_client(&router).await;
     let resp = client.get("/admin/comments").await;
     let html = body_string(resp).await;
     assert!(
-        !html.contains("Bulk Delete"),
-        "read-only queue must not offer bulk delete: {html}"
+        html.contains("Bulk Delete"),
+        "the moderation queue must offer bulk delete: {html}"
     );
+    // The row control is a `?delete=<key>` link that opens the confirmation
+    // dialog (GH #151); the confirmed POST is what removes the row.
     assert!(
-        !html.contains("/delete"),
-        "read-only queue must not offer row delete: {html}"
+        html.contains("delete="),
+        "the moderation queue must offer row delete: {html}"
     );
     assert!(
         html.contains(">Edit<"),
         "queue must keep edit links: {html}"
     );
+}
+
+#[tokio::test]
+async fn comments_row_delete_removes_the_comment() {
+    // The chrome above is only worth anything if the write behind it lands.
+    let db = full_db().await;
+    let router = router(db.clone());
+    let client = demo_client(&router).await;
+    let before = Comment::all().exec(&mut db.clone()).await.unwrap().len();
+    assert!(before > 0, "the fixture must seed comments");
+
+    let resp = client.get("/admin/comments").await;
+    let html = body_string(resp).await;
+    let csrf = input_value(&html, "csrf_token").expect("the list carries csrf");
+    // Follow the row control the moderator actually clicks: identity is two
+    // projections (GH #168), and the delete route takes the record key the
+    // `?delete=` link carries — not the table's display key.
+    let key = row_link_key(&html, "delete").expect("a row delete control");
+
+    let resp = client
+        .csrf(&csrf)
+        .post_form(
+            &format!("/admin/comments/{key}/delete"),
+            form_body(&[("confirm", "1"), ("csrf_token", &csrf)]),
+        )
+        .await;
+    assert!(
+        resp.status().is_redirection(),
+        "a confirmed delete must redirect, got {}",
+        resp.status()
+    );
+
+    let after = Comment::all().exec(&mut db.clone()).await.unwrap().len();
+    assert_eq!(after, before - 1, "the comment must be gone");
 }
 
 #[tokio::test]

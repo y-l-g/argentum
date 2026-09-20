@@ -276,7 +276,7 @@ async fn bulk_delete_wrong_tenant_404s_and_deletes_nothing() {
 
 #[tokio::test]
 async fn comments_list_is_scoped_through_parent_post() {
-    // GH #169: comments carry no tenant of their own — the Discussion queue
+    // GH #169: comments carry no tenant of their own — the Comments queue
     // inherits visibility from the parent post via `CommentResource::query`.
     let (db, t1, t2) = tenanted_db().await;
     let router = router(db.clone());
