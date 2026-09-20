@@ -428,21 +428,28 @@ impl Select {
         }
     }
 
-    /// Client-side option search (GH #91) plus server-side narrowing past the
-    /// cap (GH #150): renders a filter input above the select that narrows
-    /// options by label substring (delegated JS, no re-render) for bounded
-    /// sets, and fetches `GET {parent_list_url}/options?field=&q=` (debounced,
-    /// abort in-flight, selection preserved) when the related table overflows
-    /// the cap. Reuses the related `Table`'s declared `searchable()` columns;
-    /// non-searchable selects keep the cap error. No-JS keeps the plain
-    /// select (relation cannot be changed past the cap, other fields still
-    /// submit).
+    /// Option search over a visible list (GH #91, GH #184) plus server-side
+    /// narrowing past the cap (GH #150): renders a filter input and a
+    /// suggestion listbox above the select. Typing narrows the list by label
+    /// substring for bounded sets, and picks write the chosen option onto the
+    /// select, which stays the form control. Past the cap it instead fetches
+    /// `GET {parent_list_url}/options?field=&q=` (debounced, abort in-flight,
+    /// selection preserved) and re-renders the list from the answer. Reuses the
+    /// related `Table`'s declared `searchable()` columns; non-searchable
+    /// selects keep the cap error. No-JS keeps the plain select (relation
+    /// cannot be changed past the cap, other fields still submit).
     ///
-    /// Behavior asset: the filter input needs `assets/selects.js`
+    /// The list exists because the select cannot show filtering itself: the
+    /// primitive opts into `appearance: base-select`, whose popup is browser
+    /// chrome that ignores `option[hidden]`, so narrowing the select's own
+    /// options is invisible (GH #184).
+    ///
+    /// Behavior asset: the field needs `assets/selects.js`
     /// (`argentum_ui::SELECTS_JS`, hooks `data-select-filterable` /
-    /// `data-options-filter`), emitted by `Panel::render_document` on every
-    /// document with shell assets (see ADR-0014). Without the document
-    /// scripts the input is inert and the plain select keeps working.
+    /// `data-options-filter` / `data-options-combobox` / `data-options-list`),
+    /// emitted by `Panel::render_document` on every document with shell assets
+    /// (see ADR-0014). Without the document scripts the input is inert and the
+    /// plain select keeps working.
     pub fn searchable(mut self) -> Self {
         self.searchable = true;
         self
@@ -804,15 +811,33 @@ impl Select {
                     }
                 )
                 if searchable {
-                    ui_input(
-                        attrs: attributes! {
-                            type="search"
+                    // The filter input and its suggestion list (GH #184). The
+                    // list is what makes the filter visible: the native
+                    // `<select>` popup is browser chrome the script cannot
+                    // narrow (the primitive opts into `appearance: base-select`,
+                    // where `option[hidden]` has no effect), so `selects.js`
+                    // renders its own filtered list here and writes the chosen
+                    // value onto the select. Without the script the input is
+                    // inert and the plain select keeps working.
+                    <div class="relative" data-options-combobox="">
+                        ui_input(
+                            attrs: attributes! {
+                                type="search"
+                                aria-label=(filter_label.clone())
+                                placeholder="Filter…"
+                                data-options-filter=""
+                                class="h-9"
+                                autocomplete="off"
+                            }
+                        )
+                        <ul
+                            data-options-list=""
+                            role="listbox"
                             aria-label=(filter_label.clone())
-                            placeholder="Filter…"
-                            data-options-filter=""
-                            class="h-9"
-                        }
-                    )
+                            hidden=""
+                            class="absolute z-20 mt-1 max-h-60 w-full overflow-y-auto rounded-lg border border-border bg-popover p-1 text-sm text-popover-foreground shadow-sm"
+                        ></ul>
+                    </div>
                 }
                 if overflow_searchable {
                     <div class="text-xs text-muted-foreground" data-options-hint="">
@@ -1813,6 +1838,25 @@ mod tests {
         assert!(
             html.contains("data-select-filterable"),
             "searchable select must scope the filter, got {html}"
+        );
+        // GH #184: the filter is only useful with a list it can narrow. The
+        // native popup is browser chrome the script cannot touch, so the
+        // searchable markup carries its own listbox — rendered empty and
+        // hidden, and filled by `selects.js`.
+        assert!(
+            html.contains("data-options-combobox") && html.contains("data-options-list"),
+            "searchable select must render the suggestion list, got {html}"
+        );
+        assert!(
+            html.contains("role=\"listbox\""),
+            "the suggestion list must be a listbox, got {html}"
+        );
+        let list_at = html.find("data-options-list").expect("the list");
+        let list_tag_start = html[..list_at].rfind("<ul").expect("its <ul>");
+        let list_tag_end = html[list_tag_start..].find('>').expect("the tag's end");
+        assert!(
+            html[list_tag_start..list_tag_start + list_tag_end].contains("hidden"),
+            "the list must render hidden until the field is used, got {html}"
         );
     }
 
