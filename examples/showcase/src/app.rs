@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use argentum_core::{
     Brand, DateFilter, FileUpload, Grid, Group, NavTarget, NavigationItem, Panel, Repeater,
     Resource, Schema, Section, Select, SelectFilter, Table, Tabs, TernaryFilter, TextColumn,
-    TextInput, VariantFilter, Wizard, resource::HrefCheck, tenant_id,
+    TextInput, Textarea, VariantFilter, Wizard, resource::HrefCheck, tenant_id,
 };
 use toasty::Db;
 use topcoat::{
@@ -537,9 +537,11 @@ impl Resource for PostResource {
         Schema::new((
             Section::new("Content").schema((
                 TextInput::r#for(Post::fields().title()).placeholder("A title editors click"),
+                // Prose, so a textarea rather than a one-line input (GH #184).
                 // Optional so quick draft stubs submit; full stories fill it.
-                TextInput::r#for(Post::fields().body())
+                Textarea::r#for(Post::fields().body())
                     .placeholder("The full story…")
+                    .rows(6)
                     .optional(),
             )),
             // Grouped metadata: lifecycle selects beside the author picker.

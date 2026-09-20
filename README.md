@@ -263,7 +263,7 @@ Schema::new((
 
 What to know:
 
-- Layout blocks: `Section`, `Group`, `Grid`, `Tabs`, `Wizard`. Fields: `TextInput`, `Select`, `FileUpload`, `Repeater`. Every field takes a typed lens (`User::fields().email()`), never a string path.
+- Layout blocks: `Section`, `Group`, `Grid`, `Tabs`, `Wizard`. Fields: `TextInput`, `Textarea`, `Select`, `FileUpload`, `Repeater`. Every field takes a typed lens (`User::fields().email()`), never a string path. `Textarea` is the multi-line half of `TextInput` — same lens, same required/unique defaults, same error contract, a `<textarea>` control instead (GH #184).
 - `required` defaults to the column nullability. Use `.optional()` to opt out. A bare `Select` over a non-nullable FK rejects `""` inline instead of failing at the driver.
 - `unique()` adds an app-level pre-check only. Toasty exposes no unique-violation predicate yet, so the DB constraint stays the final guard and concurrent writes can race.
 - Relation select validates the FK against the related resource query before `create_record` runs:

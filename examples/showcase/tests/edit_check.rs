@@ -345,3 +345,50 @@ async fn edit_sso_managed_user_is_forbidden() {
     .expect("Ken unchanged");
     assert_eq!(unchanged.name, "Ken Thompson");
 }
+
+#[tokio::test]
+async fn post_body_renders_as_a_textarea() {
+    // GH #184 §9: a post body is prose, so the edit form renders a
+    // `<textarea>` instead of the one-line input it used to share with `title`.
+    use showcase::models::Post;
+
+    let db = crate::common::full_db().await;
+    let router = router(db.clone());
+    let client = demo_client(&router).await;
+
+    let mut db_q = db.clone();
+    let post = Post::all()
+        .exec(&mut db_q)
+        .await
+        .unwrap()
+        .into_iter()
+        .next()
+        .expect("a seeded post");
+
+    let resp = client.get(&format!("/admin/posts/{}/edit", post.id)).await;
+    assert_eq!(resp.status(), 200, "GET post edit should be 200");
+    let html = body_string(resp).await;
+
+    // Slice this field's control: from its own label to the closing
+    // `</textarea>`. Slicing on the `field` wrapper would swallow the
+    // neighbouring `title` input, since the wrapper carries no id of its own.
+    let label = html
+        .find("for=\"body\"")
+        .expect("the body field must render a label");
+    let close = html
+        .find("</textarea>")
+        .expect("the body field must render a textarea");
+    let field = &html[label..close];
+    assert!(
+        field.contains("<textarea"),
+        "the body field must be a textarea, got {field}"
+    );
+    assert!(
+        !field.contains("<input"),
+        "the body field must not be an input, got {field}"
+    );
+    assert!(
+        field.contains(&post.body),
+        "the textarea must carry the stored body, got {field}"
+    );
+}

@@ -19,7 +19,7 @@ mod pk;
 mod relationship;
 mod tree;
 
-pub use fields::{FileUpload, Select, TextInput};
+pub use fields::{FileUpload, Select, TextInput, Textarea};
 // GH #173: the placeholder leaf stays reachable to the unit tests without
 // widening the public surface; the render arm (tree.rs) imports it directly.
 #[cfg(test)]
@@ -123,12 +123,13 @@ impl Schema {
         .boxed())
     }
 
-    /// Collect field names for validation (TextInput + Select).
+    /// Collect field names for validation (TextInput + Textarea + Select + FileUpload).
     pub fn field_names(&self) -> Vec<String> {
         let mut out = Vec::new();
         for node in &self.nodes {
             for_each_field(node, &mut |n| match n {
                 Node::TextInput(f) => out.push(f.field_name().to_string()),
+                Node::Textarea(f) => out.push(f.field_name().to_string()),
                 Node::Select(f) => out.push(f.field_name().to_string()),
                 Node::FileUpload(f) => out.push(f.field_name().to_string()),
                 _ => {}
@@ -178,6 +179,19 @@ impl Schema {
         for node in &self.nodes {
             for_each_field(node, &mut |n| {
                 if let Node::TextInput(f) = n {
+                    map.insert(f.field_name().to_string(), (**f).clone());
+                }
+            });
+        }
+        map
+    }
+
+    /// Build a map of `field_name -> Textarea` for validation.
+    pub fn textareas(&self) -> HashMap<String, Textarea> {
+        let mut map = HashMap::new();
+        for node in &self.nodes {
+            for_each_field(node, &mut |n| {
+                if let Node::Textarea(f) = n {
                     map.insert(f.field_name().to_string(), (**f).clone());
                 }
             });
@@ -252,6 +266,16 @@ impl Schema {
             }
             let val = values.get(&name).map(|s| s.as_str()).unwrap_or("");
             let errs = input.validate(val);
+            if !errs.is_empty() {
+                errors.insert(name, errs);
+            }
+        }
+        for (name, ta) in self.textareas() {
+            if skip.contains(&name) {
+                continue;
+            }
+            let val = values.get(&name).map(|s| s.as_str()).unwrap_or("");
+            let errs = ta.validate(val);
             if !errs.is_empty() {
                 errors.insert(name, errs);
             }

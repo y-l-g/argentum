@@ -10,13 +10,14 @@ use topcoat::runtime::Signal;
 use topcoat::{Result, context::Cx, view::*};
 
 use super::Schema;
-use super::fields::{FileUpload, Select, Text, TextInput};
+use super::fields::{FileUpload, Select, Text, TextInput, Textarea};
 use super::layouts::{Grid, Group, Repeater, Section, Tabs, Wizard};
 
 #[derive(Debug)]
 pub(crate) enum Node {
     Text(Text),
     TextInput(Box<TextInput>),
+    Textarea(Box<Textarea>),
     Select(Box<Select>),
     FileUpload(Box<FileUpload>),
     Repeater(Box<Repeater>),
@@ -50,6 +51,13 @@ impl Node {
         match self {
             Node::Text(t) => Ok(t.render(cx).await?.boxed()),
             Node::TextInput(f) => {
+                let val = static_value(source, f.field_name());
+                let errs = static_errors(source, f.field_name());
+                Ok(Box::pin(f.render_with(cx, val, errs)).await?.boxed())
+            }
+            // Not live-bindable: the live seam (GH #154 §4) is `TextInput`-only
+            // today, so a textarea always renders its static form.
+            Node::Textarea(f) => {
                 let val = static_value(source, f.field_name());
                 let errs = static_errors(source, f.field_name());
                 Ok(Box::pin(f.render_with(cx, val, errs)).await?.boxed())
@@ -116,6 +124,11 @@ impl From<TextInput> for Node {
         Node::TextInput(Box::new(v))
     }
 }
+impl From<Textarea> for Node {
+    fn from(v: Textarea) -> Self {
+        Node::Textarea(Box::new(v))
+    }
+}
 impl From<Section> for Node {
     fn from(v: Section) -> Self {
         Node::Section(Box::new(v))
@@ -167,7 +180,11 @@ impl Node {
             Node::Grid(g) => g.children.as_ref(),
             Node::Tabs(t) => t.0.children.as_ref(),
             Node::Wizard(w) => w.0.children.as_ref(),
-            Node::TextInput(_) | Node::Select(_) | Node::FileUpload(_) | Node::Text(_) => None,
+            Node::TextInput(_)
+            | Node::Textarea(_)
+            | Node::Select(_)
+            | Node::FileUpload(_)
+            | Node::Text(_) => None,
         }
     }
 }
@@ -280,6 +297,13 @@ impl IntoSchema for Grid {
     }
 }
 impl IntoSchema for TextInput {
+    fn into_schema(self) -> Schema {
+        Schema {
+            nodes: vec![self.into()],
+        }
+    }
+}
+impl IntoSchema for Textarea {
     fn into_schema(self) -> Schema {
         Schema {
             nodes: vec![self.into()],
