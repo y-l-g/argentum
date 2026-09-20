@@ -52,13 +52,17 @@ impl Brand {
     }
 }
 
-/// Whether the shell starts in dark mode. Persisted via `theme.js` (`localStorage` + `theme` cookie).
+/// Whether the shell starts in dark mode for a visitor with no stored choice.
+/// Persisted via `theme.js` (`localStorage` + `theme` cookie).
 ///
-/// Precedence (GH #102): this build-time default only sets the initial
-/// `<html class>` — the blocking `theme_init_script` + `theme.js` correct it
-/// pre-paint from `localStorage` first, then the `theme` cookie. The server
-/// never reads the cookie per request; a user toggle wins over this default
-/// on every later visit.
+/// Precedence (GH #102, corrected in GH #184): this build-time default only
+/// sets the initial `<html class>` and is handed to the blocking
+/// `theme_init_script` as its fallback. The stored preference — `localStorage`
+/// first, then the `theme` cookie — wins in **both** directions: a stored
+/// `light` removes the class this default added. The server never reads the
+/// cookie per request, so a toggle is client-side until the next navigation,
+/// at which point this default would otherwise re-darken the page — which is
+/// exactly the bug GH #184 fixed.
 #[derive(Debug, Clone, Copy)]
 pub struct DarkMode(pub bool);
 
@@ -476,11 +480,15 @@ impl Panel {
         body: BoxView<'a>,
     ) -> Result<BoxView<'a>> {
         use topcoat::context::try_app_context;
+        // The build-time default: the `<html class>` a first-time visitor gets,
+        // and the fallback the blocking script uses when nothing is stored
+        // (GH #102, GH #184).
+        let default_dark = try_app_context::<DarkMode>(cx).is_some_and(|dm| dm.0);
         let head: BoxView<'_> = match try_app_context::<ShellAssets>(cx).copied() {
             Some(ShellAssets { stylesheet, font }) => view! {
                 cx =>
                 topcoat::dev::script()
-                argentum_ui::theme_init_script()
+                argentum_ui::theme_init_script(default_dark: default_dark)
                 topcoat::runtime::script()
                 topcoat::font::link(font: font)
                 <link rel="stylesheet" href=(stylesheet)>
@@ -497,12 +505,11 @@ impl Panel {
             None => view! {
                 cx =>
                 topcoat::dev::script()
-                argentum_ui::theme_init_script()
+                argentum_ui::theme_init_script(default_dark: default_dark)
             }
             .boxed(),
         };
-        let html_class =
-            try_app_context::<DarkMode>(cx).and_then(|dm| if dm.0 { Some("dark") } else { None });
+        let html_class = default_dark.then_some("dark");
         Ok(view! {
             cx =>
             <!DOCTYPE html>
@@ -662,6 +669,18 @@ mod tests {
         assert!(
             html.contains("data-theme-toggle"),
             "theme toggle must render, got {html}"
+        );
+        // GH #184: the build-time default is only that — the pre-paint script
+        // can remove the class again when the visitor has stored `light`.
+        assert!(
+            html.contains("classList.add") && html.contains("classList.remove"),
+            "the document must carry the reconciling theme script, got {html}"
+        );
+
+        let html = document_html(&cx_with(Some(false))).await;
+        assert!(
+            html.contains("<html>"),
+            "DarkMode(false) must not set the dark class, got {html}"
         );
 
         let html = document_html(&cx_with(None)).await;

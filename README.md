@@ -112,7 +112,7 @@ Panel::new("admin")
     .login_hint("Demo: admin@example.com / password")
 ```
 
-`brand` sets the header and sidebar name. `dark_mode` sets the initial theme; the toggle is always rendered and the stored choice wins later.
+`brand` sets the header and sidebar name. `dark_mode` sets the theme a visitor sees **before they have chosen one** — the toggle is always rendered, and a stored choice wins in both directions (GH #184): picking light persists, and the next page stays light instead of falling back to this default. Omit `dark_mode` and the panel starts light.
 
 ---
 

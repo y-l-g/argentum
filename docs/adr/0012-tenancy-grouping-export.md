@@ -33,3 +33,7 @@ Group headers read `{key} ({count} on this page)` (page-local counts, GH #92). T
 ## Amendment (2026-09-15)
 
 The `sum` summarizer and the raw-SQL `trait Aggregate` shim promised by spec #71 are formally dropped from the vocabulary (GH #107), not merely pending: grouping is page-local by design, so a page-local sum would be a misleading number for exactly the large tables aggregation exists for. Counts stay page-local and labelled as such (GH #92); a real sum waits for upstream `GROUP BY` (#118), at which point `Table::group_by` can delegate without changing Resources.
+
+## Amendment (GH #184)
+
+`Panel::dark_mode` is no longer set by the showcase. The build-time default was never authoritative — the stored preference wins in both directions, and the earlier implementation only ever *added* the `dark` class, so a visitor who chose light was re-darkened on the next navigation. The showcase now paints light by default and the header toggle is the only thing that turns dark on; `dark_mode(true)` remains available for an app that wants a dark-first panel. `Panel::brand` is still set (the amendment above said otherwise — that part was stale).

@@ -18,11 +18,12 @@ async fn admin_resource_list_page_serve_seeded_users() {
     let html = body_string(response).await;
 
     // Layout shell — beautiful: Token classes, sidebar, Token borders.
-    // Dark-mode first paint (dark_mode(true)): the document element carries
-    // the dark class before any toggle.
+    // Light first paint (GH #184): the showcase no longer defaults to dark, so
+    // a visitor with no stored preference gets a light document. The
+    // preference plumbing itself is covered in `auth_check`.
     assert!(
-        html.contains("<html class=\"dark\">"),
-        "missing dark first-paint class in {html}"
+        html.contains("<html>"),
+        "showcase must paint light by default in {html}"
     );
     assert!(
         html.contains("border-border") && html.contains("bg-background"),

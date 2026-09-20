@@ -1060,7 +1060,9 @@ fn build_router(db: Db, bundle: Option<AssetBundle>) -> Router {
                 "data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2024%2024'%3E%3Ccircle%20cx='12'%20cy='12'%20r='10'%20fill='%236366f1'/%3E%3Ctext%20x='12'%20y='16'%20text-anchor='middle'%20font-size='12'%20fill='white'%20font-family='sans-serif'%3EA%3C/text%3E%3C/svg%3E",
             ),
         )
-        .dark_mode(true)
+        // Light by default (GH #184): the header toggle is the only thing that
+        // turns dark on. `Panel::dark_mode` stays available for an app that
+        // wants a dark-first panel.
         .resource::<UserResource>()
         .resource::<AuthorResource>()
         .resource::<PostResource>()
