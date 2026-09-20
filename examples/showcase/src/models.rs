@@ -37,6 +37,93 @@ pub struct Author {
     pub posts: Deferred<Vec<Post>>,
 }
 
+/// SEO metadata for a post — an embedded struct (GH #185).
+///
+/// Flattens into the parent table as `seo_title` / `seo_description`: the same
+/// row, no join, but two more columns the form binds like any other.
+#[derive(Debug, Clone, toasty::Embed)]
+pub struct Seo {
+    pub title: String,
+    pub description: String,
+}
+
+/// A post's lifecycle — an embedded enum whose **timestamps are shared**
+/// (GH #185).
+///
+/// Every variant declares a timestamp under the same `#[shared(timestamp)]`
+/// identifier, so the three coalesce into one `publication_timestamp` column
+/// instead of one column per variant. The rest of each variant is its own
+/// nullable column (`publication_scheduled_for`, `publication_canonical_url`,
+/// `publication_reason`).
+///
+/// The timestamps are `String` rather than `jiff::Timestamp` because a bound
+/// field is a `String` lens: the Schema's text fields accept `Path<M, String>`,
+/// and a typed leaf (a timestamp, an integer) cannot bind as text yet. The
+/// shared column's *coalescing* is what this demonstrates.
+#[derive(Debug, Clone, PartialEq, toasty::Embed)]
+pub enum Publication {
+    #[column(variant = 1)]
+    Scheduled {
+        #[shared(timestamp)]
+        scheduled_at: String,
+        scheduled_for: String,
+    },
+    #[column(variant = 2)]
+    Published {
+        #[shared(timestamp)]
+        published_at: String,
+        canonical_url: String,
+    },
+    #[column(variant = 3)]
+    Archived {
+        #[shared(timestamp)]
+        archived_at: String,
+        reason: String,
+    },
+}
+
+/// Image / video attachment — an embedded enum with an embedded struct **nested
+/// inside a variant** (GH #185).
+///
+/// `Video` carries a `Poster`, which itself embeds a `Credit`, so the column is
+/// `media_poster_credit_author` — three levels deep, one flat column.
+#[derive(Debug, Clone, toasty::Embed)]
+pub struct Credit {
+    pub author: String,
+    pub licence: String,
+}
+
+#[derive(Debug, Clone, toasty::Embed)]
+pub struct Poster {
+    pub url: String,
+    pub credit: Credit,
+}
+
+#[derive(Debug, Clone, toasty::Embed)]
+pub enum Media {
+    #[column(variant = 1)]
+    Image { url: String, alt: String },
+    #[column(variant = 2)]
+    Video {
+        // Distinct from `Image::url` on purpose: two variant fields mapping to
+        // one column is a schema error unless they declare `#[shared(..)]` —
+        // which is the right answer only when they mean the same thing.
+        video_url: String,
+        poster: Poster,
+    },
+}
+
+/// Post statistics — a `#[document]` field (GH #185).
+///
+/// Unlike the others this is **one** column, named after the field itself
+/// (`post_stats`), holding the whole value as structured data. The form binds
+/// the document column, not its inner fields.
+#[derive(Debug, Clone, toasty::Embed)]
+pub struct PostStats {
+    pub word_count: i64,
+    pub read_minutes: i64,
+}
+
 /// Post with BelongsTo Author and HasMany Comments (Phase 2 relations via include + computed).
 #[derive(Debug, Clone, toasty::Model)]
 pub struct Post {
@@ -54,6 +141,14 @@ pub struct Post {
     pub created_at: Timestamp,
     pub image_path: String,
     pub tags: String,
+    /// Embedded struct + nested document (GH #185).
+    pub seo: Seo,
+    /// Shared column + per-variant payloads.
+    pub publication: Publication,
+    /// Embedded struct nested inside an enum variant.
+    pub media: Media,
+    #[document]
+    pub post_stats: PostStats,
     #[index]
     pub author_id: uuid::Uuid,
     #[belongs_to(key = author_id, references = id)]
@@ -295,6 +390,32 @@ pub async fn create_admin(
     .await
 }
 
+/// The embedded shapes a filler/backlog row carries (GH #185).
+///
+/// A compact, valid default so the pagination filler does not repeat four
+/// nested literals sixty times. The narrative rows below spell theirs out, so
+/// the showcase has real embedded data to look at.
+fn filler_embedded(index: usize) -> (Seo, Publication, Media, PostStats) {
+    (
+        Seo {
+            title: String::new(),
+            description: String::new(),
+        },
+        Publication::Scheduled {
+            scheduled_at: String::new(),
+            scheduled_for: String::new(),
+        },
+        Media::Image {
+            url: format!("backlog-{index:02}.jpg"),
+            alt: String::new(),
+        },
+        PostStats {
+            word_count: 0,
+            read_minutes: 0,
+        },
+    )
+}
+
 /// Seed Phase 2 relation data (Authors + Posts + Comments) — call only when DB was built with all models.
 ///
 /// The two original rows keep their identity (filter/group/export tests pin
@@ -348,6 +469,31 @@ pub async fn seed_phase2(db: &mut Db) -> toasty::Result<()> {
             created_at: "2024-01-15T09:30:00Z".parse::<Timestamp>().unwrap(),
             image_path: "hello-toasty.jpg".to_string(),
             tags: "rust,async".to_string(),
+            // Embedded shapes with real values (GH #185): an embedded struct,
+            // an embedded enum whose timestamps share one column, an embedded
+            // struct nested inside a variant, and a document.
+            seo: Seo {
+                title: "Hello Toasty — the admin panel".to_string(),
+                description: "How we render admin tables over Toasty.".to_string(),
+            },
+            publication: Publication::Published {
+                published_at: "2024-01-15T09:30:00Z".to_string(),
+                canonical_url: "https://example.com/hello-toasty".to_string(),
+            },
+            media: Media::Video {
+                video_url: "hello-toasty.mp4".to_string(),
+                poster: Poster {
+                    url: "hello-toasty-poster.jpg".to_string(),
+                    credit: Credit {
+                        author: "Ada Author".to_string(),
+                        licence: "CC-BY-4.0".to_string(),
+                    },
+                },
+            },
+            post_stats: PostStats {
+                word_count: 1240,
+                read_minutes: 6,
+            },
             author_id: ada_author.id,
         })
         .exec(db)
@@ -362,6 +508,22 @@ pub async fn seed_phase2(db: &mut Db) -> toasty::Result<()> {
             created_at: "2024-06-01T12:00:00Z".parse::<Timestamp>().unwrap(),
             image_path: "second-post.jpg".to_string(),
             tags: "draft".to_string(),
+            seo: Seo {
+                title: "Second Post".to_string(),
+                description: "Draft notes on cursor pagination.".to_string(),
+            },
+            publication: Publication::Scheduled {
+                scheduled_at: "2024-07-01T09:00:00Z".to_string(),
+                scheduled_for: "2024-08-01T09:00:00Z".to_string(),
+            },
+            media: Media::Image {
+                url: "second-post.jpg".to_string(),
+                alt: "A draft cover".to_string(),
+            },
+            post_stats: PostStats {
+                word_count: 320,
+                read_minutes: 2,
+            },
             author_id: alan_author.id,
         })
         .exec(db)
@@ -399,6 +561,7 @@ pub async fn seed_phase2(db: &mut Db) -> toasty::Result<()> {
         .into_iter()
         .enumerate()
         {
+            let (seo, publication, media, post_stats) = filler_embedded(index);
             toasty::create!(Post {
                 id: seeded_post_id(index + 2),
                 tenant_id: tenant,
@@ -409,6 +572,10 @@ pub async fn seed_phase2(db: &mut Db) -> toasty::Result<()> {
                 created_at: created_at.parse::<Timestamp>().unwrap(),
                 image_path: "draft-cover.jpg".to_string(),
                 tags: tags,
+                seo: seo,
+                publication: publication,
+                media: media,
+                post_stats: post_stats,
                 author_id: author_id,
             })
             .exec(db)
@@ -442,6 +609,7 @@ pub async fn seed_phase2(db: &mut Db) -> toasty::Result<()> {
                 2 => june_writer.id,
                 _ => rosa_editor.id,
             };
+            let (seo, publication, media, post_stats) = filler_embedded(index);
             toasty::create!(Post {
                 id: uuid::Uuid::from_u128(FILLER_ID_BASE + index as u128),
                 tenant_id: tenant,
@@ -452,6 +620,10 @@ pub async fn seed_phase2(db: &mut Db) -> toasty::Result<()> {
                 created_at: created_at,
                 image_path: "draft-cover.jpg".to_string(),
                 tags: "backlog,draft".to_string(),
+                seo: seo,
+                publication: publication,
+                media: media,
+                post_stats: post_stats,
                 author_id: author_id,
             })
             .exec(db)

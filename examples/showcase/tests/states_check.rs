@@ -6,10 +6,17 @@ use showcase::{
 use crate::common::{body_string, demo_client, full_db, seeded_db};
 
 /// A Db with auth models and a demo admin but zero team rows.
+///
+/// The model list is the full showcase set even though only users matter here
+/// (GH #185): lens paths resolve against the app schema, and the `Panel`
+/// registers every resource, so a narrower list leaves the schema incomplete.
 async fn empty_db() -> toasty::Db {
     let mut db = toasty::Db::builder()
         .models(toasty::models!(
             showcase::models::User,
+            showcase::models::Author,
+            showcase::models::Post,
+            showcase::models::Comment,
             argentum_core::auth::AdminUser,
             argentum_core::auth::AuthSession
         ))
@@ -171,6 +178,22 @@ async fn no_js_fallbacks_cover_search_filter_sort_pager() {
             created_at: "2024-02-01T00:00:00Z".parse::<jiff::Timestamp>().unwrap(),
             image_path: "extra.jpg".to_string(),
             tags: "extra".to_string(),
+            seo: showcase::models::Seo {
+                title: "Extra".to_string(),
+                description: String::new(),
+            },
+            publication: showcase::models::Publication::Published {
+                published_at: "2024-02-01T00:00:00Z".to_string(),
+                canonical_url: String::new(),
+            },
+            media: showcase::models::Media::Image {
+                url: "extra.jpg".to_string(),
+                alt: String::new(),
+            },
+            post_stats: showcase::models::PostStats {
+                word_count: 0,
+                read_minutes: 0,
+            },
             author_id: authors[0].id,
         })
         .exec(&mut db_q)

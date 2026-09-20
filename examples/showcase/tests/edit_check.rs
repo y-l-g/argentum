@@ -392,3 +392,84 @@ async fn post_body_renders_as_a_textarea() {
         "the textarea must carry the stored body, got {field}"
     );
 }
+
+/// GH #185: an embedded field's control posts its **flattened column**, and
+/// saving it actually persists — the whole point of resolving the lens through
+/// the app schema rather than the model alone.
+#[tokio::test]
+async fn post_edit_binds_and_saves_embedded_fields() {
+    use showcase::models::{Media, Post};
+
+    let db = crate::common::full_db().await;
+    let router = router(db.clone());
+    let client = demo_client(&router).await;
+
+    let mut db_q = db.clone();
+    let post = Post::filter(Post::fields().title().eq("Hello Toasty".to_string()))
+        .first()
+        .exec(&mut db_q)
+        .await
+        .unwrap()
+        .expect("the seeded post");
+
+    // The form renders the flattened names, and the stored values hydrate into
+    // those controls. `seo_title` is the embedded struct's leaf.
+    let resp = client.get(&format!("/admin/posts/{}/edit", post.id)).await;
+    assert_eq!(resp.status(), 200);
+    let html = body_string(resp).await;
+    assert!(
+        html.contains("name=\"seo_title\""),
+        "the embedded leaf must render as its flattened column, got {html}"
+    );
+    assert!(
+        html.contains(&format!("value=\"{}\"", post.seo.title)),
+        "the stored embedded value must hydrate, got {html}"
+    );
+    // Three levels deep, inside an enum variant.
+    assert!(
+        html.contains("name=\"media_poster_credit_author\""),
+        "a struct nested in a variant must flatten to its column, got {html}"
+    );
+
+    // Save with new embedded values; the flattened columns must reach the
+    // record fn and land in the row.
+    let csrf = uuid::Uuid::new_v4().to_string();
+    let resp = client
+        .csrf(&csrf)
+        .post_form(
+            &format!("/admin/posts/{}/edit", post.id),
+            format!(
+                "title=Hello+Toasty&author_id={}&image_path={}&tags=rust&body=Body&\
+                 status=published&featured=true&seo_title=Edited+SEO&seo_description=Desc&\
+                 media_url=/uploads/new.jpg&media_alt=Alt&media_video_url=&\
+                 media_poster_url=&media_poster_credit_author=&csrf_token={csrf}",
+                post.author_id, post.image_path
+            ),
+        )
+        .await;
+    assert!(
+        resp.status().is_redirection(),
+        "a valid edit must redirect, got {}",
+        resp.status()
+    );
+
+    let mut db_check = db.clone();
+    let saved = Post::filter(Post::fields().id().eq(post.id))
+        .first()
+        .exec(&mut db_check)
+        .await
+        .unwrap()
+        .expect("the post");
+    assert_eq!(
+        saved.seo.title, "Edited SEO",
+        "the embedded struct's leaf must persist"
+    );
+    assert_eq!(saved.seo.description, "Desc");
+    match saved.media {
+        Media::Image { url, alt } => {
+            assert_eq!(url, "/uploads/new.jpg", "the variant payload must persist");
+            assert_eq!(alt, "Alt");
+        }
+        other => panic!("emptying the video payload must select Image, got {other:?}"),
+    }
+}

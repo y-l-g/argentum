@@ -265,6 +265,22 @@ async fn posts_filter_with_cursor_paginates_filtered_rows() {
             created_at: "2024-02-01T00:00:00Z".parse::<jiff::Timestamp>().unwrap(),
             image_path: "/images/extra.jpg".to_string(),
             tags: "extra".to_string(),
+            seo: showcase::models::Seo {
+                title: "Extra".to_string(),
+                description: String::new(),
+            },
+            publication: showcase::models::Publication::Published {
+                published_at: "2024-02-01T00:00:00Z".to_string(),
+                canonical_url: String::new(),
+            },
+            media: showcase::models::Media::Image {
+                url: "extra.jpg".to_string(),
+                alt: String::new(),
+            },
+            post_stats: showcase::models::PostStats {
+                word_count: 0,
+                read_minutes: 0,
+            },
             author_id: author_id,
         })
         .exec(&mut db_q)

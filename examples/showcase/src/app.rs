@@ -16,7 +16,9 @@ use topcoat::{
     view::View,
 };
 
-use crate::models::{Author, BLOCKED_TENANT, Comment, Post, User};
+use crate::models::{
+    Author, BLOCKED_TENANT, Comment, Credit, Media, Post, PostStats, Poster, Publication, Seo, User,
+};
 
 /// The theme's sans font, pulled from Fontsource and self-hosted as a Topcoat asset.
 const GEIST: Font = fontsource_font!(GEIST, host: Asset);
@@ -533,7 +535,7 @@ impl Resource for PostResource {
             .live_search(true)
     }
 
-    fn form(_cx: &Cx) -> Schema {
+    fn form(cx: &Cx) -> Schema {
         Schema::new((
             Section::new("Content").schema((
                 TextInput::r#for(Post::fields().title()).placeholder("A title editors click"),
@@ -573,11 +575,90 @@ impl Resource for PostResource {
                 FileUpload::r#for(Post::fields().image_path()),
                 Repeater::new("Tags").schema(TextInput::r#for(Post::fields().tags()).label("Tag")),
             )),
+            // Embedded shapes (GH #185). Each of these binds a *flattened*
+            // column through the app schema, which is why they use
+            // `r#for_context`: the model-only `r#for` cannot see inside an
+            // embedded type and would reject the traversal lens (GH #100).
+            Group::new().schema((
+                Section::new("SEO").schema((
+                    // Embedded struct: seo_title / seo_description.
+                    TextInput::r#for_context(cx, Post::fields().seo().title()),
+                    Textarea::r#for_context(cx, Post::fields().seo().description())
+                        .rows(3)
+                        .optional(),
+                )),
+                Section::new("Publication").schema((
+                    // Embedded enum with a **shared column** (GH #185): all three
+                    // variants declare a timestamp under the same identifier, so
+                    // they coalesce into one `publication_timestamp` column. The
+                    // form binds that one column through each variant's accessor —
+                    // which is also why these must stay `.optional()`: binding the
+                    // same column twice would trip the duplicate-field check, so
+                    // only one variant's spelling is rendered here and the column
+                    // is written once.
+                    TextInput::r#for_context(
+                        cx,
+                        Post::fields().publication().published().published_at(),
+                    )
+                    .label("Publication timestamp")
+                    .optional(),
+                    TextInput::r#for_context(
+                        cx,
+                        Post::fields().publication().published().canonical_url(),
+                    )
+                    .label("Canonical URL")
+                    .optional(),
+                    TextInput::r#for_context(cx, Post::fields().publication().archived().reason())
+                        .label("Archive reason")
+                        .optional(),
+                )),
+                Section::new("Media").schema(
+                    Group::new().schema((
+                        // Embedded struct nested in a variant: three levels flatten to
+                        // one column (`media_poster_credit_author`).
+                        Group::new().schema((
+                            TextInput::r#for_context(cx, Post::fields().media().image().url())
+                                .label("Image URL")
+                                .optional(),
+                            TextInput::r#for_context(cx, Post::fields().media().image().alt())
+                                .label("Image alt")
+                                .optional(),
+                            TextInput::r#for_context(
+                                cx,
+                                Post::fields().media().video().video_url(),
+                            )
+                            .label("Video URL")
+                            .optional(),
+                        )),
+                        Group::new().schema((
+                            TextInput::r#for_context(
+                                cx,
+                                Post::fields().media().video().poster().url(),
+                            )
+                            .label("Poster URL")
+                            .optional(),
+                            TextInput::r#for_context(
+                                cx,
+                                Post::fields().media().video().poster().credit().author(),
+                            )
+                            .label("Poster credit")
+                            .optional(),
+                        )),
+                    )),
+                ),
+            )),
         ))
     }
 
     fn hydrate_form_values(record: &Post) -> HashMap<String, String> {
         let mut m = HashMap::new();
+        m.insert(
+            "media_video_url".to_string(),
+            match &record.media {
+                Media::Video { video_url, .. } => video_url.clone(),
+                Media::Image { .. } => String::new(),
+            },
+        );
         m.insert("title".to_string(), record.title.clone());
         m.insert("body".to_string(), record.body.clone());
         m.insert("status".to_string(), record.status.clone());
@@ -588,6 +669,34 @@ impl Resource for PostResource {
         m.insert("author_id".to_string(), record.author_id.to_string());
         m.insert("image_path".to_string(), record.image_path.clone());
         m.insert("tags".to_string(), record.tags.clone());
+        // Flattened embedded columns (GH #185). The keys are the storage names
+        // the schema-aware resolver produces, which is what the controls post.
+        m.insert("seo_title".to_string(), record.seo.title.clone());
+        m.insert(
+            "seo_description".to_string(),
+            record.seo.description.clone(),
+        );
+        m.insert(
+            "media_url".to_string(),
+            match &record.media {
+                Media::Image { url, .. } => url.clone(),
+                Media::Video { .. } => String::new(),
+            },
+        );
+        m.insert(
+            "media_poster_url".to_string(),
+            match &record.media {
+                Media::Video { poster, .. } => poster.url.clone(),
+                Media::Image { .. } => String::new(),
+            },
+        );
+        m.insert(
+            "media_poster_credit_author".to_string(),
+            match &record.media {
+                Media::Video { poster, .. } => poster.credit.author.clone(),
+                Media::Image { .. } => String::new(),
+            },
+        );
         m
     }
 
@@ -659,6 +768,7 @@ impl Resource for PostResource {
             );
             let tid =
                 tenant_id(&cx).expect("requires_tenant handlers always set a tenant (GH #87)");
+            let (seo, publication, media, post_stats) = embedded_from_values(&values);
             toasty::create!(Post {
                 tenant_id: tid,
                 title: title,
@@ -668,6 +778,10 @@ impl Resource for PostResource {
                 created_at: jiff::Timestamp::now(),
                 image_path: image_path,
                 tags: tags,
+                seo: seo,
+                publication: publication,
+                media: media,
+                post_stats: post_stats,
                 author_id: author_id,
             })
             .exec(&mut *ex)
@@ -736,6 +850,31 @@ impl Resource for PostResource {
                 Some(v) if v.trim() == "false" => false,
                 _ => rec.featured,
             };
+            // Embedded shapes (GH #185): an absent key keeps the stored value,
+            // exactly like the scalar fields above (GH #89) — the submit may
+            // omit a section the form did not render.
+            let embedded = embedded_from_values(&values);
+            let seo = if values.contains_key("seo_title") || values.contains_key("seo_description")
+            {
+                embedded.0
+            } else {
+                rec.seo.clone()
+            };
+            let publication = if values.contains_key("publication_timestamp") {
+                embedded.1
+            } else {
+                rec.publication.clone()
+            };
+            let media = if values.keys().any(|k| k.starts_with("media_")) {
+                embedded.2
+            } else {
+                rec.media.clone()
+            };
+            let post_stats = if values.keys().any(|k| k.starts_with("post_stats")) {
+                embedded.3
+            } else {
+                rec.post_stats.clone()
+            };
             toasty::update!(rec {
                 title: title,
                 author_id: author_id,
@@ -743,7 +882,11 @@ impl Resource for PostResource {
                 tags: tags,
                 body: body,
                 status: status,
-                featured: featured
+                featured: featured,
+                seo: seo,
+                publication: publication,
+                media: media,
+                post_stats: post_stats
             })
             .exec(&mut *ex)
             .await
@@ -807,6 +950,76 @@ impl Resource for PostResource {
 /// written for. A resource that wants a read-only queue overrides
 /// [`Resource::deletable`] to `false` instead (GH #96).
 pub struct CommentResource;
+
+/// Read a trimmed value from the flat form map, or `""` when absent.
+fn field(values: &HashMap<String, String>, key: &str) -> String {
+    values
+        .get(key)
+        .cloned()
+        .unwrap_or_default()
+        .trim()
+        .to_string()
+}
+
+/// The `Post` embedded shapes, built from their flattened form keys (GH #185).
+///
+/// Each embedded leaf arrives under its flattened storage column — the name the
+/// schema-aware resolver produced for the control — so `seo_title` is a normal
+/// map lookup and the enum/document values are assembled here rather than by the
+/// framework. That is the seam this feature makes reachable; a first-class
+/// embedded *value* binding (a nested form model) is still future work.
+fn embedded_from_values(values: &HashMap<String, String>) -> (Seo, Publication, Media, PostStats) {
+    let seo = Seo {
+        title: field(values, "seo_title"),
+        description: field(values, "seo_description"),
+    };
+    // The shared column carries whichever variant's timestamp was submitted;
+    // the payload columns decide the variant. Absent payloads fall back to
+    // `Scheduled`, which is the pre-publication state.
+    let timestamp = field(values, "publication_timestamp");
+    let publication = if !field(values, "publication_canonical_url").is_empty() {
+        Publication::Published {
+            published_at: timestamp,
+            canonical_url: field(values, "publication_canonical_url"),
+        }
+    } else if !field(values, "publication_reason").is_empty() {
+        Publication::Archived {
+            archived_at: timestamp,
+            reason: field(values, "publication_reason"),
+        }
+    } else {
+        Publication::Scheduled {
+            scheduled_at: timestamp,
+            scheduled_for: field(values, "publication_scheduled_for"),
+        }
+    };
+    let media = if !field(values, "media_poster_url").is_empty()
+        || !field(values, "media_poster_credit_author").is_empty()
+    {
+        Media::Video {
+            video_url: field(values, "media_video_url"),
+            poster: Poster {
+                url: field(values, "media_poster_url"),
+                credit: Credit {
+                    author: field(values, "media_poster_credit_author"),
+                    licence: field(values, "media_poster_credit_licence"),
+                },
+            },
+        }
+    } else {
+        Media::Image {
+            url: field(values, "media_url"),
+            alt: field(values, "media_alt"),
+        }
+    };
+    let post_stats = PostStats {
+        word_count: field(values, "post_stats_word_count").parse().unwrap_or(0),
+        read_minutes: field(values, "post_stats_read_minutes")
+            .parse()
+            .unwrap_or(0),
+    };
+    (seo, publication, media, post_stats)
+}
 
 /// Re-resolve a comment's parent post through the tenant-scoped
 /// [`PostResource::query`] inside the caller's open transaction (GH #178).

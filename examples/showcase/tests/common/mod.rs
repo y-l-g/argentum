@@ -15,10 +15,21 @@ use topcoat::context::Cx;
 use topcoat::router::{Body, Router};
 
 /// `Db` with the phase-1 users seed applied.
+///
+/// The model list is the **full** showcase set even though only users are
+/// seeded (GH #185): a lens path is resolved against the app schema, and the
+/// `Panel` registers every resource regardless of which tables a given test
+/// cares about. A narrower `models!(..)` here made the panel's schema
+/// incomplete, so a form for an unregistered model could not resolve its
+/// embedded paths — and would have bound whichever model the id happened to
+/// name. An empty table costs nothing; an incomplete schema misleads.
 pub async fn seeded_db() -> Db {
     let mut db = Db::builder()
         .models(toasty::models!(
             showcase::models::User,
+            showcase::models::Author,
+            showcase::models::Post,
+            showcase::models::Comment,
             argentum_core::auth::AdminUser,
             argentum_core::auth::AuthSession
         ))
@@ -102,6 +113,22 @@ pub async fn tenanted_db() -> (Db, uuid::Uuid, uuid::Uuid) {
         created_at: "2024-01-15T09:30:00Z".parse::<jiff::Timestamp>().unwrap(),
         image_path: "/images/t1.jpg".to_string(),
         tags: "t1".to_string(),
+        seo: showcase::models::Seo {
+            title: "T1 SEO".to_string(),
+            description: String::new(),
+        },
+        publication: showcase::models::Publication::Published {
+            published_at: "2024-01-15T09:30:00Z".to_string(),
+            canonical_url: String::new(),
+        },
+        media: showcase::models::Media::Image {
+            url: "/images/t1.jpg".to_string(),
+            alt: String::new(),
+        },
+        post_stats: showcase::models::PostStats {
+            word_count: 0,
+            read_minutes: 0,
+        },
         author_id: a1.id,
     })
     .exec(&mut db)
@@ -116,6 +143,22 @@ pub async fn tenanted_db() -> (Db, uuid::Uuid, uuid::Uuid) {
         created_at: "2024-06-01T12:00:00Z".parse::<jiff::Timestamp>().unwrap(),
         image_path: "/images/t2.jpg".to_string(),
         tags: "t2".to_string(),
+        seo: showcase::models::Seo {
+            title: "T2 SEO".to_string(),
+            description: String::new(),
+        },
+        publication: showcase::models::Publication::Scheduled {
+            scheduled_at: "2024-07-01T09:00:00Z".to_string(),
+            scheduled_for: String::new(),
+        },
+        media: showcase::models::Media::Image {
+            url: "/images/t2.jpg".to_string(),
+            alt: String::new(),
+        },
+        post_stats: showcase::models::PostStats {
+            word_count: 0,
+            read_minutes: 0,
+        },
         author_id: a2.id,
     })
     .exec(&mut db)

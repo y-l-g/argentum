@@ -10,7 +10,7 @@ use argentum_ui::{
 use topcoat::runtime::Signal;
 use topcoat::{Result, context::Cx, view::*};
 
-use super::lenses::{lens_field, lens_field_unique, lens_label};
+use super::lenses::{FieldResolver, lens_field, lens_field_unique, lens_label};
 use super::relationship::{
     OptionLoadError, RelatedCheck, RelatedPrimaryKey, RelationshipCheckFuture, RelationshipChecker,
     RelationshipLoadFuture, RelationshipLoader, RelationshipSearchFuture, RelationshipSearchLoader,
@@ -75,6 +75,38 @@ impl TextInput {
             required: !field.nullable(),
             is_email: false,
             unique,
+            placeholder: None,
+        }
+    }
+
+    /// Create a `TextInput` bound to a lens inside an embedded struct or a
+    /// `#[document]` (GH #185).
+    ///
+    /// The plain [`Self::r#for`] resolves a lens against the model alone, which
+    /// is why it can only bind a top-level field: the owned `app::Model` cannot
+    /// see the embedded models, so a path like `Post::fields().seo().title()`
+    /// is rejected as a traversal lens. This resolves through the request's app
+    /// schema instead, so the leaf arrives as its **flattened storage column**
+    /// (`seo_title`) — the name the form posts and the record fn reads.
+    ///
+    /// An embedded leaf is never `required` by default: every column under an
+    /// embedded step is storage-nullable, since only the matching enum variant
+    /// writes one. Opt in with [`.required()`](Self::required).
+    ///
+    /// Without a `Db` in context (a bare `CxTestBuilder`) this behaves exactly
+    /// like [`Self::r#for`] and rejects the traversal lens loudly, so a test
+    /// cannot silently bind the wrong column.
+    pub fn r#for_context<M>(cx: &Cx, path: toasty::stmt::Path<M, String>) -> Self
+    where
+        M: toasty::schema::Model,
+    {
+        let leaf = FieldResolver::from_cx(cx).resolve(path);
+        Self {
+            name: leaf.name,
+            label: leaf.label,
+            required: !leaf.nullable,
+            is_email: false,
+            unique: false,
             placeholder: None,
         }
     }
@@ -915,6 +947,24 @@ impl Textarea {
             name: field.name.app_unwrap().to_string(),
             label: label_str,
             required: !field.nullable(),
+            placeholder: None,
+            rows: None,
+        }
+    }
+
+    /// Create a `Textarea` bound to a lens inside an embedded struct or a
+    /// `#[document]` (GH #185), resolving through the request's app schema so
+    /// the leaf arrives as its flattened storage column. Same contract as
+    /// [`TextInput::r#for_context`], including the not-required default.
+    pub fn r#for_context<M>(cx: &Cx, path: toasty::stmt::Path<M, String>) -> Self
+    where
+        M: toasty::schema::Model,
+    {
+        let leaf = FieldResolver::from_cx(cx).resolve(path);
+        Self {
+            name: leaf.name,
+            label: leaf.label,
+            required: !leaf.nullable,
             placeholder: None,
             rows: None,
         }
