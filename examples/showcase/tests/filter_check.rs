@@ -85,7 +85,13 @@ async fn posts_filter_ternary_featured_false() {
     let db = full_db().await;
     let router = router(db);
     let client = demo_client(&router).await;
-    let resp = client.get("/admin/posts?filters=featured:false").await;
+    // Search rather than read the default page: the seed carries a pagination
+    // fixture (GH #184), so with 60-odd non-featured posts the title-ordered
+    // first page no longer reaches "Second Post". The search narrows to the
+    // row under test, which is what this assertion is about.
+    let resp = client
+        .get("/admin/posts?filters=featured:false&q=Second")
+        .await;
     assert!(resp.status().is_success());
     let html = body_string(resp).await;
     assert!(
@@ -325,7 +331,11 @@ async fn posts_filter_variant_spotlight_splits_featured() {
     let router = router(db);
     let client = demo_client(&router).await;
 
-    let resp = client.get("/admin/posts?filters=spotlight:Featured").await;
+    // Both halves narrow by search so the row under test is on the page
+    // regardless of where the pagination fixture (GH #184) puts it.
+    let resp = client
+        .get("/admin/posts?filters=spotlight:Featured&q=Toasty")
+        .await;
     assert!(resp.status().is_success());
     let html = body_string(resp).await;
     assert!(
@@ -337,7 +347,9 @@ async fn posts_filter_variant_spotlight_splits_featured() {
         "Featured must hide regular posts: {html}"
     );
 
-    let resp = client.get("/admin/posts?filters=spotlight:Standard").await;
+    let resp = client
+        .get("/admin/posts?filters=spotlight:Standard&q=Second")
+        .await;
     assert!(resp.status().is_success());
     let html = body_string(resp).await;
     assert!(

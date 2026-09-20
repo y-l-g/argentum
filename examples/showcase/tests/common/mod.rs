@@ -389,6 +389,48 @@ pub fn input_value(html: &str, name: &str) -> Option<String> {
     None
 }
 
+/// The row titles rendered into a table grid, in document order.
+///
+/// Each row's first cell is the title projection, so this reads the grid the
+/// list handlers build (skeleton rows carry no `data-row-select` and are
+/// skipped). Used by pagination and comments assertions that care about which
+/// rows a page actually holds.
+pub fn row_titles(html: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut rest = html;
+    while let Some(at) = rest.find("data-row-select") {
+        rest = &rest[at..];
+        if let Some(td) = rest.find("<td")
+            && let Some(gt) = rest[td..].find('>')
+        {
+            let after = &rest[td + gt + 1..];
+            if let Some(end) = after.find("</td>") {
+                let text = after[..end].split('<').next().unwrap_or("").trim();
+                if !text.is_empty() {
+                    out.push(text.to_string());
+                }
+            }
+        }
+        rest = &rest[1..];
+    }
+    out
+}
+
+/// How many `Post` rows the database holds.
+///
+/// Rejected submissions assert "nothing was created" by comparing this before
+/// and after, rather than against a literal row count: the seed grew a
+/// pagination fixture (GH #184), and a magic `6` there was asserting the
+/// fixture's size instead of the handler's behaviour.
+pub async fn post_count(db: &Db) -> usize {
+    let mut db = db.clone();
+    showcase::models::Post::all()
+        .exec(&mut db)
+        .await
+        .unwrap()
+        .len()
+}
+
 /// Collect a response body as a lossy UTF-8 string.
 pub async fn body_string(response: http::Response<Body>) -> String {
     let bytes = response.into_body().collect().await.unwrap().to_bytes();

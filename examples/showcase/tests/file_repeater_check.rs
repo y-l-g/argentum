@@ -3,7 +3,7 @@ use showcase::{
     models::{Author, Post},
 };
 
-use crate::common::{body_string, demo_client, full_db};
+use crate::common::{body_string, demo_client, full_db, post_count};
 
 #[tokio::test]
 async fn posts_create_shows_fileupload_and_repeater() {
@@ -66,6 +66,7 @@ async fn posts_create_invalid_fileupload_repeater_shows_errors() {
     let db = full_db().await;
     let router = router(db.clone());
     let client = demo_client(&router).await;
+    let before = post_count(&db).await;
     let csrf = uuid::Uuid::new_v4().to_string();
     let mut db2 = db.clone();
     let authors = Author::all().exec(&mut db2).await.unwrap();
@@ -94,10 +95,11 @@ async fn posts_create_invalid_fileupload_repeater_shows_errors() {
         html.contains("Image_path is required"),
         "missing required error for the file field, got {html}"
     );
-    // Should not create
-    let mut db2 = db.clone();
-    let posts = Post::all().exec(&mut db2).await.unwrap();
-    assert_eq!(posts.len(), 6, "should not create on invalid");
+    assert_eq!(
+        post_count(&db).await,
+        before,
+        "an invalid create must not add a post"
+    );
 }
 
 #[tokio::test]

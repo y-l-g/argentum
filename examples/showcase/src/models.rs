@@ -177,6 +177,91 @@ pub async fn seed(db: &mut Db) -> toasty::Result<()> {
 /// nil-tenant orphans, and the demo admin owns it.
 pub const DEMO_TENANT: uuid::Uuid = uuid::Uuid::from_u128(100);
 
+/// A deterministic id for the `index`th seeded post (GH #184).
+///
+/// `PostResource` declares no sortable column, so a paginated list falls back
+/// to primary-key order. With `#[auto]` ids that order is effectively random,
+/// which put the rows the showcase pins — "Hello Toasty" and "Second Post" —
+/// wherever a UUID hash happened to land once the seed outgrew one page.
+/// Pinning the six narrative rows first and the pagination filler after them
+/// (`FILLER_ID_BASE`) makes page 1 deterministic: the stories, then filler.
+fn seeded_post_id(index: usize) -> uuid::Uuid {
+    uuid::Uuid::from_u128(index as u128)
+}
+
+/// First id handed to a pagination filler row (GH #184): above `7fff…`, which
+/// is outside the range a random v4 UUID practically lands in, so the filler
+/// always sorts after the narrative rows above.
+const FILLER_ID_BASE: u128 = 0x8000_0000_0000_0000_0000_0000_0000_0000;
+
+/// Backlog titles for the pagination fixture (GH #184): sixty drafts, which
+/// with the six rows above and `PostResource`'s page size of 10 gives seven
+/// pages — enough to walk forward, walk back, and land mid-list.
+///
+/// A `const` with a compile-time length assertion, so shrinking it below a
+/// few pages fails the build rather than silently removing the demo.
+const PAGINATION_FILLER_TITLES: [&str; 60] = [
+    "Cursor Pagination, Explained Slowly",
+    "What We Learned From a 500-Row Admin Table",
+    "Indexing the Columns Editors Actually Sort By",
+    "A Draft Is Not a Todo",
+    "Why Our Search Matches Substrings",
+    "Escaping User Input in a LIKE Predicate",
+    "The Case Against Infinite Scroll in Admin Tools",
+    "Reading Query Plans Without Panicking",
+    "Tenant Scoping Is a Query, Not a Filter",
+    "One Round-Trip: Preloading Relations",
+    "When a Cache Hides a Fresh Write",
+    "Modelling Drafts, Scheduled Posts, and Retractions",
+    "Why the Panel Owns Its Stylesheet",
+    "Server-Rendered Forms Without a Client Framework",
+    "Morphing a Table In Place",
+    "Keeping Focus Across a Live Re-render",
+    "The Cost of a Second Database Round-Trip",
+    "Bulk Actions Need Confirmation, Not Optimism",
+    "Naming Things in an Admin Panel",
+    "Why Deletes Are Record Functions",
+    "Authorization Belongs in the Handler",
+    "Policy Checks Are Not Middleware",
+    "What a Row Key Is For",
+    "Display Keys Are Not Primary Keys",
+    "Grouping Counts Are Page-Local",
+    "Exporting a Filtered View",
+    "RFC 4180 and the Humble CSV",
+    "File Uploads Without a Bucket",
+    "Storing a Filename Is Not Storing a File",
+    "Required Fields and the Empty Submit",
+    "Validation Errors Belong Next to the Field",
+    "Accessible Forms for an Internal Tool",
+    "Keyboard-First Admin Work",
+    "Dark Mode Without a Flash of Wrong Theme",
+    "Tokens Over Hard-Coded Colors",
+    "Owning Your Primitives",
+    "Syncing Components Without Forking Them",
+    "A Sidebar That Remembers Itself",
+    "Toasts That Do Not Steal Focus",
+    "Empty States Are Not Errors",
+    "Failed Loads Need a Retry",
+    "Streaming a Skeleton Before the Rows",
+    "Cursor Pagination Beats Offset at Scale",
+    "Stable Sort Orders for Stable Pages",
+    "What Happens When the Cursor Goes Stale",
+    "Escaping the Search Term",
+    "Trimming Before Validating",
+    "Absent Keys Mean Unchanged",
+    "Repeaters and Partial Groups",
+    "Relationships in a Select",
+    "Too Many Options to Load",
+    "Searching Options on the Server",
+    "Selecting a Variant",
+    "Three Ways to Filter a List",
+    "Filter State Lives in the URL",
+    "Deep Links Into a Filtered Table",
+    "Testing an Admin Panel Over HTTP",
+    "Fixtures That Do Not Lie",
+    "Benchmarking What Users Feel",
+    "Writing Down the Decisions",
+];
 /// A tenant whose Policy denies everything: the legible deny path for
 /// tenancy tests (no magic values at call sites).
 pub const BLOCKED_TENANT: uuid::Uuid = uuid::Uuid::from_u128(9999);
@@ -212,10 +297,15 @@ pub async fn create_admin(
 
 /// Seed Phase 2 relation data (Authors + Posts + Comments) — call only when DB was built with all models.
 ///
-/// The two original rows stay stable (filter/group/export tests pin them);
-/// the four extra posts are drafts with featured=false so the
+/// The two original rows keep their identity (filter/group/export tests pin
+/// them); the four extra posts are drafts with `featured = false` so the
 /// published/featured filter assertions keep holding while the list shows a
 /// believable backlog.
+///
+/// GH #184 added the pagination filler below, which puts the list well past one
+/// page. Assertions that need a specific row now narrow by `?q=` rather than
+/// assuming it is on the title-ordered first page, and "nothing was created"
+/// assertions compare a before/after count instead of a literal seed size.
 pub async fn seed_phase2(db: &mut Db) -> toasty::Result<()> {
     // Authors
     if Author::all().exec(db).await?.is_empty() {
@@ -249,6 +339,7 @@ pub async fn seed_phase2(db: &mut Db) -> toasty::Result<()> {
         .exec(db)
         .await?;
         toasty::create!(Post {
+            id: seeded_post_id(0),
             tenant_id: tenant,
             title: "Hello Toasty",
             body: "How we render admin tables over Toasty queries without an N+1.",
@@ -262,6 +353,7 @@ pub async fn seed_phase2(db: &mut Db) -> toasty::Result<()> {
         .exec(db)
         .await?;
         toasty::create!(Post {
+            id: seeded_post_id(1),
             tenant_id: tenant,
             title: "Second Post",
             body: "Draft notes on cursor pagination edge cases.",
@@ -274,7 +366,7 @@ pub async fn seed_phase2(db: &mut Db) -> toasty::Result<()> {
         })
         .exec(db)
         .await?;
-        for (title, body, tags, created_at, author_id) in [
+        for (index, (title, body, tags, created_at, author_id)) in [
             (
                 "Row-Level Caching Notes",
                 "When the list cache helps and when it hides fresh writes.",
@@ -303,8 +395,12 @@ pub async fn seed_phase2(db: &mut Db) -> toasty::Result<()> {
                 "2024-04-09T13:20:00Z",
                 rosa_editor.id,
             ),
-        ] {
+        ]
+        .into_iter()
+        .enumerate()
+        {
             toasty::create!(Post {
+                id: seeded_post_id(index + 2),
                 tenant_id: tenant,
                 title: title,
                 body: body,
@@ -313,6 +409,49 @@ pub async fn seed_phase2(db: &mut Db) -> toasty::Result<()> {
                 created_at: created_at.parse::<Timestamp>().unwrap(),
                 image_path: "draft-cover.jpg".to_string(),
                 tags: tags,
+                author_id: author_id,
+            })
+            .exec(db)
+            .await?;
+        }
+        // Pagination filler (GH #184): `PostResource` paginates at 10, so the
+        // six rows above could never cross a page boundary and the pager had
+        // no demo path at all. These are drafts with `featured = false`, which
+        // keeps every published/featured assertion holding.
+        //
+        // Deterministic on purpose: titles are a fixed ordered list, ids and
+        // `created_at` are both derived from the index.
+        //
+        // The ids are pinned high on purpose. `PostResource` declares no
+        // sortable column, so a paginated list falls back to primary-key order
+        // ascending — and the two original rows above carry random UUID keys.
+        // Filler past `7fff…` therefore widens the list behind them instead of
+        // shuffling them off page 1, which is what the pinned assertions in
+        // `filter_check` / `group_export_check` / `relation_check` rely on.
+        for (index, title) in PAGINATION_FILLER_TITLES.iter().enumerate() {
+            let created_at = jiff::civil::date(2024, 7, 1)
+                .at(9, 0, 0, 0)
+                .to_zoned(jiff::tz::TimeZone::UTC)
+                .expect("a valid zoned time")
+                .checked_add(jiff::Span::new().hours(index as i64 * 6))
+                .expect("a representable timestamp")
+                .timestamp();
+            let author_id = match index % 4 {
+                0 => ada_author.id,
+                1 => alan_author.id,
+                2 => june_writer.id,
+                _ => rosa_editor.id,
+            };
+            toasty::create!(Post {
+                id: uuid::Uuid::from_u128(FILLER_ID_BASE + index as u128),
+                tenant_id: tenant,
+                title: *title,
+                body: "Backlog draft kept for pagination coverage.",
+                status: "draft".to_string(),
+                featured: false,
+                created_at: created_at,
+                image_path: "draft-cover.jpg".to_string(),
+                tags: "backlog,draft".to_string(),
                 author_id: author_id,
             })
             .exec(db)

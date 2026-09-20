@@ -4,7 +4,9 @@ use showcase::{
     models::{Author, Post},
 };
 
-use crate::common::{assert_hydrate_keys_are_form_fields, body_string, demo_client, full_db};
+use crate::common::{
+    assert_hydrate_keys_are_form_fields, body_string, demo_client, full_db, post_count,
+};
 
 #[tokio::test]
 async fn posts_list_shows_author_name() {
@@ -39,6 +41,7 @@ async fn posts_create_empty_author_shows_required_error() {
     let db = full_db().await;
     let router = router(db.clone());
     let client = demo_client(&router).await;
+    let before = post_count(&db).await;
     let csrf = uuid::Uuid::new_v4().to_string();
     let resp = client
         .csrf(&csrf)
@@ -60,10 +63,11 @@ async fn posts_create_empty_author_shows_required_error() {
         "missing required error {}",
         html
     );
-    // DB still has 6 posts
-    let mut db2 = db.clone();
-    let posts = Post::all().exec(&mut db2).await.unwrap();
-    assert_eq!(posts.len(), 6);
+    assert_eq!(
+        post_count(&db).await,
+        before,
+        "an invalid create must not add a post"
+    );
 }
 
 #[tokio::test]
@@ -71,6 +75,7 @@ async fn posts_create_invalid_author_shows_invalid_error() {
     let db = full_db().await;
     let router = router(db.clone());
     let client = demo_client(&router).await;
+    let before = post_count(&db).await;
     let csrf = uuid::Uuid::new_v4().to_string();
     let fake_id = uuid::Uuid::new_v4();
     let resp = client
@@ -91,9 +96,11 @@ async fn posts_create_invalid_author_shows_invalid_error() {
         "missing invalid error {}",
         html
     );
-    let mut db2 = db.clone();
-    let posts = Post::all().exec(&mut db2).await.unwrap();
-    assert_eq!(posts.len(), 6);
+    assert_eq!(
+        post_count(&db).await,
+        before,
+        "an invalid create must not add a post"
+    );
 }
 
 #[tokio::test]
