@@ -389,6 +389,26 @@ pub fn input_value(html: &str, name: &str) -> Option<String> {
     None
 }
 
+/// The opening `<input …>` tag that carries `type="file"`.
+///
+/// Attributes render in no guaranteed order (topcoat#122), so callers assert
+/// on the whole tag rather than a single attribute's position. Needed because
+/// native validation — `required` on a file input — is exactly what broke the
+/// post edit form (GH #184), and only the markup can pin it.
+pub fn file_input_tag(html: &str) -> String {
+    let at = html.find("type=\"file\"").expect("a file input");
+    let start = html[..at].rfind("<input").expect("its opening tag");
+    let mut quoted = false;
+    for (offset, byte) in html[start..].bytes().enumerate() {
+        match byte {
+            b'"' => quoted = !quoted,
+            b'>' if !quoted => return html[start..start + offset].to_string(),
+            _ => {}
+        }
+    }
+    panic!("unterminated <input> tag at byte {start}");
+}
+
 /// The row titles rendered into a table grid, in document order.
 ///
 /// Each row's first cell is the title projection, so this reads the grid the

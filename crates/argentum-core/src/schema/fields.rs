@@ -1016,6 +1016,18 @@ impl Textarea {
 /// extracts the file part's filename; the bytes themselves are not persisted.
 /// Binary/file-asset handling is future work. The `<input type="file">` never
 /// renders a `value` attribute — browsers ignore/mask it for security.
+///
+/// On an edit, the stored path is surfaced as text and the control is left
+/// **optional** (GH #184): a file input cannot be pre-filled, so a `required`
+/// attribute on it made every edit blocking — the browser refuses to submit an
+/// empty required file input, and the server's untouched-value backfill (which
+/// exists for exactly this reason, see `panel/forms.rs`) never ran because the
+/// request was never sent. `required` therefore keeps its create-time meaning
+/// only, and an empty submit on an edit means "keep what is stored".
+///
+/// There is deliberately no `.required()`/`.optional()` control over that: the
+/// two states are create and edit, which the field cannot know, so it is keyed
+/// off whether a stored value was hydrated rather than off a declaration.
 #[derive(Debug, Clone)]
 pub struct FileUpload {
     name: String,
@@ -1081,12 +1093,19 @@ impl FileUpload {
     pub(crate) async fn render_with<'a>(
         &self,
         cx: &'a Cx,
-        _value: Option<&str>,
+        value: Option<&str>,
         errors: &[String],
     ) -> Result<BoxView<'a>> {
         let label_text = self.label.clone();
         let name = self.name.clone();
-        let required = self.required;
+        // An edit hydrates the stored path; a create does not (GH #184). See
+        // the type docs: the control is required only when nothing is stored,
+        // since a file input cannot be pre-filled.
+        let stored = value
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty());
+        let is_edit = stored.is_some();
+        let control_required = self.required && !is_edit;
         let has_error = !errors.is_empty();
         let error_text = errors.first().cloned().unwrap_or_default();
         let field_class = if has_error {
@@ -1095,6 +1114,12 @@ impl FileUpload {
             "ac-field"
         };
         let error_id = format!("{name}-error");
+        let hint_id = format!("{name}-hint");
+        let described_by = match (has_error, is_edit) {
+            (true, _) => Some(error_id.clone()),
+            (false, true) => Some(hint_id.clone()),
+            (false, false) => None,
+        };
         Ok(view! {
             cx =>
             ui_field(
@@ -1105,10 +1130,19 @@ impl FileUpload {
                 ui_field_label(
                     attrs: attributes! { for=(name.clone()) },
                     (label_text.clone())
-                    if required {
+                    if control_required {
                         <span class="text-destructive" aria-hidden="true">"*"</span>
                     }
                 )
+                if let Some(current) = stored {
+                    // The stored path is visible, so "there is no file" is no
+                    // longer ambiguous, and the empty control reads as "leave
+                    // it alone" rather than "this field is broken".
+                    <div class="text-xs text-muted-foreground" data-file-current=(current.clone())>
+                        "Current: "
+                        <span class="font-medium text-foreground">(current.clone())</span>
+                    </div>
+                }
                 // The `input` primitive styles `type="file"` through its
                 // `file:` classes and carries the `aria-invalid` error styling.
                 ui_input(
@@ -1116,12 +1150,17 @@ impl FileUpload {
                         id=(name.clone())
                         type="file"
                         name=(name.clone())
-                        required=(required)
-                        aria-required=(required.then_some("true"))
+                        required=(control_required)
+                        aria-required=(control_required.then_some("true"))
                         aria-invalid=(if has_error { "true" } else { "false" })
-                        aria-describedby=(has_error.then_some(error_id.clone()))
+                        aria-describedby=(described_by)
                     }
                 )
+                if is_edit {
+                    <div class="text-xs text-muted-foreground" id=(hint_id.clone())>
+                        "Leave empty to keep the current file."
+                    </div>
+                }
                 if has_error {
                     ui_field_error(
                         attrs: attributes! {
@@ -1634,6 +1673,108 @@ mod tests {
         assert!(
             !html.contains("value=\"/tmp/old.jpg\""),
             "file input must not carry value in {html}"
+        );
+    }
+
+    /// The opening `<input …>` tag around the file control, so assertions do
+    /// not have to care about attribute order (topcoat#122).
+    fn file_input_tag(html: &str) -> String {
+        let at = html.find("type=\"file\"").expect("a file input");
+        let start = html[..at].rfind("<input").expect("its opening tag");
+        opening_tag_at(html, start).to_string()
+    }
+
+    fn cx_and_doc_schema() -> (Cx, Schema) {
+        #[derive(Debug, toasty::Model)]
+        struct Upload {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            path: String,
+        }
+        (
+            cx(),
+            Schema::new(FileUpload::r#for(Upload::fields().path())),
+        )
+    }
+
+    async fn render_upload(schema: &Schema, cx: &Cx, value: Option<&str>) -> String {
+        let mut values = HashMap::new();
+        if let Some(value) = value {
+            values.insert("path".to_string(), value.to_string());
+        }
+        schema
+            .render_with(cx, &values, &HashMap::new())
+            .await
+            .unwrap()
+            .single()
+            .await
+            .unwrap()
+            .render(cx)
+    }
+
+    /// GH #184: nothing stored (a create) keeps the required contract — the
+    /// browser blocks an empty submit and the server reports it inline.
+    #[tokio::test]
+    async fn file_upload_is_required_on_create() {
+        let (cx, schema) = cx_and_doc_schema();
+        let html = render_upload(&schema, &cx, None).await;
+        let tag = file_input_tag(&html);
+        assert!(
+            tag.contains("required"),
+            "a create must keep the required file control, got {tag}"
+        );
+        assert!(
+            !html.contains("data-file-current"),
+            "a create has no stored path to show, got {html}"
+        );
+        assert!(
+            !html.contains("Leave empty"),
+            "the keep-current hint is an edit affordance, got {html}"
+        );
+    }
+
+    /// GH #184: a stored path (an edit) makes the control optional and shows
+    /// what is stored, because a file input cannot be pre-filled — otherwise
+    /// the browser blocks every save and the server's untouched-value backfill
+    /// never gets a request to act on.
+    #[tokio::test]
+    async fn file_upload_surfaces_the_stored_path_and_drops_required() {
+        let (cx, schema) = cx_and_doc_schema();
+        let html = render_upload(&schema, &cx, Some("/uploads/cover.jpg")).await;
+        let tag = file_input_tag(&html);
+        assert!(
+            !tag.contains("required"),
+            "an edit must not block on the empty file control, got {tag}"
+        );
+        assert!(
+            tag.contains("aria-describedby=\"path-hint\""),
+            "the control must describe itself with the hint, got {tag}"
+        );
+        assert!(
+            html.contains("data-file-current=\"/uploads/cover.jpg\""),
+            "the stored path must be surfaced, got {html}"
+        );
+        assert!(
+            html.contains("Leave empty to keep the current file."),
+            "the edit must say an empty control keeps the file, got {html}"
+        );
+    }
+
+    /// A stored path that is only whitespace is not a file: it must behave as
+    /// a create, not as an edit with a blank "Current:" line.
+    #[tokio::test]
+    async fn file_upload_treats_a_blank_stored_path_as_empty() {
+        let (cx, schema) = cx_and_doc_schema();
+        let html = render_upload(&schema, &cx, Some("   ")).await;
+        let tag = file_input_tag(&html);
+        assert!(
+            tag.contains("required"),
+            "a blank stored path must stay required, got {tag}"
+        );
+        assert!(
+            !html.contains("data-file-current"),
+            "a blank stored path must not render a Current line, got {html}"
         );
     }
 

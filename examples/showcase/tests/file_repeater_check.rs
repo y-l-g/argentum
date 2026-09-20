@@ -3,7 +3,7 @@ use showcase::{
     models::{Author, Post},
 };
 
-use crate::common::{body_string, demo_client, full_db, post_count};
+use crate::common::{body_string, demo_client, file_input_tag, full_db, post_count};
 
 #[tokio::test]
 async fn posts_create_shows_fileupload_and_repeater() {
@@ -429,4 +429,82 @@ async fn posts_author_select_is_searchable() {
         html.contains("data-options-filter"),
         "author select must render the filter hook, got {html}"
     );
+}
+
+/// The reported bug (GH #184): the edit form's file input rendered `required`
+/// with no visible stored value, so the browser refused to submit a save that
+/// left the control untouched — the image path looked empty and the field
+/// blocked the edit. The edit must now surface the stored path, drop the
+/// native `required`, and let an untouched submit through while the server
+/// preserves the stored value.
+#[tokio::test]
+async fn posts_edit_without_reupload_keeps_the_stored_image() {
+    let db = full_db().await;
+    let router = router(db.clone());
+    let client = demo_client(&router).await;
+
+    let mut db2 = db.clone();
+    let post = Post::filter(Post::fields().title().eq("Hello Toasty".to_string()))
+        .first()
+        .exec(&mut db2)
+        .await
+        .unwrap()
+        .expect("the seeded post");
+    let original_image = post.image_path.clone();
+    assert!(
+        !original_image.is_empty(),
+        "the fixture must store an image path for this test to mean anything"
+    );
+
+    // The edit form: stored path visible, control not requiring a re-upload.
+    let resp = client.get(&format!("/admin/posts/{}/edit", post.id)).await;
+    assert_eq!(resp.status(), 200);
+    let html = body_string(resp).await;
+    assert!(
+        html.contains(&format!("data-file-current=\"{original_image}\"")),
+        "the edit must show the stored image path, got {html}"
+    );
+    assert!(
+        html.contains("Leave empty to keep the current file."),
+        "the edit must explain that an empty control keeps the file, got {html}"
+    );
+    // The regression itself: a `required` file input is unsubmittable when
+    // empty, which is what made an untouched edit impossible in a browser.
+    let tag = file_input_tag(&html);
+    assert!(
+        !tag.contains("required"),
+        "the edit's file control must not be natively required, got {tag}"
+    );
+
+    // Save with the file control left untouched (empty), as a browser does
+    // when the user does not pick a new file: title only, no `image_path`.
+    let csrf = uuid::Uuid::new_v4().to_string();
+    let resp = client
+        .csrf(&csrf)
+        .post_form(
+            &format!("/admin/posts/{}/edit", post.id),
+            format!(
+                "title=Hello+Toasty+Edited&author_id={}&image_path=&tags=rust,async&body=Edited+body&status=published&featured=true&csrf_token={csrf}",
+                post.author_id
+            ),
+        )
+        .await;
+    assert!(
+        resp.status().is_redirection(),
+        "an untouched file input must not block the save, got {}",
+        resp.status()
+    );
+
+    let mut db3 = db.clone();
+    let saved = Post::filter(Post::fields().id().eq(post.id))
+        .first()
+        .exec(&mut db3)
+        .await
+        .unwrap()
+        .expect("the post still exists");
+    assert_eq!(
+        saved.image_path, original_image,
+        "an untouched file input must preserve the stored path (GH #90)"
+    );
+    assert_eq!(saved.title, "Hello Toasty Edited");
 }
