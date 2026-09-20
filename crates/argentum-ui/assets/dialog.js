@@ -32,8 +32,14 @@ document.addEventListener('click', (e) => {
     return;
   }
   if (e.target.closest('[data-dialog-close]')) {
-    e.preventDefault();
-    dismissDialog(dialog);
+    // A `data-dialog-close` *link* is left to navigate on its own (the
+    // row-delete Cancel returns to the list without `?delete=`) — the dialog
+    // then closes because the navigation replaces the document. A *button* has
+    // nothing to navigate to, so it is dismissed here instead; this is the
+    // bulk-delete confirm's Cancel (GH #184).
+    if (!e.target.closest('a[href]')) {
+      dismissDialog(dialog);
+    }
   }
 });
 

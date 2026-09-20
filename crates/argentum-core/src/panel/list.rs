@@ -569,17 +569,21 @@ mod tests {
             "the swapped grid must not duplicate the hoisted filter bar, got {grid_html}"
         );
         // GH #166: the bulk selection is signal-backed — the grid binds its
-        // transport and the destructive submit to the selection signal, so a
-        // rerun re-renders the selection instead of dropping it...
+        // transport to the selection signal, so a rerun re-renders the
+        // selection instead of dropping it...
         assert!(
             grid_html.contains(
                 r#"data-topcoat-bind:value="(cx.hydrate({&quot;t&quot;:&quot;Signal&quot;,&quot;id&quot;:&quot;00000000000000000000000000000007&quot;})).get()""#
             ),
             "the grid must bind the bulk transport to the selection signal, got {grid_html}"
         );
+        // GH #184 replaced the disabled destructive submit with a confirmation
+        // dialog: the trigger is a plain button and the dialog's submit is the
+        // one that carries `confirm=1` inside the same form.
         assert!(
-            grid_html.contains("data-topcoat-bind:disabled"),
-            "the bulk submit must derive its disabled state from the selection, got {grid_html}"
+            grid_html.contains("data-bulk-confirm-trigger")
+                && grid_html.contains("data-bulk-confirm-dialog"),
+            "the live grid must carry the bulk confirmation, got {grid_html}"
         );
         // ...while never reading it: selecting a row must not re-run the query.
         assert!(

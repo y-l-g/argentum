@@ -258,7 +258,7 @@ async fn bulk_delete_wrong_tenant_404s_and_deletes_nothing() {
         .csrf(&csrf)
         .post_form(
             "/admin/posts/bulk-delete",
-            format!("ids={}&csrf_token={csrf}", t1_post.id),
+            format!("ids={}&confirm=1&csrf_token={csrf}", t1_post.id),
         )
         .await;
     assert_eq!(

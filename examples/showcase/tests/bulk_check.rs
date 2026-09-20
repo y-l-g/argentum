@@ -37,7 +37,7 @@ async fn bulk_delete_deletes_selected() {
         .csrf(&csrf)
         .post_form(
             "/admin/users/bulk-delete",
-            format!("ids={ids_param}&csrf_token={csrf}"),
+            format!("ids={ids_param}&confirm=1&csrf_token={csrf}"),
         )
         .await;
     assert!(
@@ -97,7 +97,7 @@ async fn bulk_delete_without_ids_redirects_with_the_reason() {
         .csrf(&csrf)
         .post_form(
             "/admin/users/bulk-delete",
-            format!("ids=&csrf_token={csrf}"),
+            format!("ids=&confirm=1&csrf_token={csrf}"),
         )
         .await;
     assert_eq!(
@@ -136,7 +136,7 @@ async fn bulk_delete_short_fetch_404s_and_deletes_nothing() {
         .csrf(&csrf)
         .post_form(
             "/admin/users/bulk-delete",
-            format!("ids={real},{missing}&csrf_token={csrf}"),
+            format!("ids={real},{missing}&confirm=1&csrf_token={csrf}"),
         )
         .await;
     assert_eq!(
@@ -222,7 +222,7 @@ async fn bulk_bar_renders_checkboxes_with_row_keys() {
         .csrf(&csrf)
         .post_form(
             "/admin/users/bulk-delete",
-            format!("ids={ids_param}&csrf_token={csrf}"),
+            format!("ids={ids_param}&confirm=1&csrf_token={csrf}"),
         )
         .await;
     assert!(
@@ -300,7 +300,7 @@ async fn bulk_delete_partial_deny_aborts() {
         .csrf(&csrf)
         .post_form(
             &format!("/admin/{}/bulk-delete", slug),
-            format!("ids={ids}&csrf_token={csrf}"),
+            format!("ids={ids}&confirm=1&csrf_token={csrf}"),
         )
         .await;
     assert_eq!(
@@ -372,5 +372,81 @@ async fn view_any_deny_blocks_list() {
         403,
         "viewAny deny should be 403, got {}",
         resp.status()
+    );
+}
+
+/// GH #184: the batch asks before it acts, and the guarantee is the server's.
+/// A POST that does not carry the confirming control's marker is refused —
+/// otherwise the dialog would be decoration that a crafted request skips.
+#[tokio::test]
+async fn bulk_delete_without_confirmation_is_refused() {
+    let db = seeded_db().await;
+    let router = router(db.clone());
+    let client = demo_client(&router).await;
+    let mut db_q = db.clone();
+    let users = User::all().exec(&mut db_q).await.unwrap();
+    let id = users[0].id.to_string();
+    let csrf = uuid::Uuid::new_v4().to_string();
+
+    let resp = client
+        .csrf(&csrf)
+        .post_form(
+            "/admin/users/bulk-delete",
+            format!("ids={id}&csrf_token={csrf}"),
+        )
+        .await;
+    assert_eq!(
+        resp.status(),
+        400,
+        "an unconfirmed bulk delete must be refused, got {}",
+        resp.status()
+    );
+
+    let mut db_check = db.clone();
+    let remaining = User::all().exec(&mut db_check).await.unwrap();
+    assert_eq!(remaining.len(), 8, "a refused batch deletes nothing");
+}
+
+/// The dialog ships with the bulk bar (closed), carries the marker its confirm
+/// button submits, and opens client-side so that opening it is not a
+/// result-set change.
+#[tokio::test]
+async fn bulk_bar_ships_a_closed_confirmation_dialog() {
+    let db = seeded_db().await;
+    let router = router(db);
+    let client = demo_client(&router).await;
+    let html = body_string(client.get("/admin/users").await).await;
+
+    assert!(
+        html.contains("data-bulk-confirm-trigger"),
+        "missing the bulk confirm trigger: {html}"
+    );
+    assert!(
+        html.contains("data-bulk-confirm-dialog"),
+        "missing the bulk confirm dialog: {html}"
+    );
+    assert!(
+        html.contains("Delete the selected records?"),
+        "missing the dialog's question: {html}"
+    );
+    assert!(
+        html.contains("data-dialog-close"),
+        "the dialog needs a way out that is not deleting: {html}"
+    );
+    // The marker rides inside the bulk form, so the confirmed submit ships it
+    // with the same payload as the selection.
+    let dialog_at = html.find("data-bulk-confirm-dialog").unwrap();
+    let form_at = html.find("data-bulk-form").unwrap();
+    assert!(
+        form_at < dialog_at,
+        "the dialog must live inside the bulk form: {html}"
+    );
+    // Opened client-side, so it renders without `open`.
+    let tag_start = html[..dialog_at].rfind("<dialog").unwrap();
+    let tag_end = html[tag_start..].find('>').unwrap() + tag_start;
+    assert!(
+        !html[tag_start..tag_end].contains("open=\""),
+        "the bulk dialog must render closed: {}",
+        &html[tag_start..tag_end]
     );
 }

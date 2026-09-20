@@ -1,4 +1,4 @@
-// Bulk selection for Argentum tables (GH #74, GH #151, GH #166).
+// Bulk selection for Argentum tables (GH #74, GH #151, GH #166, GH #184).
 //
 // Tables render one checkbox per row (`input[data-row-select]`, value = record
 // key) plus a header select-all (`input[data-bulk-select-all]`). The selection
@@ -13,6 +13,13 @@
 // the boxes themselves and no `load`/`DOMContentLoaded` fires for it).
 // Without a binding the same writes are inert, so static tables keep working
 // with the transport as a plain hidden field.
+//
+// The destructive submit asks first (GH #184): `[data-bulk-confirm-trigger]`
+// opens the alert dialog that lives inside the form, and the dialog's confirm
+// button submits it. The confirm field rides in the dialog, and the handler
+// refuses a POST without it — so this script is an affordance, never the
+// safeguard. Opening the dialog reads the transport to report the selection
+// size.
 //
 // Delimiters make membership exact: `,ab,` never matches `b`.
 //
@@ -50,8 +57,8 @@ function selectionFrom(root, currentWire) {
   return [...new Set([...kept, ...checked])];
 }
 
-// Reflect `wire` into the DOM: row boxes, the tri-state header, the destructive
-// submit. Runs after a swap and after every change.
+// Reflect `wire` into the DOM: row boxes and the tri-state header. Runs after a
+// swap and after every change.
 function sync(root, wire) {
   const keys = new Set(wireOf(wire));
   const boxes = boxesIn(root);
@@ -67,10 +74,6 @@ function sync(root, wire) {
     all.checked = boxes.length > 0 && checked.length === boxes.length;
     all.indeterminate = checked.length > 0 && checked.length < boxes.length;
   }
-  const submit = root.querySelector('[data-bulk-submit]');
-  // Live tables derive this from the bound signal server-side; setting it here
-  // too keeps static tables working and cannot disagree with the binding.
-  if (submit) submit.disabled = checked.length === 0;
 }
 
 function update(root) {
@@ -97,6 +100,39 @@ document.addEventListener('change', (e) => {
     });
   }
   update(root);
+});
+
+// The destructive confirm (GH #184). `type="button"`, so the dialog decides
+// when the form is submitted; the dialog's own confirm button is the ordinary
+// submit inside it.
+document.addEventListener('click', (e) => {
+  const trigger = e.target.closest('[data-bulk-confirm-trigger]');
+  if (!trigger) return;
+  const form = trigger.closest('form[data-bulk-form]');
+  const dialog = form && form.querySelector('[data-bulk-confirm-dialog]');
+  if (!dialog) return;
+  // Sync the transport from the live checkboxes before the dialog reports the
+  // selection: the wire is authoritative, but a checkbox click that landed
+  // mid-swap could still be unflushed.
+  const root = form.closest('[data-table-root]');
+  if (root) update(root);
+  const description = dialog.querySelector('[data-bulk-confirm-description]');
+  const count = wireOf(transportFor(root || form)?.value).length;
+  if (description) {
+    // A selection is required to delete anything, so an empty one says so
+    // rather than opening a dialog whose Delete would only bounce back with an
+    // error toast.
+    if (count === 0) {
+      description.textContent = 'Select at least one row first.';
+    } else if (count === 1) {
+      description.textContent = 'This action cannot be undone. 1 record is selected.';
+    } else {
+      description.textContent =
+        `This action cannot be undone. ${count} records are selected.`;
+    }
+  }
+  if (typeof dialog.showModal === 'function') dialog.showModal();
+  else dialog.setAttribute('open', '');
 });
 
 // A swap replaces the grid (and its checkboxes) without a page load, so

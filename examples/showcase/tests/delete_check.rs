@@ -38,9 +38,12 @@ async fn delete_requires_confirmation_and_deletes() {
         row_delete.contains("bg-destructive"),
         "row Delete must be destructive, got {row_delete}"
     );
+    // The row-delete dialog is URL-driven, so without `?delete=` it is absent.
+    // Checked by its own title rather than by "no alertdialog on the page":
+    // the bulk bar carries its own confirm dialog (GH #184).
     assert!(
-        !html.contains("role=\"alertdialog\""),
-        "no dialog without ?delete=, got {html}"
+        !html.contains("Delete this record?"),
+        "the row delete dialog must not render without ?delete=, got {html}"
     );
 
     // ?delete=<id> renders the alert dialog on the list page: destructive
@@ -69,9 +72,11 @@ async fn delete_requires_confirmation_and_deletes() {
         .get(&format!("/admin/users?delete={id}&open=false"))
         .await;
     let html = body_string(resp).await;
+    // The row dialog specifically: the page also carries the bulk bar's own
+    // confirm dialog (GH #184), which is unrelated to `?delete=`/`?open=`.
     assert!(
-        !html.contains("role=\"alertdialog\""),
-        "?open=false must keep the dialog closed, got {html}"
+        !html.contains("Delete this record?"),
+        "?open=false must keep the row dialog closed, got {html}"
     );
 
     // POST without the dialog's confirmation marker is malformed now that

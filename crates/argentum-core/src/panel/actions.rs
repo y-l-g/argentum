@@ -143,13 +143,24 @@ pub(crate) fn resource_bulk_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<
             enforce_tenant::<R>(cx)?;
             let values = parse_form_values(cx, body).await?;
             crate::csrf::verify(cx, &values)?;
+            // Confirmation marker, mirroring the row delete (GH #184): the bulk
+            // bar's dialog carries `confirm=1`, so a POST without it did not
+            // come from the confirming control. Checked after CSRF verification
+            // and before any DB work (GH #144) — a forged POST answers 400
+            // without touching a connection.
+            if !values.get("confirm").is_some_and(|v| truthy(v)) {
+                return Err(topcoat::router::error::bad_request(
+                    "bulk delete requires confirmation",
+                )
+                .into());
+            }
             let ids_raw = values.get("ids").cloned().unwrap_or_default();
             let ids = parse_bulk_ids(&ids_raw, MAX_BULK_IDS);
             if ids.is_empty() {
                 // No ids is a validation miss, not a raw 400 page (GH #151):
-                // the bulk bar disables its submit until a row is checked, so
-                // only a crafted (or stale) POST gets here — answer like any
-                // other mutation, with the list and the reason.
+                // the bulk bar cannot submit without a selection, so only a
+                // crafted (or stale) POST gets here — answer like any other
+                // mutation, with the list and the reason.
                 set_notification(cx, Notification::error("Select at least one row to delete"));
                 return Err(see_other(list_url(cx, &R::slug())).into());
             }
@@ -733,7 +744,7 @@ mod tests {
         // Bulk delete: same rule, per row.
         let bulk = post(
             "/admin/dummies/bulk-delete".to_string(),
-            format!("ids={}&csrf_token={token}", row.id),
+            format!("ids={}&confirm=1&csrf_token={token}", row.id),
         )
         .await;
         assert_eq!(
@@ -826,7 +837,10 @@ mod tests {
                         http::header::COOKIE,
                         format!("{}={token}", crate::csrf::COOKIE_NAME),
                     )
-                    .body(Body::from(format!("ids={}&csrf_token={token}", row.id)))
+                    .body(Body::from(format!(
+                        "ids={}&confirm=1&csrf_token={token}",
+                        row.id
+                    )))
                     .unwrap(),
             )
             .await;
@@ -853,7 +867,9 @@ mod tests {
                         http::header::COOKIE,
                         format!("{}={token}", crate::csrf::COOKIE_NAME),
                     )
-                    .body(Body::from(format!("ids={big}&csrf_token={token}")))
+                    .body(Body::from(format!(
+                        "ids={big}&confirm=1&csrf_token={token}"
+                    )))
                     .unwrap(),
             )
             .await;
@@ -992,7 +1008,7 @@ mod tests {
         // Bulk with the display value 404s.
         let display_bulk = post(
             "/admin/dummies/bulk-delete".to_string(),
-            format!("ids=Ada&csrf_token={token}"),
+            format!("ids=Ada&confirm=1&csrf_token={token}"),
         )
         .await;
         assert_eq!(
@@ -1004,7 +1020,7 @@ mod tests {
         // Bulk with the record key succeeds.
         let record_bulk = post(
             "/admin/dummies/bulk-delete".to_string(),
-            format!("ids={}&csrf_token={token}", row.id),
+            format!("ids={}&confirm=1&csrf_token={token}", row.id),
         )
         .await;
         assert!(
@@ -1112,7 +1128,9 @@ mod tests {
                         http::header::COOKIE,
                         format!("{}={token}", crate::csrf::COOKIE_NAME),
                     )
-                    .body(Body::from(format!("ids={ids}&csrf_token={token}")))
+                    .body(Body::from(format!(
+                        "ids={ids}&confirm=1&csrf_token={token}"
+                    )))
                     .unwrap(),
             )
             .await;

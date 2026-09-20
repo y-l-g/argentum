@@ -239,7 +239,7 @@ Table::r#for(cx).live_search(true)
 
 Search, sort, filter, and pager controls then refresh the grid in place without a full page load. The plain links and forms stay as the no-JS fallback.
 
-Panel wires the bulk checkbox column automatically (`deletable()` defaults to `true`; override to `false` for read-only resources). The destructive submit stays disabled until at least one row is checked.
+Panel wires the bulk checkbox column automatically (`deletable()` defaults to `true`; override to `false` for read-only resources). Bulk delete asks first: the bulk bar's button opens an alert dialog that names how many rows are selected, and its confirm control is the only thing carrying the `confirm=1` the handler requires — a POST without that marker is a 400, so the safeguard does not depend on the script that opens the dialog (GH #184).
 
 ---
 

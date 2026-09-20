@@ -168,39 +168,39 @@ impl<M> Table<M> {
             None
         };
         let bulk_bar_view: BoxView<'_> = if with_bulk {
-            let bulk_action = format!("{}/bulk-delete", self.delete_prefix.clone().unwrap());
+            let prefix = self.delete_prefix.clone().unwrap();
+            let bulk_action = format!("{prefix}/bulk-delete");
             let csrf = crate::csrf::current_token(cx);
+            // Stable ids so the dialog's confirm button can submit this form
+            // from inside the dialog (GH #184).
+            let bulk_form_id = format!("{}-bulk-form", prefix.replace('/', "-"));
+            let bulk_dialog_id = format!("{bulk_form_id}-confirm");
+            let bulk_dialog_title_id = format!("{bulk_dialog_id}-title");
+            let bulk_dialog_description_id = format!("{bulk_dialog_id}-description");
             // No visible `ids` field (GH #151): the transport is fed by the row
-            // checkboxes (`bulk.js`), and the destructive submit ships disabled
-            // so an empty submit cannot be produced from the UI. On a live
-            // table the selection lives in a signal instead (GH #166): the
-            // transport is bound to it and the submit's disabled state derives
-            // from it, so a shard rerun re-renders both from the selection
-            // rather than dropping it.
-            let (transport_attrs, submit_attrs) = match &signals {
+            // checkboxes (`bulk.js`) and ships `,a,b,`-delimited. On a live
+            // table the selection lives in a signal instead (GH #166), so a
+            // shard rerun re-renders the transport from the selection rather
+            // than dropping it.
+            //
+            // The trigger ships enabled (GH #184): the confirmation dialog is
+            // what gates the write now, and it reads the selection when it
+            // opens, so an empty selection is answered by the dialog rather
+            // than by a disabled control whose state has to be kept in step
+            // across a live swap.
+            let transport_attrs = match &signals {
                 Some(signals) => {
                     let bulk = signals.bulk.clone();
-                    (
-                        attributes! {
-                            cx =>
-                            type="hidden"
-                            name="ids"
-                            :value=$(bulk.get())
-                            @change=$(|e: Event| bulk.set(e.target.value))
-                            data-bulk-ids=""
-                        },
-                        attributes! {
-                            cx =>
-                            type="submit"
-                            :disabled=$(bulk.get().is_empty())
-                            data-bulk-submit=""
-                        },
-                    )
+                    attributes! {
+                        cx =>
+                        type="hidden"
+                        name="ids"
+                        :value=$(bulk.get())
+                        @change=$(|e: Event| bulk.set(e.target.value))
+                        data-bulk-ids=""
+                    }
                 }
-                None => (
-                    attributes! { cx => type="hidden" name="ids" value="" data-bulk-ids="" },
-                    attributes! { cx => type="submit" disabled="" data-bulk-submit="" },
-                ),
+                None => attributes! { cx => type="hidden" name="ids" value="" data-bulk-ids="" },
             };
             view! {
                 cx =>
@@ -209,14 +209,70 @@ impl<M> Table<M> {
                     action=(bulk_action)
                     class="flex gap-2 p-3 border-b border-border"
                     data-bulk-form=""
+                    id=(bulk_form_id.clone())
                 >
                     <input type="hidden" name="csrf_token" value=(csrf)>
                     <input (transport_attrs)>
                     button(
                         variant: ButtonVariant::Destructive,
                         size: ButtonSize::Md,
-                        attrs: submit_attrs,
+                        attrs: attributes! { type="button" data-bulk-confirm-trigger="" },
                         "Bulk Delete"
+                    )
+                    // Destructive confirm (GH #184): a batch is the one place a
+                    // misclick costs many rows, so it asks first — the same
+                    // alert-dialog pattern the row delete already uses
+                    // (GH #151).
+                    //
+                    // The dialog lives *inside* the bulk form so its `confirm`
+                    // marker ships with the same payload as the selection: the
+                    // confirm button is an ordinary submit of that form. The
+                    // handler refuses a POST without the marker, so the
+                    // guarantee does not rest on `bulk.js` running — the script
+                    // only opens the dialog and reports the selection size.
+                    //
+                    // Rendered closed and opened client-side (`showModal`)
+                    // rather than driven by a runtime signal: the trigger is
+                    // `type="button"`, so opening the dialog is not a
+                    // result-set change and must not reload the grid.
+                    alert_dialog(
+                        open: false,
+                        attrs: attributes! {
+                            id=(bulk_dialog_id.clone())
+                            data-bulk-confirm-dialog=""
+                            aria-labelledby=(bulk_dialog_title_id.clone())
+                            aria-describedby=(bulk_dialog_description_id.clone())
+                        },
+                        dialog_content(
+                            dialog_header(
+                                dialog_title(
+                                    attrs: attributes! { id=(bulk_dialog_title_id.clone()) },
+                                    "Delete the selected records?"
+                                )
+                                dialog_description(
+                                    attrs: attributes! {
+                                        id=(bulk_dialog_description_id.clone())
+                                        data-bulk-confirm-description=""
+                                    },
+                                    "This action cannot be undone."
+                                )
+                            )
+                            dialog_footer(
+                                button(
+                                    variant: ButtonVariant::Outline,
+                                    size: ButtonSize::Md,
+                                    attrs: attributes! { type="button" data-dialog-close="" },
+                                    "Cancel"
+                                )
+                                <input type="hidden" name="confirm" value="1">
+                                button(
+                                    variant: ButtonVariant::Destructive,
+                                    size: ButtonSize::Md,
+                                    attrs: attributes! { type="submit" },
+                                    "Delete"
+                                )
+                            )
+                        )
                     )
                 </form>
             }
@@ -1832,9 +1888,33 @@ mod tests {
                 && !html.contains("ids comma-separated"),
             "missing hidden ids transport in {html}"
         );
+        // GH #184: the destructive write is gated by the confirmation dialog
+        // rather than by a disabled control — the trigger opens it, and the
+        // dialog's own submit carries `confirm=1` inside the same form.
         assert!(
-            html.contains("data-bulk-submit=\"\"") && html.contains("disabled=\"\""),
-            "the bulk submit must ship disabled in {html}"
+            html.contains("data-bulk-confirm-trigger"),
+            "missing the bulk confirm trigger in {html}"
+        );
+        assert!(
+            html.contains("data-bulk-confirm-dialog"),
+            "missing the bulk confirm dialog in {html}"
+        );
+        assert!(
+            html.contains("name=\"confirm\"") && html.contains("value=\"1\""),
+            "the dialog must carry the confirm marker in {html}"
+        );
+        // Rendered closed: it is opened client-side so that opening it is not
+        // a result-set change. Matched as `open="` rather than `open`, because
+        // the dialog's class carries Tailwind's `open:` state variants.
+        let dialog_at = html
+            .find("data-bulk-confirm-dialog")
+            .expect("the dialog marker");
+        let dialog_tag_start = html[..dialog_at].rfind("<dialog").expect("its <dialog>");
+        let dialog_tag_end = html[dialog_tag_start..].find('>').expect("the tag's end");
+        let dialog_tag = &html[dialog_tag_start..dialog_tag_start + dialog_tag_end];
+        assert!(
+            !dialog_tag.contains("open=\""),
+            "the bulk confirm dialog must render closed, got {dialog_tag}"
         );
         assert!(
             html.contains("Bulk Delete"),
