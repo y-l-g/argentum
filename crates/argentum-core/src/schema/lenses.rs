@@ -17,7 +17,6 @@
 //! rule (GH #100) still applies — the owned `app::Model` cannot see embedded
 //! models, which is exactly what the schema adds.
 
-use toasty_core::schema::app::{FieldTy, Model};
 use toasty_core::stmt::PathRoot;
 use topcoat::context::Cx;
 
@@ -43,18 +42,18 @@ pub(crate) struct LeafField {
     pub(crate) nullable: bool,
 }
 
-/// The app schema for this request, or `None` when no `Db` is in context.
+/// The compiled schema for this request, or `None` when no `Db` is in context.
 ///
-/// It is the same `app::Schema` the `Db` was compiled from — `Db::schema()` is
-/// public and its `app` field carries the embedded models the owned
-/// `Model::schema()` cannot see — so the request path can resolve an embedded
-/// lens without opening a connection.
+/// `Db::schema()` is public and gives all three halves the walk needs: `.app`
+/// carries the embedded models the owned `Model::schema()` cannot see, and
+/// `.mapping` records which physical column each field resolves to. So the
+/// request path can bind an embedded lens without opening a connection.
 ///
 /// Borrowed, never cloned, and optional: a bare `CxTestBuilder` has no `Db`, and
 /// then the single-segment rule (GH #100) applies, so a schema-less test fails
 /// loudly on a traversal lens rather than silently binding the first segment.
-fn request_schema(cx: &Cx) -> Option<&toasty_core::schema::app::Schema> {
-    topcoat::context::try_app_context::<toasty::Db>(cx).map(|db| &db.schema().app)
+fn request_schema(cx: &Cx) -> Option<&toasty_core::Schema> {
+    topcoat::context::try_app_context::<toasty::Db>(cx).map(|db| &**db.schema())
 }
 
 /// Walks a lens path against the app schema, resolving embedded steps.
@@ -63,7 +62,9 @@ fn request_schema(cx: &Cx) -> Option<&toasty_core::schema::app::Schema> {
 /// owner and the constructors can share one resolution between the name, the
 /// label, and the uniqueness check.
 pub(crate) struct FieldResolver<'a> {
-    schema: Option<&'a toasty_core::schema::app::Schema>,
+    /// The **compiled** schema: its `.app` half resolves the path, its
+    /// `.mapping` half names the column, its `.db` half holds the name.
+    schema: Option<&'a toasty_core::Schema>,
 }
 
 impl<'a> FieldResolver<'a> {
@@ -134,203 +135,237 @@ impl<'a> FieldResolver<'a> {
         }
     }
 
-    /// Walk a lens path to the column it names.
+    /// Walk a lens path to the physical column it names.
+    ///
+    /// Two sources, each authoritative for one thing:
+    ///
+    /// - the **app schema** drives the traversal, because it is the only side
+    ///   that knows a field is a `#[document]` — a *primitive* whose storage is
+    ///   a model, so its inner fields collapse into the one column named after
+    ///   it, and a path through one has steps left over on arrival;
+    /// - the **compiled mapping** names the column. `Db::schema().mapping`
+    ///   records, per model, which column every field resolves to — flattened
+    ///   embedded structs, enum discriminant and payload columns, shared
+    ///   columns, and a document's single column alike — so this reads the name
+    ///   off `db::Table` rather than re-deriving Toasty's naming rules. An
+    ///   earlier revision accumulated names from `app::Field.name` and had to
+    ///   encode those rules itself.
+    ///
+    /// Probed against the pinned rev the two agree for every reachable shape,
+    /// including the cases that are easy to get wrong: `#[shared(..)]` payloads
+    /// collapse onto one column (`publication_timestamp`), and a `#[document]`
+    /// is a single `Primitive` column named after the field (`stats`), not one
+    /// column per inner field.
     ///
     /// Two roots reach here:
     ///
-    /// - a **model** root, for a plain path (`seo.title`) — the steps walk the
-    ///   model's fields;
+    /// - a **model** root, for a plain path (`seo.title`);
     /// - a **variant** root, for an enum payload accessor
-    ///   (`publication.published().published_at()`). The generated accessor
-    ///   rebases onto the variant, so the root carries the parent path *to the
-    ///   enum field* while the projection's steps are **variant-local**.
+    ///   (`media.video().poster().url()`): the generated accessor rebases onto
+    ///   the variant, so the root carries the parent path *to the enum field*
+    ///   while the projection's steps are **variant-local**.
     ///
-    /// This mirrors `app::Schema::resolve`'s traversal (upstream
-    /// `schema/app/schema.rs`) rather than calling it, because that resolver
-    /// returns only the leaf `Field` — whose `name` is its own (`title`), not
-    /// the flattened column (`seo_title`). The name is built from the steps, so
-    /// the walk has to keep them.
-    ///
-    /// Only embedded steps are followed. A relation hop (a `BelongsTo` /
-    /// `Has` / `Via` step) yields `None`: this walk exists for embedded binding
-    /// (GH #185), and binding anything else here would reintroduce the misbind
-    /// GH #100 guards against.
-    ///
-    /// Column naming was measured, not assumed:
-    /// - an embedded struct prefixes its field's name (`seo_title`,
-    ///   `media_video_poster_credit_author`);
-    /// - an enum payload adds the payload field's name, and a `#[shared]`
-    ///   payload adds its **shared identifier** instead (`publication_timestamp`
-    ///   for all three variants) — never the variant's name, which lives in the
-    ///   discriminant column;
-    /// - a `#[document]` collapses to **one** column named after the document
-    ///   field, so the walk stops there.
+    /// Only embedded steps are followed. A relation hop yields `None`: this
+    /// exists for embedded binding (GH #185), and binding anything else here
+    /// would reintroduce the misbind GH #100 guards against.
     fn walk_embedded(
         &self,
-        schema: &'a toasty_core::schema::app::Schema,
+        schema: &'a toasty_core::Schema,
         path: &toasty_core::stmt::Path,
         owner: &toasty::schema::app::Model,
     ) -> Option<LeafField> {
         match &path.root {
             PathRoot::Model(id) => {
-                let root = schema.get_model(*id)?.as_root()?;
+                let root = schema.app.get_model(*id)?.as_root()?;
                 // The accessor's `ModelId` and the schema's may come from
                 // different `models!(..)` expansions, so an id can name a
                 // *different* model here. Verify identity by root model name
-                // before trusting the index: binding another model's column is
+                // before trusting any index: binding another model's column is
                 // the misbind GH #100 exists to prevent.
                 if root.name.upper_camel_case() != owner.as_root()?.name.upper_camel_case() {
                     return None;
                 }
-                let [first, rest @ ..] = path.projection.as_slice() else {
-                    return None;
-                };
-                let first_field = root.fields.get(*first)?;
-                walk_steps(schema, first_field, rest).map(LeafField::from)
+                let model = schema.mapping.models.get(&root.id)?;
+                descend(
+                    schema,
+                    &root.fields,
+                    &model.fields,
+                    path.projection.as_slice(),
+                )
             }
             // An enum payload: resolve the parent path (it ends at the enum
-            // field), then walk the variant's own fields.
+            // field), then descend into the variant the accessor selected.
             PathRoot::Variant { parent, variant_id } => {
-                let root = schema.get_model(parent.root.as_model_unwrap())?.as_root()?;
-                let [first, rest @ ..] = parent.projection.as_slice() else {
+                let root = schema
+                    .app
+                    .get_model(parent.root.as_model_unwrap())?
+                    .as_root()?;
+                let model = schema.mapping.models.get(&root.id)?;
+                let parent_steps = parent.projection.as_slice();
+                // The app side supplies the enum's payload field list, the
+                // mapping side its per-variant column mappings.
+                let app_field = app_field_at(schema, &root.fields, parent_steps)?;
+                let Some(toasty::schema::app::Model::EmbeddedEnum(e)) =
+                    app_embedded(schema, app_field)
+                else {
                     return None;
                 };
-                let walked = walk_steps(schema, root.fields.get(*first)?, rest)?;
-                let FieldTy::Embedded(embedded) = &walked.field.ty else {
+                let MappingField::Enum(me) = mapping_field_at(&model.fields, parent_steps)? else {
                     return None;
                 };
-                let Some(Model::EmbeddedEnum(e)) = schema.get_model(embedded.target) else {
-                    return None;
-                };
-                e.variants.get(variant_id.index)?;
-                // `variant_id` may come from a different expansion than this
-                // schema's enum, so a variant that declares no fields here is
-                // not the variant we resolved — refuse rather than bind the
-                // first payload column we find.
-                e.fields
-                    .iter()
-                    .find(|f| f.variant.as_ref() == Some(variant_id))?;
-                let variant = Variant {
-                    enum_model: e,
-                    id: variant_id,
-                };
-                let [step, tail @ ..] = path.projection.as_slice() else {
-                    return None;
-                };
-                let field = variant.field(*step)?;
-                let mut prefix = walked.prefix;
-                prefix.push(column_segment(field));
-                walk_steps_with_prefix(schema, field, tail, prefix).map(LeafField::from)
+                let variant = me.variants.get(variant_id.index)?;
+                let payloads: Vec<_> = e.variant_fields(variant_id.index).collect();
+                descend(
+                    schema,
+                    &payloads,
+                    &variant.fields,
+                    path.projection.as_slice(),
+                )
             }
         }
     }
 }
 
-/// One variant's fields, resolved against a variant id that may originate from
-/// a different `models!(..)` expansion than this schema's enum.
-struct Variant<'a> {
-    enum_model: &'a toasty_core::schema::app::EmbeddedEnum,
-    id: &'a toasty_core::schema::app::VariantId,
-}
+/// A `mapping::Field`, aliased so the traversal signatures stay readable.
+type MappingField = toasty_core::schema::mapping::Field;
 
-impl<'a> Variant<'a> {
-    /// The `step`th payload field of this variant, if the variant owns one.
-    fn field(&self, step: usize) -> Option<&'a toasty_core::schema::app::Field> {
-        self.enum_model
-            .fields
-            .iter()
-            .filter(|f| f.variant.as_ref() == Some(self.id))
-            .nth(step)
-    }
-}
-
-/// Walk the steps after `field`, accumulating the flattened column name.
-fn walk_steps<'a>(
-    schema: &'a toasty_core::schema::app::Schema,
-    field: &'a toasty_core::schema::app::Field,
+/// Walk the path down to the column that stores it.
+///
+/// `app_fields` and `mapping_fields` are indexed by the same field index, so
+/// every step reads both: the app side decides *whether to descend*, the mapping
+/// side names *the column*. Neither alone is enough — the mapping cannot say a
+/// field is a `#[document]`, and the app schema cannot say which column a leaf
+/// occupies without re-deriving Toasty's naming.
+fn descend<F>(
+    schema: &toasty_core::Schema,
+    app_fields: &[F],
+    mapping_fields: &[MappingField],
     steps: &[usize],
-) -> Option<Walked<'a>> {
-    let prefix = vec![column_segment(field)];
-    walk_steps_with_prefix(schema, field, steps, prefix)
-}
-
-/// The recursive core: descend `steps`, extending `prefix` as the column nests.
-fn walk_steps_with_prefix<'a>(
-    schema: &'a toasty_core::schema::app::Schema,
-    field: &'a toasty_core::schema::app::Field,
-    steps: &[usize],
-    prefix: Vec<String>,
-) -> Option<Walked<'a>> {
-    // A `#[document]` field is a *primitive* whose storage is a `Model` (probed:
-    // `FieldPrimitive { ty: Model(id) }`), not an `Embedded`. Its sub-fields
-    // share the one column named after the document field, so the walk stops:
-    // `post_stats.word_count` binds the column `post_stats`.
-    if let FieldTy::Primitive(primitive) = &field.ty
-        && matches!(primitive.ty, toasty_core::stmt::Type::Model(_))
-    {
-        return Some(Walked { prefix, field });
+) -> Option<LeafField>
+where
+    F: std::borrow::Borrow<toasty::schema::app::Field>,
+{
+    let (first, rest) = steps.split_first()?;
+    let app_field: &toasty::schema::app::Field = app_fields.get(*first)?.borrow();
+    let mapping_field = mapping_fields.get(*first)?;
+    // A `#[document]`'s inner fields share its one column, so reaching the
+    // document is reaching the leaf, however many steps remain.
+    if rest.is_empty() || is_document(app_field) {
+        return column_of(schema, mapping_field);
     }
-    let Some((step, rest)) = steps.split_first() else {
-        // The path ended: this field is the leaf.
-        return Some(Walked { prefix, field });
-    };
-    let FieldTy::Embedded(embedded) = &field.ty else {
-        // A real primitive is a leaf with steps left over, and a relation is
-        // out of scope by design.
+    let toasty::schema::app::FieldTy::Embedded(embedded) = &app_field.ty else {
+        // A relation hop, or a primitive with steps left over: not an embedded
+        // leaf either way.
         return None;
     };
-    match schema.get_model(embedded.target)? {
-        Model::EmbeddedStruct(s) => {
-            let next = s.fields.get(*step)?;
-            let mut prefix = prefix;
-            prefix.push(column_segment(next));
-            walk_steps_with_prefix(schema, next, rest, prefix)
+    match schema.app.get_model(embedded.target)? {
+        toasty::schema::app::Model::EmbeddedStruct(e) => {
+            let MappingField::Struct(ms) = mapping_field else {
+                return None;
+            };
+            descend(schema, &e.fields, &ms.fields, rest)
         }
-        Model::EmbeddedEnum(e) => {
-            // A variant step is a gate, not a name.
-            e.variants.get(*step)?;
-            let (field_step, tail) = rest.split_first()?;
-            // Enum-global field index, the form a model-rooted payload path
-            // produces.
-            let next = e.fields.get(*field_step)?;
-            let mut prefix = prefix;
-            prefix.push(column_segment(next));
-            walk_steps_with_prefix(schema, next, tail, prefix)
+        toasty::schema::app::Model::EmbeddedEnum(e) => {
+            let MappingField::Enum(me) = mapping_field else {
+                return None;
+            };
+            // A variant consumes two steps: the variant index, then the field.
+            let (variant_index, tail) = rest.split_first()?;
+            let variant = me.variants.get(*variant_index)?;
+            let payloads: Vec<_> = e.variant_fields(*variant_index).collect();
+            descend(schema, &payloads, &variant.fields, tail)
         }
         _ => None,
     }
 }
 
-/// The name a field contributes to its flattened column.
+/// The column a single mapping field occupies, if it is a leaf.
+fn column_of(schema: &toasty_core::Schema, field: &MappingField) -> Option<LeafField> {
+    let MappingField::Primitive(p) = field else {
+        // A path stopping on a struct or enum names no single column, and a
+        // relation stores none.
+        return None;
+    };
+    let column = &schema.db.tables[p.column.table.0].columns[p.column.index];
+    Some(LeafField {
+        name: column.name.clone(),
+        label: capitalize(&column.name.replace('_', " ")),
+        // Every column under an embedded step is storage-nullable: only the
+        // matching variant writes a value.
+        nullable: true,
+    })
+}
+
+/// Whether `field` is a `#[document]`: a *primitive* whose storage is a model,
+/// so its inner fields collapse into the one column named after it.
+fn is_document(field: &toasty::schema::app::Field) -> bool {
+    matches!(
+        &field.ty,
+        toasty::schema::app::FieldTy::Primitive(p)
+            if matches!(p.ty, toasty_core::stmt::Type::Model(_))
+    )
+}
+
+/// The embedded model an app field targets, if it is embedded.
+fn app_embedded<'a>(
+    schema: &'a toasty_core::Schema,
+    field: &toasty::schema::app::Field,
+) -> Option<&'a toasty::schema::app::Model> {
+    let toasty::schema::app::FieldTy::Embedded(embedded) = &field.ty else {
+        return None;
+    };
+    schema.app.get_model(embedded.target)
+}
+
+/// The app-level field `steps` reaches, used by the variant root to find the
+/// enum's payload list before descending.
 ///
-/// A `#[shared(<ident>)]` field contributes the **identifier**, not its own
-/// name: that is what coalesces several variants' fields into one column, and
-/// why `Publication::Scheduled.scheduled_at` and `Publication::Published
-/// .published_at` both live in `publication_timestamp`.
-fn column_segment(field: &toasty_core::schema::app::Field) -> String {
-    match &field.shared {
-        // `Name`'s parts are already the lowercase words, so joining them is
-        // the snake_case spelling of the identifier.
-        Some(shared) => shared.parts.join("_"),
-        None => field.name.app_unwrap().to_string(),
+/// Recurses through embedded structs: the variant root's parent path can walk
+/// through them (an embedded struct holding the enum), not just one step.
+fn app_field_at<'a>(
+    schema: &'a toasty_core::Schema,
+    fields: &'a [toasty::schema::app::Field],
+    steps: &[usize],
+) -> Option<&'a toasty::schema::app::Field> {
+    let (first, rest) = steps.split_first()?;
+    let field = fields.get(*first)?;
+    if rest.is_empty() {
+        return Some(field);
+    }
+    match app_embedded(schema, field)? {
+        toasty::schema::app::Model::EmbeddedStruct(e) => app_field_at(schema, &e.fields, rest),
+        // An enum nested in the parent path consumes two steps per level: the
+        // variant index, then a variant-local field index. `.nth` walks the
+        // enum's global list in variant order, which is what the generated
+        // accessor's index means.
+        toasty::schema::app::Model::EmbeddedEnum(e) => {
+            let (variant, tail) = rest.split_first()?;
+            let field = e.variant_fields(*variant).nth(*tail.first()?)?;
+            if tail.len() == 1 {
+                Some(field)
+            } else {
+                app_field_at(schema, std::slice::from_ref(field), &tail[1..])
+            }
+        }
+        toasty::schema::app::Model::Root(_) => None,
     }
 }
 
-/// A walked path: the accumulated column prefix and the leaf field it reaches.
-struct Walked<'a> {
-    prefix: Vec<String>,
-    field: &'a toasty_core::schema::app::Field,
-}
-
-impl From<Walked<'_>> for LeafField {
-    fn from(walked: Walked<'_>) -> Self {
-        LeafField {
-            name: walked.prefix.join("_"),
-            label: capitalize(&walked.field.name.app_unwrap().replace('_', " ")),
-            // Every column under an embedded step is storage-nullable: only
-            // the matching variant writes a value.
-            nullable: true,
+/// The mapping field `steps` reaches, used by the variant root to find the
+/// enum's per-variant mappings before descending.
+fn mapping_field_at<'a>(fields: &'a [MappingField], steps: &[usize]) -> Option<&'a MappingField> {
+    let (first, rest) = steps.split_first()?;
+    let field = fields.get(*first)?;
+    if rest.is_empty() {
+        return Some(field);
+    }
+    match field {
+        MappingField::Struct(s) => mapping_field_at(&s.fields, rest),
+        MappingField::Enum(e) => {
+            let (variant, tail) = rest.split_first()?;
+            mapping_field_at(&e.variants.get(*variant)?.fields, tail)
         }
+        _ => None,
     }
 }
 

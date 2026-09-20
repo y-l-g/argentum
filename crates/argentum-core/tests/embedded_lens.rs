@@ -66,6 +66,23 @@ struct Extra {
     note: String,
 }
 
+/// A two-variant enum, for the nested variant-rooted case.
+#[derive(Debug, Clone, toasty::Embed)]
+enum Media {
+    #[column(variant = 1)]
+    Image { url: String },
+    #[column(variant = 2)]
+    Video { video_url: String },
+}
+
+/// An embedded struct that itself holds an embedded struct and an enum — the
+/// shape that makes a variant-rooted path start deeper than one step.
+#[derive(Debug, Clone, toasty::Embed)]
+struct Wrapper {
+    inner: Meta,
+    media: Media,
+}
+
 #[derive(Debug, Clone, toasty::Model)]
 struct Article {
     #[key]
@@ -77,6 +94,7 @@ struct Article {
     kind: Kind,
     #[document]
     extra: Extra,
+    wrapper: Wrapper,
     publication: Publication,
     #[index]
     author_id: uuid::Uuid,
@@ -195,6 +213,27 @@ async fn a_shared_column_resolves_to_the_shared_identifier() {
         Article::fields().publication().published().published_at(),
     );
     assert_eq!(published.field_name(), "publication_timestamp");
+}
+
+/// A variant-rooted path whose parent walks through embedded structs: the enum
+/// payload accessor rebases onto the variant, so the root carries a *multi-step*
+/// parent path. Both the app side and the mapping side have to follow it.
+#[tokio::test]
+async fn a_variant_rooted_path_through_nested_structs_resolves() {
+    let cx = article_cx().await;
+    // Article.wrapper.inner.seo.title -> the app side walks two struct levels.
+    let nested = TextInput::r#for_context(&cx, Article::fields().wrapper().inner().seo().title());
+    assert_eq!(nested.field_name(), "wrapper_inner_seo_title");
+
+    // Article.wrapper.media.video().video_url -> a variant root whose parent
+    // path is wrapper.media, with two variant-local steps.
+    let payload =
+        TextInput::r#for_context(&cx, Article::fields().wrapper().media().video().video_url());
+    assert_eq!(payload.field_name(), "wrapper_media_video_url");
+
+    // Article.wrapper.media.image().url -> a unit-ish payload one level down.
+    let image = TextInput::r#for_context(&cx, Article::fields().wrapper().media().image().url());
+    assert_eq!(image.field_name(), "wrapper_media_url");
 }
 
 /// A traversal lens over a relation is not an embedded step, and this walk is
