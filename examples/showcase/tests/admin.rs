@@ -33,8 +33,9 @@ async fn admin_resource_list_page_serve_seeded_users() {
         html.contains("data-sidebar=\"sidebar\"") || html.contains("data-sidebar=\"menu\""),
         "missing sidebar in {html}"
     );
-    // Sidebar lists curated entries: Team, Writers, Blog Posts, plus the
-    // manual Published saved view. No Showcase documentation entry (GH #163).
+    // Sidebar lists one entry per resource: Team, Writers, Blog Posts,
+    // Comments. No manual saved view (GH #184) and no Showcase documentation
+    // entry (GH #163).
     assert!(html.contains("Team"), "missing Team label in {html}");
     assert!(
         html.contains("href=\"/admin/users\"") || html.contains("/admin/users"),
@@ -61,15 +62,12 @@ async fn admin_resource_list_page_serve_seeded_users() {
         html.contains("href=\"/admin/comments\"") || html.contains("/admin/comments"),
         "missing Comments navigation url in {html}"
     );
+    // GH #184: the Published saved view is gone — it was the Blog Posts table
+    // with a filter, so it showed the same page twice and was the only
+    // arrangement that highlighted two entries at once.
     assert!(
-        html.contains("Published"),
-        "missing manual Published entry in {html}"
-    );
-    assert!(
-        html.contains("/admin/posts?filters=status:published")
-            || html.contains("/admin/posts?filters=status%3Apublished")
-            || html.contains("status:published"),
-        "missing Published saved-view url in {html}"
+        !html.contains("status:published"),
+        "the redundant Published saved view must be gone: {html}"
     );
     assert!(
         !html.contains("href=\"/admin/showcase\""),

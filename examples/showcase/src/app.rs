@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
 use argentum_core::{
-    Brand, DateFilter, FileUpload, Grid, Group, NavTarget, NavigationItem, Panel, Repeater,
-    Resource, Schema, Section, Select, SelectFilter, Table, Tabs, TernaryFilter, TextColumn,
-    TextInput, Textarea, VariantFilter, Wizard, resource::HrefCheck, tenant_id,
+    Brand, DateFilter, FileUpload, Grid, Group, Panel, Repeater, Resource, Schema, Section, Select,
+    SelectFilter, Table, Tabs, TernaryFilter, TextColumn, TextInput, Textarea, VariantFilter,
+    Wizard, tenant_id,
 };
 use toasty::Db;
 use topcoat::{
@@ -1070,24 +1070,13 @@ fn build_router(db: Db, bundle: Option<AssetBundle>) -> Router {
         .resource::<UserResource>()
         .resource::<AuthorResource>()
         .resource::<PostResource>()
-        .resource::<CommentResource>()
-        // Saved view outside the resource set: the published queue.
-        // Query-aware active state (the shell matches paths, so a bare URL
-        // could never highlight): active exactly on the published filter.
-        .navigation(NavigationItem {
-            label: "Published".to_string(),
-            target: NavTarget::Href {
-                url: "/admin/posts?filters=status:published".to_string(),
-                check: std::sync::Arc::new(|cx: &Cx| {
-                    let uri = topcoat::router::request::uri(cx);
-                    uri.path() == "/admin/posts"
-                        && uri
-                            .query()
-                            .is_some_and(|q| q.contains("status:published"))
-                }) as HrefCheck,
-            },
-            order: 1,
-        });
+        .resource::<CommentResource>();
+    // No "Published" saved-view entry (GH #184): it pointed at
+    // `/admin/posts?filters=status:published`, i.e. the Blog Posts table with a
+    // filter — the same page twice in the sidebar, and the one arrangement the
+    // shell's path matching highlights twice at once. A query-aware
+    // `NavTarget::Href` is still the right tool for a saved view that says
+    // something the base list cannot; this one did not.
     // Demo credentials stay available for local development via
     // SHOWCASE_LOGIN_HINT, but the default login page is shippable with no
     // hint. Empty values install nothing (no empty hint paragraph).

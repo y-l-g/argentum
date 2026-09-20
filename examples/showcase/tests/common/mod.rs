@@ -401,9 +401,7 @@ pub fn row_link_key(html: &str, kind: &str) -> Option<String> {
     let mut rest = html;
     while let Some(at) = rest.find(&needle) {
         let after = &rest[at + needle.len()..];
-        let end = after
-            .find(['&', '"', '\''])
-            .unwrap_or(after.len());
+        let end = after.find(['&', '"', '\'']).unwrap_or(after.len());
         if end > 0 {
             return Some(after[..end].to_string());
         }
