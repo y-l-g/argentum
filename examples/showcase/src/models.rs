@@ -23,6 +23,13 @@ pub struct User {
 }
 
 #[derive(Debug, Clone, toasty::Model)]
+// Scoped, not global (GH #88): the form's unique probe runs through
+// `AuthorResource::query`, which is tenant-filtered, so a *global* unique index
+// on `email` would be rejected by the database for an email another tenant
+// already owns — after the probe passed — and surface as a 500. Constraining
+// `(tenant_id, email)` makes the constraint say what the probe enforces, so two
+// tenants may share an email.
+#[unique(tenant_id, email)]
 pub struct Author {
     #[key]
     #[auto]
@@ -31,7 +38,6 @@ pub struct Author {
     pub tenant_id: uuid::Uuid,
     /// Display name.
     pub name: String,
-    #[unique]
     pub email: String,
     #[has_many]
     pub posts: Deferred<Vec<Post>>,

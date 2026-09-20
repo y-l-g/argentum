@@ -419,13 +419,25 @@ pub(crate) fn lens_label(field: &toasty::schema::app::Field) -> String {
     capitalize(field.name.app_unwrap())
 }
 
-/// Whether `field` is backed by a single-field unique index.
+/// Whether `field` is backed by a unique index it participates in.
 ///
 /// Uniqueness is not a property of a `Field`: Toasty stores it on the model's
-/// index list, so this needs the owning `ModelRoot` too. Only a *single-field*
-/// unique index counts — the components of a composite `#[unique(a, b)]` are
-/// not unique on their own — and the primary key is excluded, since a key
-/// column is unique by construction rather than by a declared constraint.
+/// index list, so this needs the owning `ModelRoot` too. The primary key is
+/// excluded — a key column is unique by construction, not by a declared
+/// constraint.
+///
+/// A **composite** unique index counts too (GH #88). `#[unique(tenant_id,
+/// email)]` is how a tenant-scoped resource expresses "unique within the
+/// tenant", and the app-side pre-check has to recognise it or the field's
+/// `unique()` declaration would be silently dead. Recognizing the index is not
+/// the same as checking it exactly: the pre-check probes the field's value
+/// inside `R::query`'s scope, so it enforces the constraint only when that
+/// scope matches the index's remaining components — which is the arrangement
+/// `#[unique(tenant_id, ..)]` on a `requires_tenant` resource produces, and
+/// which `the_flattened_name_participates_in_allow_list_and_validation`-style
+/// showcase coverage pins. Declaring `unique()` on a field whose index carries
+/// components outside the resource's scope stays a gap (upstream #117 is the
+/// real fix: a driver predicate would let the write itself report the field).
 ///
 /// This reports declared schema uniqueness, not a global uniqueness guarantee:
 /// SQL permits multiple `NULL`s in a unique index, and enum-variant columns are
@@ -436,10 +448,7 @@ pub(crate) fn lens_field_unique(
     model: &toasty::schema::app::ModelRoot,
 ) -> bool {
     model.indices.iter().any(|index| {
-        index.unique
-            && !index.primary_key
-            && index.fields.len() == 1
-            && index.fields[0].field == field.id
+        index.unique && !index.primary_key && index.fields.iter().any(|f| f.field == field.id)
     })
 }
 

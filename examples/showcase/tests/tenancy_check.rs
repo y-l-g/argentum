@@ -9,8 +9,8 @@ use showcase::{
 use topcoat::router::Body;
 
 use crate::common::{
-    SESSION_COOKIE, body_string, demo_client, full_db, login, login_next, session_cookie_value,
-    tenanted_db,
+    SESSION_COOKIE, body_string, demo_client, form_body, full_db, input_value, login, login_next,
+    session_cookie_value, tenanted_db,
 };
 
 #[tokio::test]
@@ -441,5 +441,103 @@ async fn export_is_scoped_by_tenant() {
     assert!(
         csv.contains("T2 Post") && !csv.contains("T1 Post"),
         "t2 export must be scoped, got {csv}"
+    );
+}
+
+/// GH #88 failure 2, fixed: the app-side unique check scopes through
+/// `AuthorResource::query` (tenant-filtered), so the constraint has to be scoped
+/// the same way. `Author.email` is `#[unique(tenant_id, email)]`, which makes
+/// two tenants sharing an email a legitimate pair rather than a constraint
+/// violation the probe could not see (previously a 500).
+#[tokio::test]
+async fn two_tenants_may_share_an_author_email() {
+    let (db, t1, t2) = tenanted_db().await;
+    let router = router(db.clone());
+    let client = demo_client(&router).await;
+
+    // A1 already owns this email in t1.
+    let mut db_q = db.clone();
+    let taken = Author::all().exec(&mut db_q).await.unwrap();
+    let existing = taken
+        .iter()
+        .find(|a| a.tenant_id == t1)
+        .expect("t1 seeds an author");
+    let email = existing.email.clone();
+
+    // t2 POSTs a create with the same email.
+    let page = client.tenant(t2).get("/admin/authors/create").await;
+    let html = body_string(page).await;
+    let csrf = input_value(&html, "csrf_token").expect("create form carries csrf");
+
+    let resp = client
+        .tenant(t2)
+        .csrf(&csrf)
+        .post_form(
+            "/admin/authors/create",
+            form_body(&[
+                ("name", "Cross Tenant"),
+                ("email", &email),
+                ("csrf_token", &csrf),
+            ]),
+        )
+        .await;
+
+    assert!(
+        resp.status().is_redirection(),
+        "two tenants may share an email, got {}, saw: {}",
+        resp.status(),
+        body_string(resp).await
+    );
+}
+
+/// The other half of the scoping: a duplicate *within* one tenant is still
+/// refused, and refused inline rather than by the driver.
+#[tokio::test]
+async fn duplicate_email_within_one_tenant_is_reported_inline() {
+    let (db, t1, _t2) = tenanted_db().await;
+    let router = router(db.clone());
+    let client = demo_client(&router).await;
+
+    let mut db_q = db.clone();
+    let taken = Author::all().exec(&mut db_q).await.unwrap();
+    let existing = taken
+        .iter()
+        .find(|a| a.tenant_id == t1)
+        .expect("t1 seeds an author");
+    let email = existing.email.clone();
+    let before = Author::all().exec(&mut db_q).await.unwrap().len();
+
+    let page = client.tenant(t1).get("/admin/authors/create").await;
+    let html = body_string(page).await;
+    let csrf = input_value(&html, "csrf_token").expect("create form carries csrf");
+
+    let resp = client
+        .tenant(t1)
+        .csrf(&csrf)
+        .post_form(
+            "/admin/authors/create",
+            form_body(&[
+                ("name", "Same Tenant"),
+                ("email", &email),
+                ("csrf_token", &csrf),
+            ]),
+        )
+        .await;
+
+    assert!(
+        resp.status().is_success(),
+        "a same-tenant duplicate must re-render with an inline error, got {}",
+        resp.status()
+    );
+    let html = body_string(resp).await;
+    assert!(
+        html.contains("has already been taken"),
+        "the duplicate must be reported inline, saw: {html}"
+    );
+    let mut db_check = db.clone();
+    assert_eq!(
+        Author::all().exec(&mut db_check).await.unwrap().len(),
+        before,
+        "a refused duplicate must not be written"
     );
 }
