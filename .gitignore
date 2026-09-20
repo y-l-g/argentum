@@ -1,3 +1,6 @@
 /target
 **/target/
 benchmarks/results/
+# Agent/dev worktrees (`git worktree add .worktrees/<name>`) are scratch checkouts
+# of this same repo; never part of a commit.
+/.worktrees/
