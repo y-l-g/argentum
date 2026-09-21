@@ -377,7 +377,12 @@ pub struct AssetHook {
 /// sheet backdrop is a runtime `@click` handler) and the inverse direction (a
 /// rendered hook with no consumer, e.g. `data-bulk-ids`) are out of scope, as
 /// are generic storage keys (`theme`, whose substring matches everything).
-/// Track new hooks here as they land.
+///
+/// Track new hooks here as they land. The check runs one way — every entry
+/// must still appear in both its asset and the Rust sources — so an entry that
+/// outlives its hook (GH #184 retired `data-bulk-submit` when the
+/// disabled-until-selected submit became a dialog) fails loudly, while a hook
+/// that lands without an entry is caught by review, not here.
 pub const ASSET_HOOKS: &[AssetHook] = &[
     AssetHook {
         asset: "sidebar.js",
@@ -419,10 +424,22 @@ pub const ASSET_HOOKS: &[AssetHook] = &[
         js: "data-table-root",
         rust: "data-table-root",
     },
+    // The confirmation dialog (GH #184): the trigger opens it, and the dialog
+    // carries the `confirm` field the handler refuses a POST without.
     AssetHook {
         asset: "bulk.js",
-        js: "data-bulk-submit",
-        rust: "data-bulk-submit",
+        js: "data-bulk-confirm-trigger",
+        rust: "data-bulk-confirm-trigger",
+    },
+    AssetHook {
+        asset: "bulk.js",
+        js: "data-bulk-confirm-dialog",
+        rust: "data-bulk-confirm-dialog",
+    },
+    AssetHook {
+        asset: "bulk.js",
+        js: "data-bulk-confirm-description",
+        rust: "data-bulk-confirm-description",
     },
     AssetHook {
         asset: "bulk.js",
@@ -493,6 +510,15 @@ pub const ASSET_HOOKS: &[AssetHook] = &[
 /// `data-copy-button-2` still contains the old string), so an occurrence only
 /// counts when neither neighbor continues the name. Still structural: any
 /// spelling (`[data-x]`, `data-x=""`, `dataset.x`) matches.
+///
+/// The Rust half of the contract is checked against the sources with test
+/// modules and comment lines removed ([`rust_sources`]). Without that, the
+/// check proves nothing about the render sites: when GH #184 retired
+/// `data-bulk-submit` from `bulk.js`, the string survived in `render.rs`'s
+/// assertions and in `panel/list.rs`'s prose, so a registry entry for it stayed
+/// green while the attribute was gone from the markup. Reading the actual
+/// rendering would be stronger still, but that means building a Db, a panel and
+/// a request per hook — the attributes are the cheaper proxy.
 fn contains_hook(haystack: &str, needle: &str) -> bool {
     if needle.is_empty() {
         return true;
@@ -502,6 +528,75 @@ fn contains_hook(haystack: &str, needle: &str) -> bool {
         let after = haystack[i + needle.len()..].chars().next();
         !before.is_some_and(is_hook_char) && !after.is_some_and(is_hook_char)
     })
+}
+
+/// Source text with test modules and comment-only lines dropped.
+///
+/// `#[cfg(test)]` sections are cut out by brace nesting, and any line whose
+/// first non-space characters are `//` (or `//!`, `///`, `/*`, `*`) is dropped:
+/// a hook named in an assertion or a doc comment is not a hook the markup
+/// renders. Only whole-line comments are removed, so trailing `// data-x`
+/// annotations stay in the haystack — over-inclusion here only makes the check
+/// more forgiving, never falsely red.
+fn production_sources(src: &str) -> String {
+    let mut out = String::with_capacity(src.len());
+    let mut rest = src;
+    // Drop `#[cfg(test)]` modules, brace-counted from the attribute.
+    while let Some(at) = rest.find("#[cfg(test)]") {
+        out.push_str(&rest[..at]);
+        let after = &rest[at + "#[cfg(test)]".len()..];
+        let mut depth = 0usize;
+        let mut chars = after.char_indices();
+        let mut end = after.len();
+        let mut seen_open = false;
+        for (i, c) in chars.by_ref() {
+            match c {
+                '{' => {
+                    depth += 1;
+                    seen_open = true;
+                }
+                '}' => {
+                    depth -= 1;
+                    if seen_open && depth == 0 {
+                        end = i + 1;
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        // No opening brace (a bare `#[cfg(test)]` on one item): drop that one
+        // item's line rather than the rest of the file.
+        rest = if seen_open {
+            &after[end..]
+        } else {
+            after.split_once('\n').map(|(_, tail)| tail).unwrap_or("")
+        };
+    }
+    out.push_str(rest);
+    out.lines()
+        .filter(|line| {
+            let t = line.trim_start();
+            !(t.starts_with("//") || t.starts_with("/*") || t.starts_with('*'))
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Concatenate the workspace's Rust sources with test modules and comment lines
+/// removed, for the hook contract's Rust half.
+fn rust_sources(root: &Path) -> anyhow::Result<String> {
+    let mut out = String::new();
+    for dir in ["crates/argentum-ui/src", "crates/argentum-core/src"] {
+        let mut files = Vec::new();
+        collect_rs(&root.join(dir), &mut files)?;
+        for path in files {
+            let src = std::fs::read_to_string(&path)?;
+            out.push_str(&production_sources(&src));
+            out.push('\n');
+        }
+    }
+    Ok(out)
 }
 
 /// Characters that continue a hook/identifier name.
@@ -566,26 +661,18 @@ pub fn verify_asset_hooks() -> anyhow::Result<()> {
         }
     }
 
-    // Every hook appears in both its JS asset and the Rust sources.
-    let mut rust_sources = String::new();
-    let mut rs_files = Vec::new();
-    for dir in ["crates/argentum-ui/src", "crates/argentum-core/src"] {
-        if let Err(error) = collect_rs(&root.join(dir), &mut rs_files) {
-            failures.push(format!("cannot list {dir}: {error}; {HOOK_HINT}"));
+    // Every hook appears in both its JS asset and the Rust sources — the
+    // latter with test modules and comment lines removed, so an assertion or a
+    // doc comment cannot stand in for the markup (see `contains_hook`).
+    let rust_src = match rust_sources(root) {
+        Ok(sources) => sources,
+        Err(error) => {
+            failures.push(format!(
+                "cannot read the Rust sources: {error}; {HOOK_HINT}"
+            ));
+            String::new()
         }
-    }
-    for path in &rs_files {
-        match std::fs::read_to_string(path) {
-            Ok(src) => {
-                rust_sources.push_str(&src);
-                rust_sources.push('\n');
-            }
-            Err(error) => failures.push(format!(
-                "{} cannot be read: {error}; {HOOK_HINT}",
-                path.display()
-            )),
-        }
-    }
+    };
     for hook in ASSET_HOOKS {
         match sources.get(hook.asset) {
             Some(src) if contains_hook(src, hook.js) => {}
@@ -598,7 +685,7 @@ pub fn verify_asset_hooks() -> anyhow::Result<()> {
                 hook.asset, hook.js
             )),
         }
-        if !contains_hook(&rust_sources, hook.rust) {
+        if !contains_hook(&rust_src, hook.rust) {
             failures.push(format!(
                 "`{}` (consumed by {}) is gone from the Rust sources; {HOOK_HINT}",
                 hook.rust, hook.asset
@@ -615,5 +702,69 @@ pub fn verify_asset_hooks() -> anyhow::Result<()> {
         Ok(())
     } else {
         anyhow::bail!("asset hook drift detected:\n{}", failures.join("\n"));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The strip that makes the Rust half mean something: a hook kept alive only
+    /// by an assertion, a doc comment or a trailing annotation must not count.
+    #[test]
+    fn production_sources_drops_test_modules_and_comment_lines() {
+        let src = r#"
+attrs: attributes! { data-real-hook="" },
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn marks_the_hook() {
+        assert!(html.contains("data-test-only-hook"));
+        // data-comment-only-hook
+    }
+}
+
+// A trailing note about data-line-comment-hook.
+fn after() { render("data-after-hook") }
+"#;
+        let stripped = production_sources(src);
+        assert!(
+            contains_hook(&stripped, "data-real-hook"),
+            "a render-site hook must survive the strip: {stripped}"
+        );
+        assert!(
+            contains_hook(&stripped, "data-after-hook"),
+            "code after a test module must survive it: {stripped}"
+        );
+        assert!(
+            !contains_hook(&stripped, "data-test-only-hook"),
+            "a hook named only in an assertion must not count: {stripped}"
+        );
+        assert!(
+            !contains_hook(&stripped, "data-comment-only-hook"),
+            "a hook named only in an indented comment must not count: {stripped}"
+        );
+        assert!(
+            !contains_hook(&stripped, "data-line-comment-hook"),
+            "a hook named only in a whole-line comment must not count: {stripped}"
+        );
+    }
+
+    /// A test module is cut by brace nesting, not by "everything after the
+    /// attribute" — otherwise one `#[cfg(test)]` would hide the rest of the
+    /// file and every hook below it would read as retired.
+    #[test]
+    fn production_sources_keeps_code_after_a_nested_test_module() {
+        let src = "fn a() {}\n#[cfg(test)]\nmod tests {\n    fn b() { let x = \"}\"; }\n}\nfn tail() { \"data-tail\" }\n";
+        let stripped = production_sources(src);
+        assert!(
+            contains_hook(&stripped, "data-tail"),
+            "the module must close at its own brace: {stripped}"
+        );
+        assert!(
+            !stripped.contains("mod tests"),
+            "module must be gone: {stripped}"
+        );
     }
 }
