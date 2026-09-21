@@ -1236,9 +1236,14 @@ impl FileUpload {
                     // The stored path is visible, so "there is no file" is no
                     // longer ambiguous, and the empty control reads as "leave
                     // it alone" rather than "this field is broken".
-                    <div class="text-xs text-muted-foreground" data-file-current=(current.clone())>
+                    <div
+                        class="text-xs text-muted-foreground"
+                        data-file-current=(current.clone())
+                    >
                         "Current: "
-                        <span class="font-medium text-foreground">(current.clone())</span>
+                        <span class="font-medium text-foreground">
+                            (current.clone())
+                        </span>
                     </div>
                 }
                 // The `input` primitive styles `type="file"` through its
