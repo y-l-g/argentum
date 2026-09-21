@@ -449,6 +449,58 @@ impl Resource for PostResource {
         q.include(inc_author).include(inc_comments)
     }
 
+    /// One post, read-only (GH #187). Each entry binds the same storage name
+    /// the form posts — flattened embedded columns included — so a field means
+    /// the same thing on both pages. The *list* of fields is still written
+    /// twice: the schema seam has no way to derive one declaration from the
+    /// other, and a page that shows a subset is the normal case.
+    ///
+    /// What is deliberately absent, because the seam does not reach it yet
+    /// rather than by preference: the post's **author and comments**. The list
+    /// renders both through computed columns, but a declarative field reads the
+    /// post's own columns, and no field type reads a loaded relation — the
+    /// follow-up. The **author key** (`Uuid`) is absent for the other reason:
+    /// binding a non-`String` lens is the GH #192 seam. The shared publication
+    /// timestamp is bound below; `models.rs` declares it `String` for exactly
+    /// that reason (GH #185).
+    fn view(cx: &Cx) -> Schema {
+        Schema::new((
+            Section::new("Post").schema((
+                TextInput::r#for(Post::fields().title()),
+                Textarea::r#for(Post::fields().body()).rows(6),
+            )),
+            Section::new("Details").schema(
+                Group::new().schema((
+                    Grid::new(2).schema((
+                        Select::r#for(Post::fields().status())
+                            .options(vec!["draft".to_string(), "published".to_string()])
+                            .label("Status"),
+                        Select::r#for(Post::fields().featured())
+                            .options_with_labels(vec![
+                                ("true".to_string(), "Featured".to_string()),
+                                ("false".to_string(), "Regular".to_string()),
+                            ])
+                            .label("Spotlight"),
+                    )),
+                    TextInput::r#for(Post::fields().image_path()).label("Image"),
+                    TextInput::r#for(Post::fields().tags()).label("Tags"),
+                )),
+            ),
+            Section::new("SEO").schema((
+                TextInput::r#for_context(cx, Post::fields().seo().title()),
+                Textarea::r#for_context(cx, Post::fields().seo().description()).rows(3),
+            )),
+            Section::new("Publication").schema(
+                Textarea::r#for_context(
+                    cx,
+                    Post::fields().publication().published().published_at(),
+                )
+                .label("Published at")
+                .optional(),
+            ),
+        ))
+    }
+
     fn can_view_any(cx: &Cx) -> bool {
         if tenant_id(cx).is_some_and(|tid| tid == BLOCKED_TENANT) {
             return false;

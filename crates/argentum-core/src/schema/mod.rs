@@ -31,7 +31,7 @@ pub(crate) use pk::{pk_eq_expr, pk_in_expr, pk_is_composite};
 pub use relationship::MAX_RELATIONSHIP_OPTIONS;
 pub(crate) use relationship::OptionLoadError;
 pub use tree::IntoSchema;
-pub(crate) use tree::{Node, RenderSource, for_each_field, walk_repeater_absence};
+pub(crate) use tree::{Mode, Node, RenderSource, for_each_field, walk_repeater_absence};
 
 use std::collections::{HashMap, HashSet};
 
@@ -48,8 +48,11 @@ impl Schema {
     /// Whether this schema declares nothing to render (GH #138).
     ///
     /// `Panel::build` refuses a resource that allows create but declares no
-    /// fields: the form would render empty and silently accept nothing.
-    pub(crate) fn is_empty(&self) -> bool {
+    /// fields: the form would render empty and silently accept nothing. Public
+    /// since GH #187, where `Resource::view`'s default is the empty schema and
+    /// [`Resource::viewed`](crate::resource::Resource::viewed) reads it as "no
+    /// detail page declared".
+    pub fn is_empty(&self) -> bool {
         self.nodes.is_empty()
     }
 
@@ -74,6 +77,31 @@ impl Schema {
         self.render_with(cx, &HashMap::new(), &HashMap::new()).await
     }
 
+    /// Render the schema read-only (GH #187): the detail page's side of the
+    /// same declaration.
+    ///
+    /// Every field shows the record's stored value in place of its control, so
+    /// a detail page reuses the field types and layout blocks a form already
+    /// declares rather than a parallel infolist vocabulary. `values` is the
+    /// record hydrated exactly as the edit form hydrates it
+    /// ([`Resource::hydrate_form_values`](crate::resource::Resource::hydrate_form_values)):
+    /// what a user reads on the page is what the form would have shown them.
+    pub async fn render_readonly<'a>(
+        &self,
+        cx: &'a Cx,
+        values: &HashMap<String, String>,
+    ) -> Result<BoxView<'a>> {
+        self.render_source(
+            cx,
+            &RenderSource::Static {
+                values,
+                errors: &HashMap::new(),
+                mode: Mode::View,
+            },
+        )
+        .await
+    }
+
     /// Render with pre-filled values and inline errors.
     pub async fn render_with<'a>(
         &self,
@@ -81,8 +109,15 @@ impl Schema {
         values: &HashMap<String, String>,
         errors: &HashMap<String, Vec<String>>,
     ) -> Result<BoxView<'a>> {
-        self.render_source(cx, &RenderSource::Static { values, errors })
-            .await
+        self.render_source(
+            cx,
+            &RenderSource::Static {
+                values,
+                errors,
+                mode: Mode::Form,
+            },
+        )
+        .await
     }
 
     /// Render with signal-bound values (GH #154 §4).
@@ -99,8 +134,15 @@ impl Schema {
         values: &HashMap<String, Signal<String>>,
         errors: &HashMap<String, Vec<String>>,
     ) -> Result<BoxView<'a>> {
-        self.render_source(cx, &RenderSource::Live { values, errors })
-            .await
+        self.render_source(
+            cx,
+            &RenderSource::Live {
+                values,
+                errors,
+                mode: Mode::Form,
+            },
+        )
+        .await
     }
 
     /// The one node walk: static values render as before, live values bind

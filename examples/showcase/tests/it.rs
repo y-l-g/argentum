@@ -17,6 +17,7 @@ mod bulk_check;
 mod comments_check;
 mod create_check;
 mod delete_check;
+mod detail_check;
 mod edit_check;
 mod file_repeater_check;
 mod filter_check;

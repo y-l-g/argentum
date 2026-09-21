@@ -10,6 +10,7 @@
 //! live-search registry + shard dispatch in `search`.
 
 mod actions;
+mod detail;
 mod forms;
 mod headers;
 mod list;
@@ -39,6 +40,7 @@ use topcoat::{
 };
 
 use self::actions::{resource_bulk_delete, resource_delete, resource_export, resource_options};
+use self::detail::resource_view;
 use self::forms::{
     MAX_FORM_BYTES, resource_create, resource_create_post, resource_edit, resource_edit_post,
 };
@@ -217,6 +219,22 @@ impl Panel {
             http::Method::POST,
             route_path(&create_url),
             resource_create_post::<R>,
+        ));
+        // Detail page — GET renders the record read-only (GH #187). Registered
+        // unconditionally, unlike the row link: `Panel::resource` runs before a
+        // request exists, so `R::view(cx)` is not declarable here. The handler
+        // 404s a resource that declares no view, which is the same answer as an
+        // unknown id and costs one comparison.
+        //
+        // `{{id}}` shares its position with the literal `create` segment above:
+        // topcoat routes through `matchit`, which prefers a static segment over
+        // a parameter one, so `/{{slug}}/create` keeps reaching the create page
+        // regardless of registration order.
+        let detail_url = format!("{}/{{id}}", url);
+        self.pages.push(PageFn::new(
+            http::Method::GET,
+            route_path(&detail_url),
+            resource_view::<R>,
         ));
         // Edit page — GET renders hydrated form, POST handles update.
         let edit_url = format!("{}/{{id}}/edit", url);

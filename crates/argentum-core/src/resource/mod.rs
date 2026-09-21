@@ -135,6 +135,41 @@ pub trait Resource: Sized + Send + Sync + 'static {
         true
     }
 
+    /// How one record is displayed on the detail page (GH #187), read-only.
+    ///
+    /// The same [`Schema`](crate::schema::Schema) a form uses, rendered for
+    /// reading: a `TextInput` shows its stored value instead of an `<input>`,
+    /// a `Select` shows the option label the form offered, and a layout block
+    /// keeps the structure it declares (`Grid` stays a grid). Declaring a view
+    /// is what turns the detail page on — the default declares nothing, so a
+    /// resource that does not override this renders no page content, links no
+    /// `View` row action, and 404s the route.
+    ///
+    /// Values come from [`hydrate_form_values`](Self::hydrate_form_values), so
+    /// a field bound here is one the resource already knows how to read.
+    /// Relations are the case to be careful with: a value the record's query
+    /// did not `include` renders as `(unloaded)` rather than triggering a load
+    /// (the `is_unloaded` debug contract the list columns use), so a detail
+    /// page that shows a relation preloads it in [`query`](Self::query).
+    ///
+    /// Read-only is a promise, not a disabled form: nothing here validates or
+    /// submits, and no field renders a required marker or an error slot —
+    /// including a `Repeater`, which renders its label over its children's
+    /// values.
+    fn view(_cx: &Cx) -> crate::schema::Schema {
+        crate::schema::Schema::empty()
+    }
+
+    /// Whether this resource declares a detail page (GH #187).
+    ///
+    /// Derived from [`view`](Self::view) rather than declared twice, so the
+    /// route and the row link cannot disagree with the schema that renders
+    /// them. The detail handler uses it to 404 a resource that declares
+    /// nothing, and the row chrome uses it to leave the link off.
+    fn viewed(cx: &Cx) -> bool {
+        !Self::view(cx).is_empty()
+    }
+
     /// The URL slug for this resource's pages, e.g. `"users"` mounts the list
     /// at `{panel prefix}/users`.
     ///

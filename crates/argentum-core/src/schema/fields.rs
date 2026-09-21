@@ -4,8 +4,9 @@
 //! source of truth for the field name, label, and required default.
 
 use argentum_ui::{
-    field as ui_field, field_error as ui_field_error, field_label as ui_field_label,
-    input as ui_input, select as ui_select, textarea as ui_textarea,
+    field as ui_field, field_content as ui_field_content, field_error as ui_field_error,
+    field_label as ui_field_label, field_title as ui_field_title, input as ui_input,
+    select as ui_select, textarea as ui_textarea,
 };
 use topcoat::runtime::Signal;
 use topcoat::{Result, context::Cx, view::*};
@@ -16,6 +17,59 @@ use super::relationship::{
     RelationshipLoadFuture, RelationshipLoader, RelationshipSearchFuture, RelationshipSearchLoader,
     related_record_check, related_records, related_records_search,
 };
+use super::tree::Mode;
+
+/// How a read-only value is presented (GH #187).
+///
+/// Two shapes, because the difference is content, not styling: prose wraps
+/// mid-word never, and an identifier (a stored path, an address) has no spaces
+/// to break at, so it breaks anywhere and sets in mono. A `bool` parameter
+/// carried the same decision until it read as validation metadata
+/// (`self.is_email`) at a call site.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ValueKind {
+    /// Wrapping text: a title, a body, a description.
+    Prose,
+    /// A path, a key, an address — no spaces to break at.
+    Machine,
+}
+
+/// The read-only half of a field (GH #187): the label with the record's stored
+/// value under it, no control and no validation slot.
+///
+/// Every field type renders its view through this, so a detail page reads
+/// uniformly and the one place that decides "how does a value look" lives here
+/// rather than in the page handler. The label is the same `field_label` the
+/// form uses, inside the same `field` family, so a field is recognisable across
+/// the two pages.
+///
+/// An absent value and an empty one render the same, deliberately: the
+/// framework stores `""` rather than NULL (GH #89), so a stored record cannot
+/// tell them apart and the page must not pretend otherwise.
+fn render_value<'a>(
+    cx: &'a Cx,
+    label: &str,
+    value: Option<&str>,
+    kind: ValueKind,
+) -> Result<BoxView<'a>> {
+    let label = label.to_string();
+    let text = value.unwrap_or_default().to_string();
+    let value_class = match kind {
+        ValueKind::Prose => "text-sm break-words whitespace-pre-wrap",
+        ValueKind::Machine => "text-sm font-mono break-all whitespace-pre-wrap",
+    };
+    Ok(view! {
+        cx =>
+        ui_field(
+            attrs: attributes! { class="ac-field" },
+            ui_field_content(
+                ui_field_title((label))
+                <div class=(value_class)>(text)</div>
+            )
+        )
+    }
+    .boxed())
+}
 
 /// Placeholder leaf — renders a text block. Used in T3 before typed fields land.
 #[derive(Debug, Clone)]
@@ -267,7 +321,11 @@ impl TextInput {
         cx: &'a Cx,
         value: Option<&str>,
         errors: &[String],
+        mode: Mode,
     ) -> Result<BoxView<'a>> {
+        if mode == Mode::View {
+            return render_value(cx, &self.label, value, ValueKind::Machine);
+        }
         let label_text = self.label.clone();
         let name = self.name.clone();
         // The marker reads the same predicate validation uses, so a unique
@@ -767,7 +825,25 @@ impl Select {
         cx: &'a Cx,
         value: Option<&str>,
         errors: &[String],
+        mode: Mode,
     ) -> Result<BoxView<'a>> {
+        // View mode resolves a static option label and never loads options
+        // (GH #187): a detail page renders one record, so a relationship's
+        // option load would be a query per page, and its scoped/denied paths
+        // exist to police a *choice* the page is not offering. A relationship
+        // therefore shows its stored key — the same value the column beside it
+        // shows — and the detail page's own includes are what make a related
+        // record readable.
+        if mode == Mode::View {
+            let stored = value.unwrap_or("").trim();
+            let shown = self
+                .options_static
+                .iter()
+                .find(|(v, _)| v == stored)
+                .map(|(_, label)| label.clone())
+                .unwrap_or_else(|| stored.to_string());
+            return render_value(cx, &self.label, Some(&shown), ValueKind::Prose);
+        }
         let label_text = self.label.clone();
         let name = self.name.clone();
         let required = self.required;
@@ -1048,7 +1124,11 @@ impl Textarea {
         cx: &'a Cx,
         value: Option<&str>,
         errors: &[String],
+        mode: Mode,
     ) -> Result<BoxView<'a>> {
+        if mode == Mode::View {
+            return render_value(cx, &self.label, value, ValueKind::Prose);
+        }
         let label_text = self.label.clone();
         let name = self.name.clone();
         let required = self.required;
@@ -1193,7 +1273,15 @@ impl FileUpload {
         cx: &'a Cx,
         value: Option<&str>,
         errors: &[String],
+        mode: Mode,
     ) -> Result<BoxView<'a>> {
+        // The detail page shows the stored path, never a file control
+        // (GH #187): an empty `FileUpload` on an edit is the panel's "keep the
+        // stored file" affordance, which is a statement about a form, not about
+        // a record.
+        if mode == Mode::View {
+            return render_value(cx, &self.label, value, ValueKind::Machine);
+        }
         let label_text = self.label.clone();
         let name = self.name.clone();
         // An edit hydrates the stored path; a create does not (GH #184). See
@@ -1957,7 +2045,7 @@ mod tests {
         let cx = CxTestBuilder::new().build();
         let plain = Select::r#for(DummyUser::fields().name()).options(vec!["a".to_string()]);
         let html = plain
-            .render_with(&cx, None, &[])
+            .render_with(&cx, None, &[], Mode::Form)
             .await
             .unwrap()
             .single()
@@ -1972,7 +2060,7 @@ mod tests {
             .options(vec!["a".to_string()])
             .searchable();
         let html = searchable
-            .render_with(&cx, None, &[])
+            .render_with(&cx, None, &[], Mode::Form)
             .await
             .unwrap()
             .single()

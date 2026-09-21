@@ -68,6 +68,30 @@ pub(crate) async fn find_by_key<R: Resource>(
         .map_err(Into::into)
 }
 
+/// Load the record the request names, scoped and policy-checked (GH #187).
+///
+/// The record-page prologue — auth, tenant gate, `{id}` param, load through
+/// `Resource::query`, `can_view` — was written out at each page that needed it
+/// (`resource_view`, `resource_edit`). A page that forgets one of the two gates
+/// is a hole rather than a bug in what it renders, so the sequence lives here,
+/// in the order every handler already used: auth, the tenant gate, the load
+/// (which is what turns an unknown *or* out-of-scope id into one 404), then
+/// `can_view` on the loaded snapshot.
+///
+/// Callers add their own policy on top (`can_update` for the edit page) and
+/// their own 404 for a page that is not declared at all.
+pub(crate) async fn load_viewable<R: Resource>(
+    cx: &Cx,
+    ex: &mut dyn toasty::Executor,
+) -> Result<R::Model> {
+    let id = topcoat::router::path_param_segment(cx, "id").to_string();
+    let record = find_by_key::<R>(cx, &id, ex).await?;
+    if !R::can_view(cx, &record) {
+        return Err(topcoat::router::error::forbidden().into());
+    }
+    Ok(record)
+}
+
 /// Delete action POST — confirmation-marked, policy-checked, and run in the
 /// framework transaction (GH #84): the checked record flows into the write.
 ///
