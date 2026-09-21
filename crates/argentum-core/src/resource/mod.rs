@@ -20,12 +20,14 @@ mod column;
 mod filter;
 mod naming;
 mod navigation;
+mod relation;
 mod state;
 mod table;
 
 pub use column::{Column, IntoColumns, TextColumn};
 pub use filter::{DateFilter, Filter, IntoFilters, SelectFilter, TernaryFilter, VariantFilter};
 pub use navigation::{HrefCheck, NavTarget, NavigationItem};
+pub use relation::{IntoRelationColumns, RelationColumn, RelationColumns, render_relation};
 #[cfg(test)]
 pub(crate) use state::MAX_QUERY_TERM;
 pub(crate) use state::clamp_query_term;
@@ -146,11 +148,11 @@ pub trait Resource: Sized + Send + Sync + 'static {
     /// `View` row action, and 404s the route.
     ///
     /// Values come from [`hydrate_form_values`](Self::hydrate_form_values), so
-    /// a field bound here is one the resource already knows how to read.
-    /// Relations are the case to be careful with: a value the record's query
-    /// did not `include` renders as `(unloaded)` rather than triggering a load
-    /// (the `is_unloaded` debug contract the list columns use), so a detail
-    /// page that shows a relation preloads it in [`query`](Self::query).
+    /// a field bound here is one the resource already knows how to read. A
+    /// relation is not one of these fields — it is a list of records, not a
+    /// string — and renders through
+    /// [`view_relations`](Self::view_relations), which the detail page draws
+    /// under this Schema.
     ///
     /// Read-only is a promise, not a disabled form: nothing here validates or
     /// submits, and no field renders a required marker or an error slot —
@@ -158,6 +160,43 @@ pub trait Resource: Sized + Send + Sync + 'static {
     /// values.
     fn view(_cx: &Cx) -> crate::schema::Schema {
         crate::schema::Schema::empty()
+    }
+
+    /// The related records on this resource's detail page (GH #187).
+    ///
+    /// [`view`](Self::view) is a `Schema`, and a `Schema` is rendered from the
+    /// record's *string projection* — one `HashMap<String, String>` — because
+    /// that is what every field binds. A relation is not a string and may be a
+    /// list of records, so it cannot ride that map; this hook is where it
+    /// renders instead, with the loaded record in hand.
+    ///
+    /// The reason is structural, not stylistic: the render tree is monomorphic
+    /// (one walk renders every resource) while a record's type is the
+    /// resource's, so a `Schema` node cannot be handed `&Self::Model` without
+    /// type erasure across a borrow — the workspace denies `unsafe`, and the
+    /// safe erasures either require a `'static` record or capture the caller's
+    /// locals in the render's lifetime. A generic method has none of those
+    /// problems and keeps the typing.
+    ///
+    /// This is the half that makes `Resource::query`'s `include` pay: the
+    /// related rows are already loaded on the record, so a hook that reads
+    /// `record.comments.get()` issues no query at all. Touching an
+    /// un-included relation panics (`Deferred::get`), and the way to notice is
+    /// [`Deferred::is_unloaded`](toasty::Deferred::is_unloaded) — the same
+    /// marker the list columns check.
+    ///
+    /// Returns `None` (the default) for a resource with no related records to
+    /// show, which renders nothing.
+    /// The two lifetimes are deliberately separate: the returned view may
+    /// borrow the request context, never the record. A view that held the
+    /// record would pin the handler's local binding for as long as the page,
+    /// which does not compile — the renderer's projections return owned
+    /// strings ([`render_relation`]), so nothing needs to.
+    fn view_relations<'a>(
+        _cx: &'a Cx,
+        _record: &Self::Model,
+    ) -> Option<topcoat::view::BoxView<'a>> {
+        None
     }
 
     /// Whether this resource declares a detail page (GH #187).

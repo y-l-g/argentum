@@ -44,6 +44,10 @@ pub(crate) fn resource_view<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
         // and the form cannot disagree about what a field holds.
         let values = R::hydrate_form_values(&record);
         let body = R::view(cx).render_readonly(cx, &values).await?;
+        // Relations render from the record itself (GH #187): the `Schema`
+        // above carries only its string projection, and the related rows are
+        // already loaded by `query`'s `include`, so this adds no query.
+        let relations = R::view_relations(cx, &record);
         // The title names the page and the record's key, which is what the
         // list and the URL call it (`Table::id` is the display key, `pk` the
         // record key — the URL carries the latter, GH #168).
@@ -58,7 +62,14 @@ pub(crate) fn resource_view<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
                         "Back to list"
                     </a>
                 )
-                argentum_ui::page_content(<div class="flex flex-col gap-4">(body)</div>)
+                argentum_ui::page_content(
+                    <div class="flex flex-col gap-4">
+                        (body)
+                        if let Some(relations) = relations {
+                            (relations)
+                        }
+                    </div>
+                )
             )
         }
         .boxed())

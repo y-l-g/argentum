@@ -1,0 +1,190 @@
+//! Read-only relation rendering for detail pages (GH #187).
+//!
+//! A detail page shows a record's related rows — a post's comments — from the
+//! rows `Resource::query`'s `include` already loaded. This renders them, and
+//! deliberately renders *only* them: no pager, no search, no row actions, no
+//! bulk column. A relation on a record page is a fixed, already-loaded set,
+//! and the list's chrome exists to narrow a query this page never runs.
+//!
+//! Everything here is owned: a column's projection returns a `String`, so the
+//! rendered view borrows the request context and nothing else. That is what
+//! lets `Resource::view_relations(cx, record)` return a view that outlives the
+//! record it read — the page is rendered before the handler's `record` binding
+//! drops, and the borrow checker says so if it is not.
+
+use argentum_ui::{table, table_body, table_cell, table_head, table_header, table_row};
+use topcoat::context::Cx;
+use topcoat::view::{BoxView, ViewExt, view};
+
+/// One column of a relation's read-only table (GH #187).
+///
+/// The projection is the same shape a list column uses — a typed closure over
+/// the related record — minus everything that only makes sense against a
+/// query: no `sortable`, no `searchable`, no key.
+pub struct RelationColumn<R> {
+    label: String,
+    display: Box<dyn Fn(&R) -> String + Send + Sync>,
+}
+
+impl<R> RelationColumn<R> {
+    /// Declare a column by label and projection.
+    ///
+    /// Named for the shape it is, as [`TextColumn::computed`](crate::resource::TextColumn::computed)
+    /// is on the list's side: a relation column has no lens to bind, because the
+    /// related rows arrive as values rather than as a query. What a column *is*
+    /// is its projection.
+    pub fn computed(
+        label: impl Into<String>,
+        display: impl Fn(&R) -> String + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            label: label.into(),
+            display: Box::new(display),
+        }
+    }
+
+    /// The column's heading.
+    pub fn label(&self) -> &str {
+        &self.label
+    }
+
+    /// This column's cell for `row`.
+    pub fn render_cell(&self, row: &R) -> String {
+        (self.display)(row)
+    }
+}
+
+impl<R> std::fmt::Debug for RelationColumn<R> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RelationColumn")
+            .field("label", &self.label)
+            .finish_non_exhaustive()
+    }
+}
+
+/// The columns of a relation's table, declared as a tuple or a single column.
+///
+/// A separate collection from the list's `IntoColumns` because the two tables
+/// answer different questions: one is queryable, this one is not.
+pub struct RelationColumns<R> {
+    pub(crate) columns: Vec<RelationColumn<R>>,
+}
+
+impl<R> RelationColumns<R> {
+    /// Collect one or more columns.
+    pub fn columns(columns: impl IntoRelationColumns<R>) -> Self {
+        columns.into_relation_columns()
+    }
+}
+
+/// What can be collected into [`RelationColumns`].
+pub trait IntoRelationColumns<R> {
+    fn into_relation_columns(self) -> RelationColumns<R>;
+}
+
+impl<R> IntoRelationColumns<R> for RelationColumn<R> {
+    fn into_relation_columns(self) -> RelationColumns<R> {
+        RelationColumns {
+            columns: vec![self],
+        }
+    }
+}
+
+impl<R, A, B> IntoRelationColumns<R> for (A, B)
+where
+    A: IntoRelationColumns<R>,
+    B: IntoRelationColumns<R>,
+{
+    fn into_relation_columns(self) -> RelationColumns<R> {
+        let mut columns = self.0.into_relation_columns().columns;
+        columns.extend(self.1.into_relation_columns().columns);
+        RelationColumns { columns }
+    }
+}
+
+// Three, where `IntoSchema` takes four and `IntoColumns` five: the same
+// variadic-generics gap, and a relation table that needs more headings than
+// this is showing a list rather than a record's related rows. Widen it the way
+// the others were widened — when a caller needs the fourth.
+impl<R, A, B, C> IntoRelationColumns<R> for (A, B, C)
+where
+    A: IntoRelationColumns<R>,
+    B: IntoRelationColumns<R>,
+    C: IntoRelationColumns<R>,
+{
+    fn into_relation_columns(self) -> RelationColumns<R> {
+        let mut columns = self.0.into_relation_columns().columns;
+        columns.extend(self.1.into_relation_columns().columns);
+        columns.extend(self.2.into_relation_columns().columns);
+        RelationColumns { columns }
+    }
+}
+
+/// Render `rows` as a titled, read-only table (GH #187).
+///
+/// `rows` is the related records the record already carries — the caller passes
+/// `record.comments.get().iter().cloned().collect()` or the equivalent — so this
+/// runs no query. An empty set renders the title with an honest "none" line
+/// rather than an empty table, which would read as a failure to load.
+///
+/// The rows are rendered in the order given; a detail page shows what the query
+/// loaded, and `Resource::query` owns that order.
+pub fn render_relation<'a, R>(
+    cx: &'a Cx,
+    title: &str,
+    columns: RelationColumns<R>,
+    rows: &[R],
+) -> BoxView<'a> {
+    let title = title.to_string();
+    // Own everything before the `view!` block: the emitted view must borrow
+    // the request context and nothing else, or the caller's `record` (which
+    // owns these rows) would have to outlive the page.
+    let heads: Vec<String> = columns
+        .columns
+        .iter()
+        .map(|c| c.label().to_string())
+        .collect();
+    let cells: Vec<Vec<String>> = rows
+        .iter()
+        .map(|row| {
+            columns
+                .columns
+                .iter()
+                .map(|column| column.render_cell(row))
+                .collect()
+        })
+        .collect();
+    let has_rows = !cells.is_empty();
+    // Row ids are positional: this table does not reorder or swap, so it needs
+    // no record key — the list's `Table::id` contract exists for keyed diffs
+    // and action URLs, and neither exists here.
+    view! {
+        cx =>
+        <section class="flex flex-col gap-3">
+            <h2 class="text-base font-semibold">(title)</h2>
+            if !has_rows {
+                <p class="text-sm text-muted-foreground">"None."</p>
+            } else {
+                table(
+                    table_header(
+                        table_row(
+                            for head in heads {
+                                table_head((head))
+                            }
+                        )
+                    )
+                    table_body(
+                        for row in cells {
+                            table_row(
+                                for cell in row {
+                                    table_cell((cell))
+                                }
+                            )
+                        }
+                    )
+                )
+            }
+        </section>
+    }
+    .boxed()
+}

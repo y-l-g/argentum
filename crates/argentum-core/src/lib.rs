@@ -29,9 +29,9 @@ pub use auth::{Auth, Authenticator, CurrentUser, PasswordAuth};
 pub use notification::{Notification, NotificationStatus};
 pub use panel::{Brand, DarkMode, Panel};
 pub use resource::{
-    Column, DateFilter, Filter, IntoFilters, NavTarget, NavigationItem, Resource, RowKey,
-    SelectFilter, Sort, Table, TablePage, TableSignals, TableState, TernaryFilter, TextColumn,
-    VariantFilter,
+    Column, DateFilter, Filter, IntoFilters, IntoRelationColumns, NavTarget, NavigationItem,
+    RelationColumn, RelationColumns, Resource, RowKey, SelectFilter, Sort, Table, TablePage,
+    TableSignals, TableState, TernaryFilter, TextColumn, VariantFilter, render_relation,
 };
 pub use schema::{
     FieldLens, FileUpload, Grid, Group, IntoSchema, Repeater, Schema, Section, Select, Tabs,

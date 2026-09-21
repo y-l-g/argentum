@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
 use argentum_core::{
-    Brand, DateFilter, FileUpload, Grid, Group, Panel, Repeater, Resource, Schema, Section, Select,
-    SelectFilter, Table, Tabs, TernaryFilter, TextColumn, TextInput, Textarea, VariantFilter,
-    Wizard, tenant_id,
+    Brand, DateFilter, FileUpload, Grid, Group, Panel, RelationColumn, RelationColumns, Repeater,
+    Resource, Schema, Section, Select, SelectFilter, Table, Tabs, TernaryFilter, TextColumn,
+    TextInput, Textarea, VariantFilter, Wizard, render_relation, tenant_id,
 };
 use toasty::Db;
 use topcoat::{
@@ -13,7 +13,7 @@ use topcoat::{
     font::{Font, fontsource::fontsource_font},
     router::{Router, Slot, layout},
     tailwind,
-    view::View,
+    view::{View, ViewExt, view},
 };
 
 use crate::models::{
@@ -455,14 +455,11 @@ impl Resource for PostResource {
     /// twice: the schema seam has no way to derive one declaration from the
     /// other, and a page that shows a subset is the normal case.
     ///
-    /// What is deliberately absent, because the seam does not reach it yet
-    /// rather than by preference: the post's **author and comments**. The list
-    /// renders both through computed columns, but a declarative field reads the
-    /// post's own columns, and no field type reads a loaded relation — the
-    /// follow-up. The **author key** (`Uuid`) is absent for the other reason:
-    /// binding a non-`String` lens is the GH #192 seam. The shared publication
-    /// timestamp is bound below; `models.rs` declares it `String` for exactly
-    /// that reason (GH #185).
+    /// What is absent, and why: the **author key** (`Uuid`), because binding a
+    /// non-`String` lens is the GH #192 seam; and the **comments**, which are a
+    /// relation and so render through [`Self::view_relations`] below rather
+    /// than as a field here. The shared publication timestamp *is* bound, which
+    /// is why `models.rs` declares it `String` (GH #185).
     fn view(cx: &Cx) -> Schema {
         Schema::new((
             Section::new("Post").schema((
@@ -498,6 +495,37 @@ impl Resource for PostResource {
                 .label("Published at")
                 .optional(),
             ),
+        ))
+    }
+
+    /// The post's comments, from the rows `query` already included (GH #187).
+    ///
+    /// `record.comments.get()` reads the included relation — no query, no
+    /// per-row load — which is the point #66's criterion made. `is_unloaded` is
+    /// the guard the list columns use: drop the include from `query` and this
+    /// says so instead of panicking inside `Deferred::get`, so
+    /// `detail_relation_check` fails on a message rather than a stack trace.
+    fn view_relations<'a>(cx: &'a Cx, record: &Post) -> Option<topcoat::view::BoxView<'a>> {
+        if record.comments.is_unloaded() {
+            return Some(
+                view! {
+                    cx =>
+                    <p class="text-sm text-destructive">
+                        "Comments were not loaded by this query — add them to Resource::query's include."
+                    </p>
+                }
+                .boxed(),
+            );
+        }
+        let columns = RelationColumns::columns((
+            RelationColumn::computed("Comment", |c: &Comment| c.body.clone()),
+            RelationColumn::computed("Post", |c: &Comment| c.post_id.to_string()),
+        ));
+        Some(render_relation(
+            cx,
+            "Comments",
+            columns,
+            record.comments.get(),
         ))
     }
 

@@ -3166,6 +3166,8 @@ dependencies = [
  "toasty",
  "tokio",
  "topcoat",
+ "tracing",
+ "tracing-subscriber",
  "uuid",
 ]
 
