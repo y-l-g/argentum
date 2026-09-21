@@ -214,7 +214,7 @@ impl<'a> FieldResolver<'a> {
                     return None;
                 };
                 let variant = me.variants.get(variant_id.index)?;
-                let payloads: Vec<_> = e.variant_fields(variant_id.index).collect();
+                let payloads: Vec<_> = e.variant_fields(variant_id.index).iter().collect();
                 descend(
                     schema,
                     &payloads,
@@ -272,7 +272,7 @@ where
             // A variant consumes two steps: the variant index, then the field.
             let (variant_index, tail) = rest.split_first()?;
             let variant = me.variants.get(*variant_index)?;
-            let payloads: Vec<_> = e.variant_fields(*variant_index).collect();
+            let payloads: Vec<_> = e.variant_fields(*variant_index).iter().collect();
             descend(schema, &payloads, &variant.fields, tail)
         }
         _ => None,
@@ -335,12 +335,20 @@ fn app_field_at<'a>(
     match app_embedded(schema, field)? {
         toasty::schema::app::Model::EmbeddedStruct(e) => app_field_at(schema, &e.fields, rest),
         // An enum nested in the parent path consumes two steps per level: the
-        // variant index, then a variant-local field index. `.nth` walks the
-        // enum's global list in variant order, which is what the generated
-        // accessor's index means.
+        // variant index, then a variant-local field index. `variant_fields`
+        // returns the variant's own slice of the enum's global field list
+        // (upstream 7ff180db changed it from an iterator to that slice), so the
+        // second step indexes it directly — the generated accessor's index is
+        // variant-local, which is the same field either way.
+        //
+        // The variant step is bounds-checked here first: `variant_fields`
+        // indexes `variants[i]` and panics out of range where the old iterator
+        // returned `None`, and this walk answers `None` for a path it cannot
+        // resolve (a wrong lens must not abort a request).
         toasty::schema::app::Model::EmbeddedEnum(e) => {
             let (variant, tail) = rest.split_first()?;
-            let field = e.variant_fields(*variant).nth(*tail.first()?)?;
+            e.variants.get(*variant)?;
+            let field = e.variant_fields(*variant).get(*tail.first()?)?;
             if tail.len() == 1 {
                 Some(field)
             } else {

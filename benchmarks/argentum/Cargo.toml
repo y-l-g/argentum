@@ -10,9 +10,10 @@ publish = false
 #
 # Pin policy (GH #103): topcoat/toasty resolve `main` independently here —
 # always bump in lockstep with the workspace lock
-# (`cd benchmarks/argentum && cargo update -p topcoat -p toasty` in the same
-# commit), keeping identical revs. Drift means the bench measures different
-# upstream code than the workspace ships.
+# (`cargo update --manifest-path benchmarks/argentum/Cargo.toml -p topcoat
+# -p toasty` in the same commit), keeping identical revs. Drift means the
+# bench measures different upstream code than the workspace ships. The
+# workspace `Cargo.toml` comment carries the full procedure.
 [workspace]
 
 [dependencies]
