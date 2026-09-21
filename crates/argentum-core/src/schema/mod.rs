@@ -19,7 +19,7 @@ mod pk;
 mod relationship;
 mod tree;
 
-pub use fields::{FileUpload, Select, TextInput, Textarea};
+pub use fields::{FileUpload, Select, TextInput, Textarea, TypedValue};
 // GH #173: the placeholder leaf stays reachable to the unit tests without
 // widening the public surface; the render arm (tree.rs) imports it directly.
 #[cfg(test)]
@@ -100,6 +100,30 @@ impl Schema {
             },
         )
         .await
+    }
+
+    /// Rewrite submitted values into their fields' stored spelling (GH #192).
+    ///
+    /// Runs after validation and before a record fn sees the map, so a typed
+    /// field's `Display` — not the browser's spelling — is what gets written.
+    /// That is what makes an untouched edit round-trip: the form hydrates a
+    /// stored value, the browser echoes it, and this puts back the same string
+    /// the record fn would have produced rather than a re-spelling of it.
+    ///
+    /// A value the caller has not validated cannot be normalised, so a parse
+    /// failure here leaves the submission untouched and reports nothing: it is
+    /// unreachable from the handlers (validation refuses it first), and a
+    /// silent rewrite would hide a bypass rather than surface it. A field with
+    /// no submission keeps its absence — an update writes only present keys.
+    pub fn normalize_values(&self, values: &mut HashMap<String, String>) {
+        for (name, input) in self.text_inputs() {
+            let Some(submitted) = values.get(&name) else {
+                continue;
+            };
+            if let Ok(normalized) = input.normalize(submitted) {
+                values.insert(name, normalized);
+            }
+        }
     }
 
     /// Render with pre-filled values and inline errors.

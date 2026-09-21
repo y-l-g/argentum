@@ -35,6 +35,6 @@ pub use resource::{
 };
 pub use schema::{
     FieldLens, FileUpload, Grid, Group, IntoSchema, Repeater, Schema, Section, Select, Tabs,
-    TextInput, Textarea, Wizard,
+    TextInput, Textarea, TypedValue, Wizard,
 };
 pub use tenancy::{Tenant, tenant_id};

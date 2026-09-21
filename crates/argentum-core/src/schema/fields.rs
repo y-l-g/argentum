@@ -89,10 +89,75 @@ impl Text {
     }
 }
 
+/// A typed column's own spelling rules, for the typed constructors (GH #192).
+///
+/// The form edge is text: a control submits a `String`, so a column that is not
+/// a `String` needs a `Display` to render and a `FromStr` to read back. `NOUN`
+/// names the type in the error a user sees (`` `2024-13-01` is not a valid
+/// date ``), because "invalid" alone does not tell them what was expected.
+///
+/// Implemented for the types a panel actually binds rather than as a blanket
+/// over `FromStr`: a blanket would let a field declare a parse only to have no
+/// sensible message for it, and the set is small.
+pub trait TypedValue: std::fmt::Display + std::str::FromStr {
+    /// What this type is called in a validation error.
+    const NOUN: &'static str;
+}
+
+impl TypedValue for i64 {
+    const NOUN: &'static str = "whole number";
+}
+
+impl TypedValue for i32 {
+    const NOUN: &'static str = "whole number";
+}
+
+impl TypedValue for u64 {
+    const NOUN: &'static str = "whole number";
+}
+
+impl TypedValue for f64 {
+    const NOUN: &'static str = "number";
+}
+
+impl TypedValue for uuid::Uuid {
+    const NOUN: &'static str = "identifier";
+}
+
+impl TypedValue for jiff::Timestamp {
+    const NOUN: &'static str = "timestamp";
+}
+
+/// How a typed field reads a submitted string back (GH #192).
+///
+/// A `String` field keeps the identity parser — store what was typed — so the
+/// untyped path stays byte-for-byte what it was. A typed field gets a parser
+/// that validates at the form edge and normalises through `Display`.
+type ValueParser = std::sync::Arc<dyn Fn(&str) -> Result<String, String> + Send + Sync>;
+
+/// The identity parser: text fields store the trimmed submission.
+fn identity_parser() -> ValueParser {
+    std::sync::Arc::new(|value: &str| Ok(value.to_string()))
+}
+
+/// The parser a typed field binds: reject what `T` cannot parse, and store what
+/// `T`'s own `Display` produces for it (GH #192).
+///
+/// Normalising through `Display` is the point, not a side effect: it is what
+/// makes an edit that never touched the field write back a value of the same
+/// shape it read, rather than an unreviewed re-spelling. A `jiff::Timestamp`
+/// submitted as `2024-01-02T03:04:05Z` is stored as that type's canonical form.
+fn typed_parser<T: TypedValue>() -> ValueParser {
+    std::sync::Arc::new(|value: &str| match value.parse::<T>() {
+        Ok(parsed) => Ok(parsed.to_string()),
+        Err(_) => Err(format!("`{value}` is not a valid {}", T::NOUN)),
+    })
+}
+
 /// Typed text field bound to a Toasty field lens. The lens is the single
 /// source of truth for the field name and type, so `TextInput::for(User::fields().name())`
 /// fails to compile if the column does not exist (ADR-0001).
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct TextInput {
     name: String,
     label: String,
@@ -100,6 +165,25 @@ pub struct TextInput {
     is_email: bool,
     unique: bool,
     placeholder: Option<String>,
+    /// How a submission becomes the stored value (GH #192): identity for a
+    /// `String` column, the type's own parse-and-`Display` for a typed one.
+    parser: ValueParser,
+}
+
+impl std::fmt::Debug for TextInput {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // The parser is a closure with no useful Debug; everything a reader
+        // needs is the field's identity.
+        f.debug_struct("TextInput")
+            .field("name", &self.name)
+            .field("label", &self.label)
+            .field("required", &self.required)
+            .field("is_email", &self.is_email)
+            .field("unique", &self.unique)
+            .field("placeholder", &self.placeholder)
+            .field("typed", &(std::sync::Arc::strong_count(&self.parser) > 0))
+            .finish()
+    }
 }
 
 impl TextInput {
@@ -130,6 +214,7 @@ impl TextInput {
             is_email: false,
             unique,
             placeholder: None,
+            parser: identity_parser(),
         }
     }
 
@@ -162,6 +247,80 @@ impl TextInput {
             is_email: false,
             unique: false,
             placeholder: None,
+            parser: identity_parser(),
+        }
+    }
+
+    /// Create a `TextInput` bound to a lens whose leaf is **not** a `String`
+    /// (GH #192).
+    ///
+    /// The untyped [`Self::r#for`] takes `Path<M, String>`, which is what makes
+    /// a wrong lens a compile error rather than a runtime mismatch (GH #100,
+    /// ADR-0001) — and also what made a typed column unbindable. This
+    /// constructor keeps that guarantee for its own call sites: the lens must
+    /// still address one field of the model, and `T` must be the leaf's actual
+    /// type, so `TextInput::typed::<User, Uuid>(User::fields().name())` does
+    /// not compile either. What it adds is the value's spelling rule:
+    ///
+    /// - the control renders the value's `Display`;
+    /// - a submission that `T` cannot parse is an **inline field error** naming
+    ///   the offending input (`` `2024-13-01` is not a valid timestamp ``), not
+    ///   a 500 and not a silent default;
+    /// - what is stored is `T`'s own `Display` of the parsed value, so a value
+    ///   re-submitted unchanged is written back in the same shape it was read.
+    ///
+    /// The record fn still receives `String`s: the panel's value map is
+    /// text-keyed, and a typed field is a *validated* string, not a second
+    /// channel. A record fn re-parsing a typed field can therefore fail only if
+    /// validation was bypassed.
+    ///
+    /// `TypedValue` is implemented for the types a panel binds — the integer
+    /// types, `f64`, `Uuid`, `jiff::Timestamp` — rather than as a blanket over
+    /// `FromStr`, because the error a user sees has to name what was expected.
+    /// A type that needs different words implements the trait itself.
+    pub fn typed<M, T>(path: toasty::stmt::Path<M, T>) -> Self
+    where
+        M: toasty::schema::Model,
+        T: TypedValue + 'static,
+    {
+        let model = M::schema();
+        let field = lens_field(path, &model);
+        let label_str = lens_label(&field);
+        // Uniqueness is a `String`-column property here: the app-side probe
+        // compares text, and `eq_filter` binds a `String` lens. A typed field
+        // declares no index and is not marked unique.
+        Self {
+            name: field.name.app_unwrap().to_string(),
+            label: label_str,
+            required: !field.nullable(),
+            is_email: false,
+            unique: false,
+            placeholder: None,
+            parser: typed_parser::<T>(),
+        }
+    }
+
+    /// [`Self::typed`] for a lens inside an embedded struct or a `#[document]`,
+    /// resolving through the request's app schema exactly as
+    /// [`Self::r#for_context`] does (GH #185).
+    ///
+    /// A leaf under an embedded step is never required by default: every column
+    /// below one is storage-nullable, since only the matching enum variant
+    /// writes it. Opt in with [`.required()`](Self::required).
+    pub fn typed_context<M, T>(cx: &Cx, path: toasty::stmt::Path<M, T>) -> Self
+    where
+        M: toasty::schema::Model,
+        T: TypedValue + 'static,
+    {
+        let leaf = FieldResolver::from_cx(cx).resolve(path);
+        Self {
+            name: leaf.name,
+            label: leaf.label,
+            required: !leaf.nullable,
+            is_email: false,
+            unique: false,
+            placeholder: None,
+            parser: typed_parser::<T>(),
         }
     }
 
@@ -262,7 +421,27 @@ impl TextInput {
         if self.is_email && !v.is_empty() && !Self::is_valid_email(v) {
             errs.push(format!("{} must be a valid email", self.label));
         }
+        // The typed rule (GH #192) runs last and only on a value that is
+        // present: an empty submit is the presence rule's business, so a typed
+        // field that is optional accepts empty exactly as a text field does.
+        if !v.is_empty()
+            && errs.is_empty()
+            && let Err(message) = (self.parser)(v)
+        {
+            errs.push(message);
+        }
         errs
+    }
+
+    /// The stored spelling of a submission the caller has already validated
+    /// (GH #192).
+    ///
+    /// Identity for a text field, `T`'s `Display` for a typed one — so a value
+    /// the user left alone is written back in the shape the record fn wrote it,
+    /// not in whichever spelling the browser sent. Callers that have not
+    /// validated must not use this: it reports a failure rather than guessing.
+    pub(crate) fn normalize(&self, value: &str) -> Result<String, String> {
+        (self.parser)(value.trim())
     }
 
     fn is_valid_email(s: &str) -> bool {

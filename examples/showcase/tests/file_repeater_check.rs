@@ -92,7 +92,7 @@ async fn posts_create_invalid_fileupload_repeater_shows_errors() {
         html
     );
     assert!(
-        html.contains("Image_path is required"),
+        html.contains("Image path is required"),
         "missing required error for the file field, got {html}"
     );
     assert_eq!(

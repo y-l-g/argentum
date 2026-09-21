@@ -476,8 +476,17 @@ pub(crate) fn require_single_segment(path: &toasty_core::stmt::Path, what: &str)
     );
 }
 
+/// A field's human label from its storage name.
+///
+/// Sentence case, with the underscores a Rust column name carries read as
+/// spaces: `word_count` is "Word count", not "Word_count". A label is the one
+/// place a column name becomes prose, so it should not leak the identifier —
+/// which is what `Media_poster_url` and `Seo_title` did everywhere an embedded
+/// or document leaf rendered its own name (GH #185/#192). An explicit
+/// [`.label(..)`](crate::schema::TextInput::label) still wins.
 pub(crate) fn capitalize(s: &str) -> String {
-    let mut c = s.chars();
+    let spaced = s.replace('_', " ");
+    let mut c = spaced.chars();
     match c.next() {
         None => String::new(),
         Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),

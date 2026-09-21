@@ -593,6 +593,8 @@ pub(crate) fn resource_create_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<
             )
             .await;
         }
+        // Typed fields write their own spelling, not the browser's (GH #192).
+        schema.normalize_values(&mut values);
         // Attempt creation via Resource hook, inside the tx.
         match R::create_record(cx, values.clone(), &mut tx).await {
             Ok(()) => match tx.commit().await {
@@ -715,6 +717,8 @@ pub(crate) fn resource_edit_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_
             )
             .await;
         }
+        // Typed fields write their own spelling, not the browser's (GH #192).
+        schema.normalize_values(&mut values);
         match R::update_record(cx, record, values.clone(), &mut tx).await {
             Ok(()) => match tx.commit().await {
                 Ok(()) => Err(redirect_after_write::<R>(cx, "Updated")),
