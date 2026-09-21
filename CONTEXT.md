@@ -51,7 +51,7 @@ A typed projection of a Model field (or a computed value) displayed in a Table r
 _Avoid_: Field (in table context), Cell, Attribute
 
 ### Detail page
-`GET {prefix}/{slug}/{id}` (GH #187): one record rendered through `Resource::view`'s Schema in read-only mode. Loads through the `Resource::query` seam like every other record page, so an unknown id and one outside the request's scope are the same 404, while a record the caller may not view is a 403.
+`GET {prefix}/{slug}/{id}` (GH #187): one record in two halves — `Resource::view`'s Schema, read-only, plus `Resource::view_relations(cx, record)` for the related rows the query's `include` loaded. The Schema renders the record's string projection, so a relation (a list of records) needs the typed half; loading goes through the `Resource::query` seam like every other record page, so an unknown id and one outside the request's scope are the same 404, while a record the caller may not view is a 403.
 
 _Avoid_: Show page, Infolist page, Record view
 

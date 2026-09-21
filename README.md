@@ -303,7 +303,24 @@ That registers `GET /admin/{slug}/{id}` — loaded through `Resource::query`, so
 
 - **Read-only is not a disabled form.** Fields render labels and stored values: `TextInput`/`Textarea` show text, `Select` shows the option label the form offered (or the stored value when no option matches, a relationship key included), `FileUpload` shows the stored path, and layout blocks keep their structure. No control, no CSRF field, no validation slot.
 - **Values come from `hydrate_form_values`**, the same projection the edit form hydrates, so a field that renders in the form renders here.
-- **What a view cannot show yet**: typed columns (`Uuid`, `jiff::Timestamp`) need the GH #192 seam, and a loaded relation needs a field type that reads it. The page reuses `query`'s `include`, so a related row is already in hand — but nothing renders it yet, and no N+1 assertion exists because there is no per-row load to assert against. The showcase's post view names both gaps where a reader hits them.
+- **Related rows** render through `view_relations(cx, record)`, the page's second half:
+
+```rust
+fn view_relations<'a>(cx: &'a Cx, record: &Post) -> Option<BoxView<'a>> {
+    // The relation comes from `Resource::query`'s include, so this is the guard
+    // the list columns use: drop the include and the page says so instead of
+    // panicking inside `Deferred::get`.
+    if record.comments.is_unloaded() {
+        return Some(missing_include_notice(cx, "Comments"));
+    }
+    Some(render_relation(cx, "Comments", RelationColumns::columns(
+        RelationColumn::computed("Comment", |c: &Comment| c.body.clone()),
+    ), record.comments.get()))
+}
+```
+
+It is a typed method and not a Schema field because a Schema renders the record's *string projection* while a relation is a list of records — and `Resource::view(cx)` is handed no record at all, so a Schema node could not read one. Reading `record.comments.get()` issues no query: it is the row the include loaded, and a test counts the statements a detail page runs to hold that (`the_relation_issues_no_query_of_its_own`). Related rows render read-only: no pager, no search, no bulk column, no row actions.
+- **What a view cannot show yet**: typed columns (`Uuid`, `jiff::Timestamp`) need the GH #192 seam.
 - `IntoSchema` takes at most four top-level blocks; a longer view wraps a fifth in a `Group`.
 
 ---
