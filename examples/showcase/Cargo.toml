@@ -22,7 +22,8 @@ argentum-core = { path = "../../crates/argentum-core" }
 argentum-ui = { path = "../../crates/argentum-ui" }
 jiff.workspace = true
 toasty.workspace = true
-tokio.workspace = true
+# `fs` is for the demo uploader's `tokio::fs` write (GH #188).
+tokio = { workspace = true, features = ["fs"] }
 topcoat = { workspace = true, features = ["serve", "tailwind", "font", "font-fontsource", "asset", "runtime"] }
 uuid.workspace = true
 

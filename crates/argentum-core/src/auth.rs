@@ -573,7 +573,8 @@ pub(crate) fn login_page(cx: &Cx, _body: Body) -> RouteFuture<'_> {
 /// `POST {prefix}/login` — verify, rotate the session, redirect to `next`.
 pub(crate) fn login_post(cx: &Cx, body: Body) -> RouteFuture<'_> {
     Box::pin(async move {
-        let values = crate::panel::parse_form_values(cx, body).await?;
+        // Login/logout carry no file parts: the values half is all they read.
+        let values = crate::panel::parse_form_body(cx, body).await?.values;
         crate::csrf::verify(cx, &values)?;
         // Keep a validated destination across a failed attempt so the retry
         // form still returns where the visitor was headed (US6).
@@ -636,7 +637,8 @@ pub(crate) fn logout_post(cx: &Cx, body: Body) -> RouteFuture<'_> {
         if current_user(cx).is_none() {
             return Err(unauthenticated_error(cx));
         }
-        let values = crate::panel::parse_form_values(cx, body).await?;
+        // Login/logout carry no file parts: the values half is all they read.
+        let values = crate::panel::parse_form_body(cx, body).await?.values;
         crate::csrf::verify(cx, &values)?;
         if let Some(hash) = session::stop(cx).await? {
             delete_session(cx, &hash).await?;

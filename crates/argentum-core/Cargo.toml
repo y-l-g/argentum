@@ -32,7 +32,9 @@ serde.workspace = true
 tokio.workspace = true
 toasty.workspace = true
 toasty-core.workspace = true
-topcoat = { workspace = true, features = ["view", "router", "discover", "asset", "font", "runtime", "cookie", "multipart", "icon"] }
+# `fs` is for `Panel::serve_dir` (GH #188): serving an upload directory is a
+# panel-level route, and upstream the directory route lives behind that feature.
+topcoat = { workspace = true, features = ["view", "router", "discover", "asset", "font", "runtime", "cookie", "multipart", "icon", "fs"] }
 tracing = "0.1"
 uuid.workspace = true
 

@@ -282,7 +282,9 @@ Select::r#for(Post::fields().author_id())
 - Relation options are bounded to 200 (`MAX_RELATIONSHIP_OPTIONS`) and memoized per `(request, tenant)`. Small tables validate against the bounded set; `can_view` filters before labels, `can_view_any`/tenant denial fails closed (`not available`).
 - Large reference tables (10k+ rows) need `.searchable()` on the `Select` (GH #150): over-cap searchable selects degrade to type-to-search instead of a retry error. Typing fetches `GET {parent_list_url}/options?field=&q=` (debounced 200ms, abort in-flight, selection preserved), which reuses the related `Table`'s declared `searchable()` columns (`search_expr`), bounds to 200, and filters `can_view` before labels. No searchable columns → hard-cap path (non-searchable keeps the cap error). Overflowed submits validate via a targeted PK check (`R::query` + `can_view`): legitimate FKs beyond the cap pass, hidden → `invalid`, denied → `not available`, DB failure → retry. Initial render keeps the stored value + search input + “Too many options — type to search” hint; no-JS keeps the plain select (other fields still submit, relation cannot be changed past the cap).
 
-- `FileUpload` stores the sanitized basename as the `String` path (bytes are not persisted in v1; no `value` on `type=file`). Forms with one emit `enctype="multipart/form-data"`. Bodies are capped at 10 MiB (413), multipart without a boundary is a 400, and filenames rejecting `.` / `..` / Windows reserved names surface as inline errors. Empty submits keep the stored path; `clear_<field>=1` opts back into clearing. On an edit the stored path is shown and the control drops native `required` (GH #184) — a `required` file input cannot be pre-filled, so it blocked every untouched save; `required` still holds on create.
+- `FileUpload` binds a `String` path and owns the request half: no `value` on `type=file`, `enctype="multipart/form-data"` when a form has one, a 10 MiB body cap (413), a 400 for multipart without a boundary, and sanitized basenames (`.` / `..` / Windows reserved names surface as inline errors). On an edit the control drops native `required` (GH #184) — a `required` file input cannot be pre-filled, so it blocked every untouched save; `required` still holds on create.
+- **Where the bytes go is the app's** (GH #188, ADR-0017): install an `Uploader` once with `Panel::uploads(store)`. `store(filename, bytes) -> Result<String, String>` receives the sanitized name and the content (bounded by the cap) and returns the value the record stores; a refusal is an inline error (`"<Label> could not be uploaded: <reason>"`), not a 500. With no uploader installed the sanitized basename is stored, which is the pre-#188 contract, and the bytes are drained rather than buffered.
+- The stored path renders as the file it names: an image preview when it ends in an image extension, a link to the file otherwise — no URL convention is invented, and `Panel::serve_dir(path, dir)` mounts the directory an upload store writes to. Every stored value also offers a `clear_<field>` checkbox ("Remove the current file"), the one control that means "remove" rather than "keep"; an empty file input still means keep. Clearing does not waive `required` — a resource whose records may lose their file declares `.optional()`.
 - `Repeater` is a single-entry group. An all-empty group is skipped, so its inner required fields do not fail the submit. A `required` repeater yields one label-keyed error; a partially filled group still enforces inner `required`.
 
 Validation errors render inline per field. Absent keys validate as `""` and updates write only present keys; handlers reject unknown form keys with 400 (`role` / `tenant_id` smuggling fails closed; only `csrf_token` and `clear_<field>` are exempt), so extra posted keys never reach record fns.
@@ -302,7 +304,7 @@ fn view(cx: &Cx) -> Schema {
 
 That registers `GET /admin/{slug}/{id}` — loaded through `Resource::query`, so an unknown id and one outside the tenant are the same 404, while `can_view` denial is a 403 — and adds a `View` link beside `Edit` on each row. A resource with no `view` declaration has no page and no link, and the route answers 404 rather than rendering an empty shell.
 
-- **Read-only is not a disabled form.** Fields render labels and stored values: `TextInput`/`Textarea` show text, `Select` shows the option label the form offered (or the stored value when no option matches, a relationship key included), `FileUpload` shows the stored path, and layout blocks keep their structure. No control, no CSRF field, no validation slot.
+- **Read-only is not a disabled form.** Fields render labels and stored values: `TextInput`/`Textarea` show text, `Select` shows the option label the form offered (or the stored value when no option matches, a relationship key included), `FileUpload` shows the stored path and previews a stored image (GH #188), and layout blocks keep their structure. No control, no CSRF field, no validation slot.
 - **Values come from `hydrate_form_values`**, the same projection the edit form hydrates, so a field that renders in the form renders here.
 - **Related rows** render through `view_relations(cx, record)`, the page's second half:
 
@@ -462,11 +464,12 @@ Done:
 - Relations: preloaded `BelongsTo` and `HasMany`, relation selects, tenant scoping, server-side option search past the cap
 - Table extras: typed filters, page-local grouping with counts, CSV export, live in-place search and sort, empty and error states
 - Auth: default login plus sessions, custom user table seam, explicit opt-out, per-resource policy
+- Media uploads: an app-level `Uploader` seam, and `Panel::serve_dir` for the directory it writes to (ADR-0017)
 
 Next:
 
 - Widgets and infolists: stats overview, charts, global search
-- Nicer media handling for uploads
+- Image handling beyond the preview (thumbnails, transcoding, dimensions)
 - Documented production migrations
 
 Non-goals for v1:

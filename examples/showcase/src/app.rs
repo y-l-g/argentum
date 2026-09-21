@@ -1,9 +1,10 @@
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 use argentum_core::{
     Brand, DateFilter, FileUpload, Grid, Group, Panel, RelationColumn, RelationColumns, Repeater,
     Resource, Schema, Section, Select, SelectFilter, Table, Tabs, TernaryFilter, TextColumn,
-    TextInput, Textarea, VariantFilter, Wizard, render_relation, tenant_id,
+    TextInput, Textarea, Uploader, VariantFilter, Wizard, render_relation, tenant_id,
 };
 use toasty::Db;
 use topcoat::{
@@ -1378,7 +1379,7 @@ async fn admin_layout(cx: &Cx, slot: Slot<'_>) -> Result<impl View> {
 // ---------------------------------------------------------------------------
 
 pub fn router(db: Db) -> Router {
-    build_router(db, Some(load_assets()))
+    build_router(db, Some(load_assets()), Some(upload_dir()))
 }
 
 /// Build the showcase router without filesystem assets for markup tests.
@@ -1386,11 +1387,68 @@ pub fn router(db: Db) -> Router {
 /// This is deliberately separate from [`router`]: the application path fails
 /// loudly when its generated bundle is missing, while tests can exercise the
 /// server-rendered markup without pretending an asset bundle exists.
+///
+/// It installs **no uploader** either, which pins the framework's default: a
+/// `FileUpload` with no store keeps the sanitized client filename (GH #188).
+/// A test that wants the demo store uses [`router_with_uploads`].
 pub fn router_for_tests(db: Db) -> Router {
-    build_router(db, None)
+    build_router(db, None, None)
 }
 
-fn build_router(db: Db, bundle: Option<AssetBundle>) -> Router {
+/// Build the showcase router with uploads enabled against `dir` (GH #188).
+///
+/// Assets are left out, like [`router_for_tests`]: the upload tests assert on
+/// markup and on the served bytes, not on the stylesheet. Used by the upload
+/// tests, which need a directory of their own — the application's is shared
+/// state on disk.
+pub fn router_with_uploads(db: Db, dir: impl Into<PathBuf>) -> Router {
+    build_router(db, None, Some(dir.into()))
+}
+
+/// Where the showcase writes uploaded bytes: `SHOWCASE_UPLOAD_DIR`, or
+/// `target/showcase-uploads` so a local run works with no configuration.
+fn upload_dir() -> PathBuf {
+    std::env::var_os("SHOWCASE_UPLOAD_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("target/showcase-uploads"))
+}
+
+/// The URL prefix uploads are served under.
+///
+/// It matches the `serve_dir` route below, and the app owns both ends: the
+/// store decides the path it returns, so the framework never has to guess a
+/// URL convention (GH #188).
+pub const UPLOAD_URL_PREFIX: &str = "/uploads";
+
+/// The showcase's own uploader: write the bytes into the served directory and
+/// return the URL they are served at (GH #188).
+///
+/// A demo, not a framework default — the trait is the seam and drivers are the
+/// app's business. Two things a real store still owns and this one borrows from
+/// the framework: the client name is already sanitized to a basename (GH #90),
+/// and the UUID prefix keeps two uploads of `cover.png` apart. Writing the file
+/// is this app's job; swapping in an object store means replacing this type and
+/// nothing else.
+struct DirUploader {
+    dir: PathBuf,
+}
+
+impl Uploader for DirUploader {
+    async fn store(&self, filename: &str, bytes: &[u8]) -> Result<String, String> {
+        let name = format!("{}-{filename}", uuid::Uuid::new_v4());
+        // Failure reasons are rendered to the user, so they say what the user
+        // can act on and never leak the path that failed.
+        tokio::fs::create_dir_all(&self.dir)
+            .await
+            .map_err(|_| "the upload directory is not writable".to_string())?;
+        tokio::fs::write(self.dir.join(&name), bytes)
+            .await
+            .map_err(|_| "the upload could not be written".to_string())?;
+        Ok(format!("{UPLOAD_URL_PREFIX}/{name}"))
+    }
+}
+
+fn build_router(db: Db, bundle: Option<AssetBundle>, uploads: Option<PathBuf>) -> Router {
     let mut panel = Panel::new("admin")
         .app_context(db)
         .brand(
@@ -1418,6 +1476,15 @@ fn build_router(db: Db, bundle: Option<AssetBundle>) -> Router {
         && !hint.trim().is_empty()
     {
         panel = panel.login_hint(hint);
+    }
+    if let Some(dir) = uploads {
+        // Both ends of the demo (GH #188): the store writes into `dir` and
+        // returns `{UPLOAD_URL_PREFIX}/…`, and the panel serves exactly that
+        // prefix from the same directory — which is why the stored path is
+        // fetchable without the framework inventing a URL convention.
+        panel = panel
+            .serve_dir(format!("{UPLOAD_URL_PREFIX}/{{*file}}"), dir.clone())
+            .uploads(DirUploader { dir });
     }
     match bundle {
         Some(bundle) => panel

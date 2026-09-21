@@ -10,6 +10,7 @@ mod auth_override;
 mod resource_query_override;
 mod sqlite;
 mod typed_leaves;
+mod uploads;
 
 mod embedded_lens;
 mod readonly_render;

@@ -22,6 +22,7 @@ pub mod panel;
 pub mod resource;
 pub mod schema;
 pub mod tenancy;
+pub mod upload;
 
 pub use argentum_macros::Resource;
 #[cfg(feature = "auth")]
@@ -38,3 +39,4 @@ pub use schema::{
     TextInput, Textarea, TypedValue, Wizard,
 };
 pub use tenancy::{Tenant, tenant_id};
+pub use upload::Uploader;

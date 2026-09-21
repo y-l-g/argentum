@@ -28,7 +28,17 @@ const WRITE_CREATE: &str = "create the record";
 const WRITE_UPDATE: &str = "save the changes";
 use crate::resource::Resource;
 
-/// Helper: parse form bodies into a map — `application/x-www-form-urlencoded`
+/// A decoded form body: the text values plus any file parts (GH #188).
+pub(crate) struct FormParts {
+    pub(crate) values: HashMap<String, String>,
+    /// File parts by field name, staged for the installed
+    /// [`Uploader`](crate::Uploader) — empty when none is installed, because
+    /// then the bytes could only be dropped and today's drain-and-discard
+    /// (GH #90) is what keeps a large upload off the heap.
+    pub(crate) files: HashMap<String, crate::upload::StagedUpload>,
+}
+
+/// Helper: parse form bodies into a [`FormParts`] — `application/x-www-form-urlencoded`
 /// buffered, plus `multipart/form-data` streamed when a `FileUpload` is present
 /// (GH #73).
 ///
@@ -41,15 +51,13 @@ use crate::resource::Resource;
 /// (lossy) instead of discarding the whole form.
 ///
 /// Multipart (file) parts stream through Topcoat's multer-based extractor
-/// (GH #90): file bytes are drained in chunks and discarded — v1 stores the
-/// sanitized filename as the `String` value, never the bytes (see
-/// `FileUpload` storage contract) — so a 2 GB "upload" never materializes.
+/// (GH #90). With no installed uploader, file bytes are drained in chunks and
+/// discarded — the pre-#188 contract still stores the sanitized filename as the
+/// `String` value — so a 2 GB "upload" never materializes. With one installed
+/// they are buffered up to the same body cap and handed to it (GH #188).
 /// Text parts store their content. Unknown content types fall back to
 /// urlencoded so existing tests/clients keep working.
-pub(crate) async fn parse_form_values(
-    cx: &Cx,
-    body: Body,
-) -> Result<HashMap<String, String>, topcoat::Error> {
+pub(crate) async fn parse_form_body(cx: &Cx, body: Body) -> Result<FormParts, topcoat::Error> {
     let content_type =
         topcoat::context::try_request_context::<http::request::Parts>(cx).and_then(|parts| {
             parts
@@ -61,12 +69,17 @@ pub(crate) async fn parse_form_values(
         .as_deref()
         .is_some_and(is_multipart_content_type)
     {
-        return parse_multipart_values(cx, body).await;
+        // Stage bytes only when something will consume them (GH #188): the
+        // parser is the one place that knows whether an uploader exists.
+        return parse_multipart_values(cx, body, crate::upload::installed(cx)).await;
     }
     let bytes = Bytes::from_request(cx, body)
         .await
         .map_err(|_| topcoat::router::error::bad_request("cannot read form body"))?;
-    form_values_from_request_parts(content_type.as_deref(), bytes.as_ref())
+    Ok(FormParts {
+        values: form_values_from_request_parts(content_type.as_deref(), bytes.as_ref())?,
+        files: HashMap::new(),
+    })
 }
 
 /// Whether a content type is `multipart/form-data` (parameters ignored).
@@ -76,37 +89,42 @@ fn is_multipart_content_type(ct: &str) -> bool {
         .is_some_and(|mime| mime.trim().eq_ignore_ascii_case("multipart/form-data"))
 }
 
-/// Streamed multipart half of [`parse_form_values`] (GH #90).
+/// Streamed multipart half of [`parse_form_body`] (GH #90).
 ///
 /// Fields stream one at a time with constant memory: text fields buffer
 /// (bounded by the request body limit), file fields drain-and-discard while
-/// only the sanitized filename is kept. Duplicate part names are last-wins;
-/// nameless parts are skipped. A missing boundary is a 400, an over-limit
-/// body a 413 — both classified by the extractor, never silent fallbacks.
-/// Every byte the stream carries is also counted against [`MAX_FORM_BYTES`]
-/// (GH #149): file drains and skipped parts go through the counter chunk by
-/// chunk, text fields join it after their (extractor-bounded) read, so a
-/// large upload cannot be drained chunk-by-chunk holding the handler even if
-/// the extractor's limit stops wrapping the stream.
+/// only the sanitized filename is kept — or, when `capture` is set because an
+/// uploader is installed, buffer up to the same cap so it can store them
+/// (GH #188). Duplicate part names are last-wins; nameless parts are skipped. A
+/// missing boundary is a 400, an over-limit body a 413 — both classified by the
+/// extractor, never silent fallbacks. Every byte the stream carries is also
+/// counted against [`MAX_FORM_BYTES`] (GH #149): file reads and skipped parts
+/// go through the counter chunk by chunk, text fields join it after their
+/// (extractor-bounded) read, so a large upload cannot be read chunk-by-chunk
+/// holding the handler even if the extractor's limit stops wrapping the stream.
 async fn parse_multipart_values(
     cx: &Cx,
     body: Body,
-) -> Result<HashMap<String, String>, topcoat::Error> {
+    capture: bool,
+) -> Result<FormParts, topcoat::Error> {
     use topcoat::router::content::multipart::Multipart;
     use topcoat::router::request::FromRequest;
 
-    let mut out = HashMap::new();
+    let mut out = FormParts {
+        values: HashMap::new(),
+        files: HashMap::new(),
+    };
     let mut bytes_seen = 0usize;
     let mut multipart = Multipart::from_request(cx, body).await?;
     while let Some(mut field) = multipart.next_field().await? {
         let Some(name) = field.name().map(str::to_string) else {
             // Nameless parts carry bytes too: drain them through the counter
             // so the accounting covers the whole request stream (GH #149).
-            drain_bounded(&mut field, &mut bytes_seen).await?;
+            read_bounded(&mut field, &mut bytes_seen, None).await?;
             continue;
         };
         if name.is_empty() {
-            drain_bounded(&mut field, &mut bytes_seen).await?;
+            read_bounded(&mut field, &mut bytes_seen, None).await?;
             continue;
         }
         // RFC 6266: `filename*=` (decoded) takes precedence over `filename=`.
@@ -116,40 +134,66 @@ async fn parse_multipart_values(
             filename_star_from_headers(&field).or_else(|| field.file_name().map(str::to_string));
         match filename {
             Some(f) if !f.is_empty() => {
-                // v1 stores the sanitized basename, not the bytes
-                // (FileUpload contract, GH #90): drain to advance the stream.
-                drain_bounded(&mut field, &mut bytes_seen).await?;
-                out.insert(name, sanitize_filename(&f));
+                let sanitized = sanitize_filename(&f);
+                // Bytes are staged only for a name the framework would persist
+                // (a rejected name sanitizes to empty, GH #149) and only when
+                // an uploader is installed to store them (GH #188). Otherwise
+                // drain to advance the stream.
+                if capture && !sanitized.is_empty() {
+                    let mut bytes = Vec::new();
+                    read_bounded(&mut field, &mut bytes_seen, Some(&mut bytes)).await?;
+                    out.files.insert(
+                        name.clone(),
+                        crate::upload::StagedUpload {
+                            filename: sanitized.clone(),
+                            bytes,
+                        },
+                    );
+                } else {
+                    read_bounded(&mut field, &mut bytes_seen, None).await?;
+                }
+                out.values.insert(name, sanitized);
             }
             Some(_) => {
                 // Empty filename (no file chosen) → empty value so `required`
                 // validation fires instead of treating it as missing.
-                drain_bounded(&mut field, &mut bytes_seen).await?;
-                out.insert(name, String::new());
+                read_bounded(&mut field, &mut bytes_seen, None).await?;
+                out.values.insert(name, String::new());
             }
             None => {
                 // Text fields buffer (extractor-bounded); the read joins the
                 // same counter so the backstop sees the per-request total.
                 let text = field.text().await?;
                 count_form_bytes(&mut bytes_seen, text.len())?;
-                out.insert(name, text);
+                out.values.insert(name, text);
             }
         }
     }
     Ok(out)
 }
 
-/// Drain one multipart field chunk-by-chunk, accounting every byte against
-/// [`MAX_FORM_BYTES`] (GH #149): enforcement normally happens in the
-/// extractor (`BodyLimit` wraps the multipart stream), but the drain owns its
-/// own counter so an over-cap upload 413s here too instead of holding the
-/// handler.
-async fn drain_bounded(
+/// Read one multipart field chunk-by-chunk, accounting every byte against
+/// [`MAX_FORM_BYTES`] (GH #149): enforcement normally happens in the extractor
+/// (`BodyLimit` wraps the multipart stream), but the reader owns its own
+/// counter so an over-cap upload 413s here too instead of holding the handler.
+///
+/// `keep` decides the destination, not the accounting: `None` drains and
+/// discards (the default path, constant memory), `Some(sink)` buffers for an
+/// installed [`Uploader`](crate::Uploader) (GH #188). One loop, so the two
+/// paths cannot disagree about the cap — and the buffered bytes are bounded by
+/// that same cap, so installing an uploader trades the discard for at most one
+/// body's worth of heap rather than widening the contract.
+async fn read_bounded(
     field: &mut topcoat::router::content::multipart::Field<'_>,
     bytes_seen: &mut usize,
+    keep: Option<&mut Vec<u8>>,
 ) -> Result<(), topcoat::Error> {
+    let mut keep = keep;
     while let Some(chunk) = field.chunk().await? {
         count_form_bytes(bytes_seen, chunk.len())?;
+        if let Some(sink) = keep.as_deref_mut() {
+            sink.extend_from_slice(&chunk);
+        }
     }
     Ok(())
 }
@@ -189,7 +233,7 @@ fn filename_star_from_headers(
     })
 }
 
-/// Pure urlencoded half of [`parse_form_values`] (GH #90) — testable without
+/// Pure urlencoded half of [`parse_form_body`] (GH #90) — testable without
 /// a request. Rejects bodies over `MAX_FORM_BYTES` with 413. Multipart
 /// never reaches here: it streams via [`parse_multipart_values`], where a
 /// missing boundary is a 400 and an over-limit body a 413 (both classified
@@ -220,7 +264,9 @@ fn form_values_from_request_parts(
     Ok(form_values_from_bytes(bytes))
 }
 
-/// Max form/multipart body accepted (GH #90): 10 MiB. v1 keeps filenames only.
+/// Max form/multipart body accepted (GH #90): 10 MiB. It bounds the whole
+/// multipart stream, file bytes included — whether they are discarded or
+/// buffered for an installed [`Uploader`](crate::Uploader) (GH #188).
 pub(crate) const MAX_FORM_BYTES: usize = 10 * 1024 * 1024;
 
 /// Sanitize a client-supplied filename to a basename (GH #90).
@@ -310,7 +356,7 @@ fn decode_rfc5987(value: &str) -> Option<String> {
     String::from_utf8(out).ok()
 }
 
-/// Pure half of [`parse_form_values`] — testable without a request.
+/// Pure half of [`parse_form_body`] — testable without a request.
 fn form_values_from_bytes(bytes: &[u8]) -> HashMap<String, String> {
     form_urlencoded::parse(bytes).into_owned().collect()
 }
@@ -557,15 +603,27 @@ pub(crate) fn resource_create_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<
         if !R::can_create(cx) {
             return Err(forbidden().into());
         }
-        let mut values = parse_form_values(cx, body).await?;
-        crate::csrf::verify(cx, &values)?;
+        let parts = parse_form_body(cx, body).await?;
+        crate::csrf::verify(cx, &parts.values)?;
         let schema = R::form(cx);
-        reject_unknown_form_keys(&schema, &values)?;
+        reject_unknown_form_keys(&schema, &parts.values)?;
+        let FormParts { mut values, files } = parts;
+        // Uploaded bytes become stored paths before validation, and outside the
+        // transaction below (GH #188): an upload is a side effect in another
+        // system, so a rolled-back transaction must not have to undo it, and a
+        // store that rejects the file must be able to answer inline.
+        //
+        // Nothing backfills an upload here: a create has no stored value to
+        // keep, so a rejected file leaves its field empty beside the reason.
+        let upload_errors = crate::upload::store_uploads(cx, &schema, &files, &mut values).await;
         // Transport keys never reach the record fn (GH #148): a generic impl
         // iterating `values` must not see `csrf_token`/`clear_*` as writable
         // fields — the framework strips them once, not per-app convention.
         strip_transport_keys(&schema, &mut values);
         let mut errors = schema.validate_async(cx, &values).await;
+        // A rejected upload owns its field's error slot: "required" would
+        // restate the symptom (nothing was stored) and hide the reason.
+        errors.extend(upload_errors);
         // Framework-owned transaction (GH #84): opened only after
         // validation — `validate_async` relationship loaders run on their
         // own handle, which would block on the pool while the tx holds it
@@ -647,8 +705,8 @@ pub(crate) fn resource_edit_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_
     Box::pin(HoistView::new(ThenView::new(async move {
         enforce_auth(cx)?;
         enforce_tenant::<R>(cx)?;
-        let mut values = parse_form_values(cx, body).await?;
-        crate::csrf::verify(cx, &values)?;
+        let parts = parse_form_body(cx, body).await?;
+        crate::csrf::verify(cx, &parts.values)?;
         let id = topcoat::router::path_param_segment(cx, "id").to_string();
         // Advisory load on a pooled handle (GH #86): feeds hydration and the
         // pre-validation file backfill below. The body is already parsed and
@@ -666,16 +724,22 @@ pub(crate) fn resource_edit_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_
             return Err(forbidden().into());
         }
         let schema = R::form(cx);
-        reject_unknown_form_keys(&schema, &values)?;
+        reject_unknown_form_keys(&schema, &parts.values)?;
+        let FormParts { mut values, files } = parts;
         // Unique check excludes this record's own unchanged values.
         let current = R::hydrate_form_values(&advisory);
+        // Store the chosen files first (GH #188): a stored path is the submit's
+        // answer for that field, and a *rejected* store drops the submitted
+        // name so the backfill below restores what is actually on disk —
+        // rendering the client's filename as a stored file would be a lie.
+        let upload_errors = crate::upload::store_uploads(cx, &schema, &files, &mut values).await;
         // Untouched file inputs preserve the stored path (GH #90): the edit
         // form renders an empty file input (browsers never pre-fill it), so
         // an empty submit means "keep", not "clear" — without this the
         // required check rejects untouched edits and optional uploads get
-        // blanked. An explicit `clear_<field>=1` opts back into clearing
-        // (apps render their own checkbox; a first-class control is future
-        // work).
+        // blanked. An explicit `clear_<field>=1` opts back into clearing; the
+        // framework renders that control itself now (GH #188), and a chosen
+        // file still wins over it, because a replacement is not a removal.
         for name in schema.file_uploads().keys() {
             let cleared = values
                 .get(&format!("clear_{name}"))
@@ -691,6 +755,9 @@ pub(crate) fn resource_edit_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_
         // Transport keys never reach the record fn (GH #148) — see create.
         strip_transport_keys(&schema, &mut values);
         let mut errors = schema.validate_async(cx, &values).await;
+        // See create: a rejected upload owns its field's error slot, and a
+        // cleared `required` upload answers "<Label> is required" instead.
+        errors.extend(upload_errors);
         // Authoritative load inside the framework transaction (GH #84, #86):
         // policy is checked on this snapshot and the same record flows into
         // the write — never a silent re-load outside the checked snapshot.
@@ -1640,10 +1707,14 @@ mod tests {
 
     /// Build a request context carrying `content_type` and run the streaming
     /// multipart parser over `body` (GH #90).
-    async fn multipart_values(
+    ///
+    /// `capture` mirrors the handler's "an uploader is installed" decision
+    /// (GH #188): the value half is what most of these tests read.
+    async fn multipart_parts(
         content_type: &str,
         body: Vec<u8>,
-    ) -> Result<HashMap<String, String>, topcoat::Error> {
+        capture: bool,
+    ) -> Result<FormParts, topcoat::Error> {
         let (parts, ()) = http::Request::builder()
             .uri("/admin/users/create")
             .header(http::header::CONTENT_TYPE, content_type)
@@ -1653,7 +1724,17 @@ mod tests {
         let cx = topcoat::context::CxTestBuilder::new()
             .request_context(parts)
             .build();
-        parse_multipart_values(&cx, Body::from(body)).await
+        parse_multipart_values(&cx, Body::from(body), capture).await
+    }
+
+    /// The values half of [`multipart_parts`] — the parser's pre-#188 output.
+    async fn multipart_values(
+        content_type: &str,
+        body: Vec<u8>,
+    ) -> Result<HashMap<String, String>, topcoat::Error> {
+        multipart_parts(content_type, body, false)
+            .await
+            .map(|parts| parts.values)
     }
 
     fn multipart_type(boundary: &str) -> String {
@@ -1793,6 +1874,61 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(got.get("image_path").map(String::as_str), Some(""));
+    }
+
+    /// GH #188: file bytes are staged for the uploader only when one is
+    /// installed — otherwise today's drain-and-discard is what keeps a large
+    /// upload off the heap for every app that never installs one.
+    #[tokio::test]
+    async fn multipart_stages_file_bytes_only_when_capturing() {
+        let boundary = "----CaptureBoundary";
+        let body = format!(
+            "--{b}\r\nContent-Disposition: form-data; name=\"title\"\r\n\r\nHello\r\n\
+             --{b}\r\nContent-Disposition: form-data; name=\"image_path\"; filename=\"photo.jpg\"\r\nContent-Type: image/jpeg\r\n\r\nBINARYBYTES\r\n\
+             --{b}--\r\n",
+            b = boundary
+        );
+
+        // Capturing: the part's bytes and sanitized name reach the uploader's
+        // staging area, and the value keeps the basename until an uploader
+        // replaces it (the handler's step).
+        let captured = multipart_parts(&multipart_type(boundary), body.clone().into_bytes(), true)
+            .await
+            .unwrap();
+        let staged = captured.files.get("image_path").expect("staged file part");
+        assert_eq!(staged.filename, "photo.jpg");
+        assert_eq!(staged.bytes, b"BINARYBYTES");
+        assert_eq!(
+            captured.values.get("image_path").map(String::as_str),
+            Some("photo.jpg")
+        );
+        assert!(
+            !captured.files.contains_key("title"),
+            "a text part is not a file part, got {:?}",
+            captured.files.keys()
+        );
+
+        // Not capturing: same values, no bytes held.
+        let drained = multipart_parts(&multipart_type(boundary), body.into_bytes(), false)
+            .await
+            .unwrap();
+        assert!(drained.files.is_empty(), "no uploader, no buffering");
+        assert_eq!(
+            drained.values.get("image_path").map(String::as_str),
+            Some("photo.jpg")
+        );
+    }
+
+    /// A filename the framework refuses to persist sanitizes to empty (GH #149),
+    /// and then nothing is staged: an uploader is never handed an empty name.
+    #[tokio::test]
+    async fn multipart_stages_nothing_for_a_rejected_filename() {
+        let body = "--B\r\nContent-Disposition: form-data; name=\"image_path\"; filename=\"..\"\r\nContent-Type: application/octet-stream\r\n\r\nBYTES\r\n--B--\r\n";
+        let parts = multipart_parts(&multipart_type("B"), body.as_bytes().to_vec(), true)
+            .await
+            .unwrap();
+        assert!(parts.files.is_empty(), "a rejected name stages no bytes");
+        assert_eq!(parts.values.get("image_path").map(String::as_str), Some(""));
     }
 
     #[tokio::test]

@@ -14,7 +14,7 @@ use topcoat::{
     view::{BoxView, HoistView},
 };
 
-use super::forms::{parse_form_values, truthy};
+use super::forms::{parse_form_body, truthy};
 use super::{enforce_auth, enforce_tenant, list_url};
 use crate::db::db;
 use crate::notification::{Notification, notify_write_failure, set_notification};
@@ -109,7 +109,8 @@ pub(crate) fn resource_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
         async move {
             enforce_auth(cx)?;
             enforce_tenant::<R>(cx)?;
-            let values = parse_form_values(cx, body).await?;
+            // Delete/bulk-delete carry no file parts: only the values half is read.
+            let values = parse_form_body(cx, body).await?.values;
             crate::csrf::verify(cx, &values)?;
             let confirmed = values.get("confirm").is_some_and(|v| truthy(v));
             if !confirmed {
@@ -165,7 +166,8 @@ pub(crate) fn resource_bulk_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<
         async move {
             enforce_auth(cx)?;
             enforce_tenant::<R>(cx)?;
-            let values = parse_form_values(cx, body).await?;
+            // Delete/bulk-delete carry no file parts: only the values half is read.
+            let values = parse_form_body(cx, body).await?.values;
             crate::csrf::verify(cx, &values)?;
             // Confirmation marker, mirroring the row delete (GH #184): the bulk
             // bar's dialog carries `confirm=1`, so a POST without it did not

@@ -18,11 +18,12 @@ mod search;
 mod shell;
 
 #[cfg(feature = "auth")]
-pub(crate) use self::forms::parse_form_values;
+pub(crate) use self::forms::parse_form_body;
 pub(crate) use self::search::table_search;
 pub use self::shell::{Brand, DarkMode};
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 use toasty::Db;
 use toasty::schema::Model;
@@ -35,7 +36,8 @@ use topcoat::{
     cookie::RouterBuilderCookieExt,
     font::Font,
     router::{
-        Body, PageFn, RouteFn, RouteFuture, Router, RouterBuilderDiscoverExt, error::redirect,
+        Body, PageFn, RouteFn, RouteFuture, Router, RouterBuilderDirectoryExt,
+        RouterBuilderDiscoverExt, error::redirect,
     },
 };
 
@@ -80,6 +82,12 @@ pub struct Panel {
     /// (GH #174): `Panel::resource` cannot return `Result`, so a bad `slug()`
     /// or a duplicate is recorded here and reported by `build`.
     registration_errors: Vec<String>,
+    /// Where `FileUpload` bytes go (GH #188); `None` keeps the pre-#188
+    /// contract (the sanitized basename is the stored value).
+    uploads: Option<crate::upload::InstalledUploader>,
+    /// App-owned filesystem directories served from this panel's router
+    /// (GH #188): `(route pattern, directory)`.
+    served_dirs: Vec<(String, PathBuf)>,
     #[cfg(feature = "auth")]
     login_hint: Option<String>,
     #[cfg(feature = "auth")]
@@ -135,6 +143,8 @@ impl Panel {
             frame_ancestors: Some(headers::DEFAULT_FRAME_ANCESTORS.to_string()),
             registration_errors,
             resource_checks: Vec::new(),
+            uploads: None,
+            served_dirs: Vec::new(),
             #[cfg(feature = "auth")]
             login_hint: None,
             #[cfg(feature = "auth")]
@@ -150,6 +160,43 @@ impl Panel {
     /// Register the pooled `Db` on the `app_context`.
     pub fn app_context(mut self, db: Db) -> Self {
         self.db = Some(db);
+        self
+    }
+
+    /// Install the [`Uploader`](crate::Uploader) every `FileUpload` stores
+    /// through (GH #188).
+    ///
+    /// One per panel, on the app context the way `Db` is, because where bytes
+    /// live is an app-level dependency: an object store, a directory on disk, a
+    /// CDN. Without it a `FileUpload` keeps the pre-#188 contract — the
+    /// sanitized client filename is the stored value — so an app that never
+    /// installs one is unaffected.
+    pub fn uploads(mut self, uploader: impl crate::Uploader) -> Self {
+        self.uploads = Some(crate::upload::InstalledUploader::new(uploader));
+        self
+    }
+
+    /// Serve a directory of files from this panel's router (GH #188).
+    ///
+    /// `path` is a route pattern ending in a catch-all (e.g.
+    /// `"/uploads/{*file}"`), and `dir` the directory those URLs read from —
+    /// see Topcoat's `DirectoryRoute` for the resolution rules. The path is
+    /// **not** panel-relative: a served directory holds files a record points
+    /// at (an upload store's output), which are not a page of the panel and
+    /// must not move when the panel is mounted elsewhere. Nothing under the
+    /// panel's auth gate is affected — these URLs are served to whoever asks,
+    /// so an app that needs protected files owns that route itself.
+    ///
+    /// The Panel owns the [`Router`], so this is the app's only way to mount a
+    /// route the framework does not own.
+    pub fn serve_dir(mut self, path: impl Into<String>, dir: impl Into<PathBuf>) -> Self {
+        let path = path.into();
+        if !is_directory_pattern(&path) {
+            self.registration_errors.push(format!(
+                "serve_dir path '{path}': must end in a catch-all like '/uploads/{{*file}}'"
+            ));
+        }
+        self.served_dirs.push((path, dir.into()));
         self
     }
 
@@ -408,6 +455,8 @@ impl Panel {
             frame_ancestors,
             registration_errors: _,
             resource_checks,
+            uploads,
+            served_dirs,
             #[cfg(feature = "auth")]
             login_hint,
             #[cfg(feature = "auth")]
@@ -504,6 +553,14 @@ impl Panel {
         if let Some(enabled) = dark_mode {
             builder = builder.app_context(DarkMode(enabled));
         }
+        // Where uploaded bytes go (GH #188): installed once, found by the form
+        // handlers and the multipart parser through the app context.
+        if let Some(uploads) = uploads {
+            builder = builder.app_context(uploads);
+        }
+        for (path, dir) in served_dirs {
+            builder = builder.serve_dir(route_path(&path), dir);
+        }
         for page in pages {
             builder = builder.page(page);
         }
@@ -554,6 +611,23 @@ impl Panel {
     pub(crate) fn nav_item<R: Resource>(&self) -> NavigationItem {
         R::navigation().resolved(&self.prefix, Some(&R::slug()))
     }
+}
+
+/// Whether a path is a route pattern ending in a catch-all, which is the only
+/// shape [`DirectoryRoute`](topcoat::router::DirectoryRoute) accepts (GH #188).
+///
+/// Checked where the path is declared rather than where it is used: upstream
+/// `serve_dir` panics on anything else, and `Panel::build` reports instead of
+/// panicking (GH #174) — but the path comes from the app, and it would panic
+/// first in [`route_path`] (which refuses to spell a route it cannot parse) and
+/// then inside `DirectoryRoute::new` (which needs the catch-all last). Asking
+/// both conditions here turns a typo into a build error instead of a panic
+/// during the build.
+fn is_directory_pattern(path: &str) -> bool {
+    Path::from_str(path)
+        .ok()
+        .and_then(|parsed| parsed.segments().next_back())
+        .is_some_and(|segment| segment.as_catch_all().is_some())
 }
 
 /// Validate one path segment a panel derives routes from (GH #174): a
@@ -745,6 +819,30 @@ pub(crate) fn panel_root_redirect(cx: &Cx, _body: Body) -> RouteFuture<'_> {
 mod tests {
     use super::*;
     use toasty::Db;
+
+    /// GH #188: a served directory's path is a route pattern ending in a
+    /// catch-all, and only that; everything else is a build error rather than
+    /// the panic upstream `serve_dir` would raise.
+    #[test]
+    fn serve_dir_accepts_only_a_catch_all_pattern() {
+        assert!(is_directory_pattern("/uploads/{*file}"));
+        assert!(is_directory_pattern("/{*file}"));
+        // Upstream allows a space in a static segment, so a pattern carrying
+        // one is still a pattern: the catch-all is what matters, not tidiness.
+        assert!(is_directory_pattern("/up loads/{*file}"));
+        // Not a catch-all: a plain path, its trailing-slash form, a named
+        // parameter, an unnamed catch-all, and a catch-all that is not last.
+        assert!(!is_directory_pattern("/uploads"));
+        assert!(!is_directory_pattern("/uploads/"));
+        assert!(!is_directory_pattern("/uploads/{file}"));
+        assert!(!is_directory_pattern("/uploads/{*}"));
+        assert!(!is_directory_pattern("/{*file}/more"));
+        // Not a route path at all: an unclosed brace, an empty segment, and a
+        // catch-all name that is not an identifier.
+        assert!(!is_directory_pattern("/uploads/{*file"));
+        assert!(!is_directory_pattern("/uploads//{*file}"));
+        assert!(!is_directory_pattern("/uploads/{*fi-le}"));
+    }
 
     #[test]
     fn panel_normalizes_prefix() {
