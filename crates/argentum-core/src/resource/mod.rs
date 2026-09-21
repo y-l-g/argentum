@@ -169,6 +169,26 @@ pub trait Resource: Sized + Send + Sync + 'static {
     /// page through one handler. Scoping it via `Model::filter(..)` in an
     /// override stays as ergonomic as before; the wrapper's extra methods are
     /// only needed by hand-written loaders.
+    ///
+    /// # Keep unique constraints in step with this scope (GH #88)
+    ///
+    /// The app-side unique pre-check probes submitted values **through this
+    /// query**, so it only sees the rows this query returns. A `#[unique]` index
+    /// *broader* than the scope is therefore invisible to it: the probe misses
+    /// the colliding row, the database refuses the write, and the user gets a
+    /// 500 instead of the inline "has already been taken".
+    ///
+    /// The tenant case is the one that bites — scoping to `tenant_id` here while
+    /// the column carries a plain `#[unique]` (global) makes two tenants sharing
+    /// a value a legitimate pair to the probe and a constraint violation to the
+    /// database. Scope the constraint to match: `#[unique(tenant_id, email)]`,
+    /// which also makes it say what it means. `Author.email` in the showcase is
+    /// the worked example.
+    ///
+    /// The invariant cannot be *checked* at declaration time — a query's filters
+    /// are not introspectable, so nothing can compare the two automatically.
+    /// Upstream #117 (a driver-level unique-violation predicate) is what would
+    /// make a mismatch safe rather than merely documented.
     fn query(_cx: &Cx) -> toasty::stmt::Query<List<Self::Model>> {
         toasty::stmt::Query::<List<Self::Model>>::all()
     }

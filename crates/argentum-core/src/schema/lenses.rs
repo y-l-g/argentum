@@ -433,11 +433,13 @@ pub(crate) fn lens_label(field: &toasty::schema::app::Field) -> String {
 /// the same as checking it exactly: the pre-check probes the field's value
 /// inside `R::query`'s scope, so it enforces the constraint only when that
 /// scope matches the index's remaining components — which is the arrangement
-/// `#[unique(tenant_id, ..)]` on a `requires_tenant` resource produces, and
-/// which `the_flattened_name_participates_in_allow_list_and_validation`-style
-/// showcase coverage pins. Declaring `unique()` on a field whose index carries
-/// components outside the resource's scope stays a gap (upstream #117 is the
-/// real fix: a driver predicate would let the write itself report the field).
+/// `#[unique(tenant_id, ..)]` on a tenant-scoped resource produces, and which
+/// `two_tenants_may_share_an_author_email` / `duplicate_email_within_one_tenant
+/// _is_reported_inline` in the showcase pin from both sides. Declaring `unique()`
+/// on a field whose index carries components *outside* the resource's scope
+/// stays a gap, and it is not checkable here because a query's filters are not
+/// introspectable; see `Resource::query`'s note and upstream #117, whose driver
+/// predicate is the real fix.
 ///
 /// This reports declared schema uniqueness, not a global uniqueness guarantee:
 /// SQL permits multiple `NULL`s in a unique index, and enum-variant columns are
