@@ -52,6 +52,7 @@ pub struct Table<M> {
     is_boundary: bool,
     delete_prefix: Option<String>,
     edit_prefix: Option<String>,
+    view_prefix: Option<String>,
     bulk_delete: bool,
     live_search: bool,
     _marker: PhantomData<M>,
@@ -72,6 +73,7 @@ impl<M> std::fmt::Debug for Table<M> {
             .field("is_boundary", &self.is_boundary)
             .field("delete_prefix", &self.delete_prefix)
             .field("edit_prefix", &self.edit_prefix)
+            .field("view_prefix", &self.view_prefix)
             .field("bulk_delete", &self.bulk_delete)
             .field("live_search", &self.live_search)
             .finish()
@@ -99,6 +101,7 @@ impl<M> Table<M> {
             is_boundary: true,
             delete_prefix: None,
             edit_prefix: None,
+            view_prefix: None,
             bulk_delete: false,
             live_search: false,
             _marker: PhantomData,
@@ -411,6 +414,20 @@ impl<M> Table<M> {
     /// the list deliberately does not filter rows (GH #86).
     pub fn with_edit(mut self, prefix: String) -> Self {
         self.edit_prefix = Some(prefix);
+        self
+    }
+
+    /// Enable the row-level `View` action (GH #187). When set, each row renders
+    /// a `View` link to `{prefix}/{id}` — the detail page — in the same
+    /// last-column slot as `Edit` and `Delete`. `{id}` is the [`Self::pk`]
+    /// record key, like the edit URL.
+    ///
+    /// The caller sets this only for a resource that declares a detail page
+    /// ([`Resource::viewed`](crate::resource::Resource::viewed)), so a resource
+    /// with no view renders no link instead of one that 404s. Per-record policy
+    /// stays handler-enforced (`can_view` in the detail GET), matching `Edit`.
+    pub fn with_view(mut self, prefix: String) -> Self {
+        self.view_prefix = Some(prefix);
         self
     }
 

@@ -17,7 +17,7 @@ use topcoat::{
     view::{BoxView, HoistView, ViewExt, attributes, view},
 };
 
-use super::actions::find_by_key;
+use super::actions::{find_by_key, load_viewable};
 use super::{enforce_auth, enforce_tenant, list_url};
 use crate::db::db;
 use crate::notification::{Notification, notify_write_failure, set_notification};
@@ -618,12 +618,8 @@ pub(crate) fn resource_edit<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
     Box::pin(HoistView::new(ThenView::new(async move {
         enforce_auth(cx)?;
         enforce_tenant::<R>(cx)?;
-        let id = topcoat::router::path_param_segment(cx, "id").to_string();
         let mut db = db(cx);
-        let record = find_by_key::<R>(cx, &id, &mut db).await?;
-        if !R::can_view(cx, &record) {
-            return Err(forbidden().into());
-        }
+        let record = load_viewable::<R>(cx, &mut db).await?;
         if !R::can_update(cx, &record) {
             return Err(forbidden().into());
         }

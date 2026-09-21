@@ -38,7 +38,12 @@ impl Node {
     ) -> Result<BoxView<'a>> {
         // A live field renders with its signal when the caller supplied a
         // value signal for it; the error list may be empty (a valid field).
-        if let RenderSource::Live { values, errors } = source
+        // View mode has no signals and no controls (GH #187).
+        if let RenderSource::Live {
+            values,
+            errors,
+            mode: Mode::Form,
+        } = source
             && let Node::TextInput(f) = self
             && let Some(value) = values.get(f.field_name())
         {
@@ -53,24 +58,32 @@ impl Node {
             Node::TextInput(f) => {
                 let val = static_value(source, f.field_name());
                 let errs = static_errors(source, f.field_name());
-                Ok(Box::pin(f.render_with(cx, val, errs)).await?.boxed())
+                Ok(Box::pin(f.render_with(cx, val, errs, source.mode()))
+                    .await?
+                    .boxed())
             }
             // Not live-bindable: the live seam (GH #154 §4) is `TextInput`-only
             // today, so a textarea always renders its static form.
             Node::Textarea(f) => {
                 let val = static_value(source, f.field_name());
                 let errs = static_errors(source, f.field_name());
-                Ok(Box::pin(f.render_with(cx, val, errs)).await?.boxed())
+                Ok(Box::pin(f.render_with(cx, val, errs, source.mode()))
+                    .await?
+                    .boxed())
             }
             Node::Select(f) => {
                 let val = static_value(source, f.field_name());
                 let errs = static_errors(source, f.field_name());
-                Ok(Box::pin(f.render_with(cx, val, errs)).await?.boxed())
+                Ok(Box::pin(f.render_with(cx, val, errs, source.mode()))
+                    .await?
+                    .boxed())
             }
             Node::FileUpload(f) => {
                 let val = static_value(source, f.field_name());
                 let errs = static_errors(source, f.field_name());
-                Ok(Box::pin(f.render_with(cx, val, errs)).await?.boxed())
+                Ok(Box::pin(f.render_with(cx, val, errs, source.mode()))
+                    .await?
+                    .boxed())
             }
             Node::Repeater(r) => Ok(Box::pin(r.render_source(cx, source)).await?.boxed()),
             Node::Tabs(t) => Ok(Box::pin(t.render_source(cx, source)).await?.boxed()),
@@ -82,19 +95,49 @@ impl Node {
     }
 }
 
-/// Where a schema render reads field values and errors from (GH #154 §4).
+/// Where a schema render reads field values and errors from (GH #154 §4), and
+/// which side of the record the render is for (GH #187).
 ///
 /// `Static` is the create/edit path: plain maps, no bindings. `Live` carries
-/// per-field value signals for form controls that must two-way bind.
+/// per-field value signals for form controls that must two-way bind. Both are
+/// `Mode::Form`; `Mode::View` renders the detail page, where a field shows its
+/// stored value instead of a control — `Select` its option label, `FileUpload`
+/// its path — and layout keeps the structure it declares.
 pub(crate) enum RenderSource<'a> {
     Static {
         values: &'a HashMap<String, String>,
         errors: &'a HashMap<String, Vec<String>>,
+        mode: Mode,
     },
     Live {
         values: &'a HashMap<String, Signal<String>>,
         errors: &'a HashMap<String, Vec<String>>,
+        mode: Mode,
     },
+}
+
+/// Which reading of a record a render is for (GH #187).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Mode {
+    /// Create/edit: fields render as controls, validation applies.
+    Form,
+    /// Detail page: fields render their stored value, read-only.
+    View,
+}
+
+impl RenderSource<'_> {
+    /// Which reading this render is for.
+    pub(crate) fn mode(&self) -> Mode {
+        match self {
+            RenderSource::Static { mode, .. } | RenderSource::Live { mode, .. } => *mode,
+        }
+    }
+
+    /// Whether this render ignores validation errors (view mode does: a stored
+    /// record has nothing to be invalid about).
+    pub(crate) fn ignores_errors(&self) -> bool {
+        self.mode() == Mode::View
+    }
 }
 
 /// The static value for `name`, if this render has one.
@@ -106,7 +149,13 @@ fn static_value<'a>(source: &'a RenderSource<'_>, name: &str) -> Option<&'a str>
 }
 
 /// The static errors for `name`, if this render has any.
+///
+/// View mode never has any (GH #187): the detail page renders a stored record,
+/// so a validation slot would describe a submit that cannot happen.
 fn static_errors<'a>(source: &'a RenderSource<'_>, name: &str) -> &'a [String] {
+    if source.ignores_errors() {
+        return &[];
+    }
     match source {
         RenderSource::Static { errors, .. } | RenderSource::Live { errors, .. } => {
             errors.get(name).map(|v| v.as_slice()).unwrap_or(&[])

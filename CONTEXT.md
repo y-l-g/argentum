@@ -29,12 +29,12 @@ A server-side `AuthSession` row keyed by the SHA-256 hash of a client token carr
 _Avoid_: Token (the client half), SessionStore, Login, Cookie
 
 ### Resource
-A type that maps one Toasty Model to its admin UI. Defines the base query, the table, the form (and infolist stub), navigation entry, and policy. One Model → one Resource; its routes (list/create/edit/delete) come from the Panel registration, not a `pages()` declaration.
+A type that maps one Toasty Model to its admin UI. Defines the base query, the table, the form, the view (GH #187), navigation entry, and policy. One Model → one Resource; its routes (list/create/view/edit/delete) come from the Panel registration, not a `pages()` declaration. A resource that declares no `view` has no detail page: `viewed()` is derived from the schema, not declared beside it, so the route's answer and the row's `View` link cannot disagree.
 
 _Avoid_: Model, Entity, Collection, AdminModel, CRUD
 
 ### Schema
-The unified layout primitive for forms and infolists. A composition of layout blocks (Section, Group, Grid, Tabs, Wizard) and typed fields (TextInput, Textarea, Select, FileUpload, Repeater) bound via field lenses to a Model. Textarea is TextInput's multi-line sibling: the same lens, the same required default and error contract, a `<textarea>` control instead — and deliberately no `unique()`, since the app-side pre-check builds its probe from `TextInput` (GH #184, GH #115).
+The unified layout primitive for forms, infolists, and detail pages (GH #187, ADR-0016): one declaration read two ways — `render_with` gives controls, `render_readonly` gives the record's stored values under the same labels and layout. A composition of layout blocks (Section, Group, Grid, Tabs, Wizard) and typed fields (TextInput, Textarea, Select, FileUpload, Repeater) bound via field lenses to a Model. Textarea is TextInput's multi-line sibling: the same lens, the same required default and error contract, a `<textarea>` control instead — and deliberately no `unique()`, since the app-side pre-check builds its probe from `TextInput` (GH #184, GH #115).
 
 _Avoid_: Form, Infolist, Fieldset (as top-level term), statePath
 
@@ -49,6 +49,11 @@ _Avoid_: Grid, Listing, DataTable
 A typed projection of a Model field (or a computed value) displayed in a Table row, rendered through a lens-bound closure where typos fail at compile time. `searchable`/`sortable` map to Toasty predicates and order_by; computed columns render values but declare none. Badge, Number and other variants remain spec-level.
 
 _Avoid_: Field (in table context), Cell, Attribute
+
+### Detail page
+`GET {prefix}/{slug}/{id}` (GH #187): one record rendered through `Resource::view`'s Schema in read-only mode. Loads through the `Resource::query` seam like every other record page, so an unknown id and one outside the request's scope are the same 404, while a record the caller may not view is a 403.
+
+_Avoid_: Show page, Infolist page, Record view
 
 ### Action
 A user-invoked delete/create/edit operation driven by a `Resource` record fn (`delete_record` / `bulk_delete_records` / `create_record` / `update_record`) through a POST handler, inside a transaction, with authorization checked against the passed record inside the handler.

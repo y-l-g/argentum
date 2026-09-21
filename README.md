@@ -286,6 +286,26 @@ Select::r#for(Post::fields().author_id())
 
 Validation errors render inline per field. Absent keys validate as `""` and updates write only present keys; handlers reject unknown form keys with 400 (`role` / `tenant_id` smuggling fails closed; only `csrf_token` and `clear_<field>` are exempt), so extra posted keys never reach record fns.
 
+### Detail pages (GH #187)
+
+A resource can show one record read-only by declaring `view`, which is the same `Schema` read the other way round (ADR-0016):
+
+```rust
+fn view(cx: &Cx) -> Schema {
+    Schema::new(Section::new("Post").schema((
+        TextInput::r#for(Post::fields().title()),
+        Textarea::r#for(Post::fields().body()).rows(6),
+    )))
+}
+```
+
+That registers `GET /admin/{slug}/{id}` — loaded through `Resource::query`, so an unknown id and one outside the tenant are the same 404, while `can_view` denial is a 403 — and adds a `View` link beside `Edit` on each row. A resource with no `view` declaration has no page and no link, and the route answers 404 rather than rendering an empty shell.
+
+- **Read-only is not a disabled form.** Fields render labels and stored values: `TextInput`/`Textarea` show text, `Select` shows the option label the form offered (or the stored value when no option matches, a relationship key included), `FileUpload` shows the stored path, and layout blocks keep their structure. No control, no CSRF field, no validation slot.
+- **Values come from `hydrate_form_values`**, the same projection the edit form hydrates, so a field that renders in the form renders here.
+- **What a view cannot show yet**: typed columns (`Uuid`, `jiff::Timestamp`) need the GH #192 seam, and a loaded relation needs a field type that reads it. The page reuses `query`'s `include`, so a related row is already in hand — but nothing renders it yet, and no N+1 assertion exists because there is no per-row load to assert against. The showcase's post view names both gaps where a reader hits them.
+- `IntoSchema` takes at most four top-level blocks; a longer view wraps a fifth in a `Group`.
+
 ---
 
 ## 7. Policy, auth, tenancy

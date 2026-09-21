@@ -65,6 +65,11 @@ pub(crate) fn wire_table_actions<R: Resource>(cx: &Cx, live: bool) -> Table<R::M
     if R::editable() {
         table = table.with_edit(list_url(cx, &R::slug()));
     }
+    // GH #187: the View link follows the declaration, not a flag — a resource
+    // with no `view` schema has no page to link to.
+    if R::viewed(cx) {
+        table = table.with_view(list_url(cx, &R::slug()));
+    }
     table
 }
 

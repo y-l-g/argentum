@@ -278,7 +278,7 @@ where
 mod tests {
     use topcoat::context::{Cx, CxTestBuilder};
 
-    use crate::schema::Select;
+    use crate::schema::{Mode, Select};
 
     use super::*;
     use topcoat::view::*;
@@ -410,7 +410,7 @@ mod tests {
         // An overflowed load keeps the stored FK selectable (GH #91): a
         // failed load must not blank the relation into a required-error.
         let html = select
-            .render_with(&cx, Some("stored-fk"), &[])
+            .render_with(&cx, Some("stored-fk"), &[], Mode::Form)
             .await
             .unwrap()
             .single()
@@ -483,7 +483,7 @@ mod tests {
             vec!["Name is invalid".to_string()]
         );
         let html = select
-            .render_with(&cx, Some(&pk), &[])
+            .render_with(&cx, Some(&pk), &[], Mode::Form)
             .await
             .unwrap()
             .single()
@@ -531,7 +531,7 @@ mod tests {
             vec!["Id is not available".to_string()]
         );
         let html = select
-            .render_with(&cx, Some(&pk), &[])
+            .render_with(&cx, Some(&pk), &[], Mode::Form)
             .await
             .unwrap()
             .single()
@@ -632,7 +632,7 @@ mod tests {
             vec!["Id is invalid".to_string()]
         );
         let html = select
-            .render_with(&cx, Some(&visible.id.to_string()), &[])
+            .render_with(&cx, Some(&visible.id.to_string()), &[], Mode::Form)
             .await
             .unwrap()
             .single()
@@ -722,7 +722,7 @@ mod tests {
             vec!["Id is invalid".to_string()]
         );
         let html = select
-            .render_with(&cx, Some(&pk), &[])
+            .render_with(&cx, Some(&pk), &[], Mode::Form)
             .await
             .unwrap()
             .single()
@@ -805,7 +805,7 @@ mod tests {
         assert!(s1.validate_async(&cx, &id).await.is_empty());
         assert!(s2.validate_async(&cx, &id).await.is_empty());
         let _ = s1
-            .render_with(&cx, Some(&id), &[])
+            .render_with(&cx, Some(&id), &[], Mode::Form)
             .await
             .unwrap()
             .single()
@@ -1187,7 +1187,7 @@ mod tests {
                 |r: &HintRef| r.name.clone(),
             );
         let html = select
-            .render_with(&cx, Some("stored-fk"), &[])
+            .render_with(&cx, Some("stored-fk"), &[], Mode::Form)
             .await
             .unwrap()
             .single()
@@ -1269,7 +1269,7 @@ mod tests {
                 |r: &SmallRef| r.name.clone(),
             );
         let html = select
-            .render_with(&cx, None, &[])
+            .render_with(&cx, None, &[], Mode::Form)
             .await
             .unwrap()
             .single()

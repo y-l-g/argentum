@@ -137,7 +137,9 @@ impl<M> Table<M> {
         }
         let delete_prefix = self.delete_prefix.clone();
         let edit_prefix = self.edit_prefix.clone();
-        let with_actions = delete_prefix.is_some() || edit_prefix.is_some();
+        let view_prefix = self.view_prefix.clone();
+        let with_actions =
+            delete_prefix.is_some() || edit_prefix.is_some() || view_prefix.is_some();
         let with_bulk = self.bulk_enabled();
         // Record keys feed URLs and bulk values, which handlers resolve as
         // the typed PK (GH #168): chrome without `pk` would emit display keys
@@ -352,6 +354,9 @@ impl<M> Table<M> {
                 let edit_url = edit_prefix
                     .as_ref()
                     .map(|prefix| format!("{}/{}/edit", prefix, encode_path_segment(&record_id)));
+                let view_url = view_prefix
+                    .as_ref()
+                    .map(|prefix| format!("{}/{}", prefix, encode_path_segment(&record_id)));
                 let delete_url = delete_prefix
                     .is_some()
                     .then(|| state.with_delete_dialog(path, &record_id));
@@ -359,6 +364,7 @@ impl<M> Table<M> {
                     key,
                     record_id,
                     cells,
+                    view_url,
                     edit_url,
                     delete_url,
                 }
@@ -434,6 +440,7 @@ impl<M> Table<M> {
                         for row in &row_data {
                             let key_for_row = row.key.clone();
                             let key_for_select = row.record_id.clone();
+                            let view_for_row = row.view_url.clone();
                             let edit_for_row = row.edit_url.clone();
                             let open_for_row = row.delete_url.clone();
                             let row_dom_id = row_dom_id(&key_for_row);
@@ -452,9 +459,22 @@ impl<M> Table<M> {
                                 for cell in &row.cells {
                                     table_cell((cell.clone()))
                                 }
-                                if edit_for_row.is_some() || open_for_row.is_some() {
+                                if view_for_row.is_some()
+                                    || edit_for_row.is_some()
+                                    || open_for_row.is_some() {
                                     table_cell(
                                         <div class="flex gap-2">
+                                            if let Some(url) = view_for_row {
+                                                <a
+                                                    href=(url)
+                                                    class=(button_variants(
+                                                        ButtonVariant::Outline,
+                                                        ButtonSize::Md,
+                                                    ))
+                                                >
+                                                    "View"
+                                                </a>
+                                            }
                                             if let Some(url) = edit_for_row {
                                                 <a
                                                     href=(url)
@@ -1547,6 +1567,7 @@ struct RowView {
     key: String,
     record_id: String,
     cells: Vec<String>,
+    view_url: Option<String>,
     edit_url: Option<String>,
     delete_url: Option<String>,
 }

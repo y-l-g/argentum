@@ -10,7 +10,7 @@ use argentum_ui::{
 use topcoat::{Result, context::Cx, view::*};
 
 use super::Schema;
-use super::tree::{IntoSchema, RenderSource};
+use super::tree::{IntoSchema, Mode, RenderSource};
 
 /// Section — titled container with an optional child `Schema`.
 ///
@@ -206,13 +206,46 @@ impl Repeater {
         source: &RenderSource<'_>,
     ) -> Result<BoxView<'a>> {
         let title = self.label.clone();
+        // A view renders the group's label over its children's values (GH #187):
+        // a required group is a statement about a submit that cannot happen
+        // here, so no `*`, no `aria-invalid`, no error slot.
+        if let RenderSource::Static {
+            mode: Mode::View, ..
+        } = source
+        {
+            let child_view = match &self.children {
+                Some(schema) => Some(schema.render_source(cx, source).await?),
+                None => None,
+            };
+            return Ok(view! {
+                cx =>
+                ui_field_set(
+                    attrs: attributes! { class="ac-field rounded-md border border-border p-4" },
+                    ui_field_legend(
+                        variant: FieldLegendVariant::Label,
+                        attrs: attributes! {},
+                        (title)
+                    )
+                    if let Some(child_view) = child_view {
+                        <div class="grid gap-4">(child_view)</div>
+                    }
+                )
+            }
+            .boxed());
+        }
         let required = self.required;
         // Own error lives under the label key (see `walk_repeater_absence`).
         // Field errors key by field name; repeaters have no field name yet, so the
         // label is the only stable key until repeaters become field-bound (GH #78).
-        let own_errors: &[String] = match source {
-            RenderSource::Static { errors, .. } | RenderSource::Live { errors, .. } => {
-                errors.get(&self.label).map(|v| v.as_slice()).unwrap_or(&[])
+        // `ignores_errors` is the one place "view mode has no errors" lives, so a
+        // second layout that reads errors cannot forget it.
+        let own_errors: &[String] = if source.ignores_errors() {
+            &[]
+        } else {
+            match source {
+                RenderSource::Static { errors, .. } | RenderSource::Live { errors, .. } => {
+                    errors.get(&self.label).map(|v| v.as_slice()).unwrap_or(&[])
+                }
             }
         };
         let has_error = !own_errors.is_empty();
