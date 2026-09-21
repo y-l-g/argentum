@@ -263,9 +263,9 @@ Schema::new((
 
 What to know:
 
-- Layout blocks: `Section`, `Group`, `Grid`, `Tabs`, `Wizard`. Fields: `TextInput`, `Textarea`, `Select`, `FileUpload`, `Repeater`. Every field takes a typed lens (`User::fields().email()`), never a string path. `Textarea` is the multi-line half of `TextInput` — same lens, same required/unique defaults, same error contract, a `<textarea>` control instead (GH #184).
+- Layout blocks: `Section`, `Group`, `Grid`, `Tabs`, `Wizard`. Fields: `TextInput`, `Textarea`, `Select`, `FileUpload`, `Repeater`. Every field takes a typed lens (`User::fields().email()`), never a string path. `Textarea` is the multi-line half of `TextInput` — same lens, same required default, same error contract, a `<textarea>` control instead, and no `unique()` (the app-side probe is built from `TextInput`, GH #184).
 - `required` defaults to the column nullability. Use `.optional()` to opt out. A bare `Select` over a non-nullable FK rejects `""` inline instead of failing at the driver.
-- `unique()` adds an app-level pre-check only. Toasty exposes no unique-violation predicate yet, so the DB constraint stays the final guard and concurrent writes can race.
+- `unique()` does two things. It adds an app-level pre-check — Toasty exposes no unique-violation predicate yet, so the DB constraint stays the final guard and concurrent writes can race — and it implies **presence**: the framework stores `""` rather than NULL, so an empty value on a unique field is refused inline as `"<Label> is required"` instead of being written past an index that admits only one (GH #189). `.optional()` does not lift that rule, and `Panel::build` refuses a `unique()` marker on a column with no unique index (single-field or composite, `#[unique(a, b)]` included), so the declaration and the database cannot disagree about which fields are unique.
 - Relation select validates the FK against the related resource query before `create_record` runs:
 
 ```rust

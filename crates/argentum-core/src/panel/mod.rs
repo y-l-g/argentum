@@ -24,6 +24,7 @@ pub use self::shell::{Brand, DarkMode};
 use std::collections::HashMap;
 
 use toasty::Db;
+use toasty::schema::Model;
 use topcoat::router::Path;
 use topcoat::runtime::RouterBuilderRuntimeExt;
 use topcoat::{
@@ -592,11 +593,45 @@ fn check_resource<R: Resource>(cx: &Cx) -> Result<(), String> {
     // The form is only required where the panel would serve one, and `create`
     // is the statically checkable half of that (`can_update` needs a record).
     // The default policy denies create, so a read-only resource is unaffected.
-    if R::can_create(cx) && R::form(cx).is_empty() {
+    let form = R::form(cx);
+    if R::can_create(cx) && form.is_empty() {
         return Err(format!(
             "resource `{}` allows create but its form declares no fields — build it with Schema::new(..)",
             std::any::type_name::<R>()
         ));
+    }
+    // `.unique()` is a promise the panel makes and the database has to keep
+    // (GH #189 item 3): the marker turns the app-side pre-check on, so a field
+    // whose column carries no unique index makes the panel enforce a rule
+    // nothing else does — a duplicate the check lets through, or a rule the
+    // database never asked for. The declaration checks are the only place both
+    // halves are reachable without a request, so the pair is refused here
+    // rather than discovered by a user. It is checked whatever the policies say:
+    // a `unique()` marker is wrong on a form the panel would not even serve.
+    // `lens_field_unique` recognizes composite indexes too, which is what makes
+    // `#[unique(tenant_id, email)]` — the tenant-scoped arrangement the panel
+    // documents — pass.
+    let model = R::Model::schema();
+    let root = model.as_root_unwrap();
+    for (name, input) in form.text_inputs() {
+        if !input.is_unique() {
+            continue;
+        }
+        // A bound lens always resolves, so a name with no field at all is a
+        // mis-declared schema — but it is not worth a second error string: it
+        // fails the same way, one message below.
+        let backed = root
+            .fields
+            .iter()
+            .filter(|field| field.name.app_unwrap() == name)
+            .any(|field| crate::schema::lens_field_unique(field, root));
+        if !backed {
+            return Err(format!(
+                "resource `{}` marks form field `{name}` unique, but `{}::{name}` carries no unique index — add `#[unique]` (or `#[unique(..)]`) to the column or drop `.unique()`, which would otherwise check a rule the database does not enforce",
+                std::any::type_name::<R>(),
+                std::any::type_name::<R::Model>()
+            ));
+        }
     }
     Ok(())
 }
@@ -1303,5 +1338,176 @@ mod tests {
             format!("{error}").contains("Resource::slug"),
             "the error must name the offending slug, got {error}"
         );
+    }
+
+    /// GH #189 item 3: `.unique()` is a promise about the column, so declaring
+    /// it on a field with no unique index fails the build instead of turning on
+    /// a check the database does not back.
+    #[tokio::test]
+    async fn panel_build_rejects_a_unique_marker_without_a_unique_index() {
+        use crate::resource::{Resource, Table, TextColumn};
+        use crate::schema::{Schema, TextInput};
+
+        #[derive(Debug, toasty::Model)]
+        struct Subscriber {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            nickname: String,
+        }
+        struct UnbackedResource;
+        impl Resource for UnbackedResource {
+            type Model = Subscriber;
+            fn slug() -> String {
+                "subscribers".to_string()
+            }
+            fn can_view_any(_cx: &Cx) -> bool {
+                true
+            }
+            fn can_create(_cx: &Cx) -> bool {
+                true
+            }
+            fn table(cx: &Cx) -> Table<Subscriber> {
+                Table::r#for(cx)
+                    .id(|s: &Subscriber| s.id.to_string())
+                    .columns(TextColumn::r#for(
+                        Subscriber::fields().nickname(),
+                        |s: &Subscriber| s.nickname.clone(),
+                    ))
+            }
+            fn form(_cx: &Cx) -> Schema {
+                Schema::new(TextInput::r#for(Subscriber::fields().nickname()).unique())
+            }
+        }
+
+        let db = Db::builder()
+            .models(toasty::models!(Subscriber))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        let Err(error) = Panel::new("admin")
+            .app_context(db)
+            .resource::<UnbackedResource>()
+            .build()
+        else {
+            panic!("a `unique()` marker with no unique index must not build");
+        };
+        let error = format!("{error}");
+        assert!(
+            error.contains("`nickname`") && error.contains("no unique index"),
+            "the error must name the field and the missing index, got {error}"
+        );
+    }
+
+    /// The marker is a property of the declaration, not of the policy serving
+    /// it (GH #189): a read-only resource — `can_create` denied, the default —
+    /// still fails the build on an unbacked `unique()`, so fixing the policy
+    /// later cannot silently re-arm a check the database does not keep.
+    #[tokio::test]
+    async fn panel_build_rejects_an_unbacked_unique_marker_even_when_create_is_denied() {
+        use crate::resource::{Resource, Table, TextColumn};
+        use crate::schema::{Schema, TextInput};
+
+        #[derive(Debug, toasty::Model)]
+        struct Subscriber {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            nickname: String,
+        }
+        struct ReadOnlyResource;
+        impl Resource for ReadOnlyResource {
+            type Model = Subscriber;
+            fn slug() -> String {
+                "subscribers".to_string()
+            }
+            fn can_view_any(_cx: &Cx) -> bool {
+                true
+            }
+            // `can_create` keeps its default (deny); only the form is declared.
+            fn table(cx: &Cx) -> Table<Subscriber> {
+                Table::r#for(cx)
+                    .id(|s: &Subscriber| s.id.to_string())
+                    .columns(TextColumn::r#for(
+                        Subscriber::fields().nickname(),
+                        |s: &Subscriber| s.nickname.clone(),
+                    ))
+            }
+            fn form(_cx: &Cx) -> Schema {
+                Schema::new(TextInput::r#for(Subscriber::fields().nickname()).unique())
+            }
+        }
+
+        let db = Db::builder()
+            .models(toasty::models!(Subscriber))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        let Err(error) = Panel::new("admin")
+            .app_context(db)
+            .resource::<ReadOnlyResource>()
+            .build()
+        else {
+            panic!("the marker is unbacked whether or not create is allowed");
+        };
+        assert!(
+            format!("{error}").contains("no unique index"),
+            "the error must be the marker's, not the policy's, got {error}"
+        );
+    }
+
+    /// The guard's other half: a unique index — single-field or composite —
+    /// keeps building. `lens_field_unique` reads the model's index list, so
+    /// `#[unique(tenant_id, email)]` (the tenant-scoped arrangement the panel
+    /// documents) is not a false positive.
+    #[tokio::test]
+    async fn panel_build_accepts_unique_markers_with_a_backing_index() {
+        use crate::resource::{Resource, Table, TextColumn};
+        use crate::schema::{Schema, TextInput};
+
+        #[derive(Debug, toasty::Model)]
+        #[unique(tenant_id, email)]
+        struct Author {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            tenant_id: uuid::Uuid,
+            email: String,
+        }
+        struct AuthorResource;
+        impl Resource for AuthorResource {
+            type Model = Author;
+            fn slug() -> String {
+                "authors".to_string()
+            }
+            fn can_view_any(_cx: &Cx) -> bool {
+                true
+            }
+            fn can_create(_cx: &Cx) -> bool {
+                true
+            }
+            fn table(cx: &Cx) -> Table<Author> {
+                Table::r#for(cx)
+                    .id(|a: &Author| a.id.to_string())
+                    .columns(TextColumn::r#for(Author::fields().email(), |a: &Author| {
+                        a.email.clone()
+                    }))
+            }
+            fn form(_cx: &Cx) -> Schema {
+                Schema::new(TextInput::r#for(Author::fields().email()).unique())
+            }
+        }
+
+        let db = Db::builder()
+            .models(toasty::models!(Author))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        Panel::new("admin")
+            .app_context(db)
+            .resource::<AuthorResource>()
+            .auth(crate::Auth::disabled())
+            .build()
+            .expect("a composite unique index backs the marker");
     }
 }

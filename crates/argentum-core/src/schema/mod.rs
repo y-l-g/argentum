@@ -26,7 +26,7 @@ pub use fields::{FileUpload, Select, TextInput, Textarea};
 pub(crate) use fields::Text;
 pub use layouts::{Grid, Group, Repeater, Section, Tabs, Wizard};
 pub use lenses::FieldLens;
-pub(crate) use lenses::{capitalize, lens_field, lens_label};
+pub(crate) use lenses::{capitalize, lens_field, lens_field_unique, lens_label};
 pub(crate) use pk::{pk_eq_expr, pk_in_expr, pk_is_composite};
 pub use relationship::MAX_RELATIONSHIP_OPTIONS;
 pub(crate) use relationship::OptionLoadError;

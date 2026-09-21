@@ -128,8 +128,24 @@ impl TextInput {
         self
     }
 
+    /// Mark the field as backed by a unique constraint, which the app-side
+    /// pre-check probes before the write.
+    ///
+    /// **Uniqueness implies presence** (GH #189): the framework stores `""`,
+    /// never NULL (GH #89), so an empty value is one the index admits only
+    /// once — an empty submit is refused inline as `"<Label> is required"`
+    /// instead of being written, and the probe never sees it. `.optional()`
+    /// does not lift that rule, whichever order the two are called in. The
+    /// reasoning (and the rejected alternative) is recorded in the ADR-0010
+    /// amendment of 2026-09-21.
+    ///
+    /// Non-`TextInput` fields declare no uniqueness (see [`Textarea::r#for`]),
+    /// so nothing else changes.
     pub fn unique(mut self) -> Self {
         self.unique = true;
+        // The marker carries presence itself, so `.optional().unique()` and
+        // `.unique().optional()` mean the same thing.
+        self.required = true;
         self
     }
 
@@ -147,11 +163,13 @@ impl TextInput {
         self.unique
     }
 
-    /// Whether an empty submit fails validation (`required`, defaulting from
-    /// column nullability per GH #100). The app-side unique check uses it to
-    /// skip empty values it would never write (GH #88).
+    /// Whether an empty submit fails validation and the control renders as
+    /// required: `required`, defaulting from column nullability per GH #100,
+    /// **or** uniqueness (GH #189 — a unique field is never empty, see
+    /// [`Self::unique`]). `validate` and both render paths read it, so the rule
+    /// and the marker cannot disagree.
     pub(crate) fn is_required(&self) -> bool {
-        self.required
+        self.required || self.unique
     }
 
     pub fn field_name(&self) -> &str {
@@ -182,7 +200,8 @@ impl TextInput {
     pub fn validate(&self, value: &str) -> Vec<String> {
         let v = value.trim();
         let mut errs = Vec::new();
-        if self.required && v.is_empty() {
+        // One presence rule, one predicate, shared with the render marker.
+        if self.is_required() && v.is_empty() {
             errs.push(format!("{} is required", self.label));
         }
         // Stricter than naive split('@') check — approximates `validator` (GH #11).
@@ -251,7 +270,10 @@ impl TextInput {
     ) -> Result<BoxView<'a>> {
         let label_text = self.label.clone();
         let name = self.name.clone();
-        let required = self.required;
+        // The marker reads the same predicate validation uses, so a unique
+        // field is never refused for emptiness while rendering as optional
+        // (GH #189). `self.required` alone would do exactly that.
+        let required = self.is_required();
         let placeholder = self.placeholder.clone();
         let input_type = if self.is_email { "email" } else { "text" };
         let has_error = !errors.is_empty();
@@ -325,7 +347,8 @@ impl TextInput {
     ) -> Result<BoxView<'a>> {
         let label_text = self.label.clone();
         let name = self.name.clone();
-        let required = self.required;
+        // As `render_with`: validation and the marker read one predicate.
+        let required = self.is_required();
         let placeholder = self.placeholder.clone();
         let input_type = if self.is_email { "email" } else { "text" };
         let has_error = !errors.is_empty();
@@ -1597,14 +1620,16 @@ mod tests {
             input.validate("a@b.com").is_empty(),
             "email should accept valid"
         );
-        // optional email: empty is ok, whitespace trimmed
+        // optional email: empty is ok, whitespace trimmed — on a field without
+        // a unique constraint. `DummyUser.email` is `#[unique]`, so it is
+        // required whatever else is declared (GH #189); `NullableRef.parent_id`
+        // is the non-unique nullable column that pins the old behaviour.
         assert!(
-            TextInput::r#for(DummyUser::fields().email())
-                .email()
+            Select::r#for(NullableRef::fields().parent_id())
                 .optional()
                 .validate("")
                 .is_empty(),
-            "optional email should accept empty"
+            "an optional, non-unique field must still accept empty (GH #100)"
         );
         assert!(
             TextInput::r#for(DummyUser::fields().email())
@@ -1612,6 +1637,74 @@ mod tests {
                 .validate(" a@b.com ")
                 .is_empty(),
             "email should trim"
+        );
+    }
+
+    /// GH #189: the unique marker is presence, so `.optional()` cannot lift it
+    /// — in the builder or from the lens. The email regex still applies to what
+    /// is submitted.
+    #[test]
+    fn unique_implies_required_in_either_declaration_order() {
+        let mut declarations = vec![
+            TextInput::r#for(DummyUser::fields().email())
+                .optional()
+                .unique(),
+            TextInput::r#for(DummyUser::fields().email())
+                .unique()
+                .optional(),
+        ];
+        // Derived from the lens, with no `.unique()` call at all: the rule
+        // follows the column, not the declaration style.
+        declarations.push(TextInput::r#for(DummyUser::fields().email()).optional());
+
+        for (nth, input) in declarations.iter().enumerate() {
+            assert!(
+                input.is_unique() && input.is_required(),
+                "declaration {nth} must be unique and required"
+            );
+            assert_eq!(
+                input.validate(""),
+                vec!["Email is required".to_string()],
+                "declaration {nth}: an empty unique field is required, not absent"
+            );
+            assert_eq!(
+                input.validate("   "),
+                vec!["Email is required".to_string()],
+                "declaration {nth}: whitespace-only counts as empty, as everywhere else"
+            );
+            assert!(
+                input.validate("a@b.com").is_empty(),
+                "declaration {nth}: a present value still validates normally"
+            );
+        }
+    }
+
+    /// GH #189: the marker a user sees reads the same predicate validation
+    /// does, so a unique field cannot be refused for emptiness while rendering
+    /// as optional — the disagreement that would have shipped had only
+    /// `validate` been taught the rule.
+    #[tokio::test]
+    async fn unique_field_renders_the_required_marker() {
+        let cx = cx();
+        let html = Schema::new(
+            TextInput::r#for(DummyUser::fields().email())
+                .unique()
+                .optional(),
+        )
+        .render(&cx)
+        .await
+        .unwrap()
+        .single()
+        .await
+        .unwrap()
+        .render(&cx);
+        assert!(
+            html.contains("required") && html.contains("aria-required"),
+            "a unique field is required in the markup too"
+        );
+        assert!(
+            html.contains("text-destructive"),
+            "the required asterisk must render"
         );
     }
 

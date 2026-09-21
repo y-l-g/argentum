@@ -6,4 +6,4 @@ Every Schema field and Table column binds through a typed Toasty field lens (`Us
 
 ## Amendment (2026-09-10)
 
-`required` now defaults from lens nullability (GH #100), but uniqueness metadata, storage names, and instance→field extraction remain upstream gaps — form values stay string-keyed (`HashMap<String, String>`) at the value level, so the lens proves field existence, not typed data flow. See upstream issues #115 (metadata) and #119 (instance→field extraction).
+`required` now defaults from lens nullability (GH #100), and a single-segment `String` lens carries uniqueness too, read from the model's index list rather than from the field (`lens_field_unique`; composite indexes included, which is what `#[unique(tenant_id, email)]` needs — GH #183, GH #189). Metadata for the other field kinds, storage names, and instance→field extraction remain upstream gaps — form values stay string-keyed (`HashMap<String, String>`) at the value level, so the lens proves field existence, not typed data flow. See upstream issues #115 (metadata) and #119 (instance→field extraction).

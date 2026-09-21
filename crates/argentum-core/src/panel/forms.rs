@@ -461,9 +461,10 @@ fn strip_transport_keys(schema: &crate::schema::Schema, values: &mut HashMap<Str
 /// `current` holds the record's own hydrated values on edit: a field whose
 /// submitted value is unchanged belongs to this record and is skipped.
 ///
-/// Empty submits are checked on optional inputs (required ones fail
-/// validation first): `""` is stored, so a second empty submit would 500 at
-/// the driver — it is flagged inline instead.
+/// Empty submits are never probed (GH #189): a `unique()` field is required
+/// (see [`crate::schema::TextInput::unique`]), so `validate` has already
+/// answered `"<Label> is required"` and this check has nothing left to say — no
+/// query, and no `""` written past an index that admits one.
 ///
 /// Known limits (GH #88, upstream gap #117): races with concurrent
 /// inserts (only a driver predicate closes it); the check is tenant-scoped via
@@ -490,12 +491,11 @@ async fn check_unique<R: Resource>(
         let Some(submitted) = values.get(&name).map(|s| s.trim().to_string()) else {
             continue;
         };
-        // Empty values are checked on optional inputs only (GH #88): `""` is
-        // still stored (never NULL by the framework), so a second empty
-        // submit on an optional `unique()` field would 500 at the driver —
-        // flag it inline instead. Required inputs fail validation first, so
-        // the check (and its query) is skipped for their empty submits.
-        if submitted.is_empty() && input.is_required() {
+        // Empty values are never probed (GH #189): a `unique()` field is
+        // required, so validation has already refused this submit — and `""` is
+        // still a value the framework stores (never NULL, GH #89), so a probe
+        // would only rediscover the constraint the form just enforced.
+        if submitted.is_empty() {
             continue;
         }
         // Unchanged on edit → this record's own value, not a duplicate.
@@ -1178,29 +1178,15 @@ mod tests {
             "changed-to-duplicate must be flagged, got {errors:?}"
         );
 
-        // Empty values are skipped on required inputs (GH #88): validation
-        // rejects them first, so the check (and its query) never runs.
+        // Empty submits are never probed (GH #189): a `unique()` field is
+        // required, so validation has already refused the submit — on a field
+        // whose `.optional()` was overridden, too, in either call order.
         let mut empty = HashMap::new();
         empty.insert("email".to_string(), "   ".to_string());
-        let errors =
-            check_unique::<SubscriberResource>(&cx, &schema, &empty, &HashMap::new(), &mut ex)
-                .await
-                .unwrap();
-        assert!(errors.is_empty(), "empty must be skipped, got {errors:?}");
-
-        // Empty values are checked on optional inputs (GH #88): `""` is
-        // stored, so a second empty submit would 500 at the driver — flag it
-        // inline instead.
-        toasty::create!(Subscriber {
-            email: "".to_string()
-        })
-        .exec(&mut ex)
-        .await
-        .unwrap();
         let optional_schema = Schema::new(
             TextInput::r#for(Subscriber::fields().email())
-                .unique()
-                .optional(),
+                .optional()
+                .unique(),
         );
         let errors = check_unique::<SubscriberResource>(
             &cx,
@@ -1211,33 +1197,267 @@ mod tests {
         )
         .await
         .unwrap();
-        assert_eq!(
-            errors.get("email"),
-            Some(&vec!["Email has already been taken".to_string()]),
-            "second empty submit on an optional unique field must be flagged, got {errors:?}"
+        assert!(
+            errors.is_empty(),
+            "an empty unique submit must not be probed, got {errors:?}"
         );
+    }
 
-        // Optional empty with no stored `""` still passes.
-        let db2 = Db::builder()
+    /// GH #189, at the layer below the handler: an explicitly `unique()` field
+    /// is required even when `.optional()` follows it, validation says so, and
+    /// the probe stays out of the empty case. What the two submits *write* is
+    /// pinned end to end by
+    /// [`two_empty_submits_on_a_unique_field_re_render_and_write_nothing`].
+    #[tokio::test]
+    async fn unique_field_is_required_however_it_is_marked() {
+        use crate::schema::{Schema, TextInput};
+        use topcoat::context::CxTestBuilder;
+
+        #[derive(Debug, toasty::Model)]
+        struct Subscriber {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            #[unique]
+            email: String,
+        }
+        struct SubscriberResource;
+        impl Resource for SubscriberResource {
+            type Model = Subscriber;
+        }
+
+        let db = Db::builder()
             .models(toasty::models!(Subscriber))
             .connect("sqlite::memory:")
             .await
             .unwrap();
-        db2.push_schema().await.unwrap();
-        let cx2 = CxTestBuilder::new().app_context(db2).build();
-        let mut ex2 = crate::db::db(&cx2);
-        let errors = check_unique::<SubscriberResource>(
-            &cx2,
-            &optional_schema,
-            &empty,
-            &HashMap::new(),
-            &mut ex2,
-        )
-        .await
-        .unwrap();
+        db.push_schema().await.unwrap();
+        let cx = CxTestBuilder::new().app_context(db.clone()).build();
+        let mut ex = crate::db::db(&cx);
+
+        // Declared `.optional()` and still required: uniqueness implies
+        // presence, so the declaration cannot promise an empty value the index
+        // refuses to hold twice.
+        let schema = Schema::new(
+            TextInput::r#for(Subscriber::fields().email())
+                .unique()
+                .optional(),
+        );
+        let mut first = HashMap::new();
+        first.insert("email".to_string(), "   ".to_string());
+        assert_eq!(
+            schema.validate(&first).get("email"),
+            Some(&vec!["Email is required".to_string()]),
+            "an empty unique field must fail validation as required"
+        );
+
+        // Validation owns the empty case, so the probe adds nothing and no
+        // query runs — this is what keeps the second empty submit off the
+        // unique index (GH #189).
+        let errors =
+            check_unique::<SubscriberResource>(&cx, &schema, &first, &HashMap::new(), &mut ex)
+                .await
+                .unwrap();
         assert!(
             errors.is_empty(),
-            "first empty submit must pass, got {errors:?}"
+            "an empty unique submit must not be probed, got {errors:?}"
+        );
+
+        // The submit never reaches the write, so the stored table stays empty
+        // and the second empty submit cannot collide with the first.
+        let mut db_check = db;
+        let stored = Subscriber::all().exec(&mut db_check).await.unwrap();
+        assert!(
+            stored.is_empty(),
+            "an empty unique submit must not write, got {} rows",
+            stored.len()
+        );
+    }
+
+    /// GH #189: uniqueness comes from the lens as well as the builder
+    /// (`#[unique]` → `lens_field_unique`), so a field that was never marked by
+    /// hand is required too — the rule is a property of the field, not of the
+    /// declaration style.
+    #[tokio::test]
+    async fn lens_derived_unique_is_required_without_a_unique_call() {
+        use crate::schema::{Schema, TextInput};
+        use topcoat::context::CxTestBuilder;
+
+        #[derive(Debug, toasty::Model)]
+        struct Subscriber {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            #[unique]
+            email: String,
+        }
+        struct SubscriberResource;
+        impl Resource for SubscriberResource {
+            type Model = Subscriber;
+        }
+
+        let db = Db::builder()
+            .models(toasty::models!(Subscriber))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        let cx = CxTestBuilder::new().app_context(db).build();
+        let mut ex = crate::db::db(&cx);
+
+        let input = TextInput::r#for(Subscriber::fields().email());
+        assert!(
+            input.is_unique(),
+            "the index must be recognized without a `.unique()` call (GH #183)"
+        );
+        assert!(input.is_required(), "derived uniqueness implies presence");
+
+        let schema = Schema::new(input);
+        let mut empty = HashMap::new();
+        empty.insert("email".to_string(), "".to_string());
+        assert_eq!(
+            schema.validate(&empty).get("email"),
+            Some(&vec!["Email is required".to_string()]),
+            "an empty submit must be refused inline, not probed"
+        );
+        let errors =
+            check_unique::<SubscriberResource>(&cx, &schema, &empty, &HashMap::new(), &mut ex)
+                .await
+                .unwrap();
+        assert!(
+            errors.is_empty(),
+            "validation owns the empty case; the probe must add nothing, got {errors:?}"
+        );
+    }
+
+    /// GH #189 acceptance, through the real panel: two submits with an empty
+    /// `unique()` field re-render inline and write nothing. Before the fix the
+    /// first empty submit *succeeded* — it stored `""` — so the panel had
+    /// already broken the promise its own unique index makes, and the second
+    /// empty submit met the constraint instead of the form rule: 500 when the
+    /// record fn stores the value as submitted, or a misleading "has already
+    /// been taken" when it trims first.
+    #[tokio::test]
+    async fn two_empty_submits_on_a_unique_field_re_render_and_write_nothing() {
+        use crate::resource::{Resource, Table, TextColumn};
+        use crate::schema::{Schema, TextInput};
+
+        #[derive(Debug, toasty::Model)]
+        struct Subscriber {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            #[unique]
+            email: String,
+        }
+        struct SubscriberResource;
+        impl Resource for SubscriberResource {
+            type Model = Subscriber;
+            fn slug() -> String {
+                "subscribers".to_string()
+            }
+            fn can_view_any(_cx: &Cx) -> bool {
+                true
+            }
+            fn can_create(_cx: &Cx) -> bool {
+                true
+            }
+            fn table(cx: &Cx) -> Table<Subscriber> {
+                Table::r#for(cx)
+                    .id(|s: &Subscriber| s.id.to_string())
+                    .columns(TextColumn::r#for(
+                        Subscriber::fields().email(),
+                        |s: &Subscriber| s.email.clone(),
+                    ))
+            }
+            fn form(_cx: &Cx) -> Schema {
+                // `.optional()` is the declaration that used to make an empty
+                // submit probe instead of failing: uniqueness wins.
+                Schema::new(
+                    TextInput::r#for(Subscriber::fields().email())
+                        .unique()
+                        .optional(),
+                )
+            }
+            async fn create_record(
+                _cx: &Cx,
+                values: HashMap<String, String>,
+                ex: &mut dyn toasty::Executor,
+            ) -> topcoat::Result<()> {
+                // Writes what the panel would: the record fns trim, and the
+                // framework's probe trims too, so the stored `""` is exactly
+                // what the next probe looks for.
+                toasty::create!(Subscriber {
+                    email: values
+                        .get("email")
+                        .map(|v| v.trim().to_string())
+                        .unwrap_or_default(),
+                })
+                .exec(ex)
+                .await?;
+                Ok(())
+            }
+        }
+
+        let db = Db::builder()
+            .models(toasty::models!(Subscriber))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        let router = Panel::new("admin")
+            .app_context(db.clone())
+            .resource::<SubscriberResource>()
+            .auth(crate::Auth::disabled())
+            .build()
+            .expect("panel builds");
+
+        let csrf = uuid::Uuid::new_v4().to_string();
+        // `+` decodes to a space and an empty pair to `""`: both are empty
+        // submits, and under the old rule the first stored `""` — so the second
+        // met the index via a trimmed probe match while a second space met it
+        // again at the driver. Neither is a duplicate, and neither may write.
+        for (attempt, submitted) in ["+", ""].into_iter().enumerate() {
+            let attempt = attempt + 1;
+            let resp = router
+                .handle(
+                    http::Request::builder()
+                        .method(http::Method::POST)
+                        .uri("/admin/subscribers/create")
+                        .header(
+                            http::header::CONTENT_TYPE,
+                            "application/x-www-form-urlencoded",
+                        )
+                        .header(
+                            http::header::COOKIE,
+                            format!("{}={csrf}", crate::csrf::COOKIE_NAME),
+                        )
+                        .body(Body::from(format!("email={submitted}&csrf_token={csrf}")))
+                        .unwrap(),
+                )
+                .await;
+            assert_eq!(
+                resp.status(),
+                http::StatusCode::OK,
+                "empty submit {attempt} must re-render, not redirect or fail"
+            );
+            let body = http_body_util::BodyExt::collect(resp.into_body())
+                .await
+                .unwrap()
+                .to_bytes();
+            let html = String::from_utf8_lossy(&body);
+            assert!(
+                html.contains("Email is required"),
+                "empty submit {attempt} must carry the presence error, got {html}"
+            );
+        }
+
+        let mut db_check = db;
+        let stored = Subscriber::all().exec(&mut db_check).await.unwrap();
+        assert!(
+            stored.is_empty(),
+            "two empty submits must write nothing, got {} rows",
+            stored.len()
         );
     }
 
