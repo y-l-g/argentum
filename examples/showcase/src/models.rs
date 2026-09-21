@@ -119,11 +119,14 @@ pub enum Media {
     },
 }
 
-/// Post statistics — a `#[document]` field (GH #185).
+/// Post statistics — an embedded struct (GH #185), bindable since GH #192.
 ///
-/// Unlike the others this is **one** column, named after the field itself
-/// (`post_stats`), holding the whole value as structured data. The form binds
-/// the document column, not its inner fields.
+/// It was a `#[document]` until the typed binding landed: a document's inner
+/// fields share its single JSON column, so no control could bind `word_count`
+/// on its own — which is why the record fn parsed it with `unwrap_or(0)` and a
+/// mistyped number became a silent zero. Embedding flattens it into
+/// `post_stats_word_count` / `post_stats_read_minutes`, and those are integers
+/// the form binds through `TextInput::typed`.
 #[derive(Debug, Clone, toasty::Embed)]
 pub struct PostStats {
     pub word_count: i64,
@@ -153,7 +156,6 @@ pub struct Post {
     pub publication: Publication,
     /// Embedded struct nested inside an enum variant.
     pub media: Media,
-    #[document]
     pub post_stats: PostStats,
     #[index]
     pub author_id: uuid::Uuid,

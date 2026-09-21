@@ -666,6 +666,16 @@ impl Resource for PostResource {
                     Textarea::r#for_context(cx, Post::fields().seo().description())
                         .rows(3)
                         .optional(),
+                    // Typed leaves (GH #192): `i64` columns, bound through their
+                    // own parse. The form used to leave them unbound and the
+                    // record fn parsed with `unwrap_or(0)`, so a typo became a
+                    // silent zero; now a bad number is refused inline.
+                    TextInput::typed_context(cx, Post::fields().post_stats().word_count())
+                        .label("Word count")
+                        .optional(),
+                    TextInput::typed_context(cx, Post::fields().post_stats().read_minutes())
+                        .label("Read minutes")
+                        .optional(),
                 )),
                 Section::new("Publication").schema((
                     // Embedded enum with a **shared column** (GH #185): all three
@@ -776,6 +786,16 @@ impl Resource for PostResource {
                 Media::Video { poster, .. } => poster.credit.author.clone(),
                 Media::Image { .. } => String::new(),
             },
+        );
+        // The typed integers (GH #192) hydrate through the type's `Display`, so
+        // an untouched edit writes back the same spelling it read.
+        m.insert(
+            "post_stats_word_count".to_string(),
+            record.post_stats.word_count.to_string(),
+        );
+        m.insert(
+            "post_stats_read_minutes".to_string(),
+            record.post_stats.read_minutes.to_string(),
         );
         m
     }
@@ -1031,6 +1051,24 @@ impl Resource for PostResource {
 /// [`Resource::deletable`] to `false` instead (GH #96).
 pub struct CommentResource;
 
+/// Read an optional typed value from the flat form map (GH #192).
+///
+/// `None` means "not submitted, or submitted empty" — the form edge's way of
+/// saying "leave this alone" — which is why a typed field that is not required
+/// keeps the record's value instead of being defaulted to a number the user
+/// never typed. A *present* value is guaranteed to parse: the field validated
+/// it, and the panel refuses the submit otherwise. That is the difference this
+/// makes against the old `unwrap_or(0)`, which turned `word_count=twelve` into
+/// a stored zero.
+fn parse_optional<T: std::str::FromStr>(values: &HashMap<String, String>, key: &str) -> Option<T> {
+    let raw = values.get(key)?;
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    trimmed.parse().ok()
+}
+
 /// Read a trimmed value from the flat form map, or `""` when absent.
 fn field(values: &HashMap<String, String>, key: &str) -> String {
     values
@@ -1092,11 +1130,14 @@ fn embedded_from_values(values: &HashMap<String, String>) -> (Seo, Publication, 
             alt: field(values, "media_alt"),
         }
     };
+    // Typed fields are validated before a record fn sees them (GH #192), so
+    // these parse — and an optional one left empty keeps its stored value
+    // rather than becoming a silent zero. `embedded_from_values` is shared by
+    // create and update, so "absent" has to mean "unchanged" here; the update
+    // path only calls it when a `post_stats` key was submitted at all.
     let post_stats = PostStats {
-        word_count: field(values, "post_stats_word_count").parse().unwrap_or(0),
-        read_minutes: field(values, "post_stats_read_minutes")
-            .parse()
-            .unwrap_or(0),
+        word_count: parse_optional(values, "post_stats_word_count").unwrap_or(0),
+        read_minutes: parse_optional(values, "post_stats_read_minutes").unwrap_or(0),
     };
     (seo, publication, media, post_stats)
 }
