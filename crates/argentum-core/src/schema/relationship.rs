@@ -283,7 +283,7 @@ mod tests {
     use super::*;
     use topcoat::view::*;
     /// Related-resource fixtures shared by the option-policy tests (GH #108).
-    #[derive(Debug, toasty::Model)]
+    #[derive(Debug, toasty::Model, Clone)]
     struct PolicyAuthor {
         #[key]
         #[auto]
@@ -346,7 +346,7 @@ mod tests {
     async fn relationship_loader_fails_past_option_cap() {
         use crate::resource::Resource;
 
-        #[derive(Debug, toasty::Model)]
+        #[derive(Debug, toasty::Model, Clone)]
         struct RefAuthor {
             #[key]
             #[auto]
@@ -430,7 +430,7 @@ mod tests {
         // table key silently stores a label in the FK column.
         use crate::resource::Resource;
 
-        #[derive(Debug, toasty::Model)]
+        #[derive(Debug, toasty::Model, Clone)]
         struct RefAuthor {
             #[key]
             #[auto]
@@ -834,7 +834,7 @@ mod tests {
         // selects degrade to type-to-search while DB errors stay retryable.
         use crate::resource::Resource;
 
-        #[derive(Debug, toasty::Model)]
+        #[derive(Debug, toasty::Model, Clone)]
         struct BigRef {
             #[key]
             #[auto]
@@ -899,7 +899,7 @@ mod tests {
         // distinctive term returns its bounded match.
         use crate::resource::Resource;
 
-        #[derive(Debug, toasty::Model)]
+        #[derive(Debug, toasty::Model, Clone)]
         struct SearchRef {
             #[key]
             #[auto]
@@ -986,7 +986,7 @@ mod tests {
         // overflows large tables instead of silently truncating.
         use crate::resource::Resource;
 
-        #[derive(Debug, toasty::Model)]
+        #[derive(Debug, toasty::Model, Clone)]
         struct PlainRef {
             #[key]
             #[auto]
@@ -1039,7 +1039,7 @@ mod tests {
         // legitimate FKs via the targeted PK check, not membership.
         use crate::resource::Resource;
 
-        #[derive(Debug, toasty::Model)]
+        #[derive(Debug, toasty::Model, Clone)]
         struct CheckRef {
             #[key]
             #[auto]
@@ -1135,7 +1135,7 @@ mod tests {
         // + hint, with server data-attributes for the fetch.
         use crate::resource::Resource;
 
-        #[derive(Debug, toasty::Model)]
+        #[derive(Debug, toasty::Model, Clone)]
         struct HintRef {
             #[key]
             #[auto]
@@ -1219,7 +1219,7 @@ mod tests {
         // table pays a debounced round-trip per keystroke.
         use crate::resource::Resource;
 
-        #[derive(Debug, toasty::Model)]
+        #[derive(Debug, toasty::Model, Clone)]
         struct SmallRef {
             #[key]
             #[auto]

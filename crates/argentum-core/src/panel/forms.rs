@@ -26,7 +26,7 @@ use crate::notification::{Notification, notify_write_failure, set_notification};
 /// so the two paths cannot drift.
 const WRITE_CREATE: &str = "create the record";
 const WRITE_UPDATE: &str = "save the changes";
-use crate::resource::Resource;
+use crate::resource::{Committed, Resource};
 
 /// A decoded form body: the text values plus any file parts (GH #188).
 pub(crate) struct FormParts {
@@ -653,10 +653,19 @@ pub(crate) fn resource_create_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<
         }
         // Typed fields write their own spelling, not the browser's (GH #192).
         schema.normalize_values(&mut values);
-        // Attempt creation via Resource hook, inside the tx.
+        // Attempt creation via Resource hook, inside the tx. The row it
+        // returns is what `after_commit` names for this write (GH #112) — the
+        // key is the database's to generate, so the row is the only place the
+        // framework can learn it.
         match R::create_record(cx, values.clone(), &mut tx).await {
-            Ok(()) => match tx.commit().await {
-                Ok(()) => Err(redirect_after_write::<R>(cx, "Created")),
+            Ok(record) => match tx.commit().await {
+                Ok(()) => {
+                    // Post-commit, so the effect cannot survive a rollback
+                    // (GH #112); the tx is gone, so the hook may open its own
+                    // handle.
+                    crate::resource::run_after_commit::<R>(cx, Committed::created(record)).await;
+                    Err(redirect_after_write::<R>(cx, "Created"))
+                }
                 Err(error) => {
                     notify_write_failure(cx, WRITE_CREATE);
                     Err(crate::db::unavailable(error))
@@ -787,8 +796,13 @@ pub(crate) fn resource_edit_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_
         // Typed fields write their own spelling, not the browser's (GH #192).
         schema.normalize_values(&mut values);
         match R::update_record(cx, record, values.clone(), &mut tx).await {
-            Ok(()) => match tx.commit().await {
-                Ok(()) => Err(redirect_after_write::<R>(cx, "Updated")),
+            // The row the record fn returns is the committed state the hook
+            // names (GH #112) — no clone, and no re-read for a watcher.
+            Ok(updated) => match tx.commit().await {
+                Ok(()) => {
+                    crate::resource::run_after_commit::<R>(cx, Committed::updated(updated)).await;
+                    Err(redirect_after_write::<R>(cx, "Updated"))
+                }
                 Err(error) => {
                     notify_write_failure(cx, WRITE_UPDATE);
                     Err(crate::db::unavailable(error))
@@ -816,7 +830,7 @@ mod tests {
         use crate::resource::Resource;
         use std::collections::HashMap;
 
-        #[derive(Debug, toasty::Model)]
+        #[derive(Debug, toasty::Model, Clone)]
         struct Dummy {
             #[key]
             #[auto]
@@ -840,11 +854,13 @@ mod tests {
             }
             async fn update_record(
                 _cx: &Cx,
-                _record: Dummy,
+                record: Dummy,
                 _values: HashMap<String, String>,
                 _ex: &mut dyn toasty::Executor,
-            ) -> Result<()> {
-                Ok(())
+            ) -> Result<Dummy> {
+                // Nothing to write in this test; a record fn returns the row it
+                // wrote (GH #112), so it hands back the one it was given.
+                Ok(record)
             }
             fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
                 crate::resource::Table::r#for(cx)
@@ -944,7 +960,7 @@ mod tests {
         use crate::schema::{FileUpload, Schema, TextInput};
         use std::sync::Mutex;
 
-        #[derive(Debug, toasty::Model)]
+        #[derive(Debug, toasty::Model, Clone)]
         struct Doc {
             #[key]
             #[auto]
@@ -983,12 +999,19 @@ mod tests {
             async fn create_record(
                 _cx: &Cx,
                 values: HashMap<String, String>,
-                _ex: &mut dyn toasty::Executor,
-            ) -> topcoat::Result<()> {
+                ex: &mut dyn toasty::Executor,
+            ) -> topcoat::Result<Doc> {
                 let mut keys = values.keys().cloned().collect::<Vec<_>>();
                 keys.sort();
                 RECEIVED.lock().unwrap().push(keys);
-                Ok(())
+                // A create returns the row it wrote (GH #112).
+                toasty::create!(Doc {
+                    path: values.get("path").cloned().unwrap_or_default(),
+                    title: values.get("title").cloned().unwrap_or_default(),
+                })
+                .exec(&mut *ex)
+                .await
+                .map_err(|error| -> topcoat::Error { error.into() })
             }
         }
 
@@ -1055,7 +1078,7 @@ mod tests {
 
         const COOKIE_NAME: &str = crate::notification::COOKIE_NAME;
 
-        #[derive(Debug, toasty::Model)]
+        #[derive(Debug, toasty::Model, Clone)]
         struct Dummy {
             #[key]
             #[auto]
@@ -1085,9 +1108,16 @@ mod tests {
             async fn create_record(
                 _cx: &Cx,
                 _values: HashMap<String, String>,
-                _ex: &mut dyn toasty::Executor,
-            ) -> Result<()> {
-                Ok(())
+                ex: &mut dyn toasty::Executor,
+            ) -> Result<Dummy> {
+                // The row the write produced is what the handler needs back
+                // (GH #112), so a test double writes a real one.
+                toasty::create!(Dummy {
+                    name: "created".to_string(),
+                })
+                .exec(&mut *ex)
+                .await
+                .map_err(|error| -> topcoat::Error { error.into() })
             }
             fn hydrate_form_values(_record: &Dummy) -> HashMap<String, String> {
                 HashMap::new()
@@ -1171,7 +1201,7 @@ mod tests {
         use crate::schema::{Schema, TextInput};
         use topcoat::context::CxTestBuilder;
 
-        #[derive(Debug, toasty::Model)]
+        #[derive(Debug, toasty::Model, Clone)]
         struct Subscriber {
             #[key]
             #[auto]
@@ -1280,7 +1310,7 @@ mod tests {
         use crate::schema::{Schema, TextInput};
         use topcoat::context::CxTestBuilder;
 
-        #[derive(Debug, toasty::Model)]
+        #[derive(Debug, toasty::Model, Clone)]
         struct Subscriber {
             #[key]
             #[auto]
@@ -1350,7 +1380,7 @@ mod tests {
         use crate::schema::{Schema, TextInput};
         use topcoat::context::CxTestBuilder;
 
-        #[derive(Debug, toasty::Model)]
+        #[derive(Debug, toasty::Model, Clone)]
         struct Subscriber {
             #[key]
             #[auto]
@@ -1409,7 +1439,7 @@ mod tests {
         use crate::resource::{Resource, Table, TextColumn};
         use crate::schema::{Schema, TextInput};
 
-        #[derive(Debug, toasty::Model)]
+        #[derive(Debug, toasty::Model, Clone)]
         struct Subscriber {
             #[key]
             #[auto]
@@ -1450,7 +1480,7 @@ mod tests {
                 _cx: &Cx,
                 values: HashMap<String, String>,
                 ex: &mut dyn toasty::Executor,
-            ) -> topcoat::Result<()> {
+            ) -> topcoat::Result<Subscriber> {
                 // Writes what the panel would: the record fns trim, and the
                 // framework's probe trims too, so the stored `""` is exactly
                 // what the next probe looks for.
@@ -1461,8 +1491,8 @@ mod tests {
                         .unwrap_or_default(),
                 })
                 .exec(ex)
-                .await?;
-                Ok(())
+                .await
+                .map_err(|error| -> topcoat::Error { error.into() })
             }
         }
 
@@ -1533,7 +1563,7 @@ mod tests {
         use crate::schema::{Schema, TextInput};
         use topcoat::context::CxTestBuilder;
 
-        #[derive(Debug, toasty::Model)]
+        #[derive(Debug, toasty::Model, Clone)]
         struct Probe {
             #[key]
             #[auto]
@@ -1572,7 +1602,7 @@ mod tests {
         use crate::schema::{Repeater, Schema, TextInput};
         use topcoat::context::CxTestBuilder;
 
-        #[derive(Debug, toasty::Model)]
+        #[derive(Debug, toasty::Model, Clone)]
         struct Tagged {
             #[key]
             #[auto]
@@ -1780,7 +1810,7 @@ mod tests {
     async fn multipart_over_the_form_cap_413s_through_the_router() {
         use crate::resource::Resource;
 
-        #[derive(Debug, toasty::Model)]
+        #[derive(Debug, toasty::Model, Clone)]
         struct Dummy {
             #[key]
             #[auto]
@@ -1811,8 +1841,11 @@ mod tests {
                 _cx: &Cx,
                 _values: std::collections::HashMap<String, String>,
                 _ex: &mut dyn toasty::Executor,
-            ) -> topcoat::Result<()> {
-                Ok(())
+            ) -> topcoat::Result<Dummy> {
+                // The over-cap body is refused before any write, so this test
+                // never reaches the record fn; a create returns its row
+                // (GH #112), and there is none to return.
+                Err(std::io::Error::other("unreachable: the body cap 413s first").into())
             }
         }
 
@@ -2060,7 +2093,7 @@ mod tests {
         // `enctype="multipart/form-data"` one-to-one).
         use crate::schema::{FileUpload, Schema, TextInput};
 
-        #[derive(Debug, toasty::Model)]
+        #[derive(Debug, toasty::Model, Clone)]
         struct Doc {
             #[key]
             #[auto]

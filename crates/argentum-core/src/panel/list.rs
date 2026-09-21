@@ -419,7 +419,7 @@ mod tests {
         use http_body_util::BodyExt;
         use std::collections::HashMap;
 
-        #[derive(Debug, toasty::Model)]
+        #[derive(Debug, toasty::Model, Clone)]
         struct Dummy {
             #[key]
             #[auto]
@@ -680,7 +680,7 @@ mod tests {
         use http_body_util::BodyExt;
         use std::collections::HashMap;
 
-        #[derive(Debug, toasty::Model)]
+        #[derive(Debug, toasty::Model, Clone)]
         struct Dummy {
             #[key]
             #[auto]
@@ -779,7 +779,7 @@ mod tests {
         use http_body_util::BodyExt;
         use std::collections::HashMap;
 
-        #[derive(Debug, toasty::Model)]
+        #[derive(Debug, toasty::Model, Clone)]
         struct Dummy {
             #[key]
             #[auto]
@@ -861,7 +861,7 @@ mod tests {
         use http_body_util::BodyExt;
         use std::collections::HashMap;
 
-        #[derive(Debug, toasty::Model)]
+        #[derive(Debug, toasty::Model, Clone)]
         struct Dummy {
             #[key]
             #[auto]
@@ -992,7 +992,7 @@ mod tests {
         use http_body_util::BodyExt;
         use std::collections::HashMap;
 
-        #[derive(Debug, toasty::Model)]
+        #[derive(Debug, toasty::Model, Clone)]
         struct Dummy {
             #[key]
             #[auto]
@@ -1092,7 +1092,7 @@ mod tests {
         use http_body_util::BodyExt;
         use std::collections::HashMap;
 
-        #[derive(Debug, toasty::Model)]
+        #[derive(Debug, toasty::Model, Clone)]
         struct Dummy {
             #[key]
             #[auto]
@@ -1243,7 +1243,7 @@ mod tests {
         use crate::resource::Resource;
         use std::collections::HashMap;
 
-        #[derive(Debug, toasty::Model)]
+        #[derive(Debug, toasty::Model, Clone)]
         struct Dummy {
             #[key]
             #[auto]
@@ -1348,7 +1348,7 @@ mod tests {
     async fn streamed_list_renders_error_state_when_load_fails() {
         use topcoat::router::Body;
 
-        #[derive(Debug, toasty::Model)]
+        #[derive(Debug, toasty::Model, Clone)]
         struct Subscriber {
             #[key]
             #[auto]
@@ -1464,7 +1464,7 @@ mod tests {
         // code rendered the `after` page with a 200 and no error.
         use topcoat::router::Body;
 
-        #[derive(Debug, toasty::Model)]
+        #[derive(Debug, toasty::Model, Clone)]
         struct Subscriber {
             #[key]
             #[auto]

@@ -896,7 +896,7 @@ mod tests {
     async fn panel_mounts_runtime_page_rerun_routes() {
         use crate::resource::Resource;
 
-        #[derive(Debug, toasty::Model)]
+        #[derive(Debug, toasty::Model, Clone)]
         struct Dummy {
             #[key]
             #[auto]
@@ -1032,7 +1032,7 @@ mod tests {
     async fn panel_sends_frame_ancestors_unless_opted_out() {
         use crate::resource::Resource;
 
-        #[derive(Debug, toasty::Model)]
+        #[derive(Debug, toasty::Model, Clone)]
         struct Dummy {
             #[key]
             #[auto]
@@ -1112,7 +1112,7 @@ mod tests {
     fn panel_navigation_item_respects_prefix() {
         use crate::resource::Resource;
 
-        #[derive(Debug, toasty::Model)]
+        #[derive(Debug, toasty::Model, Clone)]
         struct Dummy {
             #[key]
             #[auto]
@@ -1150,7 +1150,7 @@ mod tests {
         use crate::resource::NavigationItem;
         use crate::resource::Resource;
 
-        #[derive(Debug, toasty::Model)]
+        #[derive(Debug, toasty::Model, Clone)]
         struct Dummy {
             #[key]
             #[auto]
@@ -1199,7 +1199,7 @@ mod tests {
         use topcoat::context::CxTestBuilder;
         use topcoat::view::{ViewExt, view};
 
-        #[derive(Debug, toasty::Model)]
+        #[derive(Debug, toasty::Model, Clone)]
         struct Dummy {
             #[key]
             #[auto]
@@ -1277,7 +1277,7 @@ mod tests {
     fn panel_navigation_item_keeps_urls_the_override_spells_out() {
         use crate::resource::{NavTarget, NavigationItem, Resource};
 
-        #[derive(Debug, toasty::Model)]
+        #[derive(Debug, toasty::Model, Clone)]
         struct Dummy {
             #[key]
             #[auto]
@@ -1351,7 +1351,7 @@ mod tests {
     fn panel_navigation_items_are_distinct_for_multiple_resources() {
         use crate::resource::Resource;
 
-        #[derive(Debug, toasty::Model)]
+        #[derive(Debug, toasty::Model, Clone)]
         struct Dummy {
             #[key]
             #[auto]
@@ -1389,7 +1389,7 @@ mod tests {
     fn panel_build_rejects_duplicate_resource_slugs() {
         use crate::resource::Resource;
 
-        #[derive(Debug, toasty::Model)]
+        #[derive(Debug, toasty::Model, Clone)]
         struct Dummy {
             #[key]
             #[auto]
@@ -1431,7 +1431,7 @@ mod tests {
     fn panel_build_rejects_a_hostile_slug() {
         use crate::resource::Resource;
 
-        #[derive(Debug, toasty::Model)]
+        #[derive(Debug, toasty::Model, Clone)]
         struct Dummy {
             #[key]
             #[auto]
@@ -1464,7 +1464,7 @@ mod tests {
         use crate::resource::{Resource, Table, TextColumn};
         use crate::schema::{Schema, TextInput};
 
-        #[derive(Debug, toasty::Model)]
+        #[derive(Debug, toasty::Model, Clone)]
         struct Subscriber {
             #[key]
             #[auto]
@@ -1524,7 +1524,7 @@ mod tests {
         use crate::resource::{Resource, Table, TextColumn};
         use crate::schema::{Schema, TextInput};
 
-        #[derive(Debug, toasty::Model)]
+        #[derive(Debug, toasty::Model, Clone)]
         struct Subscriber {
             #[key]
             #[auto]
@@ -1581,7 +1581,7 @@ mod tests {
         use crate::resource::{Resource, Table, TextColumn};
         use crate::schema::{Schema, TextInput};
 
-        #[derive(Debug, toasty::Model)]
+        #[derive(Debug, toasty::Model, Clone)]
         #[unique(tenant_id, email)]
         struct Author {
             #[key]

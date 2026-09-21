@@ -18,6 +18,7 @@ use super::forms::{parse_form_body, truthy};
 use super::{enforce_auth, enforce_tenant, list_url};
 use crate::db::db;
 use crate::notification::{Notification, notify_write_failure, set_notification};
+use crate::resource::Committed;
 
 /// Failure-toast wording for the delete handlers (GH #174).
 const WRITE_DELETE: &str = "delete the record";
@@ -139,6 +140,10 @@ pub(crate) fn resource_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
             if !R::can_delete(cx, &record) {
                 return Err(forbidden().into());
             }
+            // `delete_record` consumes the record, and the hook names what was
+            // removed (GH #112): the pre-delete snapshot, since the row is gone
+            // by the time it runs.
+            let committed_record = record.clone();
             if let Err(error) = R::delete_record(cx, record, &mut tx).await {
                 notify_write_failure(cx, WRITE_DELETE);
                 return Err(error);
@@ -147,6 +152,10 @@ pub(crate) fn resource_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
                 notify_write_failure(cx, WRITE_DELETE);
                 return Err(crate::db::unavailable(error));
             }
+            // Post-commit (GH #112): the tx is gone, so the hook may open its
+            // own handle, and a rollback above never reaches this line.
+            crate::resource::run_after_commit::<R>(cx, Committed::deleted(vec![committed_record]))
+                .await;
             set_notification(cx, Notification::success("Deleted"));
             Err(see_other(list_url(cx, &R::slug())).into())
         },
@@ -238,6 +247,12 @@ pub(crate) fn resource_bulk_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<
             // All checks passed — perform bulk delete inside the tx, then
             // commit once. Any error drops `tx` uncommitted: zero rows
             // deleted, never half-applied.
+            // The hook names the whole batch (GH #112): a bulk delete is one
+            // write, so it is one `after_commit` call, not one per row. Keeping
+            // a copy is the price of that (bounded by `MAX_BULK_IDS`); handing
+            // the rows over by reference would mean changing two record-fn
+            // signatures for a copy this small.
+            let committed_rows = rows.clone();
             if let Err(error) = R::bulk_delete_records(cx, rows, &mut tx).await {
                 notify_write_failure(cx, WRITE_BULK_DELETE);
                 return Err(error);
@@ -246,6 +261,7 @@ pub(crate) fn resource_bulk_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<
                 notify_write_failure(cx, WRITE_BULK_DELETE);
                 return Err(crate::db::unavailable(error));
             }
+            crate::resource::run_after_commit::<R>(cx, Committed::deleted(committed_rows)).await;
             set_notification(cx, Notification::success("Bulk deleted"));
             Err(see_other(list_url(cx, &R::slug())).into())
         },
@@ -686,7 +702,7 @@ mod tests {
         use crate::resource::Resource;
         use std::collections::HashMap;
 
-        #[derive(Debug, toasty::Model)]
+        #[derive(Debug, toasty::Model, Clone)]
         struct Dummy {
             #[key]
             #[auto]
@@ -786,7 +802,7 @@ mod tests {
         use crate::resource::Resource;
         use std::collections::HashMap;
 
-        #[derive(Debug, toasty::Model)]
+        #[derive(Debug, toasty::Model, Clone)]
         struct Dummy {
             #[key]
             #[auto]
@@ -925,7 +941,7 @@ mod tests {
         use crate::resource::Resource;
         use std::collections::HashMap;
 
-        #[derive(Debug, toasty::Model)]
+        #[derive(Debug, toasty::Model, Clone)]
         struct Dummy {
             #[key]
             #[auto]
@@ -1064,7 +1080,7 @@ mod tests {
         use crate::resource::Resource;
         use std::collections::HashMap;
 
-        #[derive(Debug, toasty::Model)]
+        #[derive(Debug, toasty::Model, Clone)]
         struct Dummy {
             #[key]
             #[auto]
@@ -1180,7 +1196,7 @@ mod tests {
         use http_body_util::BodyExt;
         use std::collections::HashMap;
 
-        #[derive(Debug, toasty::Model)]
+        #[derive(Debug, toasty::Model, Clone)]
         struct Dummy {
             #[key]
             #[auto]
@@ -1673,7 +1689,7 @@ mod tests {
     async fn find_by_key_loads_one_row_scoped_and_404s_malformed() {
         use topcoat::context::CxTestBuilder;
 
-        #[derive(Debug, toasty::Model)]
+        #[derive(Debug, toasty::Model, Clone)]
         struct Subscriber {
             #[key]
             #[auto]
@@ -1805,7 +1821,7 @@ mod tests {
         use crate::resource::Resource;
         use http_body_util::BodyExt;
 
-        #[derive(Debug, toasty::Model)]
+        #[derive(Debug, toasty::Model, Clone)]
         struct OptAuthor {
             #[key]
             #[auto]
@@ -1838,7 +1854,7 @@ mod tests {
             }
         }
 
-        #[derive(Debug, toasty::Model)]
+        #[derive(Debug, toasty::Model, Clone)]
         struct OptPost {
             #[key]
             #[auto]
@@ -1954,7 +1970,7 @@ mod tests {
         use crate::resource::Resource;
         use http_body_util::BodyExt;
 
-        #[derive(Debug, toasty::Model)]
+        #[derive(Debug, toasty::Model, Clone)]
         struct BigA {
             #[key]
             #[auto]
@@ -1986,7 +2002,7 @@ mod tests {
             }
         }
 
-        #[derive(Debug, toasty::Model)]
+        #[derive(Debug, toasty::Model, Clone)]
         struct BigP {
             #[key]
             #[auto]

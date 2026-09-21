@@ -137,7 +137,7 @@ async fn export_over_cap_413s_at_route_level() {
     use argentum_core::{Resource, Schema, Table, TextColumn, TextInput};
     use toasty::Db;
 
-    #[derive(Debug, toasty::Model)]
+    #[derive(Debug, toasty::Model, Clone)]
     struct Dummy {
         #[key]
         #[auto]

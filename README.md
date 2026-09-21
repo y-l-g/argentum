@@ -167,7 +167,9 @@ What to know:
 struct UserResource;
 ```
 
-- Record fns (`create_record`, `update_record`, `delete_record`, `bulk_delete_records`) do the writes. Handlers load records, check policy, then call them in a transaction.
+- Record fns (`create_record`, `update_record`, `delete_record`, `bulk_delete_records`) do the writes. Handlers load records, check policy, then call them in a transaction. `create_record` and `update_record` return the row they wrote — `toasty::create!` hands the created one back and a Toasty instance update reloads the model, so both are already in hand — because that is the only way the framework can name what a write committed (GH #112).
+  Upgrading to this contract: a record fn returns its row (`Ok(rec)` at the end of an instance update is usually the whole change), and a model used by a `Resource` derives `Clone`.
+- `after_commit(cx, committed)` is the post-commit seam (GH #112): called once per committed write, after the transaction and before the response, with a `Committed` naming the mutation (`Mutation::Create/Update/Delete`) and the rows it wrote (a bulk delete is one call with all of them). It is where email, webhooks, audit rows and cache invalidation belong — running them in a record fn leaks the effect on a rollback, and the transaction's pool discipline forbids a second handle while it is open. The default is a no-op, a hook failure is logged without touching the committed write, and it never runs when nothing committed.
 - For edit forms, `hydrate_form_values` maps a record to initial field values.
 
 Tenancy pattern:
@@ -340,7 +342,7 @@ fn can_create(_cx: &Cx) -> bool { false }
 
 List scope belongs in `query()`. Per-row `can_view` trims option lists and exports, but the list page itself checks only `can_view_any` so pagination stays honest. Edit GET and POST both require `can_view` + `can_update`; relation option loads fail closed when the related resource denies `can_view_any`.
 
-Mutations run in a framework-owned transaction: handlers load through `query()` and policy-check on that snapshot, then pass the checked records into the record fns with no silent re-loads. Bulk delete is all-or-nothing.
+Mutations run in a framework-owned transaction: handlers load through `query()` and policy-check on that snapshot, then pass the checked records into the record fns with no silent re-loads. Bulk delete is all-or-nothing. Anything that must happen *after* the commit — a webhook, an email, an audit row — goes in `after_commit`, which runs once the transaction is gone; see §4.
 
 Auth is on by default and fails closed:
 

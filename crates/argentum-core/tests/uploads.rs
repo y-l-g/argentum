@@ -124,7 +124,7 @@ impl Resource for DocResource {
         _cx: &Cx,
         values: HashMap<String, String>,
         ex: &mut dyn toasty::Executor,
-    ) -> topcoat::Result<()> {
+    ) -> topcoat::Result<Doc> {
         // Absent keys store "" (GH #89) — the shape every showcase record fn
         // has, so the upload path reaches the row the ordinary way.
         let (title, cover, attachment) = stored_values(&values);
@@ -135,8 +135,7 @@ impl Resource for DocResource {
         })
         .exec(&mut *ex)
         .await
-        .map_err(|error| -> topcoat::Error { error.into() })?;
-        Ok(())
+        .map_err(|error| -> topcoat::Error { error.into() })
     }
 
     async fn update_record(
@@ -144,7 +143,7 @@ impl Resource for DocResource {
         mut record: Doc,
         values: HashMap<String, String>,
         ex: &mut dyn toasty::Executor,
-    ) -> topcoat::Result<()> {
+    ) -> topcoat::Result<Doc> {
         // Absent keys keep the stored value (GH #89); a cleared upload arrives
         // as a present, empty value.
         for (name, value) in [
@@ -164,7 +163,7 @@ impl Resource for DocResource {
         .exec(&mut *ex)
         .await
         .map_err(|error| -> topcoat::Error { error.into() })?;
-        Ok(())
+        Ok(record)
     }
 }
 

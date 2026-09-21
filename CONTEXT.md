@@ -56,9 +56,14 @@ _Avoid_: Field (in table context), Cell, Attribute
 _Avoid_: Show page, Infolist page, Record view
 
 ### Action
-A user-invoked delete/create/edit operation driven by a `Resource` record fn (`delete_record` / `bulk_delete_records` / `create_record` / `update_record`) through a POST handler, inside a transaction, with authorization checked against the passed record inside the handler.
+A user-invoked delete/create/edit operation driven by a `Resource` record fn (`delete_record` / `bulk_delete_records` / `create_record` / `update_record`) through a POST handler, inside a transaction, with authorization checked against the passed record inside the handler. The four kinds are the mutation vocabulary, and they exist as one value — `Mutation::Create/Update/Delete` — which is what a `Committed` carries to `after_commit`. **Not** an operation *type*: a non-CRUD operation (publish, archive) is still modelled as a record fn or a hand-written page, and a first-class `Action` value with its own before/after hooks remains future work (GH #112).
 
 _Avoid_: Command, Mutation, Operation, Modal
+
+### Committed
+What one successful mutation wrote, handed to `Resource::after_commit` (GH #112): the mutation kind plus the rows it wrote — the row a create returned, the row an update returned (the committed state, reloaded by the instance update), the rows a delete or bulk delete removed (gone by the time the hook sees them, so they arrive as they were). Built by the framework, never by an app. One `Committed` per write, so a bulk delete is a single value however many rows it took. The hook runs after `tx.commit()` and before the response, which is the only place a side effect that must not survive a rollback belongs; a failed hook is logged and never rolls the write back, and a write that did not commit never produces a `Committed` at all.
+
+_Avoid_: CommittedSet, ChangeSet, Event, PostCommit
 
 ### Query
 The base filtered query for a Resource. Returned by Resource::query(cx) and used by every loader. The single seam for tenancy and soft-delete scoping.

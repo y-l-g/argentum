@@ -185,7 +185,7 @@ async fn forged_delete_runs_no_record_query() {
         toasty::stmt::Query::<toasty::stmt::List<Dummy>>::all()
     }
 
-    #[derive(Debug, toasty::Model)]
+    #[derive(Debug, toasty::Model, Clone)]
     struct Dummy {
         #[key]
         #[auto]
@@ -295,7 +295,7 @@ async fn forged_delete_runs_no_record_query() {
 async fn delete_policy_deny() {
     use argentum_core::{Resource, Schema, Table, TextColumn, TextInput};
 
-    #[derive(Debug, toasty::Model)]
+    #[derive(Debug, toasty::Model, Clone)]
     struct DummyUser {
         #[key]
         #[auto]

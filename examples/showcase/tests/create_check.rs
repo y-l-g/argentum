@@ -161,7 +161,7 @@ async fn manual_create_check() {
 async fn create_policy_deny() {
     use argentum_core::{Resource, Schema, Table, TextColumn, TextInput};
 
-    #[derive(Debug, toasty::Model)]
+    #[derive(Debug, toasty::Model, Clone)]
     struct DummyUser {
         #[key]
         #[auto]
@@ -195,8 +195,10 @@ async fn create_policy_deny() {
             _cx: &topcoat::context::Cx,
             _values: std::collections::HashMap<String, String>,
             _ex: &mut dyn toasty::Executor,
-        ) -> topcoat::Result<()> {
-            Ok(())
+        ) -> topcoat::Result<DummyUser> {
+            // `can_create` denies before the handler ever calls this, so there
+            // is no row to return (a create returns what it wrote, GH #112).
+            Err(std::io::Error::other("unreachable: create is denied by policy").into())
         }
     }
 

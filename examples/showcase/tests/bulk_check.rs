@@ -236,7 +236,7 @@ async fn bulk_bar_renders_checkboxes_with_row_keys() {
 async fn bulk_delete_partial_deny_aborts() {
     use argentum_core::{Resource, Schema, Table, TextColumn, TextInput};
 
-    #[derive(Debug, toasty::Model)]
+    #[derive(Debug, toasty::Model, Clone)]
     struct DummyUser {
         #[key]
         #[auto]
@@ -324,7 +324,7 @@ async fn bulk_delete_partial_deny_aborts() {
 async fn view_any_deny_blocks_list() {
     use argentum_core::{Resource, Schema, Table, TextColumn, TextInput};
 
-    #[derive(Debug, toasty::Model)]
+    #[derive(Debug, toasty::Model, Clone)]
     struct DummyUser {
         #[key]
         #[auto]

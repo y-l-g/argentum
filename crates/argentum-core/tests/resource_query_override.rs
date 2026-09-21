@@ -6,7 +6,7 @@ fn scoped(_cx: &Cx) -> toasty::stmt::Query<toasty::stmt::List<User>> {
     toasty::stmt::Query::<toasty::stmt::List<User>>::all().filter(User::fields().name().eq("Ada"))
 }
 
-#[derive(Debug, toasty::Model)]
+#[derive(Debug, toasty::Model, Clone)]
 struct User {
     #[key]
     #[auto]

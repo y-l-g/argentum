@@ -130,7 +130,7 @@ impl Resource for UserResource {
         _cx: &Cx,
         values: HashMap<String, String>,
         ex: &mut dyn toasty::Executor,
-    ) -> Result<()> {
+    ) -> Result<User> {
         let name = values
             .get("name")
             .cloned()
@@ -153,6 +153,8 @@ impl Resource for UserResource {
             values.get("active").map(|s| s.trim().to_string()),
             Some(a) if a == "false"
         );
+        // The created row goes back to the framework: it is what
+        // `after_commit` names for this write (GH #112).
         toasty::create!(User {
             name: name,
             email: email,
@@ -162,8 +164,7 @@ impl Resource for UserResource {
         })
         .exec(&mut *ex)
         .await
-        .map_err(|e| -> topcoat::Error { e.into() })?;
-        Ok(())
+        .map_err(|e| -> topcoat::Error { e.into() })
     }
 
     async fn update_record(
@@ -171,7 +172,7 @@ impl Resource for UserResource {
         mut record: User,
         values: HashMap<String, String>,
         ex: &mut dyn toasty::Executor,
-    ) -> Result<()> {
+    ) -> Result<User> {
         // The handler's checked snapshot (GH #86): `record` was loaded
         // inside the framework tx and policy-checked — no re-query.
         let name = match values.get("name") {
@@ -194,6 +195,8 @@ impl Resource for UserResource {
             Some(v) if v.trim() == "true" => true,
             _ => record.active,
         };
+        // The updated row goes back to the framework (GH #112): it is what
+        // `after_commit` names, and it is already the committed state.
         toasty::update!(record {
             name: name,
             email: email,
@@ -203,7 +206,10 @@ impl Resource for UserResource {
         .exec(&mut *ex)
         .await
         .map_err(|e| -> topcoat::Error { e.into() })?;
-        Ok(())
+        // The instance update reloads `record` from the database's returned
+        // values, so this is the committed row — what `after_commit` names
+        // (GH #112).
+        Ok(record)
     }
 
     fn delete_record(
@@ -327,7 +333,7 @@ impl Resource for AuthorResource {
         cx: &Cx,
         values: HashMap<String, String>,
         ex: &mut dyn toasty::Executor,
-    ) -> impl std::future::Future<Output = Result<()>> + Send
+    ) -> impl std::future::Future<Output = Result<Author>> + Send
     where
         Self: Sized,
     {
@@ -347,6 +353,7 @@ impl Resource for AuthorResource {
                 .to_string();
             let tid =
                 tenant_id(&cx).expect("requires_tenant handlers always set a tenant (GH #87)");
+            // The created row goes back to the framework (GH #112).
             toasty::create!(Author {
                 tenant_id: tid,
                 name: name,
@@ -354,8 +361,7 @@ impl Resource for AuthorResource {
             })
             .exec(&mut *ex)
             .await
-            .map_err(|e| -> topcoat::Error { e.into() })?;
-            Ok(())
+            .map_err(|e| -> topcoat::Error { e.into() })
         }
     }
 
@@ -364,7 +370,7 @@ impl Resource for AuthorResource {
         mut rec: Author,
         values: HashMap<String, String>,
         ex: &mut dyn toasty::Executor,
-    ) -> Result<()> {
+    ) -> Result<Author> {
         // The handler's checked snapshot (GH #86) — no re-query.
         let name = match values.get("name") {
             // Absent keys keep the stored value (GH #89).
@@ -375,6 +381,7 @@ impl Resource for AuthorResource {
             Some(v) => v.trim().to_string(),
             None => rec.email.clone(),
         };
+        // The updated row goes back to the framework (GH #112).
         toasty::update!(rec {
             name: name,
             email: email
@@ -382,7 +389,8 @@ impl Resource for AuthorResource {
         .exec(&mut *ex)
         .await
         .map_err(|e| -> topcoat::Error { e.into() })?;
-        Ok(())
+        // The committed row, reloaded by the instance update (GH #112).
+        Ok(rec)
     }
 
     fn delete_record(
@@ -805,7 +813,7 @@ impl Resource for PostResource {
         cx: &Cx,
         values: HashMap<String, String>,
         ex: &mut dyn toasty::Executor,
-    ) -> impl std::future::Future<Output = Result<()>> + Send
+    ) -> impl std::future::Future<Output = Result<Post>> + Send
     where
         Self: Sized,
     {
@@ -870,6 +878,7 @@ impl Resource for PostResource {
             let tid =
                 tenant_id(&cx).expect("requires_tenant handlers always set a tenant (GH #87)");
             let (seo, publication, media, post_stats) = embedded_from_values(&values);
+            // The created row goes back to the framework (GH #112).
             toasty::create!(Post {
                 tenant_id: tid,
                 title: title,
@@ -887,8 +896,7 @@ impl Resource for PostResource {
             })
             .exec(&mut *ex)
             .await
-            .map_err(|e| -> topcoat::Error { e.into() })?;
-            Ok(())
+            .map_err(|e| -> topcoat::Error { e.into() })
         }
     }
 
@@ -897,7 +905,7 @@ impl Resource for PostResource {
         mut rec: Post,
         values: HashMap<String, String>,
         ex: &mut dyn toasty::Executor,
-    ) -> impl std::future::Future<Output = Result<()>> + Send
+    ) -> impl std::future::Future<Output = Result<Post>> + Send
     where
         Self: Sized,
     {
@@ -992,7 +1000,9 @@ impl Resource for PostResource {
             .exec(&mut *ex)
             .await
             .map_err(|e| -> topcoat::Error { e.into() })?;
-            Ok(())
+            // The instance update reloads `rec`, so this is the committed row
+            // (GH #112).
+            Ok(rec)
         }
     }
 
@@ -1264,7 +1274,7 @@ impl Resource for CommentResource {
         cx: &Cx,
         values: HashMap<String, String>,
         ex: &mut dyn toasty::Executor,
-    ) -> Result<()> {
+    ) -> Result<Comment> {
         let body = values
             .get("body")
             .cloned()
@@ -1283,14 +1293,14 @@ impl Resource for CommentResource {
         // Tenancy double-check inside the tx (GH #178): the pre-tx option-set
         // validation is not a write-time guarantee.
         ensure_post_in_tenant(cx, post_id, ex).await?;
+        // The created row goes back to the framework (GH #112).
         toasty::create!(Comment {
             body: body,
             post_id: post_id,
         })
         .exec(&mut *ex)
         .await
-        .map_err(|e| -> topcoat::Error { e.into() })?;
-        Ok(())
+        .map_err(|e| -> topcoat::Error { e.into() })
     }
 
     async fn update_record(
@@ -1298,7 +1308,7 @@ impl Resource for CommentResource {
         mut record: Comment,
         values: HashMap<String, String>,
         ex: &mut dyn toasty::Executor,
-    ) -> Result<()> {
+    ) -> Result<Comment> {
         let body = match values.get("body") {
             Some(v) => v.trim().to_string(),
             None => record.body.clone(),
@@ -1319,7 +1329,8 @@ impl Resource for CommentResource {
         .exec(&mut *ex)
         .await
         .map_err(|e| -> topcoat::Error { e.into() })?;
-        Ok(())
+        // The committed row, reloaded by the instance update (GH #112).
+        Ok(record)
     }
 
     fn delete_record(

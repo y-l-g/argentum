@@ -186,7 +186,7 @@ mod tests {
 
         use crate::resource::Resource;
 
-        #[derive(Debug, toasty::Model)]
+        #[derive(Debug, toasty::Model, Clone)]
         struct Dummy {
             #[key]
             #[auto]
@@ -284,7 +284,7 @@ mod tests {
         use http_body_util::BodyExt;
         use std::collections::HashMap;
 
-        #[derive(Debug, toasty::Model)]
+        #[derive(Debug, toasty::Model, Clone)]
         struct Dummy {
             #[key]
             #[auto]
@@ -456,7 +456,7 @@ mod tests {
         use http_body_util::BodyExt;
         use std::collections::HashMap;
 
-        #[derive(Debug, toasty::Model)]
+        #[derive(Debug, toasty::Model, Clone)]
         struct Dummy {
             #[key]
             #[auto]

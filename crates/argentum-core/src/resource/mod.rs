@@ -17,6 +17,7 @@ use topcoat::context::Cx;
 use crate::schema::Schema;
 
 mod column;
+mod commit;
 mod filter;
 mod naming;
 mod navigation;
@@ -25,6 +26,8 @@ mod state;
 mod table;
 
 pub use column::{Column, IntoColumns, TextColumn};
+pub(crate) use commit::run_after_commit;
+pub use commit::{Committed, Mutation};
 pub use filter::{DateFilter, Filter, IntoFilters, SelectFilter, TernaryFilter, VariantFilter};
 pub use navigation::{HrefCheck, NavTarget, NavigationItem};
 pub use relation::{IntoRelationColumns, RelationColumn, RelationColumns, render_relation};
@@ -70,7 +73,11 @@ pub trait Resource: Sized + Send + Sync + 'static {
     ///
     /// `Send + Sync` holds for every data-only model struct and is required
     /// for concurrent rendering of the resource's pages.
-    type Model: toasty::schema::Model + Send + Sync + 'static;
+    ///
+    /// `Clone` is part of the contract because a committed mutation names its
+    /// rows (GH #112): a handler keeps a copy of the rows it loaded while the
+    /// record fn consumes them, so the hook can be handed what was written.
+    type Model: toasty::schema::Model + Send + Sync + Clone + 'static;
 
     /// Whether the current user may view the list page.
     ///
@@ -311,7 +318,7 @@ pub trait Resource: Sized + Send + Sync + 'static {
         NavigationItem::for_resource::<Self>()
     }
 
-    /// Create a new record from form values.
+    /// Create a new record from form values, returning the row it wrote.
     ///
     /// The `Panel` create handler validates `required`/`email` inline and checks
     /// `Resource::can_create` before calling this, inside a framework-owned
@@ -320,11 +327,17 @@ pub trait Resource: Sized + Send + Sync + 'static {
     /// write commits atomically with the handler's checks. The default
     /// implementation returns an error; resources should override to perform
     /// the actual `toasty::create!` (or `Insert`).
+    ///
+    /// Return the created row — `toasty::create!` already hands it back, and
+    /// the framework cannot otherwise name what a create wrote: the primary key
+    /// is the database's (or the app's) to generate, so it is only knowable
+    /// from the row. That is what [`Self::after_commit`] receives for a create
+    /// (GH #112).
     fn create_record(
         _cx: &Cx,
         _values: HashMap<String, String>,
         _ex: &mut dyn toasty::Executor,
-    ) -> impl std::future::Future<Output = Result<()>> + Send
+    ) -> impl std::future::Future<Output = Result<Self::Model>> + Send
     where
         Self: Sized,
     {
@@ -337,7 +350,8 @@ pub trait Resource: Sized + Send + Sync + 'static {
         }
     }
 
-    /// Update the already-authorized `record` from form values (GH #86).
+    /// Update the already-authorized `record` from form values (GH #86),
+    /// returning the row as it now stands.
     ///
     /// The handler loads `record` through the tenancy-scoped query **inside
     /// the framework transaction** and checks `can_view` + `can_update` on
@@ -347,12 +361,18 @@ pub trait Resource: Sized + Send + Sync + 'static {
     /// handler's job. Residual (documented, not fixed): a concurrent
     /// cross-transaction policy flip landing between this tx's snapshot and
     /// its commit is backend-isolation territory, out of scope here.
+    ///
+    /// Return the updated row, the way [`Self::create_record`] returns the
+    /// created one: `toasty::update!` already resolves to it, and
+    /// [`Self::after_commit`] needs what was written rather than what was
+    /// loaded — the pre-write snapshot would have a watcher notify its
+    /// subscribers with stale values (GH #112).
     fn update_record(
         _cx: &Cx,
         _record: Self::Model,
         _values: HashMap<String, String>,
         _ex: &mut dyn toasty::Executor,
-    ) -> impl std::future::Future<Output = Result<()>> + Send
+    ) -> impl std::future::Future<Output = Result<Self::Model>> + Send
     where
         Self: Sized,
     {
@@ -405,6 +425,59 @@ pub trait Resource: Sized + Send + Sync + 'static {
             ))
             .into())
         }
+    }
+
+    /// Post-commit work for a mutation this resource committed (GH #112).
+    ///
+    /// The one place a side effect that must not survive a rollback belongs —
+    /// an email, a webhook, an audit row, cache invalidation. Called by the
+    /// framework **once per successful write**, after `tx.commit()` and before
+    /// the response: running it inside a record fn would leak the effect when
+    /// the transaction rolls back, and the write handlers' pool discipline
+    /// (GH #84) forbids a second handle while the transaction is open. By the
+    /// time this runs the transaction is gone, so it may open its own `Db`
+    /// handle — `db(cx)` — or none at all.
+    ///
+    /// [`Committed`] names the mutation and the rows it wrote: the row a create
+    /// returned, the row an update returned (the committed state, not the
+    /// snapshot the handler loaded), the rows a delete or bulk delete removed —
+    /// deletes are the one case where the row is gone by the time you see it.
+    /// A bulk delete is **one call** with every row, not one call per row.
+    ///
+    /// It is never called when nothing committed: a validation error, a policy
+    /// denial, a failed record fn, or a failed commit all leave the hook
+    /// untouched, so a rollback can never produce the effect.
+    ///
+    /// A hook that returns `Err` is logged and ignored — the write is
+    /// committed, and an error page would misreport it. Retries and delivery
+    /// guarantees are the app's to build (an outbox written here is the usual
+    /// shape); the framework promises neither. A hook that panics is a bug in
+    /// the hook and surfaces as Topcoat's panic-isolated 500.
+    ///
+    /// Defaults to a no-op, so a resource that declares nothing is unaffected.
+    ///
+    /// ```ignore
+    /// impl Resource for PostResource {
+    ///     type Model = Post;
+    ///
+    ///     async fn after_commit(cx: &Cx, committed: Committed<Post>) -> Result<()> {
+    ///         // The transaction is committed and gone, so this opens its own handle.
+    ///         let mut db = db(cx);
+    ///         for post in committed.records() {
+    ///             notify_watchers(post, committed.mutation()).await?;
+    ///         }
+    ///         Ok(())
+    ///     }
+    /// }
+    /// ```
+    fn after_commit(
+        _cx: &Cx,
+        _committed: Committed<Self::Model>,
+    ) -> impl std::future::Future<Output = Result<()>> + Send
+    where
+        Self: Sized,
+    {
+        async move { Ok(()) }
     }
 
     /// Hydrate form values from a record for the Edit page.

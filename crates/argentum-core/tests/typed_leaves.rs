@@ -159,7 +159,7 @@ async fn a_bad_typed_submission_re_renders_inline_and_writes_nothing() {
     use argentum_core::{Auth, Panel, Resource};
     use topcoat::router::{Body, Router};
 
-    #[derive(Debug, toasty::Model)]
+    #[derive(Debug, toasty::Model, Clone)]
     struct Reading {
         #[key]
         #[auto]
@@ -198,7 +198,9 @@ async fn a_bad_typed_submission_re_renders_inline_and_writes_nothing() {
             _cx: &Cx,
             values: HashMap<String, String>,
             ex: &mut dyn toasty::Executor,
-        ) -> topcoat::Result<()> {
+        ) -> topcoat::Result<Reading> {
+            // A create returns the row it wrote: that is what the framework
+            // hands to `after_commit` (GH #112).
             toasty::create!(Reading {
                 word_count: values
                     .get("word_count")
@@ -207,8 +209,8 @@ async fn a_bad_typed_submission_re_renders_inline_and_writes_nothing() {
                     .expect("a typed field is validated before the record fn"),
             })
             .exec(ex)
-            .await?;
-            Ok(())
+            .await
+            .map_err(|error| -> topcoat::Error { error.into() })
         }
     }
 

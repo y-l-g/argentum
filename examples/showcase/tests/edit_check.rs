@@ -164,7 +164,7 @@ async fn edit_rejects_forged_post_before_probing_the_record() {
 async fn edit_policy_deny() {
     use argentum_core::{Resource, Schema, Table, TextColumn, TextInput};
 
-    #[derive(Debug, toasty::Model)]
+    #[derive(Debug, toasty::Model, Clone)]
     struct DummyUser {
         #[key]
         #[auto]
