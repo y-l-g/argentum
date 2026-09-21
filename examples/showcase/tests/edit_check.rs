@@ -473,3 +473,93 @@ async fn post_edit_binds_and_saves_embedded_fields() {
         other => panic!("emptying the video payload must select Image, got {other:?}"),
     }
 }
+
+/// The typed leaves round-trip and refuse a bad number inline (GH #192).
+///
+/// `post_stats_word_count` / `post_stats_read_minutes` are `i64` columns bound
+/// through `TextInput::typed`. Before this they were unbound and the record fn
+/// parsed them with `unwrap_or(0)`, so `word_count=twelve` stored a zero.
+#[tokio::test]
+async fn post_edit_round_trips_typed_leaves_and_refuses_a_bad_number() {
+    use showcase::models::Post;
+
+    let db = crate::common::full_db().await;
+    let router = router(db.clone());
+    let client = demo_client(&router).await;
+    let mut db_q = db.clone();
+    let post = Post::filter(Post::fields().title().eq("Hello Toasty".to_string()))
+        .first()
+        .exec(&mut db_q)
+        .await
+        .unwrap()
+        .expect("the seeded post");
+
+    // Hydration: the integer reaches the control through its own `Display`.
+    let html = body_string(client.get(&format!("/admin/posts/{}/edit", post.id)).await).await;
+    assert!(
+        html.contains("name=\"post_stats_word_count\"")
+            && html.contains(&format!("value=\"{}\"", post.post_stats.word_count)),
+        "the typed integer must hydrate its control, got {html}"
+    );
+
+    let csrf = uuid::Uuid::new_v4().to_string();
+    let body = |word_count: &str| {
+        format!(
+            "title=Hello+Toasty&author_id={}&image_path={}&tags=rust&body=Body&\
+             status=published&featured=true&seo_title=Edited+SEO&seo_description=Desc&\
+             media_url=/uploads/new.jpg&media_alt=Alt&media_video_url=&\
+             media_poster_url=&media_poster_credit_author=&\
+             post_stats_word_count={word_count}&post_stats_read_minutes=9&csrf_token={csrf}",
+            post.author_id, post.image_path
+        )
+    };
+
+    // A number the column cannot hold is a field error, not a silent zero.
+    let resp = client
+        .csrf(&csrf)
+        .post_form(&format!("/admin/posts/{}/edit", post.id), body("twelve"))
+        .await;
+    assert!(
+        resp.status().is_success(),
+        "a bad number re-renders the form, got {}",
+        resp.status()
+    );
+    let html = body_string(resp).await;
+    assert!(
+        html.contains("`twelve` is not a valid whole number"),
+        "the error names the offending input, got {html}"
+    );
+    let after_bad = Post::filter(Post::fields().id().eq(post.id))
+        .first()
+        .exec(&mut db_q)
+        .await
+        .unwrap()
+        .expect("the post still exists");
+    assert_eq!(
+        after_bad.post_stats.word_count, post.post_stats.word_count,
+        "a rejected edit writes nothing"
+    );
+
+    // A number it can hold round-trips, and the stored value is the type's
+    // spelling of it.
+    let resp = client
+        .csrf(&csrf)
+        .post_form(&format!("/admin/posts/{}/edit", post.id), body("4242"))
+        .await;
+    assert!(
+        resp.status().is_redirection(),
+        "a valid number redirects, got {}",
+        resp.status()
+    );
+    let after = Post::filter(Post::fields().id().eq(post.id))
+        .first()
+        .exec(&mut db_q)
+        .await
+        .unwrap()
+        .expect("the post still exists");
+    assert_eq!(
+        after.post_stats.word_count, 4242,
+        "the typed value is stored"
+    );
+    assert_eq!(after.post_stats.read_minutes, 9, "its sibling too");
+}

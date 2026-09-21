@@ -115,11 +115,23 @@ impl Schema {
     /// unreachable from the handlers (validation refuses it first), and a
     /// silent rewrite would hide a bypass rather than surface it. A field with
     /// no submission keeps its absence — an update writes only present keys.
+    ///
+    /// An **empty** submission is left empty for the same reason (GH #192): a
+    /// typed column has no spelling for "no value" — `""` is not an `i64` and
+    /// not a `Timestamp` — so inventing one here would put a value in a record
+    /// the user never gave. Empty is the presence rule's business, which is
+    /// where the panel already answers it: `.required()` refuses it inline, and
+    /// an optional typed field reaches its record fn as `""` for the record fn's
+    /// own default. The record fn therefore reads a typed field through the same
+    /// "present or absent" check it uses for any other optional column.
     pub fn normalize_values(&self, values: &mut HashMap<String, String>) {
         for (name, input) in self.text_inputs() {
             let Some(submitted) = values.get(&name) else {
                 continue;
             };
+            if submitted.trim().is_empty() {
+                continue;
+            }
             if let Ok(normalized) = input.normalize(submitted) {
                 values.insert(name, normalized);
             }

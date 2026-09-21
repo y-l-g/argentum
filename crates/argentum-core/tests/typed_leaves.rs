@@ -271,22 +271,16 @@ async fn a_bad_typed_submission_re_renders_inline_and_writes_nothing() {
     );
 }
 
-/// The boundary this change stops at: an **empty** stored value has no spelling
-/// in a typed column (GH #192).
+/// Empty is the presence rule's business, not the typed rule's (GH #192).
 ///
-/// The framework stores `""` rather than NULL (GH #89), so an optional field
-/// left empty stores an empty string. A typed field cannot parse that into its
-/// type, so normalisation declines the value — which is why a real column like
-/// the showcase's shared `publication_timestamp` is still declared `String`
-/// there, and why binding it needs a decision this issue does not make: either
-/// an empty typed value becomes a first-class case at the form edge, or the
-/// column is declared non-optional and empty is refused as required.
-///
-/// Declining is deliberate, not silent: the submission is left exactly as
-/// submitted, so a record fn that re-parses it fails loudly rather than storing
-/// a guess.
+/// A typed column has no spelling for "no value" — `""` is not an `i64` and not
+/// a `Timestamp` — so the panel answers empty where it answers it everywhere:
+/// `.required()` refuses it inline, and an optional typed field reaches its
+/// record fn as `""`, which the record fn defaults exactly as it would for any
+/// other optional column. Normalisation therefore leaves an empty submission
+/// alone rather than inventing a value the user never gave.
 #[tokio::test]
-async fn an_empty_stored_value_has_no_typed_spelling() {
+async fn an_empty_submission_is_left_for_the_record_fn_to_default() {
     let schema = Schema::new(
         TextInput::typed::<Measurement, i64>(Measurement::fields().word_count()).optional(),
     );
@@ -299,7 +293,7 @@ async fn an_empty_stored_value_has_no_typed_spelling() {
     assert_eq!(
         values.get("word_count").map(String::as_str),
         Some(""),
-        "an unparseable empty stays as submitted rather than becoming a default"
+        "empty stays empty: a typed column has no 'no value' spelling"
     );
 }
 
