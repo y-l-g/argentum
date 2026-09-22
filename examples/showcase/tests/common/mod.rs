@@ -473,9 +473,9 @@ pub fn file_input_tag(html: &str) -> String {
     panic!("unterminated <input> tag at byte {start}");
 }
 
-/// The row titles rendered into a table grid, in document order.
+/// The row titles rendered into a table table, in document order.
 ///
-/// Each row's first cell is the title projection, so this reads the grid the
+/// Each row's first cell is the title projection, so this reads the table the
 /// list handlers build (skeleton rows carry no `data-row-select` and are
 /// skipped). Used by pagination and comments assertions that care about which
 /// rows a page actually holds.

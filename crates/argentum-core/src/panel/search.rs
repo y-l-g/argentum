@@ -1,7 +1,7 @@
 //! Live-search registry + shard dispatch (GH #104).
 //!
 //! `#[shard]` inventory only discovers concrete fns, so each declared
-//! resource monomorphizes its grid loader here, keyed by list path.
+//! resource monomorphizes its table loader here, keyed by list path.
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -16,11 +16,11 @@ use topcoat::{
     view::{BoxView, View},
 };
 
-use super::list::{grid_error_view, load_table_page, wire_table_actions};
+use super::list::{load_table_page, table_error_view, wire_table_actions};
 use super::{enforce_auth, enforce_tenant};
 use crate::resource::{Resource, TableState};
 
-/// A monomorphized live-search grid loader, one per declared resource.
+/// A monomorphized live-search table loader, one per declared resource.
 ///
 /// `#[shard]` inventory only discovers concrete fns (GH #104), so the single
 /// concrete [`table_search`] shard dispatches through this registry instead
@@ -40,15 +40,15 @@ pub(crate) type SearchFn = Arc<
 #[derive(Clone, Default)]
 pub(crate) struct SearchRegistry(pub(crate) HashMap<String, SearchFn>);
 
-/// Monomorphize `R`'s grid loader into a [`SearchFn`]: tenancy + policy gate,
+/// Monomorphize `R`'s table loader into a [`SearchFn`]: tenancy + policy gate,
 /// then the same load + render the streamed list uses.
 ///
-/// The grid catches its own load errors (GH #158): a tampered `after=` /
+/// The table catches its own load errors (GH #158): a tampered `after=` /
 /// `before=` signal fails to decode inside the shard invocation, and the
 /// invocation must render the branded in-region `ErrorState` + retry link
-/// (via `super::list::grid_error_view`, same as the streamed list) instead of
+/// (via `super::list::table_error_view`, same as the streamed list) instead of
 /// erroring the shard. Auth/tenancy/policy failures still propagate — they
-/// are not grid evidence.
+/// are not table evidence.
 pub(crate) fn search_handler_for<R: Resource>() -> SearchFn {
     Arc::new(
         |cx: &Cx,
@@ -67,18 +67,18 @@ pub(crate) fn search_handler_for<R: Resource>() -> SearchFn {
                 // client input — an unknown value must not echo through the
                 // retry link. The render re-normalizes internally.
                 let state = table.normalize_state(&state);
-                // The retry link inside a failed grid writes the same signals
+                // The retry link inside a failed table writes the same signals
                 // the toolbar does (GH #166), so keep a handle for it.
                 let retry_signals = signals.clone();
-                let grid = async {
+                let rendered = async {
                     let page = load_table_page::<R>(cx, &table, &state).await?;
                     table
                         .render_live_with_state(cx, page, &state, &path, signals)
                         .await
                 };
-                match grid.await {
+                match rendered.await {
                     Ok(view) => Ok(view),
-                    Err(error) => Ok(grid_error_view::<R>(
+                    Err(error) => Ok(table_error_view::<R>(
                         cx,
                         &state,
                         &error,
@@ -102,15 +102,15 @@ fn search_entry(cx: &Cx, path: &str) -> Result<SearchFn> {
         .ok_or_else(|| topcoat::router::error::not_found().into())
 }
 
-/// Live table interactions (GH #104, GH #151): re-renders one resource's grid
+/// Live table interactions (GH #104, GH #151): re-renders one resource's table
 /// as its signals change, morphing in place per Topcoat #392 (focus, scroll,
 /// and typing survive; rows carry stable `id`s from #104 prep).
 ///
 /// The shard owns no state: the page creates the signals ([`TableSignals`]),
 /// renders the toolbar against them, and passes their handles here. Search,
 /// sort, filters, and pagination all write those signals, so one dependency
-/// graph re-renders the grid — no navigation, no scroll jump. The swapped
-/// region is the grid without the search toolbar (the live host owns that
+/// graph re-renders the table — no navigation, no scroll jump. The swapped
+/// region is the table without the search toolbar (the live host owns that
 /// slot, so swaps never nest invocations or duplicate inputs).
 ///
 /// Every arg is untrusted shard input: `path` must name a registered list
@@ -343,7 +343,7 @@ mod tests {
 
         let sig = |n: u8, v: &str| format!(r#"{{"t":"Signal","id":"{:032x}","v":"{v}"}}"#, n);
         // Positional shard args: q, filters, sort, dir, the single cursor wire
-        // (GH #166), group_by, and the bulk handle the grid binds its
+        // (GH #166), group_by, and the bulk handle the table binds its
         // selection transport to.
         let shard_args = |cursor: &str, group_by: &str| {
             format!(
@@ -358,7 +358,7 @@ mod tests {
             )
         };
         let shard = topcoat::runtime::Shard::id(&table_search);
-        let grid = router
+        let response = router
             .handle(
                 http::Request::builder()
                     .method(http::Method::POST)
@@ -373,46 +373,46 @@ mod tests {
             )
             .await;
         assert_eq!(
-            grid.status(),
+            response.status(),
             http::StatusCode::OK,
             "malformed live cursor must render in place, not error the shard"
         );
-        let bytes = grid.into_body().collect().await.unwrap().to_bytes();
-        let grid_html = String::from_utf8_lossy(&bytes).to_string();
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let table_html = String::from_utf8_lossy(&bytes).to_string();
         assert!(
-            grid_html.contains("Couldn't load Dummies"),
-            "error state must render in the shard output: {grid_html}"
+            table_html.contains("Couldn't load Dummies"),
+            "error state must render in the shard output: {table_html}"
         );
         assert!(
-            grid_html.contains("role=\"alert\""),
-            "error state must carry the alert role: {grid_html}"
+            table_html.contains("role=\"alert\""),
+            "error state must carry the alert role: {table_html}"
         );
         assert!(
-            grid_html.contains("href=\"/admin/dummies\""),
-            "retry link must target the bare list (cursor dropped): {grid_html}"
+            table_html.contains("href=\"/admin/dummies\""),
+            "retry link must target the bare list (cursor dropped): {table_html}"
         );
         assert!(
-            !grid_html.contains("after="),
-            "a malformed cursor must not travel into the retry link: {grid_html}"
+            !table_html.contains("after="),
+            "a malformed cursor must not travel into the retry link: {table_html}"
         );
         // GH #166: the retry writes the cursor signal in place — the same reset
         // its href spells out — so recovering keeps the signal-held search,
         // filters, and sort instead of reloading the page. The error state
         // renders no other control, so any click binding here is the retry.
         assert!(
-            grid_html.contains("data-topcoat-on:click"),
-            "live retry must write the signals instead of navigating: {grid_html}"
+            table_html.contains("data-topcoat-on:click"),
+            "live retry must write the signals instead of navigating: {table_html}"
         );
         assert!(
-            grid_html.contains("set((cx.hydrate(&quot;&quot;)).clone())"),
-            "live retry must clear the cursor signal: {grid_html}"
+            table_html.contains("set((cx.hydrate(&quot;&quot;)).clone())"),
+            "live retry must clear the cursor signal: {table_html}"
         );
 
         // The `before` signal path is symmetric: a tampered backward cursor
         // renders the same cursor-stripped ErrorState. A tampered `group_by`
         // shard arg is normalized with the same state (GH #153), so it must
         // not echo through the retry link either.
-        let grid = router
+        let response = router
             .handle(
                 http::Request::builder()
                     .method(http::Method::POST)
@@ -427,23 +427,23 @@ mod tests {
             )
             .await;
         assert_eq!(
-            grid.status(),
+            response.status(),
             http::StatusCode::OK,
             "malformed live before-cursor must render in place, not error the shard"
         );
-        let bytes = grid.into_body().collect().await.unwrap().to_bytes();
-        let grid_html = String::from_utf8_lossy(&bytes).to_string();
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let table_html = String::from_utf8_lossy(&bytes).to_string();
         assert!(
-            grid_html.contains("Couldn't load Dummies"),
-            "error state must render for a bad before-cursor: {grid_html}"
+            table_html.contains("Couldn't load Dummies"),
+            "error state must render for a bad before-cursor: {table_html}"
         );
         assert!(
-            !grid_html.contains("before="),
-            "a malformed before-cursor must not travel into the retry link: {grid_html}"
+            !table_html.contains("before="),
+            "a malformed before-cursor must not travel into the retry link: {table_html}"
         );
         assert!(
-            !grid_html.contains("group_by"),
-            "an unknown group_by must not echo through the shard retry link: {grid_html}"
+            !table_html.contains("group_by"),
+            "an unknown group_by must not echo through the shard retry link: {table_html}"
         );
     }
 
@@ -544,31 +544,31 @@ mod tests {
             )
         };
 
-        let grid = post_shard(shard_args("name")).await;
+        let response = post_shard(shard_args("name")).await;
         assert_eq!(
-            grid.status(),
+            response.status(),
             http::StatusCode::OK,
             "grouped shard rerun must succeed"
         );
-        let bytes = grid.into_body().collect().await.unwrap().to_bytes();
-        let grid_html = String::from_utf8_lossy(&bytes).to_string();
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let table_html = String::from_utf8_lossy(&bytes).to_string();
         assert!(
-            grid_html.contains("Ada (1 on this page)")
-                && grid_html.contains("Grace (1 on this page)"),
-            "group_by signal must drive group headers in the shard output: {grid_html}"
+            table_html.contains("Ada (1 on this page)")
+                && table_html.contains("Grace (1 on this page)"),
+            "group_by signal must drive group headers in the shard output: {table_html}"
         );
 
-        let grid = post_shard(shard_args("")).await;
+        let response = post_shard(shard_args("")).await;
         assert_eq!(
-            grid.status(),
+            response.status(),
             http::StatusCode::OK,
             "ungrouped shard rerun must succeed"
         );
-        let bytes = grid.into_body().collect().await.unwrap().to_bytes();
-        let grid_html = String::from_utf8_lossy(&bytes).to_string();
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let table_html = String::from_utf8_lossy(&bytes).to_string();
         assert!(
-            !grid_html.contains("on this page"),
-            "cleared group_by signal must render no group headers: {grid_html}"
+            !table_html.contains("on this page"),
+            "cleared group_by signal must render no group headers: {table_html}"
         );
     }
 }

@@ -2300,7 +2300,7 @@ mod tests {
             #[auto]
             id: uuid::Uuid,
             author_id: uuid::Uuid,
-            /// A text column for the grid declaration (GH #138): every
+            /// A text column for the table declaration (GH #138): every
             /// servable resource needs one, and `author_id` is a Uuid.
             name: String,
         }

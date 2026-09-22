@@ -109,3 +109,18 @@ would need a boxed registrar to hold — add it when a second caller exists).
 - Image handling beyond a preview (transcoding, thumbnails, dimensions) stays
   out of scope, as do storage drivers: the trait is the seam, drivers are the
   app's business.
+
+**Status 2026-09-22 (GH #225): served directories are public, by decision.**
+Decision 6 above fixes the mount shape but never says who may read it. The
+answer is everyone: the auth gate installs exactly two layers — the panel prefix
+and `/_topcoat/runtime` (ADR-0013) — so a directory mounted outside both is
+ungated by construction and its URLs are served to whoever asks. That is kept
+deliberately rather than inherited: public media is a legitimate shape (an
+upload store's output is a record's file, and the panel's own pages already
+publish those URLs), and gating a served directory remains a possible future
+option, not a bug fix. The rule this leaves for apps: **a directory meant to be
+private is expressed explicitly** — mount it behind the app's own gate — never
+assumed from the mount path. `a_served_directory_is_reachable_without_a_session`
+in `crates/argentum-core/tests/uploads.rs` pins the anonymous case, because the
+older `serve_dir` test runs with `Auth::disabled()` and the showcase's
+fetch-back test uses a logged-in client, so neither exercised it.

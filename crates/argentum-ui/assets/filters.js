@@ -8,7 +8,7 @@
 // A form marked `data-filters-live` belongs to a live table: the transport is
 // bound to the runtime's `filters` signal, so this script composes the value
 // and dispatches a bubbling `change` into the transport, which the runtime
-// turns into a signal write — the shard re-renders the grid in place, no
+// turns into a signal write — the shard re-renders the table in place, no
 // navigation and no scroll jump. The rewritten transport is unconditional, so
 // selecting "All" clears the filter instead of resubmitting the stale value.
 // Without a live marker the composed transport is submitted as a GET form (a

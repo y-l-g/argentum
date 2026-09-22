@@ -27,7 +27,7 @@ pub fn db(cx: &Cx) -> Db {
 /// to an opaque 500 (GH #174): the driver/SQL text is logged for operators
 /// but never reaches the error page. The streamed list already holds this
 /// contract through its generic `ErrorState` (logged once at
-/// `grid_error_view`); mutation/export paths must match it.
+/// `table_error_view`); mutation/export paths must match it.
 ///
 /// Only infra failures come here. App-hook errors (`create_record` et al.)
 /// and explicit guards (404s, 403s, config errors) keep their own mapping.

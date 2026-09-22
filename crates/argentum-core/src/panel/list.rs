@@ -1,8 +1,8 @@
 //! Generic resource list page + live-search host + table page loader.
 //!
 //! One generic handler drives every resource's list; the live variant owns
-//! the interaction signals and fills the grid through the `search` module's
-//! shard. Shared grid helpers (`wire_table_actions`, `grid_error_view`)
+//! the interaction signals and fills the table through the `search` module's
+//! shard. Shared table helpers (`wire_table_actions`, `table_error_view`)
 //! keep the streamed page and the shard from drifting (GH #134).
 
 use topcoat::view::internal::ThenView;
@@ -19,7 +19,7 @@ use crate::resource::{
     Resource, Table, TableChrome, TablePage, TableSignals, TableState, create_page_url,
 };
 
-/// Retry link for a failed streamed grid load (GH #110).
+/// Retry link for a failed streamed table load (GH #110).
 ///
 /// A malformed `?after=`/`?before=` cursor — or a conflicting `after` +
 /// `before` pair (GH #155) — is the failure itself: retrying the
@@ -94,7 +94,7 @@ pub(crate) fn wire_table_actions<R: Resource>(cx: &Cx, live: bool) -> Table<R::M
     table
 }
 
-/// Branded in-region grid failure shared by the streamed list and the
+/// Branded in-region table failure shared by the streamed list and the
 /// live-search shard (GH #134, GH #158): the trace line, the cursor-aware
 /// retry link ([`retry_url_for_error`]), and the `ErrorState` render are one
 /// copy so the three load sites cannot drift.
@@ -104,7 +104,7 @@ pub(crate) fn wire_table_actions<R: Resource>(cx: &Cx, live: bool) -> Table<R::M
 /// failure, the whole query for anything else — so recovering no longer throws
 /// away signal-held state with a full navigation. `href` stays as the no-JS
 /// fallback.
-pub(crate) fn grid_error_view<'a, R: Resource>(
+pub(crate) fn table_error_view<'a, R: Resource>(
     cx: &'a Cx,
     state: &TableState,
     error: &topcoat::Error,
@@ -172,7 +172,7 @@ pub(crate) fn grid_error_view<'a, R: Resource>(
 /// `Resource::table`. The page title is the resource's navigation label.
 ///
 /// The page streams: shell and header go out with the first content, while the
-/// row grid (toolbar/filter/bulk/pager included) loads inside a `suspense`
+/// table body (toolbar/filter/bulk/pager included) loads inside a `suspense`
 /// region that swaps in the skeleton → table without any client-side fetching
 /// (GH #98: the skeleton is thead + placeholders only, so chrome pops in with
 /// the swap by design).
@@ -199,7 +199,7 @@ pub(crate) fn resource_list<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
             return Ok(resource_list_live::<R>(cx, table, state, title, list_path));
         }
 
-        // First content: the skeleton grid (`Table::render_skeleton`), while
+        // First content: the skeleton table (`Table::render_skeleton`), while
         // the rows load below. The load catches its own errors: post-stream
         // the status line is fixed, so a failed load must render the branded
         // ErrorState inside the region instead of truncating the body.
@@ -212,13 +212,13 @@ pub(crate) fn resource_list<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
         // echo an unknown `?group_by=`. The render re-normalizes internally.
         let state = table.normalize_state(&state);
         let lazy_rows = ThenView::new(async move {
-            let grid = async {
+            let rendered = async {
                 let page = load_table_page::<R>(cx, &table, &state).await?;
                 table.render(cx, page).await
             };
-            match grid.await {
+            match rendered.await {
                 Ok(view) => Ok(view),
-                Err(error) => Ok(grid_error_view::<R>(
+                Err(error) => Ok(table_error_view::<R>(
                     cx,
                     &state,
                     &error,
@@ -261,8 +261,8 @@ pub(crate) fn resource_list<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
 /// Live list page for `Table::live_search` tables (GH #104, GH #151): the
 /// page owns the interaction signals (`q`, `filters`, `sort`, `dir`,
 /// `after`, `before`, `group_by`) and renders the search toolbar eagerly above the
-/// streamed region while the `table_search` shard invocation fills the grid
-/// below — one grid per response, so rows can never duplicate. Every
+/// streamed region while the `table_search` shard invocation fills the table
+/// below — one table per response, so rows can never duplicate. Every
 /// interaction writes a signal, so search, sort, filters, and pagination
 /// re-render only the invocation output, morphing in place with focus and
 /// scroll surviving.
@@ -313,7 +313,7 @@ pub(crate) fn resource_list_live<R: Resource>(
             None
         };
         // The filter bar is hoisted next to the search host (GH #166): a
-        // `<select>` change re-renders the grid, and a control inside the
+        // `<select>` change re-renders the table, and a control inside the
         // swapped region would lose focus and collapse its popup mid-change.
         let filter_bar = if table.filter_bar_enabled() {
             Some(
@@ -325,7 +325,7 @@ pub(crate) fn resource_list_live<R: Resource>(
             None
         };
         let skeleton = table.render_skeleton(cx).await?;
-        // The delete confirmation dialog is not part of the swapped grid
+        // The delete confirmation dialog is not part of the swapped table
         // region: a keystroke starts a new result set and must never carry
         // (or re-open) a dialog, so the live page renders it eagerly once
         // (GH #151).
@@ -338,15 +338,15 @@ pub(crate) fn resource_list_live<R: Resource>(
         // echo an unknown `?group_by=`. The invocation normalizes internally.
         let state = table.normalize_state(&state);
         let lazy_rows = ThenView::new(async move {
-            // The retry link inside the grid writes the same signals the
+            // The retry link inside the table writes the same signals the
             // toolbar does (GH #166), so a bad cursor recovers in place.
             let retry_signals = signals.clone();
-            let grid = table
+            let rendered = table
                 .render_live_invocation(cx, &state, &list_path, signals)
                 .await;
-            match grid {
+            match rendered {
                 Ok(view) => Ok(view),
-                Err(error) => Ok(grid_error_view::<R>(
+                Err(error) => Ok(table_error_view::<R>(
                     cx,
                     &state,
                     &error,
@@ -429,7 +429,7 @@ mod tests {
     async fn live_search_host_and_shard_dispatch() {
         // GH #104: opt-in tables render the signal host (page bodies are
         // hoisted, so signals work there); the slug-dispatched shard serves
-        // the grid and 404s unknown paths.
+        // the table and 404s unknown paths.
         use crate::resource::Resource;
         use http_body_util::BodyExt;
         use std::collections::HashMap;
@@ -544,7 +544,7 @@ mod tests {
         // signals.
         let sig = |n: u8, v: &str| format!(r#"{{"t":"Signal","id":"{:032x}","v":"{v}"}}"#, n);
         // Args are positional shard inputs: q, filters, sort, dir, the single
-        // cursor wire (GH #166), group_by, and the bulk handle the grid binds
+        // cursor wire (GH #166), group_by, and the bulk handle the table binds
         // its selection transport to.
         let shard_args =
             |path: &str, q: &str, filters: &str, sort: &str, dir: &str, cursor: &str| {
@@ -582,47 +582,48 @@ mod tests {
             "unknown shard path must fail, got {}",
             nope.status()
         );
-        let grid = call_shard(&router, shard_args("/admin/dummies", "Ada", "", "", "", "")).await;
-        let status = grid.status();
-        let bytes = grid.into_body().collect().await.unwrap().to_bytes();
-        let grid_html = String::from_utf8_lossy(&bytes).to_string();
-        assert_eq!(status, http::StatusCode::OK, "shard body: {grid_html}");
+        let response =
+            call_shard(&router, shard_args("/admin/dummies", "Ada", "", "", "", "")).await;
+        let status = response.status();
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let table_html = String::from_utf8_lossy(&bytes).to_string();
+        assert_eq!(status, http::StatusCode::OK, "shard body: {table_html}");
         assert!(
-            grid_html.contains("Ada"),
-            "live shard must render matching rows, got {grid_html}"
+            table_html.contains("Ada"),
+            "live shard must render matching rows, got {table_html}"
         );
-        // ...and not render it a second time inside the swapped grid.
+        // ...and not render it a second time inside the swapped table.
         assert!(
-            !grid_html.contains("data-filter-name="),
-            "the swapped grid must not duplicate the hoisted filter bar, got {grid_html}"
+            !table_html.contains("data-filter-name="),
+            "the swapped table must not duplicate the hoisted filter bar, got {table_html}"
         );
-        // GH #166: the bulk selection is signal-backed — the grid binds its
+        // GH #166: the bulk selection is signal-backed — the table binds its
         // transport to the selection signal, so a rerun re-renders the
         // selection instead of dropping it...
         assert!(
-            grid_html.contains(
+            table_html.contains(
                 r#"data-topcoat-bind:value="(cx.hydrate({&quot;t&quot;:&quot;Signal&quot;,&quot;id&quot;:&quot;00000000000000000000000000000007&quot;})).get()""#
             ),
-            "the grid must bind the bulk transport to the selection signal, got {grid_html}"
+            "the table must bind the bulk transport to the selection signal, got {table_html}"
         );
         // GH #184 replaced the disabled destructive submit with a confirmation
         // dialog: the trigger is a plain button and the dialog's submit is the
         // one that carries `confirm=1` inside the same form.
         assert!(
-            grid_html.contains("data-bulk-confirm-trigger")
-                && grid_html.contains("data-bulk-confirm-dialog"),
-            "the live grid must carry the bulk confirmation, got {grid_html}"
+            table_html.contains("data-bulk-confirm-trigger")
+                && table_html.contains("data-bulk-confirm-dialog"),
+            "the live table must carry the bulk confirmation, got {table_html}"
         );
         // ...while never reading it: selecting a row must not re-run the query.
         assert!(
-            !grid_html.contains(r#"::topcoat::dep("00000000000000000000000000000007")"#),
-            "the bulk signal must not become a shard dependency, got {grid_html}"
+            !table_html.contains(r#"::topcoat::dep("00000000000000000000000000000007")"#),
+            "the bulk signal must not become a shard dependency, got {table_html}"
         );
-        // GH #151: the grid's chrome is bound to the signals, so sort/pager
+        // GH #151: the table's chrome is bound to the signals, so sort/pager
         // interactions re-render in place. `href` stays the no-JS fallback.
         assert!(
-            grid_html.contains("data-topcoat-on:click") && grid_html.contains("sort=name"),
-            "live grid must bind the sort link and keep its href, got {grid_html}"
+            table_html.contains("data-topcoat-on:click") && table_html.contains("sort=name"),
+            "live table must bind the sort link and keep its href, got {table_html}"
         );
 
         // A direct context for the loader/cursor assertions below.
@@ -669,27 +670,29 @@ mod tests {
                 .clone()
                 .expect("page 1 must have a cursor"),
         );
-        let grid = call_shard(&router, shard_args("/admin/dummies", "", "", "", "", &wire)).await;
-        assert_eq!(grid.status(), http::StatusCode::OK);
-        let bytes = grid.into_body().collect().await.unwrap().to_bytes();
-        let grid_html = String::from_utf8_lossy(&bytes);
+        let response =
+            call_shard(&router, shard_args("/admin/dummies", "", "", "", "", &wire)).await;
+        assert_eq!(response.status(), http::StatusCode::OK);
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let table_html = String::from_utf8_lossy(&bytes);
         assert!(
-            !grid_html.contains(&first_name),
-            "a cursor must continue past page-1 rows, got {grid_html}"
+            !table_html.contains(&first_name),
+            "a cursor must continue past page-1 rows, got {table_html}"
         );
         // The pager renders its next/prev links with handlers too.
         assert!(
-            grid_html.contains("data-topcoat-on:click"),
-            "live pager must bind its cursor handlers, got {grid_html}"
+            table_html.contains("data-topcoat-on:click"),
+            "live pager must bind its cursor handlers, got {table_html}"
         );
         // A fresh search with no cursor starts a new result set.
-        let grid = call_shard(&router, shard_args("/admin/dummies", "Bob", "", "", "", "")).await;
-        assert_eq!(grid.status(), http::StatusCode::OK);
-        let bytes = grid.into_body().collect().await.unwrap().to_bytes();
-        let grid_html = String::from_utf8_lossy(&bytes);
+        let response =
+            call_shard(&router, shard_args("/admin/dummies", "Bob", "", "", "", "")).await;
+        assert_eq!(response.status(), http::StatusCode::OK);
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let table_html = String::from_utf8_lossy(&bytes);
         assert!(
-            grid_html.contains("Bob"),
-            "fresh search must match new query, got {grid_html}"
+            table_html.contains("Bob"),
+            "fresh search must match new query, got {table_html}"
         );
     }
 
@@ -888,7 +891,7 @@ mod tests {
     #[tokio::test]
     async fn unpaginated_resource_list_fails_loud_without_loading() {
         // GH #172: a resource list without `Table::paginate` fails loudly in
-        // the grid region instead of unbounded-loading the whole table — the
+        // the table region instead of unbounded-loading the whole table — the
         // seeded row must not render, and the branded error state must.
         use crate::resource::Resource;
         use http_body_util::BodyExt;

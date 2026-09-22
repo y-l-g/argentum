@@ -186,9 +186,11 @@ impl Panel {
     /// see Topcoat's `DirectoryRoute` for the resolution rules. The path is
     /// **not** panel-relative: a served directory holds files a record points
     /// at (an upload store's output), which are not a page of the panel and
-    /// must not move when the panel is mounted elsewhere. Nothing under the
-    /// panel's auth gate is affected — these URLs are served to whoever asks,
-    /// so an app that needs protected files owns that route itself.
+    /// must not move when the panel is mounted elsewhere. This is **public**:
+    /// the auth gate covers only the panel prefix and `/_topcoat/runtime`
+    /// (ADR-0013), so a served directory sits outside it and its URLs answer
+    /// whoever asks, with no session — an app that needs protected files owns
+    /// that route itself (ADR-0017, GH #225).
     ///
     /// The Panel owns the [`Router`], so this is the app's only way to mount a
     /// route the framework does not own.
@@ -329,7 +331,7 @@ impl Panel {
         ));
         // Live-search handler (GH #104): the slug-dispatched `#[shard]` below
         // cannot be generic (inventory only discovers concrete fns), so each
-        // resource monomorphizes its grid loader here, keyed by list path.
+        // resource monomorphizes its table loader here, keyed by list path.
         self.search_handlers
             .insert(url.clone(), search_handler_for::<R>());
         if self.root_target.is_none() {
@@ -454,7 +456,7 @@ impl Panel {
                 "Panel::build requires a Db via app_context",
             ))
         })?;
-        // Declaration checks (GH #138): a resource whose grid or form could
+        // Declaration checks (GH #138): a resource whose table or form could
         // never render is a configuration error, and the declaration is
         // knowable here — waiting for the first request only moves the failure
         // somewhere less useful. `table`, `form` and `can_create` are pure

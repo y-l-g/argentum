@@ -2,10 +2,10 @@
 //
 // The live search input (`data-live-search-input`) is deliberately unbound:
 // typing stays local until it pauses, so a burst like "published" triggers
-// one grid reload instead of nine. After `data-debounce-ms` milliseconds of
+// one table reload instead of nine. After `data-debounce-ms` milliseconds of
 // quiet the script copies the value into the bound hidden transport
 // (`data-live-search-transport`) and dispatches a bubbling `change` into it,
-// which the runtime turns into signal writes — the shard re-renders the grid
+// which the runtime turns into signal writes — the shard re-renders the table
 // in place exactly as if the user had typed into a bound input, so the
 // abort-in-flight coalescing still applies to the resulting rerun. Pressing
 // Enter flushes the pending value immediately instead of waiting out the

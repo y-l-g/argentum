@@ -15,7 +15,7 @@ use topcoat::runtime::Signal;
 /// The page owns these signals and hands their handles to the `table_search`
 /// shard through [`Table::render_live_with_state`]; each tracked read inside
 /// the shard becomes a `dep` marker the browser watches, so writing any signal
-/// re-renders the grid in place — no navigation, no scroll jump. Sort links,
+/// re-renders the table in place — no navigation, no scroll jump. Sort links,
 /// the pager, the filter transport, the bulk selection, and the clear links
 /// rendered by the table write them.
 ///
@@ -51,7 +51,7 @@ pub struct TableSignals {
     /// selected (GH #166). Row checkboxes render `checked` from it and
     /// `bulk.js` writes it through the bound transport, so a live rerun
     /// re-renders the boxes from the selection instead of dropping it. The
-    /// shard carries the handle without reading it: the grid needs it to bind
+    /// shard carries the handle without reading it: the table needs it to bind
     /// the boxes, but a checkbox click must not reload rows.
     pub bulk: Signal<String>,
 }
@@ -1321,7 +1321,7 @@ mod tests {
             (Some("tok".to_string()), None)
         );
         // A tampered or half-written value degrades to no cursor (GH #110's
-        // drop-pagination retry contract) instead of erroring the grid.
+        // drop-pagination retry contract) instead of erroring the table.
         assert_eq!(split_cursor("tok"), (None, None));
         assert_eq!(split_cursor("after:"), (None, None));
         assert_eq!(split_cursor("before:"), (None, None));

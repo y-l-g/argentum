@@ -6,7 +6,7 @@
 // delimited on both ends — `,a,b,`, empty when nothing is selected.
 //
 // On a live table that transport is bound to a signal, so the selection
-// survives a shard rerun instead of dying with the swapped grid: this script
+// survives a shard rerun instead of dying with the swapped table: this script
 // writes the wire and dispatches `change`, the runtime writes the signal, and
 // the binding keeps the transport in step. Checkbox state is re-applied from
 // the transport after every swap (a MutationObserver, because a swap replaces
@@ -135,7 +135,7 @@ document.addEventListener('click', (e) => {
   else dialog.setAttribute('open', '');
 });
 
-// A swap replaces the grid (and its checkboxes) without a page load, so
+// A swap replaces the table (and its checkboxes) without a page load, so
 // re-apply the selection whenever the table's markup changes.
 const observers = new WeakMap();
 function observe(root) {

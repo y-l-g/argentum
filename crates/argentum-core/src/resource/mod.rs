@@ -55,7 +55,7 @@ use naming::{kebab_case, pluralize, type_short_name};
 /// loudly rather than silently:
 ///
 /// - **Checked at [`Panel::build`](crate::panel::Panel::build)**, which returns
-///   `Err` naming the type: the grid must be renderable
+///   `Err` naming the type: the table must be renderable
 ///   ([`table`](Self::table) declares columns and a row key) and, where
 ///   [`can_create`](Self::can_create) allows it, the
 ///   [`form`](Self::form) must declare fields. `table`, `form` and `can_create`

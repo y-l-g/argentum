@@ -13,7 +13,7 @@ use std::sync::{Arc, Mutex};
 use argentum_core::{
     Auth, FileUpload, Panel, Resource, Schema, Table, TextColumn, TextInput, Uploader,
 };
-use http::header::{CONTENT_TYPE, COOKIE};
+use http::header::{CONTENT_TYPE, COOKIE, LOCATION};
 use toasty::Db;
 use topcoat::context::Cx;
 use topcoat::router::response::Response;
@@ -183,6 +183,23 @@ fn stored_values(values: &HashMap<String, String>) -> (String, String, String) {
 async fn seeded_db() -> Db {
     let db = Db::builder()
         .models(toasty::models!(Doc))
+        .connect("sqlite::memory:")
+        .await
+        .expect("connect");
+    db.push_schema().await.expect("push_schema");
+    db
+}
+
+/// The same DB, with the shipped auth models registered so a panel can be
+/// built with the gate **on** (the default): `Panel::build` refuses a panel
+/// whose `AdminUser`/`AuthSession` pair is missing.
+async fn auth_seeded_db() -> Db {
+    let db = Db::builder()
+        .models(toasty::models!(
+            Doc,
+            argentum_core::auth::AdminUser,
+            argentum_core::auth::AuthSession
+        ))
         .connect("sqlite::memory:")
         .await
         .expect("connect");
@@ -701,6 +718,50 @@ async fn serve_dir_serves_the_upload_directory_through_the_panel() {
     );
     let missing = get(&router, "/uploads/absent.png").await;
     assert_eq!(missing.status(), 404);
+}
+
+#[tokio::test]
+async fn a_served_directory_is_reachable_without_a_session() {
+    // ADR-0017 (decision 2026-09-22): a served directory is **public**. The
+    // auth gate installs exactly two layers — the panel prefix and the runtime
+    // prefix (ADR-0013) — so a directory mounted anywhere else is ungated by
+    // construction. This pins that shape: the gate is demonstrably on, and the
+    // same anonymous client still gets the file. An app that needs protected
+    // files owns that route itself.
+    let db = auth_seeded_db().await;
+    let dir = temp_dir("serve-anonymous");
+    std::fs::write(dir.join("cat.png"), b"PNG-FILE").expect("write upload");
+
+    let router = Panel::new("admin")
+        .app_context(db)
+        // No `.auth(..)` call: the shipped gate is on, which is the point.
+        .serve_dir("/uploads/{*file}", dir.clone())
+        .resource::<DocResource>()
+        .build()
+        .expect("panel builds");
+
+    // The gate is live: an anonymous panel page is redirected to the login
+    // route (the same 307 the auth suite pins).
+    let page = get(&router, "/admin/docs").await;
+    assert_eq!(
+        page.status(),
+        307,
+        "the panel must still gate anonymous page requests"
+    );
+    assert_eq!(
+        page.headers().get(LOCATION).unwrap().to_str().unwrap(),
+        "/admin/login?next=%2Fadmin%2Fdocs",
+        "the anonymous panel page must be sent to login"
+    );
+
+    // The served directory is not behind that gate: no cookie, no session.
+    let response = get(&router, "/uploads/cat.png").await;
+    assert_eq!(
+        response.status(),
+        200,
+        "a served file needs no session (ADR-0017)"
+    );
+    assert_eq!(body_bytes(response).await, b"PNG-FILE");
 }
 
 #[tokio::test]

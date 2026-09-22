@@ -513,10 +513,11 @@ fn strip_transport_keys(schema: &crate::schema::Schema, values: &mut HashMap<Str
 /// query, and no `""` written past an index that admits one.
 ///
 /// Known limits (GH #88, upstream gap #117): races with concurrent
-/// inserts (only a driver predicate closes it); the check is tenant-scoped via
-/// `R::query` while DB `#[unique]` is global, so cross-tenant duplicates 500 —
-/// closing that needs a scoped constraint, not field metadata, which `unique`
-/// now derives (GH #183); composite uniques are not covered, and `unique`
+/// inserts (only a driver predicate closes it); the probe runs inside
+/// `R::query`'s scope, so a `unique()` field whose index carries components
+/// outside that scope is not checked exactly — a **composite** index such as
+/// `#[unique(tenant_id, email)]` on a tenant-scoped resource is, which is the
+/// arrangement that lets two tenants share a value (GH #183, GH #88); `unique`
 /// exists on `TextInput` only.
 async fn check_unique<R: Resource>(
     cx: &Cx,

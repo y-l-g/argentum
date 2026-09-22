@@ -4,7 +4,7 @@ use crate::common::{body_string, demo_client, full_db, post_count, row_titles, s
 
 // GH #162 (Filament's List `CreateAction` + `recordActions` EditAction):
 // every list exposes its create/edit entry points as real links — the live
-// (`live_search`) lists included, where the grid swaps in place below an
+// (`live_search`) lists included, where the table swaps in place below an
 // eager header.
 
 #[tokio::test]

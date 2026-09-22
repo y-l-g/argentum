@@ -8,7 +8,7 @@ Repo layout:
 argentum/
   crates/argentum-core/    # Panel, Resource trait, Table and Schema types, auth, tenancy
   crates/argentum-macros/  # derive(EmbeddedForm) for embedded values (GH #191)
-  crates/argentum-ui/      # Topcoat primitives plus owned composites (Page, Toast, Theme, ErrorState, CodeBlock, BoundInput)
+  crates/argentum-ui/      # Topcoat primitives plus owned composites (Page, Toast, Theme, ErrorState)
   examples/showcase/       # runnable admin: /admin/users, /admin/authors, /admin/posts
   benchmarks/              # perf harness plus axum-maud and leptos baselines
   docs/adr/                # design notes; CONTEXT.md is the vocabulary
@@ -139,7 +139,7 @@ pub trait Resource: Sized + Send + Sync + 'static {
 Every method is defaulted, so a resource compiles as soon as it names its model — which means an
 omission has to fail loudly instead of quietly:
 
-- **At `Panel::build`** (which returns `Result<Router>`): the grid must be renderable — `table()`
+- **At `Panel::build`** (which returns `Result<Router>`): the table must be renderable — `table()`
   declares columns and a row key — and where `can_create` allows it, `form()` must declare fields.
   A resource that overrides nothing fails the build, naming the type, instead of serving an error
   state or an empty form. `table()`, `form()` and `can_create()` are declarations: the panel calls
@@ -271,7 +271,7 @@ Live updates:
 Table::r#for(cx).live_search(true)
 ```
 
-Search, sort, filter, and pager controls then refresh the grid in place without a full page load. The plain links and forms stay as the no-JS fallback.
+Search, sort, filter, and pager controls then refresh the table in place without a full page load. The plain links and forms stay as the no-JS fallback.
 
 Panel wires the bulk checkbox column when the resource opts in with `deletable() -> true` (GH #226: chrome is opt-in, and the flag pairs with `can_delete`). Bulk delete asks first: the bulk bar's button opens an alert dialog that names how many rows are selected, and its confirm control is the only thing carrying the `confirm=1` the handler requires — a POST without that marker is a 400, so the safeguard does not depend on the script that opens the dialog (GH #184).
 
@@ -318,7 +318,7 @@ Select::r#for(Post::fields().author_id())
 
 - `FileUpload` binds a `String` path and owns the request half: no `value` on `type=file`, `enctype="multipart/form-data"` when a form has one, a 10 MiB body cap (413), a 400 for multipart without a boundary, and sanitized basenames (`.` / `..` / Windows reserved names surface as inline errors). On an edit the control drops native `required` (GH #184) — a `required` file input cannot be pre-filled, so it blocked every untouched save; `required` still holds on create.
 - **Where the bytes go is the app's** (GH #188, ADR-0017): install an `Uploader` once with `Panel::uploads(store)`. `store(filename, bytes) -> Result<String, String>` receives the sanitized name and the content (bounded by the cap) and returns the value the record stores; a refusal is an inline error (`"<Label> could not be uploaded: <reason>"`), not a 500. With no uploader installed the sanitized basename is stored, which is the pre-#188 contract, and the bytes are drained rather than buffered.
-- The stored path renders as the file it names: an image preview when it ends in an image extension, a link to the file otherwise — no URL convention is invented, and `Panel::serve_dir(path, dir)` mounts the directory an upload store writes to. Every stored value also offers a `clear_<field>` checkbox ("Remove the current file"), the one control that means "remove" rather than "keep"; an empty file input still means keep. Clearing does not waive `required` — a resource whose records may lose their file declares `.optional()`.
+- The stored path renders as the file it names: an image preview when it ends in an image extension, a link to the file otherwise — no URL convention is invented, and `Panel::serve_dir(path, dir)` mounts the directory an upload store writes to. A served directory is **public** (ADR-0017): its URLs answer whoever asks, with no session, because the auth gate covers only the panel prefix and `/_topcoat/runtime` (ADR-0013) and a served directory is mounted outside both. An app that needs protected files owns that route itself. Every stored value also offers a `clear_<field>` checkbox ("Remove the current file"), the one control that means "remove" rather than "keep"; an empty file input still means keep. Clearing does not waive `required` — a resource whose records may lose their file declares `.optional()`.
 - `Repeater` is a single-entry group. An all-empty group is skipped, so its inner required fields do not fail the submit. A `required` repeater yields one label-keyed error; a partially filled group still enforces inner `required`.
 
 Validation errors render inline per field. Absent keys validate as `""` and updates write only present keys; handlers reject unknown form keys with 400 (`role` / `tenant_id` smuggling fails closed; only `csrf_token` and `clear_<field>` are exempt), so extra posted keys never reach record fns.
@@ -389,7 +389,7 @@ let hash = argentum_core::auth::hash_password("secret").expect("hash password");
 // store in AdminUser.password_hash (Argon2id PHC string)
 ```
 
-- Unauthenticated `GET` pages redirect to `{prefix}/login` with a validated same-origin `next`. Runtime endpoints (`/_topcoat/runtime`) and all non-GET panel requests answer 401; users without panel access answer 403.
+- Unauthenticated `GET` pages redirect to `{prefix}/login` with a validated same-origin `next`. Runtime endpoints (`/_topcoat/runtime`) and all non-GET panel requests answer 401; users without panel access answer 403. The gate installs exactly two layers — the panel prefix and `/_topcoat/runtime` — so a route mounted outside them is ungated by construction; `Panel::serve_dir` is the shipped case, and served directories are public by decision (ADR-0017).
 - Sessions are server-side `AuthSession` rows with a seven-day fixed lifetime, rotated on login and revoked on logout. Use `auth::revoke_sessions_for_user(cx, id)` to sign a user out everywhere. Logins verify Argon2id (dummy hash for unknown emails) and share one generic failure message. Handlers re-check the resolved user, including the panel root and live-search shard; logout accepts any resolved identity so a de-permitted session can still be cleared.
 
 Custom user table:
@@ -487,7 +487,7 @@ Reactivity: `signal(cx, init)` runs only in a page/layout/component body; loop b
 - All POSTs verify a double-submit `csrf_token` before any DB work. `confirm=1` is a UX step, not a boundary.
 - Passwords use Argon2id. Unknown emails take the same code path, and login failures share one generic message.
 - Deletes and bulk deletes re-fetch through `query()` and re-check policy inside the handler transaction.
-- Table free-text only reaches `starts_with`. Do not interpolate raw input into SQL.
+- Table free-text is an escaped substring `LIKE` across the searchable columns (`like_with_escape` + `escape_like_pattern`), never a raw pattern. Do not interpolate raw input into SQL.
 - Session, CSRF, and notification cookies use hardened `__Host-` + `Secure` settings. Localhost is exempt; non-localhost deploys need HTTPS or browsers drop them and mutations 403.
 - Responses carry `Content-Security-Policy: frame-ancestors 'self'`, so an admin page cannot be clickjacked from another origin. `Panel::frame_ancestors(..)` widens it for a deployment that frames the panel, `Panel::without_frame_ancestors()` sends none for a proxy that owns the whole policy, and an app's own `Content-Security-Policy` always wins — the layer only fills the gap.
 - Redirects: `Err(redirect(..))` (307) for GETs, `Err(see_other(..))` (303 PRG) after mutations. Mid-stream they degrade to `window.location.replace`; streamed regions own their failure rendering. Wrap `Slot` in `error_boundary` for branded error pages.
@@ -509,7 +509,7 @@ cargo run --manifest-path benchmarks/argentum/Cargo.toml -- --bench
 
 The shell scripts under `crates/argentum-ui/assets/` are plain browser scripts loaded through `asset!`, so they have no build step and no test runner. `selects.js` splits its one pure decision (`matchingOptions`) out and guards the rest behind `install()` so that single function can be unit-tested on Node's built-in runner (GH #184); everything else in those files is covered by the Rust-side markup assertions and manual checks.
 
-Budget: 50-row list with 2 preloaded relations renders under 40ms p50 on local SQLite. The skeleton ships first, rows stream in after.
+Budget: 50-row list with 2 preloaded relations renders under 40ms p50 on local SQLite. **This is a target, not a gate** (GH #171): the harness prints it "for reference only; UNGATED" and never PASS/FAILs on it, and `benchmarks/results/` is gitignored, so no committed number exists on a fresh checkout. The skeleton ships first, rows stream in after.
 
 ---
 
@@ -547,4 +547,4 @@ Non-goals for v1:
 - Upstream: Toasty guide (queries, filters, sorting, preloading, migrations) and Topcoat docs (view and component, router, cookie and session)
 - Filament PHP docs as product inspiration, not API source
 
-Notes for contributors: `argentum-ui` primitives mirror `topcoat-ui-registry` verbatim — sync with `cargo xtask sync-topcoat-ui`, never hand-edit; composites (`Page`, `Toast`, `Theme`, `ErrorState`, `CodeBlock`, `BoundInput`) are owned. Topcoat 0.8 / Toasty 0.10 track `main` with pins in `Cargo.lock` — bump deliberately. Where this file and the code disagree, the code and `docs/adr/` win.
+Notes for contributors: `argentum-ui` primitives mirror `topcoat-ui-registry` verbatim — sync with `cargo xtask sync-topcoat-ui`, never hand-edit; composites (`Page`, `Toast`, `Theme`, `ErrorState`) are owned. Topcoat 0.8 / Toasty 0.10 track `main` with pins in `Cargo.lock` — bump deliberately. Where this file and the code disagree, the code and `docs/adr/` win.

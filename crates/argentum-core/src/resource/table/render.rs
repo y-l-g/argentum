@@ -22,7 +22,7 @@ use super::super::state::{
 };
 use super::Table;
 
-/// Keystroke-quiet delay before a live search input reloads the grid
+/// Keystroke-quiet delay before a live search input reloads the table
 /// (GH #172, ~150-250ms): `assets/live-search.js` waits this long after the
 /// last keystroke, then forwards the value through the bound transport below,
 /// so typing "published" triggers one reload instead of nine. The forwarded
@@ -81,7 +81,7 @@ impl<M> Table<M> {
         self.render_inner(cx, page, &state, path, None).await
     }
 
-    /// Render the interactive grid for a live table (GH #151): the same
+    /// Render the interactive body for a live table (GH #151): the same
     /// presentation as [`Self::render_with_state`], with the sort links, the
     /// pager, the filter transport, and the empty-state clear links bound to
     /// `signals` — each interaction writes a signal and the browser morphs the
@@ -235,7 +235,7 @@ impl<M> Table<M> {
                     // Rendered closed and opened client-side (`showModal`)
                     // rather than driven by a runtime signal: the trigger is
                     // `type="button"`, so opening the dialog is not a
-                    // result-set change and must not reload the grid.
+                    // result-set change and must not reload the table.
                     alert_dialog(
                         open: false,
                         attrs: attributes! {
@@ -423,12 +423,12 @@ impl<M> Table<M> {
         let delete_dialog = self.render_delete_dialog(cx, state, path).await?;
 
         // Body-only branch (GH #133): the empty and rows pages share the one
-        // chrome wrapper built below — only the grid body differs. Group
+        // chrome wrapper built below — only the table body differs. Group
         // headers and the pager exist solely on rows pages: an empty page
         // renders the honest empty cell instead (its pager would be empty
         // anyway, and grouping an empty page yields no headers).
         let mut pager_views: Vec<BoxView<'_>> = Vec::new();
-        let grid: BoxView<'_> = if page.rows.is_empty() {
+        let body: BoxView<'_> = if page.rows.is_empty() {
             let empty_cell = self
                 .render_empty_cell(cx, state, path, with_actions, with_bulk, signals.as_ref())
                 .await?;
@@ -538,6 +538,7 @@ impl<M> Table<M> {
         };
 
         // One chrome wrapper for both branches: search bar, filter bar, bulk
+        // One chrome wrapper for both branches: search bar, filter bar, bulk
         // bar, warning, table body, pager, dialog (GH #133), inside the
         // `data-boundary` region the morph swaps (GH #160).
         let inner = view! {
@@ -556,7 +557,7 @@ impl<M> Table<M> {
                 if let Some(warning) = filter_warning {
                     (warning)
                 }
-                (grid)
+                (body)
                 for p in pager_views {
                     (p)
                 }
@@ -578,9 +579,9 @@ impl<M> Table<M> {
     /// `?delete=`; `dialog.js` adds Escape/backdrop dismissal and mirrors it
     /// as `?open=false` ([`TableState::open`]), so a reload stays closed.
     ///
-    /// [`Self::render_with_state`] renders it with the grid; the live-search
+    /// [`Self::render_with_state`] renders it with the table; the live-search
     /// page (`panel::resource_list_live`) calls this separately because the
-    /// shard swaps the grid per keystroke and must not carry dialog state.
+    /// shard swaps the table per keystroke and must not carry dialog state.
     ///
     /// Behavior asset: Escape/backdrop dismissal and the `data-dialog-close`
     /// cancel hook need `assets/dialog.js` (`argentum_ui::DIALOG_JS`, which
@@ -658,9 +659,9 @@ impl<M> Table<M> {
         ))
     }
 
-    /// The skeleton placeholder grid — three pulsing rows under the real
+    /// The skeleton placeholder table — three pulsing rows under the real
     /// column header. This is the [`suspense`] fallback for tables whose rows
-    /// stream in. Wrapped in the same `data-boundary` region as the real grid
+    /// stream in. Wrapped in the same `data-boundary` region as the real table
     /// so the markup shape matches when the swap arrives.
     /// Carries `aria-busy` while loading plus toolbar/pager pulse placeholders
     /// (GH #98) so the streamed chrome lands without a layout shift.
@@ -669,7 +670,7 @@ impl<M> Table<M> {
         M: toasty::schema::Model,
     {
         let state = TableState::from_cx(cx);
-        // Same normalization as the grid seams (GH #153): the placeholder
+        // Same normalization as the table seams (GH #153): the placeholder
         // header links must not echo an unknown `?group_by=`.
         let state = self.normalize_state(&state);
         let path = topcoat::context::try_request_context::<http::request::Parts>(cx)
@@ -814,9 +815,9 @@ impl<M> Table<M> {
 
     /// Eager live-search input for live tables (GH #104): the signal-backed
     /// input plus the GET form as `<noscript>` fallback. Rendered eagerly
-    /// above the streamed region; the shard invocation that fills the grid
+    /// above the streamed region; the shard invocation that fills the table
     /// lives in the streamed region ([`Self::render_live_invocation`]) so the
-    /// grid can only ever render once per response.
+    /// table can only ever render once per response.
     ///
     /// The visible input is deliberately unbound (GH #172): typing stays
     /// local until it pauses for [`LIVE_SEARCH_DEBOUNCE_MS`], then
@@ -875,7 +876,7 @@ impl<M> Table<M> {
     /// The `table_search` shard invocation filling a live table's streamed
     /// region (GH #104). The signal handles travel as arguments; every
     /// tracked read inside the shard becomes a `dep` marker the browser
-    /// watches, so sort/filter/pager/search changes re-render the grid in
+    /// watches, so sort/filter/pager/search changes re-render the table in
     /// place (GH #151).
     pub(crate) async fn render_live_invocation<'a>(
         &self,
@@ -921,7 +922,7 @@ impl<M> Table<M> {
     ///
     /// Hoisting matters for focus: a `<select>` change writes the `filters`
     /// signal, and a bar rebuilt by that rerun would collapse the native popup
-    /// and drop keyboard context. The grid renders without the bar
+    /// and drop keyboard context. The table renders without the bar
     /// (`Table::filters(false)`), so the control the user touched is never
     /// replaced.
     pub async fn render_live_filter_bar<'a>(
@@ -944,7 +945,7 @@ impl<M> Table<M> {
     /// The typed filter bar. For live tables (`signals`) the hidden `filters`
     /// transport is bound to the `filters` signal and `filters.js` dispatches
     /// a `change` into it instead of submitting, so the shard re-renders the
-    /// grid in place; the GET form stays as the no-JS fallback and `href`s
+    /// table in place; the GET form stays as the no-JS fallback and `href`s
     /// remain real.
     async fn render_filter_bar<'a>(
         &self,
@@ -1218,7 +1219,7 @@ impl<M> Table<M> {
     /// when unfiltered, "no results" with a Clear link when a search is
     /// active. The dead Create button is gone (create pages are not wired
     /// yet). Wrapped in a single cell spanning the table so it sits inside
-    /// the grid. For live tables (`signals`) the clear/back links write the
+    /// the table. For live tables (`signals`) the clear/back links write the
     /// signals instead of navigating; `href` stays the fallback.
     async fn render_empty_cell<'a>(
         &self,
@@ -1573,7 +1574,7 @@ impl<M> Table<M> {
     }
 }
 
-/// Precomputed per-row presentation for the grid body: the display row key,
+/// Precomputed per-row presentation for the table body: the display row key,
 /// the record key, the rendered cells, and the optional Edit / delete-dialog
 /// action URLs. A struct (not a tuple): five anonymous positions would
 /// mislead readers and trip `clippy::type_complexity` (GH #162).
@@ -2668,7 +2669,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn skeleton_shares_the_table_root_with_the_swapped_grid() {
+    async fn skeleton_shares_the_table_root_with_the_swapped_body() {
         let cx = CxTestBuilder::new().build();
         let tbl = Table::<User>::r#for(&cx)
             .id(|u| u.id.to_string())
@@ -2699,7 +2700,7 @@ mod tests {
             html.contains("aria-hidden"),
             "skeleton must hold chrome placeholders, got {html}"
         );
-        // The swap payload is the grid itself, under the same boundary region.
+        // The swap payload is the table itself, under the same boundary region.
         let rows = vec![User {
             id: uuid::Uuid::nil(),
             name: "Ada".to_string(),
@@ -2714,7 +2715,7 @@ mod tests {
             .render(&cx);
         assert!(
             html.contains("data-table-root") && html.contains("data-boundary=\"table\""),
-            "the swapped grid must land in the skeleton's region, got {html}"
+            "the swapped table must land in the skeleton's region, got {html}"
         );
         assert!(
             html.contains("Ada"),

@@ -69,7 +69,7 @@ starts the Topcoat server at `http://localhost:3000/` for manual inspection.
   so streaming re-renders don't repeat I/O.
 * **Preloading** — `include` for `author` + `comments` (3 operations, not 101).
 * **Boundaries** — `Table` is a `Boundary` (`data-boundary="table"`); search/filter/page
-  swaps only the grid, not the shell.
+  swaps only the table, not the shell.
 * **Pagination** — cursor pagination (Toasty appends the PK tie-breaker internally).
 
 Budget v1 (Phase 1): list (25 rows, 2 includes, 1 count) `< 40 ms p50`.

@@ -408,7 +408,7 @@ impl<M> Table<M> {
     /// Force the filter bar on or off.
     ///
     /// Defaults to showing the bar whenever the table declares filters. The
-    /// live list hoists the bar out of the swapped grid and turns it off here
+    /// live list hoists the bar out of the swapped table and turns it off here
     /// (GH #166), mirroring how `search(false)` hands the search toolbar to the
     /// page: a `<select>` that is rebuilt by its own rerun loses focus and
     /// collapses its native popup.
@@ -420,7 +420,7 @@ impl<M> Table<M> {
     /// Keystroke-live search via the `table_search` shard (GH #104).
     ///
     /// When enabled, the toolbar renders a signal-backed input that
-    /// re-renders the grid after a short keystroke-quiet delay (GH #172,
+    /// re-renders the table after a short keystroke-quiet delay (GH #172,
     /// [`LIVE_SEARCH_DEBOUNCE_MS`]), morphing in place so focus
     /// and typing survive, instead of a GET submit. The `?q=` GET form stays
     /// inside `<noscript>` as the no-JS fallback. Opt-in per resource; the
@@ -741,7 +741,7 @@ impl<M> Table<M> {
     ///
     /// The same checks [`Self::render`](Self::render_with_state) enforces per
     /// request, lifted so [`Panel::build`](crate::panel::Panel::build) can
-    /// refuse to serve a resource whose grid could never render — the
+    /// refuse to serve a resource whose table could never render — the
     /// declaration is knowable at boot, so a request is too late to report it.
     ///
     /// `chrome` is the action chrome the caller will attach (GH #207): the
@@ -785,7 +785,7 @@ impl<M> Table<M> {
         self.live_search
     }
 
-    /// Whether the filter bar renders inside the grid: the explicit
+    /// Whether the filter bar renders inside the table: the explicit
     /// `filter_bar(bool)` value, or auto — the table declares at least one filter.
     ///
     /// Live tables turn it off (GH #166): the list page hoists the bar out of
@@ -1136,7 +1136,7 @@ mod tests {
         // — core owns the boundary contract; the showcase owns HTTP wiring.
         // The topcoat `#[memoize]` half stays upstream and is not re-pinned
         // here. The region is unconditional since GH #220 dropped the
-        // `boundary(..)` opt-out (it had no caller), so the grid always lands
+        // `boundary(..)` opt-out (it had no caller), so the table always lands
         // where a morph can swap it.
         use topcoat::view::ViewExt;
 
@@ -1158,11 +1158,11 @@ mod tests {
             .unwrap()
             .render(&cx);
         let boundary_at = html.find("data-boundary=\"table\"").unwrap_or_else(|| {
-            panic!("the grid must render inside the morph boundary, got {html}")
+            panic!("the table must render inside the morph boundary, got {html}")
         });
         let root_at = html
             .find("data-table-root=\"\"")
-            .unwrap_or_else(|| panic!("the grid must carry its table root, got {html}"));
+            .unwrap_or_else(|| panic!("the swapped table must carry its table root, got {html}"));
         assert!(
             boundary_at < root_at && !html[boundary_at..root_at].contains("</div>"),
             "the boundary must wrap the table root, got {html}"
