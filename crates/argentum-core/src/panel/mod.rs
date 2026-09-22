@@ -226,9 +226,8 @@ impl Panel {
     /// and derives its [`NavigationItem`] from the same slug, so the sidebar
     /// and the router can never disagree. The panel root redirects to the
     /// first declared resource's list. Multiple calls compose. Sidebar order
-    /// comes from the resource's [`Resource::navigation`] override (or
-    /// [`Panel::navigation`](Self::navigation) items), defaulting to
-    /// declaration order (GH #102/#165).
+    /// comes from the resource's [`Resource::navigation`] override, defaulting
+    /// to declaration order (GH #102/#165).
     ///
     /// A duplicate slug (GH #102) or a slug that is not one URL segment
     /// (GH #174) is recorded here and reported by [`Panel::build`], which
@@ -335,21 +334,6 @@ impl Panel {
         }
         let nav_item = self.nav_item::<R>();
         self.nav_items.push(nav_item);
-        self
-    }
-
-    /// Add a manually defined sidebar item to this Panel.
-    ///
-    /// Resource items should normally come from [`Self::resource`]. This hook
-    /// is for pages outside the resource set, where a typed
-    /// [`NavigationItem::from_href`] keeps the link and active-state check in
-    /// one declaration, or [`NavigationItem::at`] links a custom view.
-    ///
-    /// The Panel owns the URL here as everywhere: an item whose target is
-    /// [`NavTarget::Derived`] has no resource to derive from, so it resolves to
-    /// this panel's root (GH #165). Explicit targets are kept verbatim.
-    pub fn navigation(mut self, item: NavigationItem) -> Self {
-        self.nav_items.push(item.resolved(&self.prefix, None));
         self
     }
 
@@ -606,8 +590,8 @@ impl Panel {
     ///
     /// So `Panel::new("backoffice")` yields `"/backoffice/{slug}"` — never a
     /// hard-coded `"/admin"` — for default and overridden items alike, a URL an
-    /// override spelled out stays exactly as written, and `.sorted(-1)` on an
-    /// override decides sidebar order (GH #102).
+    /// override spelled out stays exactly as written, and an override's `order`
+    /// decides sidebar order (GH #102).
     pub(crate) fn nav_item<R: Resource>(&self) -> NavigationItem {
         R::navigation().resolved(&self.prefix, Some(&R::slug()))
     }
@@ -1164,7 +1148,10 @@ mod tests {
             fn navigation() -> NavigationItem {
                 // The override cannot know the panel prefix, so it decorates
                 // the default item: order here, URL from the panel.
-                NavigationItem::for_resource::<Self>().sorted(-1)
+                NavigationItem {
+                    order: -1,
+                    ..NavigationItem::for_resource::<Self>()
+                }
             }
         }
         struct PlainResource;
@@ -1188,10 +1175,11 @@ mod tests {
     }
 
     /// GH #165: the override reaches *rendered* sidebar order — the symptom in
-    /// the issue was `.sorted(-1)` having no effect on the shell. Rendered on a
-    /// non-`/admin` panel, so the same test also pins the URL half: the sidebar
-    /// links under `/backoffice`, never the origin `/admin` (the hard-coded
-    /// mount the removed `NavigationItem::from_resource` used to emit).
+    /// the issue was an overridden `order` having no effect on the shell.
+    /// Rendered on a non-`/admin` panel, so the same test also pins the URL
+    /// half: the sidebar links under `/backoffice`, never the origin `/admin`
+    /// (the hard-coded mount the removed `NavigationItem::from_resource` used to
+    /// emit).
     #[tokio::test]
     async fn panel_sidebar_renders_overridden_navigation_order_first() {
         use crate::resource::NavigationItem;
@@ -1217,8 +1205,11 @@ mod tests {
             fn navigation() -> NavigationItem {
                 // GH #165 regression shape: an override that only sets order.
                 // Before the fix the sidebar kept declaration order and the
-                // resource's `.sorted(-1)` had no effect at all.
-                NavigationItem::for_resource::<Self>().sorted(-1)
+                // resource's `order: -1` had no effect at all.
+                NavigationItem {
+                    order: -1,
+                    ..NavigationItem::for_resource::<Self>()
+                }
             }
         }
         struct OtherResource;
@@ -1265,7 +1256,7 @@ mod tests {
         );
         assert!(
             pinned_at < other_at,
-            "navigation().sorted(-1) must render first, got {html}"
+            "an overridden order: -1 must render first, got {html}"
         );
     }
 
@@ -1298,11 +1289,14 @@ mod tests {
 
             fn navigation() -> NavigationItem {
                 // Order only, no URL: still the panel's to resolve.
-                NavigationItem::for_resource::<Self>().sorted(3)
+                NavigationItem {
+                    order: 3,
+                    ..NavigationItem::for_resource::<Self>()
+                }
             }
         }
 
-        // `label`/`sorted` decorate the default item without touching its URL,
+        // `label`/`order` decorate the default item without touching its URL,
         // so the panel still owns (and resolves) the URL.
         let decorated = Panel::new("backoffice").nav_item::<DraftsResource>();
         assert_eq!(decorated.label, "Drafts");

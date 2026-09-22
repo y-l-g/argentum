@@ -1349,9 +1349,10 @@ fn build_router(db: Db, bundle: Option<AssetBundle>, uploads: Option<PathBuf>) -
     // No "Published" saved-view entry (GH #184): it pointed at
     // `/admin/posts?filters=status:published`, i.e. the Blog Posts table with a
     // filter — the same page twice in the sidebar, and the one arrangement the
-    // shell's path matching highlights twice at once. A query-aware
-    // `NavTarget::Href` is still the right tool for a saved view that says
-    // something the base list cannot; this one did not.
+    // shell's path matching highlights twice at once. A query-aware navigation
+    // target, the right tool for a saved view that says something the base list
+    // cannot, was removed with the rest of the custom-navigation seam (GH #221)
+    // for having no consumer; it comes back with one.
     // Demo credentials stay available for local development via
     // SHOWCASE_LOGIN_HINT, but the default login page is shippable with no
     // hint. Empty values install nothing (no empty hint paragraph).

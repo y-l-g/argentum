@@ -1,18 +1,10 @@
-//! Sidebar navigation: [`NavigationItem`], the [`NavTarget`] it points with,
-//! and the [`HrefCheck`] seam.
+//! Sidebar navigation: [`NavigationItem`] and the [`NavTarget`] it points with.
 //!
 //! Moved verbatim from `resource.rs` (GH #133): no behavior change.
 
-use std::sync::Arc;
-
 use topcoat::context::Cx;
-use topcoat::router::{Href, HrefParams, HrefQueries, HrefTarget};
 
 use super::Resource;
-
-/// Predicate deciding whether a [`NavigationItem`] matches the request URI —
-/// factored out of `NavigationItem` so the field signature stays readable.
-pub type HrefCheck = Arc<dyn Fn(&Cx) -> bool + Send + Sync>;
 
 /// Where a sidebar entry points (GH #165).
 ///
@@ -20,8 +12,8 @@ pub type HrefCheck = Arc<dyn Fn(&Cx) -> bool + Send + Sync>;
 /// `Cx` and no prefix, so the entry it declares by default carries no URL at
 /// all — [`NavTarget::Derived`] — and the [`Panel`](crate::panel::Panel) that
 /// owns the item resolves it from its own mount prefix plus the resource's
-/// [`slug`](Resource::slug). Every other variant is a URL its author wrote
-/// out, and a Panel passes those through untouched.
+/// [`slug`](Resource::slug). [`NavTarget::Url`] is a URL its author wrote out,
+/// and a Panel passes it through untouched.
 #[derive(Clone, Default)]
 pub enum NavTarget {
     /// No URL yet: the owning Panel resolves it to `{prefix}/{slug}` of the
@@ -33,10 +25,6 @@ pub enum NavTarget {
     /// An explicit URL: a custom path, a query view, another panel's mount.
     /// Active state is string matching (exact, or a slash-boundary prefix).
     Url(String),
-    /// An explicit URL carrying its own active-state predicate (see
-    /// [`NavigationItem::from_href`]) — for links no path match can judge,
-    /// such as a filtered view sharing its path with the unfiltered one.
-    Href { url: String, check: HrefCheck },
 }
 
 impl NavTarget {
@@ -45,7 +33,7 @@ impl NavTarget {
     pub fn url(&self) -> Option<&str> {
         match self {
             Self::Derived => None,
-            Self::Url(url) | Self::Href { url, .. } => Some(url),
+            Self::Url(url) => Some(url),
         }
     }
 }
@@ -55,11 +43,6 @@ impl std::fmt::Debug for NavTarget {
         match self {
             Self::Derived => f.write_str("Derived"),
             Self::Url(url) => f.debug_tuple("Url").field(url).finish(),
-            Self::Href { url, .. } => f
-                .debug_struct("Href")
-                .field("url", url)
-                .field("check", &"<predicate>")
-                .finish(),
         }
     }
 }
@@ -70,14 +53,15 @@ pub struct NavigationItem {
     pub label: String,
     /// Where this entry points. [`NavTarget::Derived`] until the owning Panel
     /// resolves it — see [`NavTarget`]. Build items with
-    /// [`NavigationItem::for_resource`], [`NavigationItem::at`] or
-    /// [`NavigationItem::from_href`] rather than spelling the variant out.
+    /// [`NavigationItem::for_resource`] or [`NavigationItem::at`] rather than
+    /// spelling the variant out.
     pub target: NavTarget,
     /// Sort key for the sidebar (GH #102): items render in stable `order`
     /// order, so declaration order breaks ties. Resources declare in
-    /// `Panel::resource` order (all default `0`); custom items interleave
-    /// via [`.sorted()`](Self::sorted) — e.g. `.sorted(-1)` pins above the
-    /// resources.
+    /// `Panel::resource` order (all default `0`); a
+    /// [`Resource::navigation`] override interleaves by setting a lower value,
+    /// e.g. `NavigationItem { order: -1, ..NavigationItem::for_resource::<Self>() }`
+    /// pins above the resources.
     pub order: i32,
 }
 
@@ -94,10 +78,11 @@ impl NavigationItem {
     ///
     /// This is what [`Resource::navigation`] returns unless overridden — and
     /// what an override decorates, e.g.
-    /// `NavigationItem::for_resource::<Self>().sorted(-1)`. The resource cannot
-    /// know where it is mounted, so the URL stays [`NavTarget::Derived`] until
-    /// the owning [`Panel`](crate::panel::Panel) resolves it; an entry declared
-    /// here can therefore never link at a mount the resource guessed (GH #165).
+    /// `NavigationItem { order: -1, ..NavigationItem::for_resource::<Self>() }`.
+    /// The resource cannot know where it is mounted, so the URL stays
+    /// [`NavTarget::Derived`] until the owning [`Panel`](crate::panel::Panel)
+    /// resolves it; an entry declared here can therefore never link at a mount
+    /// the resource guessed (GH #165).
     pub fn for_resource<R: Resource>() -> Self {
         Self {
             label: R::navigation_label(),
@@ -109,9 +94,7 @@ impl NavigationItem {
     /// A sidebar entry at an explicit `url`.
     ///
     /// Active state is string matching: exact path, or a slash-boundary prefix,
-    /// so `/admin/users` is current on `/admin/users/create`. For a URL that
-    /// string matching cannot judge — a filtered view sharing its path with the
-    /// unfiltered one — use [`Self::from_href`] or [`NavTarget::Href`].
+    /// so `/admin/users` is current on `/admin/users/create`.
     pub fn at(label: impl Into<String>, url: impl Into<String>) -> Self {
         Self {
             label: label.into(),
@@ -120,67 +103,13 @@ impl NavigationItem {
         }
     }
 
-    /// Create a `NavigationItem` from a typed `Href` (e.g. `href!("/admin/showcase")`).
-    ///
-    /// The label is provided explicitly; `url` is the href's resolved URL
-    /// (e.g. `"/admin/showcase"`), and `is_current` delegates to
-    /// `Href::is_current` so query/encoding are handled per Topcoat `d273cb15`.
-    pub fn from_href<T, P, Q, F>(
-        label: impl Into<String>,
-        href: Href<T, P, Q, F>,
-        url: impl Into<String>,
-    ) -> Self
-    where
-        T: HrefTarget + Send + Sync + 'static,
-        P: HrefParams + Send + Sync + 'static,
-        Q: HrefQueries + Send + Sync + 'static,
-        F: std::fmt::Display + Send + Sync + 'static,
-    {
-        // Sidebar sections (e.g. Showcase) should stay active on their
-        // sub-pages, while Href::is_current is exact (path + query). Use a
-        // slash-boundary prefix check on the href's resolved path so
-        // from_href items behave like is_current_path but still benefit from
-        // href's encoding-aware path generation.
-        let url_string: String = url.into();
-        let prefix = url_string.clone();
-        let check = Arc::new(move |cx: &Cx| {
-            if href.is_current(cx) {
-                return true;
-            }
-            let current = topcoat::router::request::uri(cx).path();
-            if current == prefix {
-                return true;
-            }
-            current
-                .strip_prefix(prefix.as_str())
-                .is_some_and(|rest| rest.starts_with('/'))
-        }) as Arc<dyn Fn(&Cx) -> bool + Send + Sync>;
-        Self {
-            label: label.into(),
-            target: NavTarget::Href {
-                url: url_string,
-                check,
-            },
-            order: 0,
-        }
-    }
-
-    /// Pin this item's sidebar position (GH #102): lower `order` renders
-    /// first, ties keep declaration order.
-    pub fn sorted(mut self, order: i32) -> Self {
-        self.order = order;
-        self
-    }
-
     /// Resolve a [`NavTarget::Derived`] entry against the Panel that owns it
     /// (GH #165), leaving an explicit target untouched.
     ///
     /// [`Resource::navigation`] cannot know its panel — it takes no `Cx` and no
     /// prefix — so the entry it declares carries no URL. The Panel consumes it
-    /// through `Panel::resource` / `Panel::navigation`, which call this with
-    /// their own prefix: `slug` is the resource's mount segment, or `None` for
-    /// an item added straight to a Panel (a resource-less entry, which resolves
-    /// to the panel root).
+    /// through `Panel::resource`, which calls this with its own prefix and the
+    /// resource's mount segment; `None` resolves to the panel root.
     ///
     /// There is no guessing here: a URL an author wrote out — including one
     /// that happens to look like `/admin/{slug}` — is a different
@@ -198,25 +127,18 @@ impl NavigationItem {
 
     /// The URL this entry points at, or `None` while it is unresolved — i.e.
     /// still [`NavTarget::Derived`], not yet handed to a Panel. Panel-owned
-    /// items are always resolved (`Panel::resource` / `Panel::navigation`).
+    /// items are always resolved (`Panel::resource`).
     pub fn url(&self) -> Option<&str> {
         self.target.url()
     }
 
-    /// Whether this item is current for the request in `cx`.
-    ///
-    /// A [`NavTarget::Href`] item delegates to its own predicate
-    /// (`Href::is_current` — sorted decoded query + percent-encoding — plus the
-    /// slash-boundary prefix check `from_href` installs). A string URL mirrors
-    /// that semantics: exact path match, or prefix match on a slash boundary —
-    /// uniform for every item, resources and custom links alike (GH #39/#148:
-    /// since resources mount at `{prefix}/{slug}`, no generated item points at
-    /// the bare panel prefix, so the old root-exact special case is gone and
-    /// the doc no longer promises one). An unresolved item is current nowhere.
+    /// Whether this item is current for the request in `cx`: an exact path
+    /// match, or a prefix match on a slash boundary — uniform for every item
+    /// (GH #39/#148: since resources mount at `{prefix}/{slug}`, no generated
+    /// item points at the bare panel prefix, so the old root-exact special case
+    /// is gone and the doc no longer promises one). An unresolved item is
+    /// current nowhere.
     pub fn is_current(&self, cx: &Cx) -> bool {
-        if let NavTarget::Href { check, .. } = &self.target {
-            return check(cx);
-        }
         let current = topcoat::router::request::uri(cx).path();
         self.is_current_path(current)
     }
@@ -306,11 +228,12 @@ mod tests {
         assert_eq!(resolved.url(), Some("/backoffice/users"));
         assert_eq!(resolved.label, "Users");
         assert_eq!(
-            derived
-                .clone()
-                .sorted(-1)
-                .resolved("/backoffice", Some("users"))
-                .order,
+            NavigationItem {
+                order: -1,
+                ..derived.clone()
+            }
+            .resolved("/backoffice", Some("users"))
+            .order,
             -1
         );
         // Already resolved: resolving again is a no-op, however the second

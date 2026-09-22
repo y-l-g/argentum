@@ -76,12 +76,12 @@ The per-Resource authorization rules (viewAny, view, create, update, delete), im
 _Avoid_: Guard, Permission, Gate, Ability, Policy trait (the removed parallel vocabulary, GH #109)
 
 ### NavigationItem
-An entry in the Panel sidebar: a label, a NavTarget, and a sort order. Derived by default from a Resource, overridable for manual ordering and custom links. The Panel that owns the entry owns the URL: a `Derived` target names none, so the panel resolves it from its own mount prefix plus the resource's slug, while an explicit target (a URL, or a URL with its own active-state predicate) is a link its author wrote and is kept verbatim (GH #165).
+An entry in the Panel sidebar: a label, a NavTarget, and a sort order. Derived by default from a Resource, overridable to change the label or the order. The Panel that owns the entry owns the URL: a `Derived` target names none, so the panel resolves it from its own mount prefix plus the resource's slug, while an explicit URL is a link its author wrote and is kept verbatim (GH #165).
 
 _Avoid_: MenuItem, NavLink, SidebarEntry
 
 ### NavTarget
-Where a NavigationItem points. `Derived` means the declaring Resource cannot know its mount, so the owning Panel resolves the URL; the other variants name a URL outright, optionally with the predicate deciding when it is active. The distinction is the type rather than a convention, so prefix resolution can never touch a URL an author wrote (GH #165).
+Where a NavigationItem points. `Derived` means the declaring Resource cannot know its mount, so the owning Panel resolves the URL; `Url` names a URL outright. The distinction is the type rather than a convention, so prefix resolution can never touch a URL an author wrote (GH #165).
 
 _Avoid_: Link, Route, Target, SidebarUrl
 

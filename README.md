@@ -108,7 +108,6 @@ Useful panel options:
 Panel::new("admin")
     .brand(Brand::new("Acme"))
     .dark_mode(true)
-    .navigation(NavigationItem::from_href("Docs", href!("/admin/docs"), "/admin/docs"))
     .login_hint("Demo: admin@example.com / password")
 ```
 
@@ -156,12 +155,13 @@ omission has to fail loudly instead of quietly:
 What to know:
 
 - `slug()` and `navigation_label()` have working defaults. Override only to rename.
-- `navigation()` curates this resource's sidebar entry: override it to order or group the entry, e.g.
-  `NavigationItem::for_resource::<Self>().sorted(-1)` (lower `order` renders first, ties keep
-  declaration order). The URL is the Panel's call: `for_resource` names none, so the panel that mounts
-  the resource resolves it to `{prefix}/{slug}`, and a resource never links at `/admin` on a panel
-  mounted elsewhere. A URL you spell out instead (`NavigationItem::at(..)`, `from_href`) is kept
-  verbatim — use it to link somewhere other than the resource's list page.
+- `navigation()` curates this resource's sidebar entry: override it to change the label or the
+  `order` (lower renders first, ties keep declaration order), e.g.
+  `NavigationItem { order: -1, ..NavigationItem::for_resource::<Self>() }`. The URL is the Panel's
+  call: `for_resource` names none, so the panel that mounts the resource resolves it to
+  `{prefix}/{slug}`, and a resource never links at `/admin` on a panel mounted elsewhere. Spell a
+  URL out instead (`NavigationItem::at(..)`) only to link somewhere other than the resource's list
+  page — the Panel keeps it verbatim.
 - `query()` is the scoping seam. All list, export, and relation loads use it. Put tenancy here. The
   export builds its base query from `export_query(cx, needs)`, which defaults to `query(cx)` unchanged;
   override it to narrow the includes to what the exported columns declared with `TextColumn::needs(..)`

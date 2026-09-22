@@ -29,7 +29,7 @@ pub use column::{Column, IncludeNeeds, IntoColumns, TextColumn};
 pub(crate) use commit::run_after_commit;
 pub use commit::{Committed, Mutation};
 pub use filter::{DateFilter, Filter, IntoFilters, SelectFilter, TernaryFilter, VariantFilter};
-pub use navigation::{HrefCheck, NavTarget, NavigationItem};
+pub use navigation::{NavTarget, NavigationItem};
 pub use relation::{IntoRelationColumns, RelationColumn, RelationColumns, render_relation};
 #[cfg(test)]
 pub(crate) use state::MAX_QUERY_TERM;
@@ -365,14 +365,13 @@ pub trait Resource: Sized + Send + Sync + 'static {
     /// entry never links at a mount the resource guessed (GH #165).
     ///
     /// Override to curate this resource's sidebar entry: `Panel::resource`
-    /// consumes the result through the panel-aware navigation seam, so a
-    /// `.sorted(..)` order, a custom label or a typed
-    /// [`NavigationItem::from_href`] item all take effect. Decorate the default
-    /// with [`NavigationItem::for_resource`]
-    /// (`NavigationItem::for_resource::<Self>().sorted(-1)`) to keep the
-    /// panel-owned URL; spell a URL out yourself ([`NavigationItem::at`]) only
-    /// to link somewhere other than this resource's list page — the Panel keeps
-    /// such a URL verbatim.
+    /// consumes the result through the panel-aware navigation seam, so a custom
+    /// `order` or a custom label takes effect. Decorate the default with
+    /// [`NavigationItem::for_resource`]
+    /// (`NavigationItem { order: -1, ..NavigationItem::for_resource::<Self>() }`)
+    /// to keep the panel-owned URL; spell a URL out yourself
+    /// ([`NavigationItem::at`]) only to link somewhere other than this
+    /// resource's list page — the Panel keeps such a URL verbatim.
     fn navigation() -> NavigationItem {
         NavigationItem::for_resource::<Self>()
     }

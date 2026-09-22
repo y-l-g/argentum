@@ -140,12 +140,12 @@ impl Panel {
         };
         let mut nav_items = nav_items.to_vec();
         // Stable order (GH #102): explicit `order` first, declaration order
-        // breaking ties — custom items interleave via `.sorted()`.
+        // breaking ties — a resource's `navigation()` override interleaves by
+        // setting it.
         nav_items.sort_by_key(|item| item.order);
-        // A Panel resolves every item it owns (`Panel::resource`,
-        // `Panel::navigation`); one that reaches the sidebar unresolved has no
-        // URL to render, which is a framework bug rather than user error
-        // (GH #165).
+        // A Panel resolves every item it owns (`Panel::resource`); one that
+        // reaches the sidebar unresolved has no URL to render, which is a
+        // framework bug rather than user error (GH #165).
         debug_assert!(
             nav_items.iter().all(|item| item.url().is_some()),
             "navigation items are resolved by the Panel that owns them"
@@ -159,16 +159,7 @@ impl Panel {
                 sidebar_group_content(
                     sidebar_menu(
                         for item in &nav_items {
-                            // Prefer the item's own typed check when it has one
-                            // (`from_href`), else match the rendered path.
-                            let is_active = if matches!(
-                                item.target,
-                                crate::resource::NavTarget::Href { .. },
-                            ) {
-                                item.is_current(cx)
-                            } else {
-                                item.is_current_path(&current_path)
-                            };
+                            let is_active = item.is_current_path(&current_path);
                             sidebar_menu_item(
                                 sidebar_menu_button(
                                     active: is_active,
@@ -789,7 +780,7 @@ mod tests {
 
     #[tokio::test]
     async fn sidebar_orders_custom_items_by_sort_key() {
-        // GH #102: `.sorted(-1)` interleaves a custom item above the
+        // GH #102: `order: -1` interleaves a custom item above the
         // resources; ties keep declaration order.
         use crate::resource::{NavTarget, NavigationItem};
         use topcoat::context::CxTestBuilder;
@@ -810,9 +801,8 @@ mod tests {
             NavigationItem {
                 label: "Showcase".to_string(),
                 target: NavTarget::Url("/admin/showcase".to_string()),
-                order: 0,
-            }
-            .sorted(-1),
+                order: -1,
+            },
         ];
         let cx_ref = &cx;
         let slot = view! { cx_ref => "hello" }.boxed().into();
@@ -827,7 +817,7 @@ mod tests {
         let users_at = html.find("Users").expect("resource item renders");
         assert!(
             showcase_at < users_at,
-            "sorted(-1) custom item must precede resources, got {html}"
+            "an order: -1 custom item must precede resources, got {html}"
         );
     }
 
