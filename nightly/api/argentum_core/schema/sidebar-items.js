@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["MAX_RELATIONSHIP_OPTIONS"],"fn":["discriminant_select","enum_spec","leaf_key","parse_leaf","read_embedded","submitted","write_embedded"],"struct":["EnumSpec","FileUpload","Grid","Group","Repeater","Schema","Section","Select","Tabs","TextInput","Textarea"],"trait":["EmbeddedForm","IntoSchema","OptionSource","TypedValue"],"type":["FieldLens"]};

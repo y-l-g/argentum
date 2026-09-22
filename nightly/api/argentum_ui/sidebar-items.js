@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["BULK_JS","DIALOG_JS","FILTERS_JS","LIVE_SEARCH_JS","NOTIFICATION_JS","SELECTS_JS","SIDEBAR_JS","THEME_JS","VARIANT_JS"],"fn":["tailwind_build"],"mod":["components","icons"]};

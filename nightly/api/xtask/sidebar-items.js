@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["ASSET_FILES","ASSET_HOOKS"],"fn":["assets_dir","primitives_dir","sync_topcoat_ui","verify_asset_hooks","verify_sync"],"struct":["AssetHook"]};

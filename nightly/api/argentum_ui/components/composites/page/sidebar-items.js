@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"struct":["PageContentProps","PageContentPropsBuilder","PageDescriptionProps","PageDescriptionPropsBuilder","PageHeaderProps","PageHeaderPropsBuilder","PageProps","PagePropsBuilder","PageTitleProps","PageTitlePropsBuilder","page","page_content","page_description","page_header","page_title"]};

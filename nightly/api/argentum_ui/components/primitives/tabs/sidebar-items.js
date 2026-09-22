@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"struct":["TabsContentProps","TabsContentPropsBuilder","TabsListProps","TabsListPropsBuilder","TabsProps","TabsPropsBuilder","TabsTriggerProps","TabsTriggerPropsBuilder","tabs","tabs_content","tabs_list","tabs_trigger"]};

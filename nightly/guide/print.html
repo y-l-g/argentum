@@ -1,0 +1,923 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light sidebar-visible" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Argentum Guide</title>
+        <meta name="robots" content="noindex">
+
+
+        <!-- Custom HTML head -->
+
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="favicon-de23e50b.svg">
+        <link rel="shortcut icon" href="favicon-8114d1fc.png">
+        <link rel="stylesheet" href="css/variables-8adf115d.css">
+        <link rel="stylesheet" href="css/general-2459343d.css">
+        <link rel="stylesheet" href="css/chrome-ae938929.css">
+        <link rel="stylesheet" href="css/print-9e4910d8.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="fonts/fonts-9644e21d.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" id="mdbook-highlight-css" href="highlight-493f70e1.css">
+        <link rel="stylesheet" id="mdbook-tomorrow-night-css" href="tomorrow-night-4c0ae647.css">
+        <link rel="stylesheet" id="mdbook-ayu-highlight-css" href="ayu-highlight-3fdfc3ac.css">
+
+        <!-- Custom theme stylesheets -->
+
+
+        <!-- Provide site root and default themes to javascript -->
+        <script>
+            const path_to_root = "";
+            const default_light_theme = "light";
+            const default_dark_theme = "navy";
+            window.path_to_searchindex_js = "searchindex-0a17a315.js";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="toc-da1679ae.js"></script>
+    </head>
+    <body>
+    <div id="mdbook-help-container">
+        <div id="mdbook-help-popup">
+            <h2 class="mdbook-help-title">Keyboard shortcuts</h2>
+            <div>
+                <p>Press <kbd>←</kbd> or <kbd>→</kbd> to navigate between chapters</p>
+                <p>Press <kbd>S</kbd> or <kbd>/</kbd> to search in the book</p>
+                <p>Press <kbd>?</kbd> to show this help</p>
+                <p>Press <kbd>Esc</kbd> to hide this help</p>
+            </div>
+        </div>
+    </div>
+    <div id="mdbook-body-container">
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                let theme = localStorage.getItem('mdbook-theme');
+                let sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            const default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? default_dark_theme : default_light_theme;
+            let theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            const html = document.documentElement;
+            html.classList.remove('light')
+            html.classList.add(theme);
+            html.classList.add("js");
+        </script>
+
+        <input type="checkbox" id="mdbook-sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            let sidebar = null;
+            const sidebar_toggle = document.getElementById("mdbook-sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+                sidebar_toggle.checked = false;
+            }
+            if (sidebar === 'visible') {
+                sidebar_toggle.checked = true;
+            } else {
+                html.classList.remove('sidebar-visible');
+            }
+        </script>
+
+        <nav id="mdbook-sidebar" class="sidebar" aria-label="Table of contents">
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="toc.html"></iframe>
+            </noscript>
+            <div id="mdbook-sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <div id="mdbook-page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="mdbook-menu-bar-hover-placeholder"></div>
+                <div id="mdbook-menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="mdbook-sidebar-toggle" class="icon-button" for="mdbook-sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="mdbook-sidebar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M0 96C0 78.3 14.3 64 32 64H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32C14.3 128 0 113.7 0 96zM0 256c0-17.7 14.3-32 32-32H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32c-17.7 0-32-14.3-32-32zM448 416c0 17.7-14.3 32-32 32H32c-17.7 0-32-14.3-32-32s14.3-32 32-32H416c17.7 0 32 14.3 32 32z"/></svg></span>
+                        </label>
+                        <button id="mdbook-theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="mdbook-theme-list">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M371.3 367.1c27.3-3.9 51.9-19.4 67.2-42.9L600.2 74.1c12.6-19.5 9.4-45.3-7.6-61.2S549.7-4.4 531.1 9.6L294.4 187.2c-24 18-38.2 46.1-38.4 76.1L371.3 367.1zm-19.6 25.4l-116-104.4C175.9 290.3 128 339.6 128 400c0 3.9 .2 7.8 .6 11.6c1.8 17.5-10.2 36.4-27.8 36.4H96c-17.7 0-32 14.3-32 32s14.3 32 32 32H240c61.9 0 112-50.1 112-112c0-2.5-.1-5-.2-7.5z"/></svg></span>
+                        </button>
+                        <ul id="mdbook-theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-default_theme">Auto</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-ayu">Ayu</button></li>
+                        </ul>
+                        <button id="mdbook-search-toggle" class="icon-button" type="button" title="Search (`/`)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="/ s" aria-controls="mdbook-searchbar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M416 208c0 45.9-14.9 88.3-40 122.7L502.6 457.4c12.5 12.5 12.5 32.8 0 45.3s-32.8 12.5-45.3 0L330.7 376c-34.4 25.2-76.8 40-122.7 40C93.1 416 0 322.9 0 208S93.1 0 208 0S416 93.1 416 208zM208 352c79.5 0 144-64.5 144-144s-64.5-144-144-144S64 128.5 64 208s64.5 144 144 144z"/></svg></span>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">Argentum Guide</h1>
+
+                    <div class="right-buttons">
+                        <a href="print.html" title="Print this book" aria-label="Print this book">
+                            <span class=fa-svg id="print-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M128 0C92.7 0 64 28.7 64 64v96h64V64H354.7L384 93.3V160h64V93.3c0-17-6.7-33.3-18.7-45.3L400 18.7C388 6.7 371.7 0 354.7 0H128zM384 352v32 64H128V384 368 352H384zm64 32h32c17.7 0 32-14.3 32-32V256c0-35.3-28.7-64-64-64H64c-35.3 0-64 28.7-64 64v96c0 17.7 14.3 32 32 32H64v64c0 35.3 28.7 64 64 64H384c35.3 0 64-28.7 64-64V384zm-16-88c-13.3 0-24-10.7-24-24s10.7-24 24-24s24 10.7 24 24s-10.7 24-24 24z"/></svg></span>
+                        </a>
+                        <a href="https://github.com/y-l-g/argentum" title="Git repository" aria-label="Git repository">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6zm-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3zm44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9zM244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8zM97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1zm-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7zm32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1zm-11.4-14.7c-1.6 1-1.6 3.6 0 5.9 1.6 2.3 4.3 3.3 5.6 2.3 1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2z"/></svg></span>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="mdbook-search-wrapper" class="hidden">
+                    <form id="mdbook-searchbar-outer" class="searchbar-outer">
+                        <div class="search-wrapper">
+                            <input type="search" id="mdbook-searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="mdbook-searchresults-outer" aria-describedby="searchresults-header">
+                            <div class="spinner-wrapper">
+                                <span class=fa-svg id="fa-spin"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M304 48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zm0 416c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM48 304c26.5 0 48-21.5 48-48s-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48zm464-48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM142.9 437c18.7-18.7 18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zm0-294.2c18.7-18.7 18.7-49.1 0-67.9S93.7 56.2 75 75s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zM369.1 437c18.7 18.7 49.1 18.7 67.9 0s18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9z"/></svg></span>
+                            </div>
+                        </div>
+                    </form>
+                    <div id="mdbook-searchresults-outer" class="searchresults-outer hidden">
+                        <div id="mdbook-searchresults-header" class="searchresults-header"></div>
+                        <ul id="mdbook-searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('mdbook-sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('mdbook-sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#mdbook-sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="mdbook-content" class="content">
+                    <main>
+                        <h1 id="introduction"><a class="header" href="#introduction">Introduction</a></h1>
+<p>What Argentum is, what it deliberately is not, and the two upstream projects it is built on.</p>
+<p>Argentum is an <strong>admin toolkit for Rust</strong>, server-rendered on
+<a href="https://github.com/tokio-rs/topcoat">Topcoat</a> (UI and reactivity) and
+<a href="https://github.com/tokio-rs/toasty">Toasty</a> (ORM): a Filament-style <code>Panel</code> plus <code>Resource</code>,
+tables, and forms, with no SPA build step.</p>
+<h2 id="what-it-is"><a class="header" href="#what-it-is">What it is</a></h2>
+<ul>
+<li>Server-rendered HTML with <code>view!</code> and <code>#[component]</code>. No SPA, no WASM bundle.</li>
+<li>Typed end to end: Toasty model to query to table and form. A bad column name fails to compile.</li>
+<li>Fast by default: concurrent renders, preloaded relations, cursor pagination.</li>
+<li>A Topcoat app: layouts, <code>href!</code>, <code>Cx</code>, <code>#[memoize]</code>, small <code>$(...)</code> expressions.</li>
+</ul>
+<h2 id="what-it-is-not"><a class="header" href="#what-it-is-not">What it is not</a></h2>
+<ul>
+<li>Not a Livewire port. No string state paths, no reflection DI, no Blade partials.</li>
+<li>Not driver-agnostic in v1. The workspace targets Toasty over SQLite.</li>
+<li>Not a client framework. Anything that needs the DB renders on the server.</li>
+</ul>
+<h2 id="the-two-upstream-dependencies"><a class="header" href="#the-two-upstream-dependencies">The two upstream dependencies</a></h2>
+<p>Argentum is a thin, opinionated layer, not a framework of its own:</p>
+<ul>
+<li><strong>Topcoat</strong> owns rendering, routing, request context, reactivity, assets, cookies and sessions.
+Argentum adds the admin-shaped pieces on top — <code>Panel</code>, <code>Resource</code>, <code>Table</code>, <code>Schema</code> — and
+follows Topcoat’s idioms (<code>view!</code>, <code>#[component]</code>, <code>Cx</code>, <code>href!</code>, <code>#[memoize]</code>) rather than
+inventing parallel ones.</li>
+<li><strong>Toasty</strong> owns the data layer: models, queries, filters, sorting, preloading and migrations.
+Argentum queries Toasty directly, so the typed model is the single source of truth for columns,
+relations and nullability.</li>
+</ul>
+<p>Both track <code>main</code> and are pinned by <code>Cargo.lock</code>; bump them deliberately, never with a blanket
+<code>cargo update</code>.</p>
+<h2 id="how-to-read-this-guide"><a class="header" href="#how-to-read-this-guide">How to read this guide</a></h2>
+<ul>
+<li><a href="#panel-and-routing">Panel and routing</a>: mounting a panel and the routes a resource serves.</li>
+<li><a href="#resources">Resources</a>: the <code>Resource</code> trait, its contract, and tenancy.</li>
+<li><a href="#tables">Tables</a>, <a href="#forms">Forms</a>, <a href="#detail-pages">Detail pages</a>: the three views.</li>
+<li><a href="#policy-auth-tenancy">Policy, auth, tenancy</a>: who may see and change what.</li>
+<li><a href="#data-access">Data access</a>: querying Toasty from panel code.</li>
+<li><a href="#security">Security</a> and <a href="#testing-and-benchmarks">Testing and benchmarks</a>: defaults and
+the tooling around them.</li>
+</ul>
+<h2 id="where-this-guide-and-the-code-disagree"><a class="header" href="#where-this-guide-and-the-code-disagree">Where this guide and the code disagree</a></h2>
+<p>The vocabulary lives in <code>CONTEXT.md</code>, the decisions live in <code>docs/adr/</code> (one ADR per decision, and
+the ADRs record the <em>why</em>), and the runnable reference lives in <code>examples/showcase/</code>. Where this
+guide and the code disagree, the code and <code>docs/adr/</code> win — please open an issue or a PR so the
+guide catches up.</p>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="panel-and-routing"><a class="header" href="#panel-and-routing">Panel and routing</a></h1>
+<p>How a panel is mounted, the routes a resource adds, and the panel options that shape the shell.</p>
+<p><code>Panel</code> owns the router, the <code>Db</code> in app context, and the shell layout. Registering a resource adds
+its routes and its sidebar item.</p>
+<p>Routes for a resource with slug <code>users</code> under prefix <code>admin</code>:</p>
+<ul>
+<li><code>GET /admin/users</code> : list</li>
+<li><code>GET + POST /admin/users/create</code> : create</li>
+<li><code>GET /admin/users/{id}</code> : detail page, read-only (GH #187) — 404 when the resource declares no
+<code>view</code> schema,
+see <a href="#detail-pages">Detail pages</a></li>
+<li><code>GET + POST /admin/users/{id}/edit</code> : edit</li>
+<li><code>POST /admin/users/{id}/delete</code> : delete with confirm step</li>
+<li><code>POST /admin/users/bulk-delete</code> : bulk delete</li>
+<li><code>GET /admin/users/export</code> : CSV export</li>
+<li><code>GET /admin/users/options</code> : relation option search for a searchable select (GH #150),
+see <a href="#forms">Forms</a></li>
+<li><code>GET /admin</code> redirects to the first resource</li>
+</ul>
+<p>Useful panel options:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>Panel::new("admin")
+    .brand(Brand::new("Acme"))
+    .dark_mode(true)
+    .login_hint("Demo: admin@example.com / password")
+<span class="boring">}</span></code></pre>
+<p><code>brand</code> sets the header and sidebar name. <code>dark_mode</code> sets the theme a visitor sees <strong>before they
+have chosen one</strong> — the toggle is always rendered, and a stored choice wins in both directions
+(GH #184): picking light persists, and the next page stays light instead of falling back to this
+default. Omit <code>dark_mode</code> and the panel starts light.</p>
+<p>The panel owns the URL of each resource’s list page and resolves a resource’s sidebar entry to
+<code>{prefix}/{slug}</code>; the resource owns the label and the ordering. See
+<a href="#resources">Resources</a> for the <code>navigation()</code> override.</p>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="resources"><a class="header" href="#resources">Resources</a></h1>
+<p>The <code>Resource</code> trait: how one Toasty model maps to its admin UI, what the framework checks at boot,
+and how tenancy is declared.</p>
+<p>One resource maps one Toasty model to its admin UI:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub trait Resource: Sized + Send + Sync + 'static {
+    type Model: toasty::schema::Model + Send + Sync + 'static;
+    fn query(_cx: &amp;Cx) -&gt; Query&lt;List&lt;Self::Model&gt;&gt;; // default: Query::all()
+    fn hydrate_form_values(_cx: &amp;Cx, _record: &amp;Self::Model)
+        -&gt; HashMap&lt;String, String&gt;;                 // default: empty
+    fn export_query(_cx: &amp;Cx, _needs: &amp;IncludeNeeds)
+        -&gt; Query&lt;List&lt;Self::Model&gt;&gt;;                // default: query(cx), unchanged
+    fn table(_cx: &amp;Cx) -&gt; Table&lt;Self::Model&gt;;       // default: Table::new(), empty until columns + id
+    fn form(_cx: &amp;Cx) -&gt; Schema;                    // default: Schema::empty()
+    // plus can_* policy fns (default deny), slug/navigation/requires_tenant
+    // defaults, and create/update/delete record fns
+}
+<span class="boring">}</span></code></pre>
+<h2 id="the-contract"><a class="header" href="#the-contract">The contract</a></h2>
+<p>Every method is defaulted, so a resource compiles as soon as it names its model — which means an
+omission has to fail loudly instead of quietly:</p>
+<ul>
+<li><strong>At <code>Panel::build</code></strong> (which returns <code>Result&lt;Router&gt;</code>): the table must be renderable — <code>table()</code>
+declares columns and a row key — and where <code>can_create</code> allows it, <code>form()</code> must declare fields.
+A resource that overrides nothing fails the build, naming the type, instead of serving an error
+state or an empty form. <code>table()</code>, <code>form()</code> and <code>can_create()</code> are declarations: the panel calls
+them once at boot, so they must not need request-scoped context.</li>
+<li><strong>At request time, loudly</strong>: the record fns default to an error naming the type (“delete not
+implemented for …”), so a missing implementation never looks like a successful no-op.</li>
+<li><strong>Chrome is opt-in</strong>: <code>deletable()</code> and <code>editable()</code> default to <code>false</code>, so a resource that never
+mentions them renders no Edit or Delete affordance — the routes still exist, and the default-deny
+<code>can_*</code> predicates answer them. A resource that wants the chrome declares the flag <strong>and</strong> the
+policy predicate it promises: <code>can_delete()</code> for <code>deletable()</code>, <code>can_view()</code> + <code>can_update()</code> for
+<code>editable()</code>. What that buys is precise: a defaulted flag with a defaulted predicate can never
+advertise an action that answers 403 (GH #226). It is <strong>not</strong> a per-record guarantee — chrome is
+one whole-resource flag while <code>can_update</code>/<code>can_delete</code> take a record, so a resource that opts in
+with a row-level rule still renders a link for a row the route refuses (the showcase’s SSO-guarded
+user is the worked example: its row keeps the Edit link and the edit page answers 403 by design).
+That gap is inherent to the seam, not a defect. The <code>View</code> link needs no flag at all — it is
+derived from whether the resource declares a <code>view()</code> schema, so there the route and the row link
+genuinely cannot disagree.</li>
+<li><strong>Default-deny stands</strong>: every <code>can_*</code> defaults to <code>false</code>, so an unconfigured resource exposes
+no data and no mutation.</li>
+</ul>
+<h2 id="what-to-know"><a class="header" href="#what-to-know">What to know</a></h2>
+<ul>
+<li><code>slug()</code> and <code>navigation_label()</code> have working defaults. Override only to rename.</li>
+<li><code>navigation()</code> curates this resource’s sidebar entry: override it to change the label, the <code>order</code>
+(lower renders first, ties keep declaration order) or the URL, e.g.
+<code>NavigationItem { order: -1, ..NavigationItem::for_resource::&lt;Self&gt;() }</code>. The URL is the Panel’s
+call: <code>for_resource</code> names none, so the panel that mounts the resource resolves it to
+<code>{prefix}/{slug}</code>, and a resource never links at <code>/admin</code> on a panel mounted elsewhere. Spell a
+URL out instead (<code>NavigationItem::at(..)</code>) only to link somewhere other than the resource’s list
+page — the Panel keeps it verbatim.</li>
+<li><code>query()</code> is the seam for the resource’s <strong>own</strong> row scoping — soft deletes, row-level visibility,
+and the relations a page loads. All list, export, and relation loads use it. Tenancy is not its
+job: when <code>requires_tenant()</code> is <code>true</code> the framework derives the <code>tenant_id</code> filter from the
+model’s own schema and ANDs it onto whatever <code>query</code> returns, at every loader (GH #223), so
+restating it here is redundant. The export builds its base query from <code>export_query(cx, needs)</code>,
+which defaults to <code>query(cx)</code> unchanged; override it to narrow the includes to what the exported
+columns declared with <code>TextColumn::needs(..)</code> — an include <code>query</code> carries for another page then
+stops riding along on every export (GH #177, ADR-0018). Keep the resource’s own scope and whatever
+your <code>can_view</code> reads in the narrowed branch; the <em>tenant</em> half is not the override’s to keep — the
+framework ANDs it onto what <code>export_query</code> returns, exactly as it does for <code>query</code>.</li>
+<li><code>table()</code> and <code>form()</code> are hand-written, and so is the impl itself: a resource is <code>type Model</code> plus
+whichever hooks it uses. There is no <code>Resource</code> derive (GH #222) — the macros crate ships
+<code>derive(EmbeddedForm)</code> only (GH #191).</li>
+</ul>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>struct UserResource;
+
+impl Resource for UserResource {
+    type Model = User;
+}
+
+struct PostResource;
+
+impl Resource for PostResource {
+    type Model = Post;
+
+    // the resource's own scoping seam, spelled out where it is used
+    fn query(cx: &amp;Cx) -&gt; Query&lt;List&lt;Post&gt;&gt; {
+        // soft deletes, row-level visibility, includes — not the tenant filter
+    }
+}
+<span class="boring">}</span></code></pre>
+<ul>
+<li>Record fns (<code>create_record</code>, <code>update_record</code>, <code>delete_record</code>, <code>bulk_delete_records</code>) do the
+writes. Handlers load records, check policy, then call them in a transaction. <code>create_record</code> and
+<code>update_record</code> return the row they wrote — <code>toasty::create!</code> hands the created one back and a
+Toasty instance update reloads the model, so both are already in hand — because that is the only
+way the framework can name what a write committed (GH #112). A record fn therefore ends with
+<code>Ok(rec)</code> (at the end of an instance update that is usually the whole change), and a model used by
+a <code>Resource</code> derives <code>Clone</code>.</li>
+<li><code>after_commit(cx, committed)</code> is the post-commit seam (GH #112): called once per committed write,
+after the transaction and before the response, with a <code>Committed</code> naming the mutation
+(<code>Mutation::Create/Update/Delete</code>) and the rows it wrote (a bulk delete is one call with all of
+them). It is where email, webhooks, audit rows and cache invalidation belong — running them in a
+record fn leaks the effect on a rollback, and the transaction’s pool discipline forbids a second
+handle while it is open. The default is a no-op, a hook failure is logged without touching the
+committed write, and it never runs when nothing committed.</li>
+<li>For edit forms, <code>hydrate_form_values(cx, record)</code> maps a record to initial field values. <code>cx</code> is
+the request’s: a scalar projection needs nothing from it, but an embedded value’s keys come from
+the compiled mapping (GH #191).</li>
+</ul>
+<h2 id="tenancy"><a class="header" href="#tenancy">Tenancy</a></h2>
+<p>Tenancy is declared, not restated per query. The pattern:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>impl Resource for PostResource {
+    type Model = Post;
+
+    // `Post` declares `tenant_id: uuid::Uuid`. Declaring this is the whole
+    // tenant contract: the gate is GH #87 — every handler 403s without a
+    // tenant — and the scope is GH #223 — every loader (list, edit, delete,
+    // bulk, export, relationship options) ANDs `tenant_id = &lt;request tenant&gt;`,
+    // derived from the model's own schema, onto whatever `query` returns.
+    fn requires_tenant() -&gt; bool {
+        true
+    }
+
+    // The resource's *own* scoping only — a soft delete, row-level visibility,
+    // the includes a page loads. Writing the tenant filter here is redundant:
+    // the framework derives it at every loader, so a copy that disagreed with
+    // the derived column could only hide rows, never widen access.
+    fn query(_cx: &amp;Cx) -&gt; Query&lt;List&lt;Post&gt;&gt; {
+        Query::&lt;List&lt;Post&gt;&gt;::all()
+    }
+}
+<span class="boring">}</span></code></pre>
+<p>App code that loads rows outside the framework’s loaders — a record fn double-checking a foreign
+key, a custom page — calls <code>scoped_query::&lt;PostResource&gt;(cx)?</code> rather than <code>PostResource::query(cx)</code>:
+on a gated resource that method is the <strong>tenant-unscoped</strong> base, deliberately, so the
+tenant-unscoped case is visible at the call site (it still carries whatever the resource’s own
+<code>query</code> scopes — soft deletes included).</p>
+<p>Three shapes, one gate:</p>
+<ol>
+<li>
+<p><strong>The model carries the tenant</strong> (the common case): <code>requires_tenant() = true</code> and nothing else. The framework derives <code>tenant_id = &lt;request tenant&gt;</code>
+from the model’s own schema.</p>
+</li>
+<li>
+<p><strong>The row inherits its tenant</strong> — <code>Comment</code> has no <code>tenant_id</code>, it belongs to
+a post that does. Declare the predicate instead of the column:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>fn requires_tenant() -&gt; bool {
+    true
+}
+
+fn tenant_scope(tenant: uuid::Uuid) -&gt; Option&lt;toasty::stmt::Expr&lt;bool&gt;&gt; {
+    // The framework ANDs this onto `query`/`export_query` at every loader,
+    // exactly as it ANDs the derived filter elsewhere.
+    Some(Comment::fields().post().tenant_id().eq(tenant))
+}
+<span class="boring">}</span></code></pre>
+<p>The gate is what matters: writing this filter inside <code>query</code> with
+<code>requires_tenant() = false</code> would <em>skip</em> it for a tenantless request rather
+than refuse it, serving every tenant’s rows to a tenantless admin.</p>
+</li>
+<li>
+<p><strong>The resource must serve more than one tenant</strong> (a deliberate cross-tenant
+view): <code>requires_tenant() = false</code> and scope in <code>query</code> by hand — the one
+explicit way out, and the gate goes with it.</p>
+</li>
+</ol>
+<p>A gated resource that supplies no predicate at all — no <code>tenant_id</code> column and
+no <code>tenant_scope</code> override — fails <code>Panel::build</code> (GH #231), the same boot
+failure any other misdeclaration gets, and every loader keeps answering an error
+naming itself rather than querying tenant-unscoped — the backstop for a
+predicate that is only <code>None</code> for some tenants. There is no override that
+removes the scope.</p>
+<p>The request’s tenant comes from the logged-in user; see
+<a href="#policy-auth-tenancy">Policy, auth, tenancy</a>.</p>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="tables"><a class="header" href="#tables">Tables</a></h1>
+<p>The list view: columns and the row key, search and sort, filters, grouping and CSV export, live
+updates, and bulk delete.</p>
+<p>Minimal table:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>Table::r#for(cx)
+    .id(|u: &amp;User| u.id.to_string())
+    .columns((
+        TextColumn::r#for(User::fields().name(), |u: &amp;User| u.name.clone())
+            .searchable()
+            .sortable(),
+        TextColumn::computed("Status", |u: &amp;User| {
+            if u.active { "Active".into() } else { "Inactive".into() }
+        }),
+    ))
+    .paginate(20)
+<span class="boring">}</span></code></pre>
+<p>Notes:</p>
+<ul>
+<li><code>.id(...)</code> is required. It keys rows for selection and live updates. Never use a loop index.</li>
+<li><code>searchable()</code> searches with <code>?q=</code>: an escaped substring match (<code>like_with_escape</code>, OR across
+searchable columns), so a term containing <code>%</code> or <code>_</code> matches those characters literally. <code>LIKE</code> is
+ASCII-case-insensitive on SQLite and case-sensitive on PostgreSQL. <code>sortable()</code> sorts with
+<code>?sort=</code> and <code>?dir=</code>. Both work without JS.</li>
+<li>The URL is the state: <code>?q=</code>, <code>?sort=</code>, <code>?dir=</code>, <code>?after=</code>, <code>?before=</code>, <code>?filters=</code>, <code>?group_by=</code>
+parse into <code>TableState</code>. Pagination is cursor based; Toasty appends the PK tie-breaker internally
+so cursors stay deterministic.</li>
+<li>Computed columns render only. They do not affect search or sort.</li>
+</ul>
+<p>Filters:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>.filters((
+    SelectFilter::r#for(Post::fields().status(), vec!["draft".into(), "published".into()]),
+    TernaryFilter::r#for(Post::fields().featured()),
+    DateFilter::r#for(Post::fields().created_at()),
+))
+<span class="boring">}</span></code></pre>
+<p>Active filters travel in <code>?filters=</code> and combine with AND. Unknown keys and rejected values never
+fail silently: the list renders a <code>role=alert</code> banner (<code>Table::unapplied_filters</code>) while export
+refuses with 400.</p>
+<p>Grouping and export:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>.group_by("status", |p: &amp;Post| p.status.clone())
+<span class="boring">}</span></code></pre>
+<ul>
+<li>Grouping is page-local with a row count per group. Toasty has no <code>GROUP BY</code> yet, so grouping never
+claims full-table totals. Unknown <code>?group_by=</code> values render no headers and drop from nav links.</li>
+<li><code>GET /admin/{slug}/export</code> returns the filtered set as CSV (<code>text/csv; charset=utf-8</code> +
+<code>Content-Disposition</code>, RFC4180 with OWASP formula-defusing), reusing the same filters and sort over
+<code>export_query</code> — the base <code>query</code> unless the resource narrows it to the includes its columns
+declared (GH #177). Capped at 10k viewable rows: per-row <code>can_view</code> runs before the cap, so 413
+reflects what the caller may receive. <code>?bom=1</code> opts into an Excel BOM.</li>
+<li>Failed table loads render the branded <code>ErrorState</code> in-region, not a blank page.</li>
+</ul>
+<p>Live updates:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>Table::r#for(cx).live_search(true)
+<span class="boring">}</span></code></pre>
+<p>Search, sort, filter, and pager controls then refresh the table in place without a full page load.
+The plain links and forms stay as the no-JS fallback.</p>
+<p>Panel wires the bulk checkbox column when the resource opts in with <code>deletable() -&gt; true</code> (GH #226:
+chrome is opt-in, and the flag pairs with <code>can_delete</code>). Bulk delete asks first: the bulk bar’s
+button opens an alert dialog that names how many rows are selected, and its confirm control is the
+only thing carrying the <code>confirm=1</code> the handler requires — a POST without that marker is a 400, so
+the safeguard does not depend on the script that opens the dialog (GH #184).</p>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="forms"><a class="header" href="#forms">Forms</a></h1>
+<p>Create and edit forms: typed lenses, layout blocks, the fields and what each one guarantees, file
+uploads, and how validation failures are reported.</p>
+<p>Forms use typed lenses, not string paths:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>Schema::new((
+    Section::new("Account").schema((
+        TextInput::r#for(User::fields().email()).email().unique(),
+        Select::r#for(User::fields().role())
+            .options(vec!["admin".into(), "member".into()]),
+    )),
+    Grid::new(2).schema((
+        TextInput::r#for(User::fields().name()),
+        FileUpload::r#for(Post::fields().image_path()),
+    )),
+))
+<span class="boring">}</span></code></pre>
+<p>What to know:</p>
+<ul>
+<li>Layout blocks: <code>Section</code>, <code>Group</code>, <code>Grid</code>, <code>Tabs</code>. Fields: <code>TextInput</code>, <code>Textarea</code>, <code>Select</code>,
+<code>FileUpload</code>, <code>Repeater</code>. Every field takes a typed lens (<code>User::fields().email()</code>), never a string
+path. <code>Textarea</code> is the multi-line half of <code>TextInput</code> — same lens, same required default, same
+error contract, a <code>&lt;textarea&gt;</code> control instead, and no <code>unique()</code> (the app-side probe is built from
+<code>TextInput</code>, GH #184).</li>
+<li><code>required</code> defaults to the column nullability. Use <code>.optional()</code> to opt out. A bare <code>Select</code> over a
+non-nullable FK rejects <code>""</code> inline instead of failing at the driver.</li>
+<li><strong>A non-<code>String</code> column binds through <code>TextInput::typed</code></strong> (GH #192):
+<code>TextInput::typed::&lt;Post, i64&gt;(Post::fields().post_stats().word_count())</code> renders the value’s
+<code>Display</code>, parses the submission through the type’s own <code>FromStr</code>, and refuses what it cannot parse
+as an inline field error naming the input — <code>`twelve` is not a valid whole number</code> — instead of
+a 500 or a silent default. What is stored is <code>Display</code> of the parsed value, so a value re-submitted
+unchanged is written back in the shape it was read. <code>typed_context(cx, path)</code> is the
+embedded/document sibling, as <code>r#for_context</code> is to <code>r#for</code>. <code>TypedValue</code> covers the integer types,
+<code>f64</code>, <code>Uuid</code> and <code>jiff::Timestamp</code>; a type needing its own words implements the trait. Empty is
+the presence rule’s business, not the typed one: a typed column has no spelling for “no value”, so
+an empty submission on an optional typed field reaches the record fn as <code>""</code> exactly as any other
+optional column does.</li>
+<li><code>unique()</code> does two things. It adds an app-level pre-check — Toasty exposes no unique-violation
+predicate yet, so the DB constraint stays the final guard and concurrent writes can race — and it
+implies <strong>presence</strong>: the framework stores <code>""</code> rather than NULL, so an empty value on a unique
+field is refused inline as <code>"&lt;Label&gt; is required"</code> instead of being written past an index that
+admits only one (GH #189). <code>.optional()</code> does not lift that rule, and <code>Panel::build</code> refuses a
+<code>unique()</code> marker on a column with no unique index (single-field or composite, <code>#[unique(a, b)]</code>
+included), so the declaration and the database cannot disagree about which fields are unique.</li>
+<li>Relation select validates the FK against the related resource query before <code>create_record</code> runs:</li>
+</ul>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>Select::r#for(Post::fields().author_id())
+    .relationship::&lt;AuthorResource&gt;(
+        AuthorResource::query,
+        |a: &amp;Author| a.id,
+        |a: &amp;Author| a.name.clone(),
+    )
+    .label("Author")
+<span class="boring">}</span></code></pre>
+<ul>
+<li>
+<p>Relation options are bounded to 200 (<code>MAX_RELATIONSHIP_OPTIONS</code>) and memoized per
+<code>(request, tenant)</code>. Small tables validate against the bounded set; <code>can_view</code> filters before
+labels, <code>can_view_any</code>/tenant denial fails closed (<code>not available</code>).</p>
+</li>
+<li>
+<p>Large reference tables (10k+ rows) need <code>.searchable()</code> on the <code>Select</code> (GH #150): over-cap
+searchable selects degrade to type-to-search instead of a retry error. Typing fetches
+<code>GET {parent_list_url}/options?field=&amp;q=</code> (debounced 200ms, abort in-flight, selection preserved),
+which reuses the related <code>Table</code>’s declared <code>searchable()</code> columns (<code>search_expr</code>), bounds to 200,
+and filters <code>can_view</code> before labels. No searchable columns → hard-cap path (non-searchable keeps
+the cap error). Overflowed submits validate via a targeted PK check (the tenant-scoped query +
+<code>can_view</code>): legitimate FKs beyond the cap pass, hidden → <code>invalid</code>, denied → <code>not available</code>, DB
+failure → retry. Initial render keeps the stored value + search input + “Too many options — type
+to search” hint; no-JS keeps the plain select (other fields still submit, relation cannot be
+changed past the cap).</p>
+</li>
+<li>
+<p><code>FileUpload</code> binds a <code>String</code> path and owns the request half: no <code>value</code> on <code>type=file</code>,
+<code>enctype="multipart/form-data"</code> when a form has one, a 10 MiB body cap (413), a 400 for multipart
+without a boundary, and sanitized basenames (<code>.</code> / <code>..</code> / Windows reserved names surface as inline
+errors). On an edit the control drops native <code>required</code> (GH #184) — a <code>required</code> file input cannot
+be pre-filled, so it blocked every untouched save; <code>required</code> still holds on create.</p>
+</li>
+<li>
+<p><strong>Where the bytes go is the app’s</strong> (GH #188, ADR-0017): install an <code>Uploader</code> once with
+<code>Panel::uploads(store)</code>. <code>store(filename, bytes) -&gt; Result&lt;String, String&gt;</code> receives the sanitized
+name and the content (bounded by the cap) and returns the value the record stores; a refusal is an
+inline error (<code>"&lt;Label&gt; could not be uploaded: &lt;reason&gt;"</code>), not a 500. With no uploader installed
+the sanitized basename is stored — the default — and the bytes are drained rather than buffered.</p>
+</li>
+<li>
+<p>The stored path renders as the file it names: an image preview when it ends in an image extension,
+a link to the file otherwise — no URL convention is invented, and <code>Panel::serve_dir(path, dir)</code>
+mounts the directory an upload store writes to. A served directory is <strong>public</strong> (ADR-0017): its
+URLs answer whoever asks, with no session, because the auth gate covers only the panel prefix and
+<code>/_topcoat/runtime</code> (ADR-0013) and a served directory is mounted outside both. An app that needs
+protected files owns that route itself. Every stored value also offers a <code>clear_&lt;field&gt;</code> checkbox
+(“Remove the current file”), the one control that means “remove” rather than “keep”; an empty file
+input still means keep. Clearing does not waive <code>required</code> — a resource whose records may lose
+their file declares <code>.optional()</code>.</p>
+</li>
+<li>
+<p><code>Repeater</code> is a single-entry group. An all-empty group is skipped, so its inner required fields do
+not fail the submit. A <code>required</code> repeater yields one label-keyed error; a partially filled group
+still enforces inner <code>required</code>.</p>
+</li>
+</ul>
+<p>Validation errors render inline per field. Absent keys validate as <code>""</code> and updates write only
+present keys; handlers reject unknown form keys with 400 (<code>role</code> / <code>tenant_id</code> smuggling fails
+closed; only <code>csrf_token</code> and <code>clear_&lt;field&gt;</code> are exempt), so extra posted keys never reach record
+fns.</p>
+<p>Embedded values declare one form node and flatten their fields; see
+<a href="#embedded-values">Data access</a>.</p>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="detail-pages"><a class="header" href="#detail-pages">Detail pages</a></h1>
+<p>A read-only page for one record (GH #187): the <code>view</code> schema, what renders, related rows, and the
+current limits.</p>
+<p>A resource can show one record read-only by declaring <code>view</code>, which is the same <code>Schema</code> read the
+other way round (ADR-0016):</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>fn view(cx: &amp;Cx) -&gt; Schema {
+    Schema::new(Section::new("Post").schema((
+        TextInput::r#for(Post::fields().title()),
+        Textarea::r#for(Post::fields().body()).rows(6),
+    )))
+}
+<span class="boring">}</span></code></pre>
+<p>That registers <code>GET /admin/{slug}/{id}</code> — loaded through the tenant-scoped query, so an unknown id
+and one outside the tenant are the same 404, while <code>can_view</code> denial is a 403 — and adds a <code>View</code>
+link beside <code>Edit</code> on each row. A resource with no <code>view</code> declaration has no page and no link, and
+the route answers 404 rather than rendering an empty shell.</p>
+<ul>
+<li><strong>Read-only is not a disabled form.</strong> Fields render labels and stored values:
+<code>TextInput</code>/<code>Textarea</code> show text, <code>Select</code> shows the option label the form offered (or the stored
+value when no option matches, a relationship key included), <code>FileUpload</code> shows the stored path and
+previews a stored image (GH #188), and layout blocks keep their structure. No control, no CSRF
+field, no validation slot.</li>
+<li><strong>Values come from <code>hydrate_form_values</code></strong>, the same projection the edit form hydrates, so a field
+that renders in the form renders here.</li>
+<li><strong>Related rows</strong> render through <code>view_relations(cx, record)</code>, the page’s second half:</li>
+</ul>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>fn view_relations&lt;'a&gt;(cx: &amp;'a Cx, record: &amp;Post) -&gt; Option&lt;BoxView&lt;'a&gt;&gt; {
+    // The relation comes from `Resource::query`'s include, so this is the guard
+    // the list columns use: drop the include and the page says so instead of
+    // panicking inside `Deferred::get`.
+    if record.comments.is_unloaded() {
+        return Some(missing_include_notice(cx, "Comments"));
+    }
+    Some(render_relation(cx, "Comments", RelationColumns::columns(
+        RelationColumn::computed("Comment", |c: &amp;Comment| c.body.clone()),
+    ), record.comments.get()))
+}
+<span class="boring">}</span></code></pre>
+<p>It is a typed method and not a Schema field because a Schema renders the record’s <em>string
+projection</em> while a relation is a list of records — and <code>Resource::view(cx)</code> is handed no record at
+all, so a Schema node could not read one. Reading <code>record.comments.get()</code> issues no query: it is the
+row the include loaded, and a test counts the statements a detail page runs to hold that
+(<code>the_relation_issues_no_query_of_its_own</code>). Related rows render read-only: no pager, no search, no
+bulk column, no row actions.</p>
+<ul>
+<li>A typed column (<code>Uuid</code>, <code>jiff::Timestamp</code>) is readable: bind it with <code>TextInput::typed</code> (GH #192)
+and the view renders its stored value as text. A foreign key therefore reads as its stored id
+rather than the related record’s label — render the relation through <code>view_relations</code> when the
+label is what a reader needs.</li>
+<li><code>IntoSchema</code> takes at most four top-level blocks; a longer view wraps a fifth in a <code>Group</code>.</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="policy-auth-tenancy"><a class="header" href="#policy-auth-tenancy">Policy, auth, tenancy</a></h1>
+<p>Who may see and change what: the <code>can_*</code> predicates, the auth gate and its seams, and where the
+request’s tenant comes from.</p>
+<p>Policy is <code>can_*</code> on the resource, default deny. Check both pages and handlers:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>fn can_view_any(_cx: &amp;Cx) -&gt; bool { true }
+fn can_view(_cx: &amp;Cx, _r: &amp;User) -&gt; bool { true }
+fn can_create(_cx: &amp;Cx) -&gt; bool { false }
+<span class="boring">}</span></code></pre>
+<p>List scope belongs in <code>query()</code>. Per-row <code>can_view</code> trims option lists and exports, but the list page
+itself checks only <code>can_view_any</code> so pagination stays honest. Edit GET and POST both require
+<code>can_view</code> + <code>can_update</code>; relation option loads fail closed when the related resource denies
+<code>can_view_any</code>.</p>
+<p>Mutations run in a framework-owned transaction: handlers load through <code>query()</code> and policy-check on
+that snapshot, then pass the checked records into the record fns with no silent re-loads. Bulk delete
+is all-or-nothing. Anything that must happen <em>after</em> the commit — a webhook, an email, an audit row —
+goes in <code>after_commit</code>, which runs once the transaction is gone; see <a href="#resources">Resources</a>.</p>
+<p>Auth is on by default and fails closed:</p>
+<ul>
+<li>Register the shipped models and seed one admin:</li>
+</ul>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>toasty::models!(crate::User, argentum_core::auth::AdminUser, argentum_core::auth::AuthSession)
+<span class="boring">}</span></code></pre>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>let hash = argentum_core::auth::hash_password("secret").expect("hash password");
+// store in AdminUser.password_hash (Argon2id PHC string)
+<span class="boring">}</span></code></pre>
+<ul>
+<li>Unauthenticated <code>GET</code> pages redirect to <code>{prefix}/login</code> with a validated same-origin <code>next</code>.
+Runtime endpoints (<code>/_topcoat/runtime</code>) and all non-GET panel requests answer 401; users without
+panel access answer 403. The gate installs exactly two layers — the panel prefix and
+<code>/_topcoat/runtime</code> — so a route mounted outside them is ungated by construction;
+<code>Panel::serve_dir</code> is the shipped case, and served directories are public by decision (ADR-0017).</li>
+<li>Sessions are server-side <code>AuthSession</code> rows with a seven-day fixed lifetime, rotated on login and
+revoked on logout. Use <code>auth::revoke_sessions_for_user(cx, id)</code> to sign a user out everywhere.
+Logins verify Argon2id (dummy hash for unknown emails) and share one generic failure message.
+Handlers re-check the resolved user, including the panel root and live-search shard; logout accepts
+any resolved identity so a de-permitted session can still be cleared.</li>
+</ul>
+<p>Custom user table:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>Panel::new("admin").auth(Auth::custom(MyAuth))
+<span class="boring">}</span></code></pre>
+<p>Implement <code>verify</code> plus <code>find_by_id</code> for your model. Session storage stays framework-owned. Read the
+result with <code>current_user(cx)</code> or <code>require_authenticated(cx)</code>.</p>
+<p>Explicit opt-out:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>Panel::new("admin").auth(Auth::disabled())
+<span class="boring">}</span></code></pre>
+<p>Tenancy comes from the logged-in user. <code>tenant_id(cx)</code> reads the request <code>Tenant</code>, which the auth
+layer sets; a server-set <code>Tenant</code> request extension overrides deliberately (for middleware/tests).
+Mark tenant-owned resources with <code>requires_tenant()</code>: handlers fail closed (403) without a tenant,
+and the framework derives the <code>tenant_id</code> filter from the model and applies it at every loader
+(GH #223), so no <code>query()</code> override has to restate it. Never trust a tenant header from the client.
+See <a href="#resources">Resources</a> for the three shapes a resource can declare.</p>
+<p>No built-in rate limiter or lockout: enforce at the edge (proxy/WAF). <code>Notification</code> is a one-time
+<code>__Host-argentum_notification</code> flash cookie on the 303 Post/Redirect/Get response, consumed on
+follow-up so reloads never replay it.</p>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="data-access"><a class="header" href="#data-access">Data access</a></h1>
+<p>Querying Toasty from panel code: getting the <code>Db</code>, filters and sorting, preloading relations,
+embedded values, and the render and reactivity invariants any page has to respect.</p>
+<p>Get the DB from app context:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>let mut db = argentum_core::db::db(cx);
+let rows = User::all().exec(&amp;mut db).await?;
+<span class="boring">}</span></code></pre>
+<p><code>Db</code> is <code>Arc</code>-pooled; cloning per request is cheap and <code>exec</code> needs <code>&amp;mut Db</code>.</p>
+<p>Filter and sort:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>User::filter(User::fields().email().eq("alice@example.com"))
+User::filter(User::fields().name().starts_with(q))
+    .order_by(User::fields().name().asc())
+<span class="boring">}</span></code></pre>
+<p>Table search builds its pattern through <code>like_with_escape</code> with <code>%</code>, <code>_</code> and the escape character
+escaped (<code>escape_like_pattern</code>), so it is parameterised and portable. If you hand-write a pattern,
+escape <code>%</code> and <code>_</code> first, and never interpolate raw input into SQL.</p>
+<p>Preload relations in one trip:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>let posts = Post::all()
+    .include(Post::fields().author())
+    .exec(&amp;mut db)
+    .await?;
+// then `post.author.get()` with no extra query
+<span class="boring">}</span></code></pre>
+<p>Guard computed cells against a missing preload so a query change fails loudly, not with blank data —
+and declare the relation, which is what the CSV export’s narrowed query is built from (GH #177):</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>TextColumn::computed("Author", |p: &amp;Post| {
+    if p.author.is_unloaded() { "(unloaded)".into() } else { p.author.get().name.clone() }
+})
+.needs(["author"])
+<span class="boring">}</span></code></pre>
+<h2 id="embedded-values"><a class="header" href="#embedded-values">Embedded values</a></h2>
+<p>Derive the codec and declare nothing per field (GH #191, ADR-0019). The derive reads the type’s
+shape, the framework names the columns:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>#[derive(Debug, Clone, toasty::Embed, argentum_core::EmbeddedForm)]
+pub enum Publication {
+    #[column(variant = 1)]
+    Scheduled { #[shared(timestamp)] scheduled_at: String, scheduled_for: String },
+    #[column(variant = 2)]
+    Published { #[shared(timestamp)] published_at: String, canonical_url: String },
+}
+
+// form declaration: controls, flattened names, and the variant Select
+Section::new("Publication").schema(Publication::form(cx, Post::fields().publication()))
+
+// hydration and the record fn: the typed value, keys resolved from the schema
+write_embedded(cx, Post::fields().publication(), &amp;record.publication, &amp;mut values);
+let publication = read_embedded(cx, Post::fields().publication(), &amp;values);
+if submitted(cx, Post::fields().publication(), &amp;values) { /* the submit mentioned it */ }
+<span class="boring">}</span></code></pre>
+<p>An enum’s variant is its <strong>discriminant column</strong>, carried by the form as a <code>Select</code> over the
+schema’s variant list — each option submitting the variant’s stored value and reading as its name —
+and each variant’s payload renders inside its own marked group, so the client shows only the chosen
+variant’s, and a variant can be picked on create and changed on edit (a read-only page names the
+stored variant instead of printing its discriminant). A named discriminant always wins (and one the
+enum does not declare is refused loudly, never read as some other variant), so a stale payload is
+not a vote. Only when no discriminant is named at all — the create form, a hand-written POST — do
+payloads select one, by a variant’s own <strong>non-shared</strong> payload through resolved keys. The toggle is
+markup-only (<code>variant.js</code> hides the inactive groups): with JavaScript off every variant’s payload
+renders, so no field the server still parses is lost. <code>#[form(label = "…")]</code>, <code>#[form(textarea)]</code>
+and <code>#[form(textarea, rows = N)]</code> are the per-field overrides; an unknown key is a compile error. A
+<code>#[document]</code> inside a value, a relation, an enum nested inside an enum variant, and a tuple struct
+are not covered.</p>
+<p>Schema setup: <code>db.push_schema().await</code> for prototypes, <code>toasty-cli</code> migrations for prod.</p>
+<h2 id="render-invariants"><a class="header" href="#render-invariants">Render invariants</a></h2>
+<p>Pages, layouts, and components are side-effect free and deterministic — no <code>HashMap</code> iteration,
+<code>Utc::now()</code>, or random IDs in a streamed region (breaks concurrent/streaming re-renders). Query
+Toasty directly with explicit <code>include</code> for relations, <code>#[index]</code> for filter columns, and
+<code>#[memoize]</code> for shared loads. <code>Cx</code>-scoped values (<code>Tenant</code>, auth), not middleware, carry request
+scope. Every value read on the server via <code>get()</code> / <code>read()</code> is untrusted client input.</p>
+<h2 id="reactivity"><a class="header" href="#reactivity">Reactivity</a></h2>
+<p><code>signal(cx, init)</code> runs only in a page/layout/component body; loop bodies need <code>#[key(...)]</code> and
+reorderable rows need a stable <code>id</code> from the row key. <code>get()</code> / <code>read()</code> re-runs track and morph in
+place; <code>get_untracked()</code> opts out. Page/layout guards do not run on shard requests — shards
+authorize themselves (<code>requires_tenant</code> + <code>can_view_any</code> + the tenant-scoped query).</p>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="security"><a class="header" href="#security">Security</a></h1>
+<p>The defaults Argentum ships with, and the deployment assumptions they depend on.</p>
+<ul>
+<li>All POSTs verify a double-submit <code>csrf_token</code> before any DB work. <code>confirm=1</code> is a UX step, not a
+boundary.</li>
+<li>Passwords use Argon2id. Unknown emails take the same code path, and login failures share one
+generic message.</li>
+<li>Deletes and bulk deletes re-fetch through <code>query()</code> and re-check policy inside the handler
+transaction.</li>
+<li>Table free-text is an escaped substring <code>LIKE</code> across the searchable columns (<code>like_with_escape</code> +
+<code>escape_like_pattern</code>), never a raw pattern. Do not interpolate raw input into SQL.</li>
+<li>Session, CSRF, and notification cookies use hardened <code>__Host-</code> + <code>Secure</code> settings. Localhost is
+exempt; non-localhost deploys need HTTPS or browsers drop them and mutations 403.</li>
+<li>Responses carry <code>Content-Security-Policy: frame-ancestors 'self'</code>, so an admin page cannot be
+clickjacked from another origin. <code>Panel::frame_ancestors(..)</code> widens it for a deployment that
+frames the panel, <code>Panel::without_frame_ancestors()</code> sends none for a proxy that owns the whole
+policy, and an app’s own <code>Content-Security-Policy</code> always wins — the layer only fills the gap.</li>
+<li>Redirects: <code>Err(redirect(..))</code> (307) for GETs, <code>Err(see_other(..))</code> (303 PRG) after mutations.
+Mid-stream they degrade to <code>window.location.replace</code>; streamed regions own their failure
+rendering. Wrap <code>Slot</code> in <code>error_boundary</code> for branded error pages.</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="testing-and-benchmarks"><a class="header" href="#testing-and-benchmarks">Testing and benchmarks</a></h1>
+<p>How to test a panel, what the showcase covers, and the performance harness and its budget.</p>
+<p>Unit render with <code>CxTestBuilder</code>. Cover each resource policy fn. Cover scoping in <code>query()</code>.</p>
+<p>The showcase has integration tests per area (list, create, edit, delete, bulk, filters, tenancy,
+uploads, export, auth) under <code>examples/showcase/tests/</code>.</p>
+<pre><code class="language-sh">cargo test -p showcase
+node --test crates/argentum-ui/assets/selects.test.js   # the one JS unit test
+cargo run --manifest-path benchmarks/argentum/Cargo.toml -- --bench
+./benchmarks/scripts/bench.sh
+</code></pre>
+<p>The shell scripts under <code>crates/argentum-ui/assets/</code> are plain browser scripts loaded through
+<code>asset!</code>, so they have no build step and no test runner. <code>selects.js</code> splits its one pure decision
+(<code>matchingOptions</code>) out and guards the rest behind <code>install()</code> so that single function can be
+unit-tested on Node’s built-in runner (GH #184); everything else in those files is covered by the
+Rust-side markup assertions and manual checks.</p>
+<p>Budget: 50-row list with 2 preloaded relations renders under 40ms p50 on local SQLite. <strong>This is a
+target, not a gate</strong> (GH #171): the harness prints it “for reference only; UNGATED” and never
+PASS/FAILs on it, and <code>benchmarks/results/</code> is gitignored, so no committed number exists on a fresh
+checkout. The skeleton ships first, rows stream in after.</p>
+<p>Setup details — the detached bench workspace, the <code>oha</code> methodology, and the compile-only
+axum-maud/leptos stubs — are in <code>benchmarks/README.md</code>.</p>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+
+            </nav>
+
+        </div>
+
+        <template id=fa-eye><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M288 32c-80.8 0-145.5 36.8-192.6 80.6C48.6 156 17.3 208 2.5 243.7c-3.3 7.9-3.3 16.7 0 24.6C17.3 304 48.6 356 95.4 399.4C142.5 443.2 207.2 480 288 480s145.5-36.8 192.6-80.6c46.8-43.5 78.1-95.4 93-131.1c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C433.5 68.8 368.8 32 288 32zM432 256c0 79.5-64.5 144-144 144s-144-64.5-144-144s64.5-144 144-144s144 64.5 144 144zM288 192c0 35.3-28.7 64-64 64c-11.5 0-22.3-3-31.6-8.4c-.2 2.8-.4 5.5-.4 8.4c0 53 43 96 96 96s96-43 96-96s-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6z"/></svg></span></template>
+        <template id=fa-eye-slash><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M38.8 5.1C28.4-3.1 13.3-1.2 5.1 9.2S-1.2 34.7 9.2 42.9l592 464c10.4 8.2 25.5 6.3 33.7-4.1s6.3-25.5-4.1-33.7L525.6 386.7c39.6-40.6 66.4-86.1 79.9-118.4c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C465.5 68.8 400.8 32 320 32c-68.2 0-125 26.3-169.3 60.8L38.8 5.1zM223.1 149.5C248.6 126.2 282.7 112 320 112c79.5 0 144 64.5 144 144c0 24.9-6.3 48.3-17.4 68.7L408 294.5c5.2-11.8 8-24.8 8-38.5c0-53-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6c0 10.2-2.4 19.8-6.6 28.3l-90.3-70.8zm223.1 298L373 389.9c-16.4 6.5-34.3 10.1-53 10.1c-79.5 0-144-64.5-144-144c0-6.9 .5-13.6 1.4-20.2L83.1 161.5C60.3 191.2 44 220.8 34.5 243.7c-3.3 7.9-3.3 16.7 0 24.6c14.9 35.7 46.2 87.7 93 131.1C174.5 443.2 239.2 480 320 480c47.8 0 89.9-12.9 126.2-32.5z"/></svg></span></template>
+        <template id=fa-copy><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M502.6 70.63l-61.25-61.25C435.4 3.371 427.2 0 418.7 0H255.1c-35.35 0-64 28.66-64 64l.0195 256C192 355.4 220.7 384 256 384h192c35.2 0 64-28.8 64-64V93.25C512 84.77 508.6 76.63 502.6 70.63zM464 320c0 8.836-7.164 16-16 16H255.1c-8.838 0-16-7.164-16-16L239.1 64.13c0-8.836 7.164-16 16-16h128L384 96c0 17.67 14.33 32 32 32h47.1V320zM272 448c0 8.836-7.164 16-16 16H63.1c-8.838 0-16-7.164-16-16L47.98 192.1c0-8.836 7.164-16 16-16H160V128H63.99c-35.35 0-64 28.65-64 64l.0098 256C.002 483.3 28.66 512 64 512h192c35.2 0 64-28.8 64-64v-32h-47.1L272 448z"/></svg></span></template>
+        <template id=fa-play><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M73 39c-14.8-9.1-33.4-9.4-48.5-.9S0 62.6 0 80V432c0 17.4 9.4 33.4 24.5 41.9s33.7 8.1 48.5-.9L361 297c14.3-8.7 23-24.2 23-41s-8.7-32.2-23-41L73 39z"/></svg></span></template>
+        <template id=fa-clock-rotate-left><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M75 75L41 41C25.9 25.9 0 36.6 0 57.9V168c0 13.3 10.7 24 24 24H134.1c21.4 0 32.1-25.9 17-41l-30.8-30.8C155 85.5 203 64 256 64c106 0 192 86 192 192s-86 192-192 192c-40.8 0-78.6-12.7-109.7-34.4c-14.5-10.1-34.4-6.6-44.6 7.9s-6.6 34.4 7.9 44.6C151.2 495 201.7 512 256 512c141.4 0 256-114.6 256-256S397.4 0 256 0C185.3 0 121.3 28.7 75 75zm181 53c-13.3 0-24 10.7-24 24V256c0 6.4 2.5 12.5 7 17l72 72c9.4 9.4 24.6 9.4 33.9 0s9.4-24.6 0-33.9l-65-65V152c0-13.3-10.7-24-24-24z"/></svg></span></template>
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="elasticlunr-ef4e11c1.min.js"></script>
+        <script src="mark-09e88c2c.min.js"></script>
+        <script src="searcher-c2a407aa.js"></script>
+
+        <script src="clipboard-1626706a.min.js"></script>
+        <script src="highlight-abc7f01d.js"></script>
+        <script src="book-a0b12cfe.js"></script>
+
+        <!-- Custom JS scripts -->
+
+        <script>
+        window.addEventListener('load', function() {
+            window.setTimeout(window.print, 100);
+        });
+        </script>
+
+
+    </div>
+    </body>
+</html>

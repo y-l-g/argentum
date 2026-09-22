@@ -1,0 +1,70 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Derive `EmbeddedForm` for an embedded struct or enum (GH #191)."><title>EmbeddedForm in argentum_macros - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../static.files/rustdoc-1ed95124.css"><meta name="rustdoc-vars" data-root-path="../" data-static-root-path="../static.files/" data-current-crate="argentum_macros" data-themes="" data-resource-suffix="" data-rustdoc-version="1.98.1 (48a229cea 2026-09-01)" data-channel="1.98.1" data-search-js="search-9944d736.js" data-stringdex-js="stringdex-2da4960a.js" data-settings-js="settings-170eb4bf.js" ><script src="../static.files/storage-41dd4d93.js"></script><script defer src="sidebar-items.js"></script><script defer src="../static.files/main-417ebf0a.js"></script><noscript><link rel="stylesheet" href="../static.files/noscript-f7c3ffd8.css"></noscript><link rel="alternate icon" type="image/png" href="../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../static.files/favicon-044be391.svg"></head><body class="rustdoc derive"><a class="skip-main-content" href="#main-content">Skip to main content</a><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><rustdoc-topbar><h2><a href="#">EmbeddedForm</a></h2></rustdoc-topbar><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../argentum_macros/index.html">argentum_<wbr>macros</a><span class="version">0.1.0</span></h2></div><div class="sidebar-elems"><section id="rustdoc-toc"><h2 class="location"><a href="#">Embedded<wbr>Form</a></h2><h3><a href="#">Sections</a></h3><ul class="block top-toc"><li><a href="#how-a-field-is-classified" title="How a field is classified">How a field is classified</a></li><li><a href="#which-variant-an-enum-reads" title="Which variant an enum reads">Which variant an enum reads</a></li><li><a href="#per-field-overrides" title="Per-field overrides">Per-field overrides</a></li><li><a href="#not-covered" title="Not covered">Not covered</a></li></ul></section><div id="rustdoc-modnav"><h2 class="in-crate"><a href="index.html">In crate argentum_<wbr>macros</a></h2></div></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><div class="width-limiter"><section id="main-content" class="content" tabindex="-1"><div class="main-heading"><div class="rustdoc-breadcrumbs"><a href="index.html">argentum_macros</a></div><h1>Derive Macro <span class="derive">Embedded<wbr>Form</span>&nbsp;<button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../src/argentum_macros/lib.rs.html#83-86">Source</a> </span></div><pre class="rust item-decl"><code>#[derive(EmbeddedForm)]
+{
+    <span class="comment">// Attributes available to this derive:</span>
+    #[form]
+}
+</code></pre><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Derive <code>EmbeddedForm</code> for an embedded struct or enum (GH #191).</p>
+<p>The generated impl converts the value to and from the panel’s flat form map,
+answers whether a submission mentions it, and generates a <code>form(cx, parent)</code>
+function returning the value’s controls — all driven by the columns the app
+schema resolves for the parent path. The framework supplies the storage
+names, this derive supplies the Rust shape, so no flattened name is ever
+spelled by hand.</p>
+
+<div class="example-wrap ignore"><a href="#" class="tooltip" title="This example is not tested">ⓘ</a><pre class="rust rust-example-rendered"><code><span class="attr">#[derive(Debug, Clone, toasty::Embed, argentum_core::EmbeddedForm)]
+</span><span class="kw">pub enum </span>Publication {
+    <span class="attr">#[column(variant = <span class="number">1</span>)]
+    </span>Scheduled {
+        <span class="attr">#[shared(timestamp)]
+        #[form(label = <span class="string">"Publication timestamp"</span>)]
+        </span>scheduled_at: String,
+        scheduled_for: String,
+    },
+    <span class="attr">#[column(variant = <span class="number">2</span>)]
+    </span>Published {
+        <span class="attr">#[shared(timestamp)]
+        </span>published_at: String,
+        canonical_url: String,
+    },
+}
+
+<span class="comment">// form declaration — no field bindings written by hand
+</span>Section::new(<span class="string">"Publication"</span>).schema(Publication::form(cx, Post::fields().publication()))
+
+<span class="comment">// hydration and the record fn
+</span>write_embedded(cx, Post::fields().publication(), <span class="kw-2">&amp;</span>record.publication, <span class="kw-2">&amp;mut </span>values);
+<span class="kw">let </span>publication = read_embedded(cx, Post::fields().publication(), <span class="kw-2">&amp;</span>values);</code></pre></div><h2 id="how-a-field-is-classified"><a class="doc-anchor" href="#how-a-field-is-classified">§</a>How a field is classified</h2>
+<p>A field whose type is a Rust primitive this panel can spell — <code>String</code>, the
+integer family, <code>bool</code>, <code>f32</code>/<code>f64</code>, <code>Uuid</code>, <code>jiff::Timestamp</code> — is a
+<strong>leaf</strong>: one column, read and written as text (typed leaves parse through
+<code>TypedValue</code>, GH #192). Any other type is another <strong>embedded value</strong>,
+delegated to that type’s own <code>EmbeddedForm</code> impl, so nesting works by
+deriving on each type. A relation, an <code>Option&lt;T&gt;</code>, a <code>Vec&lt;T&gt;</code>, and a
+<code>#[document]</code> inside a value do not compile, or are refused at the schema
+(see the <code>argentum-core</code> module docs).</p>
+<h2 id="which-variant-an-enum-reads"><a class="doc-anchor" href="#which-variant-an-enum-reads">§</a>Which variant an enum reads</h2>
+<p>The discriminant column decides, in this order:</p>
+<ol>
+<li>a discriminant the submission <strong>names</strong> — always wins, and one the enum
+does not declare is refused loudly rather than read as some other
+variant;</li>
+<li>otherwise (the create form, a hand-written POST) the first variant, in
+declaration order, with a <strong>payload of its own</strong> submitted — a
+<code>#[shared(..)]</code> column belongs to several variants and so never selects
+one;</li>
+<li>otherwise the first variant.</li>
+</ol>
+<h2 id="per-field-overrides"><a class="doc-anchor" href="#per-field-overrides">§</a>Per-field overrides</h2>
+<ul>
+<li><code>#[form(label = "Canonical URL")]</code> — the control’s label (default: the
+field name, humanized).</li>
+<li><code>#[form(textarea)]</code> / <code>#[form(textarea, rows = 3)]</code> — a multi-line control
+for a <code>String</code> leaf, and its height.</li>
+</ul>
+<p>Anything else in <code>#[form(..)]</code> is a compile error.</p>
+<h2 id="not-covered"><a class="doc-anchor" href="#not-covered">§</a>Not covered</h2>
+<p>A <code>#[document]</code> <strong>inside</strong> an embedded value (its inner fields share one
+column, so no per-field binding exists), a relation inside one, an embedded
+enum nested <strong>inside an enum variant</strong> (value resolution starts at a model
+root), and a tuple or unit struct.</p>
+</div></details></section></div></main></body></html>

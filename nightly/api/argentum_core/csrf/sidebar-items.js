@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["COOKIE_NAME","FIELD_NAME"],"fn":["current_token","ensure_token","field","verify"]};

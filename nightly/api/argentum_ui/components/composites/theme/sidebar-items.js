@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"struct":["ThemeInitScriptProps","ThemeInitScriptPropsBuilder","theme_init_script"]};

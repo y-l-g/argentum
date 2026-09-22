@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["LOGIN_FIELD","NEXT_FIELD","PASSWORD_FIELD","SESSION_LIFETIME"],"enum":["Auth"],"fn":["current_user","enforced","hash_password","require_authenticated","revoke_sessions_for_user"],"struct":["AdminUser","AuthSession","CurrentUser","PasswordAuth"],"trait":["Authenticator"],"type":["AuthFuture"]};

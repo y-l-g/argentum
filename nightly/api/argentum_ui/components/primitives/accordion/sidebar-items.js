@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"struct":["AccordionContentProps","AccordionContentPropsBuilder","AccordionItemProps","AccordionItemPropsBuilder","AccordionProps","AccordionPropsBuilder","AccordionTriggerProps","AccordionTriggerPropsBuilder","accordion","accordion_content","accordion_item","accordion_trigger"]};
