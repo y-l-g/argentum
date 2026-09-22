@@ -2,9 +2,10 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use argentum_core::{
-    Brand, DateFilter, FileUpload, Grid, Group, Panel, RelationColumn, RelationColumns, Repeater,
-    Resource, Schema, Section, Select, SelectFilter, Table, Tabs, TernaryFilter, TextColumn,
-    TextInput, Textarea, Uploader, VariantFilter, Wizard, render_relation, tenant_id,
+    Brand, DateFilter, FileUpload, Grid, Group, IncludeNeeds, Panel, RelationColumn,
+    RelationColumns, Repeater, Resource, Schema, Section, Select, SelectFilter, Table, Tabs,
+    TernaryFilter, TextColumn, TextInput, Textarea, Uploader, VariantFilter, Wizard,
+    render_relation, tenant_id,
 };
 use toasty::Db;
 use topcoat::{
@@ -439,6 +440,33 @@ impl Resource for AuthorResource {
 
 pub struct PostResource;
 
+impl PostResource {
+    /// The posts base query, tenancy-scoped, with the two relations the table
+    /// can render loaded only when `needs` asks (GH #177).
+    ///
+    /// `query` is the list/detail half and loads both — the Comments column
+    /// renders the count and the detail page reads `view_relations` — while
+    /// `export_query` gets the includes the exported table's columns declared.
+    /// Both go through this one function so the tenancy filter cannot be lost
+    /// in one of them.
+    fn base(cx: &Cx, needs: &IncludeNeeds) -> toasty::stmt::Query<toasty::stmt::List<Post>> {
+        let mut q = toasty::stmt::Query::<toasty::stmt::List<Post>>::all();
+        if let Some(tid) = tenant_id(cx) {
+            q = q.filter(Post::fields().tenant_id().eq(tid));
+        }
+        if needs.wants("author") {
+            let inc_author: toasty::stmt::Include<Post, Author> = Post::fields().author().into();
+            q = q.include(inc_author);
+        }
+        if needs.wants("comments") {
+            let inc_comments: toasty::stmt::Include<Post, toasty::stmt::List<Comment>> =
+                Post::fields().comments().into();
+            q = q.include(inc_comments);
+        }
+        q
+    }
+}
+
 impl Resource for PostResource {
     type Model = Post;
 
@@ -447,15 +475,17 @@ impl Resource for PostResource {
     }
 
     fn query(cx: &Cx) -> toasty::stmt::Query<toasty::stmt::List<Post>> {
-        // Tenancy + explicit includes (one round-trip, no N+1).
-        let mut q = toasty::stmt::Query::<toasty::stmt::List<Post>>::all();
-        if let Some(tid) = tenant_id(cx) {
-            q = q.filter(Post::fields().tenant_id().eq(tid));
-        }
-        let inc_author: toasty::stmt::Include<Post, Author> = Post::fields().author().into();
-        let inc_comments: toasty::stmt::Include<Post, toasty::stmt::List<Comment>> =
-            Post::fields().comments().into();
-        q.include(inc_author).include(inc_comments)
+        Self::base(cx, &IncludeNeeds::from(["author", "comments"]))
+    }
+
+    /// The export asks for the includes the exported columns declared
+    /// (GH #177), so this table's two relation columns decide what the CSV
+    /// query loads.
+    fn export_query(
+        cx: &Cx,
+        needs: &IncludeNeeds,
+    ) -> toasty::stmt::Query<toasty::stmt::List<Post>> {
+        Self::base(cx, needs)
     }
 
     /// One post, read-only (GH #187). Each entry binds the same storage name
@@ -577,8 +607,9 @@ impl Resource for PostResource {
                 }),
                 TextColumn::computed("Author", |p: &Post| {
                     // Loud on missing includes (GH #101): a silent "-" reads
-                    // as data. The list/export loaders always `include`
-                    // author, so this only fires if the query changes.
+                    // as data. The list/export loaders include author when
+                    // this column declares it (GH #177), so this only fires
+                    // if the declaration and the query disagree.
                     debug_assert!(
                         !p.author.is_unloaded(),
                         "Author column needs Post::query to include author"
@@ -588,7 +619,8 @@ impl Resource for PostResource {
                     } else {
                         p.author.get().name.clone()
                     }
-                }),
+                })
+                .needs(["author"]),
                 TextColumn::computed("Comments", |p: &Post| {
                     debug_assert!(
                         !p.comments.is_unloaded(),
@@ -599,7 +631,8 @@ impl Resource for PostResource {
                     } else {
                         p.comments.get().len().to_string()
                     }
-                }),
+                })
+                .needs(["comments"]),
             ))
             .filters((
                 SelectFilter::r#for(
@@ -1185,6 +1218,30 @@ async fn ensure_post_in_tenant(
     Ok(())
 }
 
+impl CommentResource {
+    /// The comments base query, scoped through the parent post's tenant
+    /// (GH #169), with the post loaded only when `needs` asks.
+    ///
+    /// The list/detail half always loads it — the Post column renders the
+    /// title and the edit form's relationship `Select` reads it — while the
+    /// export passes what its columns declared (GH #177).
+    fn base(cx: &Cx, needs: &IncludeNeeds) -> toasty::stmt::Query<toasty::stmt::List<Comment>> {
+        // Inherit-through-the-relation (GH #169): scope through the parent
+        // post's tenant, mirroring the Author/Post `tenant_id(cx)` filter
+        // style. Toasty rewrites the relation-path comparison into a
+        // foreign-key subquery.
+        let mut q = toasty::stmt::Query::<toasty::stmt::List<Comment>>::all();
+        if let Some(tid) = tenant_id(cx) {
+            q = q.filter(Comment::fields().post().tenant_id().eq(tid));
+        }
+        if needs.wants("post") {
+            let inc_post: toasty::stmt::Include<Comment, Post> = Comment::fields().post().into();
+            q = q.include(inc_post);
+        }
+        q
+    }
+}
+
 impl Resource for CommentResource {
     type Model = Comment;
 
@@ -1213,16 +1270,16 @@ impl Resource for CommentResource {
     }
 
     fn query(cx: &Cx) -> toasty::stmt::Query<toasty::stmt::List<Comment>> {
-        // Inherit-through-the-relation (GH #169): scope through the parent
-        // post's tenant, mirroring the Author/Post `tenant_id(cx)` filter
-        // style. Toasty rewrites the relation-path comparison into a
-        // foreign-key subquery.
-        let mut q = toasty::stmt::Query::<toasty::stmt::List<Comment>>::all();
-        if let Some(tid) = tenant_id(cx) {
-            q = q.filter(Comment::fields().post().tenant_id().eq(tid));
-        }
-        let inc_post: toasty::stmt::Include<Comment, Post> = Comment::fields().post().into();
-        q.include(inc_post)
+        Self::base(cx, &IncludeNeeds::from(["post"]))
+    }
+
+    /// The export asks for the includes the exported columns declared
+    /// (GH #177) — here the Post column's `post`.
+    fn export_query(
+        cx: &Cx,
+        needs: &IncludeNeeds,
+    ) -> toasty::stmt::Query<toasty::stmt::List<Comment>> {
+        Self::base(cx, needs)
     }
 
     fn table(cx: &Cx) -> Table<Comment> {
@@ -1243,7 +1300,8 @@ impl Resource for CommentResource {
                     } else {
                         c.post.get().title.clone()
                     }
-                }),
+                })
+                .needs(["post"]),
             ))
             .paginate(25)
             .live_search(true)

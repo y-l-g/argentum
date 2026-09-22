@@ -2,11 +2,96 @@
 //!
 //! Moved verbatim from `resource.rs` (GH #133): no behavior change.
 
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use toasty::stmt::{Expr, OrderByExpr};
 
 use crate::schema::{FieldLens, lens_field, lens_label};
+
+/// The relations a query must `include`, named in the resource's vocabulary
+/// (GH #177).
+///
+/// A column's projection closure reads relations off the row (`|p| p.author
+/// .get().name.clone()`), and Toasty has no instance→field reflection
+/// (upstream #119), so the framework cannot see *which* relation a closure
+/// touches. Each column therefore **declares** the includes its closure reads
+/// ([`TextColumn::needs`]), a [`Table`](super::Table) gathers the declarations
+/// of the columns it renders into one `IncludeNeeds`, and
+/// [`Resource::export_query`](super::Resource::export_query) turns that set
+/// into a narrowed query.
+///
+/// The names are an opaque vocabulary shared between the two halves — the
+/// declaring column and the resource that maps them onto `include(..)` calls —
+/// because includes are typed (`Include<Post, Author>`) and a type-erased
+/// column cannot name one. Nothing else reads them: an unknown name is not an
+/// error, it just never matches a branch.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct IncludeNeeds {
+    names: BTreeSet<&'static str>,
+}
+
+impl IncludeNeeds {
+    /// An empty set: a query that includes nothing.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Whether `name` was declared by a rendered column.
+    ///
+    /// This is the one question a resource's
+    /// [`export_query`](super::Resource::export_query) asks, once per
+    /// `include(..)` it could add.
+    pub fn wants(&self, name: &str) -> bool {
+        self.names.contains(name)
+    }
+
+    /// Add `name` — for a resource that must also load a relation its policy
+    /// path reads (`can_view`), which no column declares.
+    pub fn insert(&mut self, name: &'static str) {
+        self.names.insert(name);
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.names.is_empty()
+    }
+
+    pub fn len(&self) -> usize {
+        self.names.len()
+    }
+
+    /// The names, in sorted order (deterministic, so a test or a log line
+    /// reads the same on every run).
+    pub fn iter(&self) -> impl Iterator<Item = &'static str> + '_ {
+        self.names.iter().copied()
+    }
+}
+
+impl FromIterator<&'static str> for IncludeNeeds {
+    fn from_iter<T: IntoIterator<Item = &'static str>>(iter: T) -> Self {
+        Self {
+            names: iter.into_iter().collect(),
+        }
+    }
+}
+
+/// `IncludeNeeds::from(["author", "comments"])` — the whole set up front, which
+/// is what a resource's `query` needs (its `export_query` gets the set handed
+/// to it instead).
+impl<const N: usize> From<[&'static str; N]> for IncludeNeeds {
+    fn from(names: [&'static str; N]) -> Self {
+        names.into_iter().collect()
+    }
+}
+
+impl<'a> IntoIterator for &'a IncludeNeeds {
+    type Item = &'a &'static str;
+    type IntoIter = std::collections::btree_set::Iter<'a, &'static str>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.names.iter()
+    }
+}
 
 /// Text column bound to a typed lens **and** a typed projection.
 ///
@@ -20,6 +105,11 @@ use crate::schema::{FieldLens, lens_field, lens_label};
 /// only way to read a field generically (upstream gap #119: instance →
 /// field-value extraction). A typo in the closure body fails at compile
 /// time — there is no string dispatch and no panic at render.
+///
+/// A projection that reads a **relation** declares it with [`Self::needs`],
+/// because the closure is opaque to the framework and the export builds its
+/// query from those declarations (GH #177). The `(unloaded)` guard in the
+/// closure is what catches a missed declaration, in test builds, at render.
 #[derive(Clone)]
 pub struct TextColumn<M> {
     /// The query-side lens; `None` for [`Self::computed`] columns, which
@@ -30,6 +120,9 @@ pub struct TextColumn<M> {
     project: Arc<dyn Fn(&M) -> String + Send + Sync>,
     searchable: bool,
     sortable: bool,
+    /// Relations this column's projection reads, in the resource's vocabulary
+    /// (GH #177).
+    needs: Vec<&'static str>,
 }
 
 /// The escape character the search pattern declares to `LIKE` (GH #116):
@@ -78,6 +171,7 @@ where
             project: Arc::new(project),
             searchable: false,
             sortable: false,
+            needs: Vec::new(),
         }
     }
 
@@ -101,7 +195,39 @@ where
             project: Arc::new(project),
             searchable: false,
             sortable: false,
+            needs: Vec::new(),
         }
+    }
+
+    /// Declare the relations this column's projection reads (GH #177), under
+    /// the names the resource's
+    /// [`export_query`](super::Resource::export_query) matches on:
+    /// `.needs(["author"])` for `|p| p.author.get().name.clone()`.
+    ///
+    /// The declaration exists because the closure is opaque: the framework
+    /// cannot see which relations a projection touches, so the export cannot
+    /// know which `include(..)` calls are still needed. Declaring them lets
+    /// the export ask its resource for a query narrowed to what the rendered
+    /// columns actually read — an include the resource carries for some other
+    /// page no longer rides along.
+    ///
+    /// **Declare every relation the closure reads.** A missing name is not a
+    /// compile error: the export's query arrives without that relation, and
+    /// the closure's `is_unloaded` guard — the unloaded-relation contract of
+    /// ADR-0011, `"(unloaded)"` plus a `debug_assert!` — is what turns it
+    /// into a loud failure instead of a silent `"-"`. Declaring a name
+    /// nothing reads is harmless: the resource simply includes a relation the
+    /// export then never touches.
+    ///
+    /// Repeat calls accumulate: `.needs(["author"]).needs(["comments"])`.
+    pub fn needs(mut self, names: impl IntoIterator<Item = &'static str>) -> Self {
+        self.needs.extend(names);
+        self
+    }
+
+    /// The relations this column declared, in declaration order.
+    pub fn include_names(&self) -> &[&'static str] {
+        &self.needs
     }
 
     pub fn searchable(mut self) -> Self {
@@ -188,6 +314,7 @@ impl<M> std::fmt::Debug for TextColumn<M> {
             .field("label", &self.label)
             .field("searchable", &self.searchable)
             .field("sortable", &self.sortable)
+            .field("needs", &self.needs)
             .finish_non_exhaustive()
     }
 }
@@ -218,6 +345,13 @@ where
     pub fn name(&self) -> &str {
         match self {
             Column::Text(c) => c.name(),
+        }
+    }
+
+    /// The relations this column's projection declared (GH #177).
+    pub fn include_names(&self) -> &[&'static str] {
+        match self {
+            Column::Text(c) => c.include_names(),
         }
     }
 
@@ -418,5 +552,44 @@ mod tests {
         assert!(!col.is_searchable() && !col.is_sortable());
         assert!(col.to_search_expr("x").is_none());
         assert!(col.to_order_by(false).is_none());
+    }
+
+    /// GH #177: a column that reads no relation declares nothing, and repeat
+    /// `.needs(..)` calls accumulate in declaration order.
+    #[test]
+    fn text_column_include_declarations_accumulate() {
+        let plain = TextColumn::r#for(User::fields().name(), |u| u.name.clone());
+        assert!(plain.include_names().is_empty());
+
+        let declared = TextColumn::computed("Audit", |u: &User| u.name.clone())
+            .needs(["author"])
+            .needs(["comments", "post"]);
+        assert_eq!(declared.include_names(), ["author", "comments", "post"]);
+    }
+
+    /// GH #177: the gathered set is what a resource's `export_query` asks, so
+    /// membership, insertion, and iteration are the whole contract.
+    #[test]
+    fn include_needs_gathers_declarations() {
+        let mut needs: IncludeNeeds = ["author", "comments"].into_iter().collect();
+        assert!(needs.wants("author") && needs.wants("comments"));
+        assert!(!needs.wants("post"));
+
+        needs.insert("post");
+        assert!(needs.wants("post"));
+        assert_eq!(needs.len(), 3);
+
+        // Sorted iteration: deterministic for tests and logs.
+        assert_eq!(
+            needs.iter().collect::<Vec<_>>(),
+            ["author", "comments", "post"]
+        );
+        assert_eq!(
+            (&needs).into_iter().copied().collect::<Vec<_>>(),
+            ["author", "comments", "post"]
+        );
+
+        assert!(IncludeNeeds::new().is_empty());
+        assert!(!needs.is_empty());
     }
 }

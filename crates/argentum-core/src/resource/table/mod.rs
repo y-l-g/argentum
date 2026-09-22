@@ -177,6 +177,27 @@ impl<M> Table<M> {
         self
     }
 
+    /// The relations this table's columns declared their projections read,
+    /// merged into one set (GH #177).
+    ///
+    /// The export hands this to
+    /// [`Resource::export_query`](super::Resource::export_query), which is
+    /// the only thing that can turn a name into a typed `include(..)`. Every
+    /// column is rendered — the CSV writes a cell per column — so the set is
+    /// the union over all of them; a table cannot narrow its export by
+    /// declaring fewer needs than its columns read, because the reading
+    /// column is the one that renders.
+    pub fn include_needs(&self) -> super::IncludeNeeds
+    where
+        M: toasty::schema::Model,
+    {
+        self.columns
+            .iter()
+            .flat_map(|c| c.include_names())
+            .copied()
+            .collect()
+    }
+
     /// Filter predicate for the current `TableState` — `AND` of active filter exprs.
     pub fn filter_expr(&self, state: &TableState) -> Option<Expr<bool>>
     where
@@ -906,6 +927,29 @@ mod tests {
         let table_none = Table::<User>::r#for(&cx)
             .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()));
         assert!(table_none.search_expr("Ada").is_none());
+    }
+
+    /// GH #177: the export asks its table which relations the rendered
+    /// columns declared; the union across columns is that answer, and a table
+    /// whose columns read no relation declares nothing (so the resource's
+    /// `export_query` can drop every include).
+    #[test]
+    fn table_include_needs_unions_the_columns_declarations() {
+        let cx = CxTestBuilder::new().build();
+        let plain = Table::<User>::r#for(&cx)
+            .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()));
+        assert!(plain.include_needs().is_empty());
+
+        let declared = Table::<Task>::r#for(&cx).columns((
+            TextColumn::r#for(Task::fields().title(), |t| t.title.clone()),
+            TextColumn::computed("Owner", |t: &Task| t.title.clone()).needs(["author"]),
+            TextColumn::computed("Audit", |t: &Task| t.title.clone()).needs(["comments", "author"]),
+        ));
+        let needs = declared.include_needs();
+        assert!(needs.wants("author") && needs.wants("comments"));
+        assert!(!needs.wants("tenant"));
+        // Deduplicated: `author` is declared twice, counted once.
+        assert_eq!(needs.iter().collect::<Vec<_>>(), ["author", "comments"]);
     }
 
     #[test]

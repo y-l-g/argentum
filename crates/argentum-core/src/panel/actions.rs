@@ -478,17 +478,18 @@ pub(crate) fn resource_export<R: Resource>(cx: &Cx, _body: Body) -> RouteFuture<
     })
 }
 
-/// The export's filtered + ordered base query (GH #172): `R::query` wholesale
-/// (tenancy seam, ADR-0002 — narrowing to needed includes is tracked
-/// separately as GH #177) plus the table's search/filters and the export
-/// ordering (PK-pinned when no sortable column is declared, so the chunked
-/// cursor walk is deterministic).
+/// The export's filtered + ordered base query (GH #172): the resource's
+/// [`export_query`](crate::resource::Resource::export_query) — the tenancy seam
+/// (ADR-0002) narrowed to the relations the rendered columns declared
+/// (GH #177) — plus the table's search/filters and the export ordering
+/// (PK-pinned when no sortable column is declared, so the chunked cursor walk
+/// is deterministic).
 fn export_base_query<R: Resource>(
     cx: &Cx,
     table: &Table<R::Model>,
     state: &TableState,
 ) -> toasty::stmt::Query<toasty::stmt::List<R::Model>> {
-    let mut query = R::query(cx);
+    let mut query = R::export_query(cx, &table.include_needs());
     if let Some(term) = &state.search
         && let Some(expr) = table.search_expr(term)
     {
@@ -1267,6 +1268,163 @@ mod tests {
         assert!(
             !csv.contains("denied"),
             "export must not exceed row visibility (GH #86), got {csv}"
+        );
+    }
+
+    /// GH #177: the export's base query is
+    /// [`Resource::export_query`](crate::resource::Resource::export_query),
+    /// handed the includes the rendered columns declared — not everything
+    /// [`Resource::query`](crate::resource::Resource::query) loads.
+    ///
+    /// Two resources over one model differ only in the declaration: both
+    /// render a column that reads `parent`, both implement the same narrowed
+    /// `export_query`, and only one column declares `.needs(["parent"])`. The
+    /// cell therefore reports which query the export actually ran — the
+    /// declared include loads the parent, the silent one does not.
+    #[tokio::test]
+    async fn export_query_narrows_to_the_declared_column_includes() {
+        use crate::resource::{IncludeNeeds, Resource};
+        use http_body_util::BodyExt;
+        use std::collections::HashMap;
+        use toasty::stmt::{Include, List, Query};
+
+        #[derive(Debug, toasty::Model, Clone)]
+        struct Parent {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            name: String,
+        }
+
+        #[derive(Debug, toasty::Model, Clone)]
+        struct Child {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            label: String,
+            #[index]
+            parent_id: uuid::Uuid,
+            #[belongs_to(key = parent_id, references = id)]
+            parent: toasty::Deferred<Parent>,
+        }
+
+        fn with_parent() -> Query<List<Child>> {
+            let inc: Include<Child, Parent> = Child::fields().parent().into();
+            Query::<List<Child>>::all().include(inc)
+        }
+
+        /// The narrowed base query the export asks for: the parent comes along
+        /// only when a rendered column declared it.
+        fn export_query(_cx: &Cx, needs: &IncludeNeeds) -> Query<List<Child>> {
+            if needs.wants("parent") {
+                with_parent()
+            } else {
+                Query::<List<Child>>::all()
+            }
+        }
+
+        struct ExportResource<const DECLARES: bool>;
+        impl<const DECLARES: bool> Resource for ExportResource<DECLARES> {
+            type Model = Child;
+            fn slug() -> String {
+                if DECLARES { "declared" } else { "bare" }.to_string()
+            }
+            fn can_view_any(_cx: &Cx) -> bool {
+                true
+            }
+            fn can_view(_cx: &Cx, _record: &Child) -> bool {
+                true
+            }
+            // The list/detail base query always loads the parent; the export
+            // narrows to the declaration.
+            fn query(_cx: &Cx) -> Query<List<Child>> {
+                with_parent()
+            }
+            fn export_query(cx: &Cx, needs: &IncludeNeeds) -> Query<List<Child>> {
+                export_query(cx, needs)
+            }
+            fn table(cx: &Cx) -> crate::resource::Table<Child> {
+                let column = crate::resource::TextColumn::computed("Parent", |c: &Child| {
+                    if c.parent.is_unloaded() {
+                        "(unloaded)".to_string()
+                    } else {
+                        c.parent.get().name.clone()
+                    }
+                });
+                let column = if DECLARES {
+                    column.needs(["parent"])
+                } else {
+                    column
+                };
+                crate::resource::Table::r#for(cx)
+                    .id(|c: &Child| c.id.to_string())
+                    .pk(|c: &Child| c.id.to_string())
+                    .columns(column)
+            }
+            fn hydrate_form_values(_record: &Child) -> HashMap<String, String> {
+                HashMap::new()
+            }
+        }
+
+        let mut db = Db::builder()
+            .models(toasty::models!(Parent, Child))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        let parent_id = uuid::Uuid::new_v4();
+        toasty::create!(Parent {
+            id: parent_id,
+            name: "Ada".to_string(),
+        })
+        .exec(&mut db)
+        .await
+        .unwrap();
+        toasty::create!(Child {
+            label: "row".to_string(),
+            parent_id,
+        })
+        .exec(&mut db)
+        .await
+        .unwrap();
+
+        let router = Panel::new("admin")
+            .app_context(db)
+            .resource::<ExportResource<true>>()
+            .resource::<ExportResource<false>>()
+            .auth(crate::Auth::disabled())
+            .build()
+            .expect("panel builds");
+
+        let csv = |body: bytes::Bytes| String::from_utf8_lossy(&body).into_owned();
+        let resp = router
+            .handle(
+                http::Request::builder()
+                    .uri("/admin/declared/export")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await;
+        assert!(resp.status().is_success());
+        let declared = csv(resp.into_body().collect().await.unwrap().to_bytes());
+        assert!(
+            declared.contains("Ada"),
+            "a declared include must reach the export query, got {declared}"
+        );
+
+        let resp = router
+            .handle(
+                http::Request::builder()
+                    .uri("/admin/bare/export")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await;
+        assert!(resp.status().is_success());
+        let bare = csv(resp.into_body().collect().await.unwrap().to_bytes());
+        assert!(
+            bare.contains("(unloaded)"),
+            "an include no column declared must not be loaded, got {bare}"
         );
     }
 

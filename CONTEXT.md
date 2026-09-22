@@ -29,7 +29,7 @@ A server-side `AuthSession` row keyed by the SHA-256 hash of a client token carr
 _Avoid_: Token (the client half), SessionStore, Login, Cookie
 
 ### Resource
-A type that maps one Toasty Model to its admin UI. Defines the base query, the table, the form, the view (GH #187), navigation entry, and policy. One Model → one Resource; its routes (list/create/view/edit/delete) come from the Panel registration, not a `pages()` declaration. A resource that declares no `view` has no detail page: `viewed()` is derived from the schema, not declared beside it, so the route's answer and the row's `View` link cannot disagree.
+A type that maps one Toasty Model to its admin UI. Defines the base query — and the export's narrowed half of it, `export_query`, which defaults to the base query unchanged (GH #177) — the table, the form, the view (GH #187), navigation entry, and policy. One Model → one Resource; its routes (list/create/view/edit/delete) come from the Panel registration, not a `pages()` declaration. A resource that declares no `view` has no detail page: `viewed()` is derived from the schema, not declared beside it, so the route's answer and the row's `View` link cannot disagree.
 
 _Avoid_: Model, Entity, Collection, AdminModel, CRUD
 
@@ -46,7 +46,7 @@ A `live_search(true)` table hands its chrome to the page's `TableSignals`: the s
 _Avoid_: Grid, Listing, DataTable
 
 ### Column
-A typed projection of a Model field (or a computed value) displayed in a Table row, rendered through a lens-bound closure where typos fail at compile time. `searchable`/`sortable` map to Toasty predicates and order_by; computed columns render values but declare none. Badge, Number and other variants remain spec-level.
+A typed projection of a Model field (or a computed value) displayed in a Table row, rendered through a lens-bound closure where typos fail at compile time. `searchable`/`sortable` map to Toasty predicates and order_by; computed columns render values but declare none. A column whose projection reads a relation declares it with `needs(..)`, and the CSV export's narrowed query is built from those declarations (GH #177, ADR-0018). Badge, Number and other variants remain spec-level.
 
 _Avoid_: Field (in table context), Cell, Attribute
 
