@@ -10,6 +10,8 @@ use topcoat::Result;
 use topcoat::context::Cx;
 use topcoat::runtime::Signal;
 
+use crate::query_term::clamp_query_term;
+
 /// The live table's browser state (GH #151).
 ///
 /// The page owns these signals and hands their handles to the `table_search`
@@ -182,7 +184,8 @@ pub struct Sort {
 /// real page needs two tables.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TableState {
-    /// `?q=` — trimmed and clamped to [`MAX_QUERY_TERM`] chars; `None` when
+    /// `?q=` — trimmed and clamped to
+    /// [`MAX_QUERY_TERM`](crate::query_term::MAX_QUERY_TERM) chars; `None` when
     /// absent or blank.
     pub search: Option<String>,
     /// `?sort=` + `?dir=` — `None` when absent or blank.
@@ -213,23 +216,12 @@ pub struct TableState {
     pub open: Option<bool>,
 }
 
-/// Longest search term accepted (`?q=` and the shard's `q`, GH #148): bounded
-/// echoed state. Applied by [`TableState::from_parts`], so the GET path, the
-/// shard, and the public [`TableState::from_live_args`] all clamp alike
-/// (GH #206).
-pub(crate) const MAX_QUERY_TERM: usize = 128;
-
-/// Clamp a search term to [`MAX_QUERY_TERM`] chars (chars, not bytes, so a
-/// multibyte term truncates on boundaries).
-pub(crate) fn clamp_query_term(term: &str) -> String {
-    term.trim().chars().take(MAX_QUERY_TERM).collect()
-}
-
 /// Longest `?filters=` transport parsed (GH #205): the live shard hands this
 /// the client-owned `filters` signal, and the router buffers shard bodies up
 /// to megabytes — so the same bounded-echoed-state posture as
-/// [`MAX_QUERY_TERM`] has to hold here, where the transport is parsed, rather
-/// than at the shard that happens to read it.
+/// [`MAX_QUERY_TERM`](crate::query_term::MAX_QUERY_TERM) has to hold here,
+/// where the transport is parsed, rather than at the shard that happens to read
+/// it.
 pub(crate) const MAX_FILTERS_PARAM: usize = 1024;
 
 /// Most segments one `?filters=` transport may carry (GH #205): the byte cap
@@ -270,7 +262,8 @@ impl TableState {
     /// [`Self::from_live_args`] (GH #133, GH #206): every query-state parse
     /// funnels through one contract, so the public live-args entry point — the
     /// documented seam for a page owning its own signals — cannot be the
-    /// looser one. `q` is trimmed and clamped to [`MAX_QUERY_TERM`], `dir` is
+    /// looser one. `q` is trimmed and clamped to
+    /// [`MAX_QUERY_TERM`](crate::query_term::MAX_QUERY_TERM), `dir` is
     /// trimmed before comparing, and the `filters` transport is bounded at
     /// [`MAX_FILTERS_PARAM`]/[`MAX_FILTER_SEGMENTS`].
     ///
@@ -826,6 +819,7 @@ pub(crate) fn filters_param_encodes() -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::query_term::MAX_QUERY_TERM;
     use std::collections::HashMap;
     use topcoat::context::{Cx, CxTestBuilder};
 

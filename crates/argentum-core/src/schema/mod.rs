@@ -29,8 +29,8 @@ pub use layouts::{Grid, Group, Repeater, Section, Tabs};
 pub use lenses::FieldLens;
 pub(crate) use lenses::{capitalize, lens_field, lens_field_unique, lens_label};
 pub(crate) use pk::{pk_eq_expr, pk_in_expr, pk_is_composite};
-pub use relationship::MAX_RELATIONSHIP_OPTIONS;
 pub(crate) use relationship::OptionLoadError;
+pub use relationship::{MAX_RELATIONSHIP_OPTIONS, OptionSource};
 pub use tree::IntoSchema;
 pub(crate) use tree::{
     Mode, Node, RenderSource, for_each_field, validate_leaf, walk_repeater_absence,

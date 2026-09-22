@@ -1,10 +1,132 @@
 //! Relationship option loading — bounded, memoized, policy-checked.
 //!
-//! Every relationship `Select` over one resource shares a single bounded
+//! Every relationship `Select` over one source shares a single bounded
 //! load per `(request, tenant)`; policy (`can_view_any`/`can_view` plus
 //! the tenant gate) fails the load closed instead of leaking labels.
+//!
+//! The loaders are generic over [`OptionSource`] — the source surface they
+//! read — rather than over `Resource`, so the dependency runs one way:
+//! `resource` depends on `schema`, and the blanket impl in
+//! [`crate::resource`] makes every `Resource` an option source (GH #208).
 
+use toasty::stmt::{Expr, List, OrderByExpr, Query};
 use topcoat::{Result, context::Cx};
+
+/// Everything the relationship option loaders read from the thing they load
+/// options from (GH #208).
+///
+/// The loaders ask seven things: the **tenant-scoped** seed query, the two
+/// policy predicates, the tenant declaration, a name for the log fields, and
+/// the related source's search and default-ordering expressions. It is a
+/// *source* surface rather than a second resource trait: for a `Resource`, five
+/// of the seven are one-for-one forwards (see the blanket impl in
+/// [`crate::resource`]), and [`requires_tenant`](Self::requires_tenant) and
+/// [`slug`](Self::slug) are read only for the tenant gate and the log fields.
+/// What it buys is that `schema` names no part of `Resource` — the dependency
+/// runs one way — and that a test fixture declares a model plus the one
+/// predicate it exercises instead of a whole resource with a table.
+///
+/// [`scoped_query`](Self::scoped_query) is **required**: a source states its
+/// own scope, so a gated source cannot end up unscoped by omission. The rest
+/// have defaults — none of them fail-closed in the abstract, each the answer
+/// that keeps a source declaring nothing honest:
+///
+/// - [`can_view_any`](Self::can_view_any) and [`can_view`](Self::can_view)
+///   deny — the default-deny policy `Resource` also declares.
+/// - [`search_expr`](Self::search_expr) and [`order_by`](Self::order_by)
+///   answer `None`: no narrowing (the D1a bounded-head fallback) and no
+///   ordering.
+/// - [`requires_tenant`](Self::requires_tenant) is `false` — no tenant gate,
+///   the default-open declaration `Resource` also makes.
+/// - [`slug`](Self::slug) falls back to the type name, which only reaches the
+///   log fields.
+///
+/// # Why it is public
+///
+/// Because [`Select::relationship`](crate::schema::Select::relationship)'s
+/// bound names it: a `pub(crate)` trait there is a `private_bounds` warning,
+/// and this workspace denies warnings. It is deliberately **not** re-exported
+/// at the crate root beside `Select`/`Schema`/`Resource`: its method names are
+/// `Resource`'s, so an app that glob-imports the crate root would get E0034 on
+/// every `MyResource::slug()`-style path. It is reachable as
+/// `schema::OptionSource`.
+///
+/// # Implementors
+///
+/// Every [`Resource`](crate::resource::Resource) is one, through the blanket
+/// impl in [`crate::resource`]: `scoped_query` forwards to the framework's
+/// tenant-scoped query, so a real resource keeps the tenant gate and the
+/// derived tenant filter on every option load (GH #223). Implement this
+/// directly only for an option source that is not a resource — and state the
+/// scope, because nothing else will.
+pub trait OptionSource: Sized + Send + Sync + 'static {
+    /// The model whose rows become options.
+    type Model: toasty::schema::Model + Send + Sync + 'static;
+
+    /// The **tenant-scoped** seed query every option load starts from.
+    ///
+    /// Required, and stated by every implementor, so a source cannot be
+    /// unscoped by omission. A source that scopes nothing says so in the body —
+    /// `Ok(Query::all())`, what a resource's default
+    /// [`query`](crate::resource::Resource::query) returns — and a source whose
+    /// rows are tenant-owned ANDs the tenant predicate here, which is what
+    /// [`Self::requires_tenant`] declares. A `Resource` never writes this by
+    /// hand: the blanket impl forwards to the framework's `scoped_query`.
+    ///
+    /// An `Err` is a **permanent** misdeclaration — a source that declared a
+    /// tenant gate the framework cannot satisfy — reported as
+    /// [`OptionLoadError::Misdeclared`] rather than a retryable failure.
+    fn scoped_query(cx: &Cx) -> Result<Query<List<Self::Model>>>;
+
+    /// Whether the current user may see the source's records at all: `false`
+    /// fails the whole option load closed (GH #108), never an empty set that
+    /// validates as "invalid".
+    fn can_view_any(_cx: &Cx) -> bool {
+        false
+    }
+
+    /// Whether the current user may view one loaded row: `false` keeps it out
+    /// of the options — and out of validation — before its label renders
+    /// (GH #108).
+    fn can_view(_cx: &Cx, _record: &Self::Model) -> bool {
+        false
+    }
+
+    /// Whether the source's rows are tenant-owned (GH #87): `true` fails a
+    /// tenantless request closed, and is the declaration
+    /// [`Self::scoped_query`] is expected to scope for.
+    fn requires_tenant() -> bool {
+        false
+    }
+
+    /// A short name for the loaders' log fields. A `Resource` forwards its
+    /// route slug.
+    fn slug() -> String {
+        std::any::type_name::<Self>().to_string()
+    }
+
+    /// The related source's search predicate for `term`, or `None` when it
+    /// declares no searchable column (GH #150 D1). A resource answers from its
+    /// declared `searchable()` columns.
+    ///
+    /// `None` on a non-blank term is the documented fallback: the option
+    /// search runs the bounded head instead and overflows past the cap (D1a)
+    /// rather than scanning the table.
+    fn search_expr(_cx: &Cx, _term: &str) -> Option<Expr<bool>> {
+        None
+    }
+
+    /// The related source's declared default ordering — its first sortable
+    /// column, ascending, or `None` (GH #210). A resource answers from its
+    /// declared `sortable()` columns.
+    ///
+    /// The option search applies it so a narrowed result keeps the list's
+    /// ordering; deliberately not a list-mode resolution, which would add a
+    /// primary-key fallback this endpoint never had.
+    fn order_by(_cx: &Cx) -> Option<OrderByExpr> {
+        None
+    }
+}
 
 /// Why a relationship option load produced no options (GH #108).
 ///
@@ -65,7 +187,7 @@ pub(crate) type RelationshipChecker =
 /// rides on scope resolution in one place and not the others.
 fn ensure_option_access<R>(cx: &Cx) -> Result<(), OptionLoadError>
 where
-    R: crate::resource::Resource + 'static,
+    R: OptionSource,
 {
     if !R::can_view_any(cx) {
         return Err(OptionLoadError::Denied);
@@ -79,25 +201,21 @@ where
     Ok(())
 }
 
-/// The relationship option loaders' seed query: [`scoped_query`] with the
-/// load's own error kind (GH #223).
+/// The relationship option loaders' seed query: [`OptionSource::scoped_query`]
+/// with the load's own error kind (GH #223).
 ///
-/// Every loader below starts here rather than at `R::query` so option loads
-/// inherit the framework's tenant scope (`ensure_option_access` above already
-/// answered the tenantless case with `Denied`). The one error left for this
-/// step is a resource the framework cannot scope at all, which is a
+/// Every loader below starts here rather than at an unscoped base so option
+/// loads inherit the framework's tenant scope (`ensure_option_access` above
+/// already answered the tenantless case with `Denied`). The one error left for
+/// this step is a source the framework cannot scope at all, which is a
 /// **permanent** misdeclaration and therefore
 /// [`Misdeclared`](OptionLoadError::Misdeclared) rather than a retryable load
 /// failure.
-///
-/// [`scoped_query`]: crate::resource::scoped_query
-fn option_query<R>(
-    cx: &Cx,
-) -> Result<toasty::stmt::Query<toasty::stmt::List<R::Model>>, OptionLoadError>
+fn option_query<R>(cx: &Cx) -> Result<Query<List<R::Model>>, OptionLoadError>
 where
-    R: crate::resource::Resource + 'static,
+    R: OptionSource,
 {
-    crate::resource::scoped_query::<R>(cx).map_err(|error| {
+    R::scoped_query(cx).map_err(|error| {
         tracing::error!(
             resource = R::slug(),
             error = %error,
@@ -114,9 +232,9 @@ pub const MAX_RELATIONSHIP_OPTIONS: usize = 200;
 
 /// The related model's primary key type — the identity a relationship option
 /// stores (GH #108). Fully qualified because the `Model` trait is a bound of
-/// `Resource::Model`, not a supertrait of `Resource`.
+/// `OptionSource::Model`, not a supertrait of `OptionSource`.
 pub(crate) type RelatedPrimaryKey<R> =
-    <<R as crate::resource::Resource>::Model as toasty::schema::Model>::PrimaryKey;
+    <<R as OptionSource>::Model as toasty::schema::Model>::PrimaryKey;
 
 /// Option records for one related resource, memoized per request (GH #91).
 ///
@@ -143,8 +261,7 @@ pub(crate) async fn related_records<R>(
     _tenant: Option<uuid::Uuid>,
 ) -> Result<Vec<R::Model>, OptionLoadError>
 where
-    R: crate::resource::Resource + 'static,
-    R::Model: Send + Sync + 'static,
+    R: OptionSource,
 {
     ensure_option_access::<R>(cx)?;
     let mut db = crate::db::db(cx);
@@ -179,8 +296,8 @@ where
 
 /// Bounded server-side option search (GH #150).
 ///
-/// Reuses the related `Table`'s declared `searchable()` columns via
-/// `R::table(cx).search_expr(q)` (D1): documented as "option search searches
+/// Reuses the related table's declared `searchable()` columns via
+/// `R::search_expr(cx, q)` (D1): documented as "option search searches
 /// the related resource's declared searchable columns". No option-specific
 /// hook until a real caller needs it.
 ///
@@ -193,7 +310,7 @@ where
 ///   burst, never the whole table.
 /// * Policy mirrors the base load: `can_view_any` + tenant gate fail closed
 ///   (`Denied`), rows filter through `can_view` before labels.
-/// * `q` is clamped to [`crate::resource::MAX_QUERY_TERM`] chars (same bound
+/// * `q` is clamped to [`crate::query_term::MAX_QUERY_TERM`] chars (same bound
 ///   as `?q=`), trimmed.
 /// * One bounded round-trip per call, never the whole table; not memoized
 ///   (`q` is unbounded per keystroke, and the endpoint serves one field and
@@ -203,19 +320,17 @@ pub(crate) async fn related_records_search<R>(
     q: String,
 ) -> Result<Vec<R::Model>, OptionLoadError>
 where
-    R: crate::resource::Resource + 'static,
-    R::Model: Send + Sync + 'static,
+    R: OptionSource,
 {
     ensure_option_access::<R>(cx)?;
-    let term = crate::resource::clamp_query_term(&q);
+    let term = crate::query_term::clamp_query_term(&q);
     let mut query = option_query::<R>(cx)?;
     if !term.is_empty() {
-        let table = R::table(cx);
         // D1: reuse the related table's declared searchable columns. When it
         // declares none, `search_expr` is None and we fall through unfiltered
         // to the capped exec below (D1a fallback: hard-cap path, `Overflow`
         // on large tables). Non-searchable selects keep today's behavior.
-        if let Some(expr) = table.search_expr(&term) {
+        if let Some(expr) = R::search_expr(cx, &term) {
             query = query.filter(expr);
         }
     }
@@ -224,7 +339,7 @@ where
     // helper that replaced it). Deliberately not a list-mode resolution: the
     // option search has no table state, and the PK fallback a paginated table
     // would add is an ordering change this endpoint never had.
-    if let Some(ord) = R::table(cx).order_by(false) {
+    if let Some(ord) = R::order_by(cx) {
         query = query.order_by(ord);
     }
     let mut db = crate::db::db(cx);
@@ -280,8 +395,7 @@ pub(crate) async fn related_record_check<R>(
     value: String,
 ) -> Result<RelatedCheck, OptionLoadError>
 where
-    R: crate::resource::Resource + 'static,
-    R::Model: Send + Sync + 'static,
+    R: OptionSource,
 {
     ensure_option_access::<R>(cx)?;
     let trimmed = value.trim();
@@ -316,18 +430,21 @@ where
 
 #[cfg(test)]
 mod tests {
+    use toasty::stmt::{List, Query};
     use topcoat::context::{Cx, CxTestBuilder};
 
-    use crate::schema::{Mode, Select};
+    use crate::schema::{FieldLens, Mode, Select};
 
     use super::*;
     use topcoat::view::*;
-    /// Related-resource fixtures shared by the option-policy tests (GH #108).
+    /// Related-source fixtures shared by the option-policy tests (GH #108).
     ///
-    /// `tenant_id` is optional so the fixtures that do not care about tenancy
-    /// keep creating rows without one; `TenantScopedAuthors` (GH #223) needs a
-    /// discoverable `tenant_id` column for the framework to derive its scope
-    /// from, and the test that uses it creates its row with a tenant.
+    /// Each one implements only the [`OptionSource`] surface its test reads —
+    /// no `Resource`, no `Table` (GH #208). `tenant_id` is optional so the
+    /// fixtures that do not care about tenancy keep creating rows without one;
+    /// `TenantScopedAuthors` (GH #223) needs a discoverable `tenant_id` column
+    /// for the framework to derive its scope from, and the test that uses it
+    /// creates its row with a tenant.
     #[derive(Debug, toasty::Model, Clone)]
     struct PolicyAuthor {
         #[key]
@@ -337,43 +454,54 @@ mod tests {
         name: String,
     }
 
-    fn policy_author_table(cx: &Cx) -> crate::resource::Table<PolicyAuthor> {
-        crate::resource::Table::r#for(cx)
-            .id(|a: &PolicyAuthor| a.id.to_string())
-            .columns(crate::resource::TextColumn::r#for(
-                PolicyAuthor::fields().name(),
-                |a: &PolicyAuthor| a.name.clone(),
-            ))
+    /// The search fixtures' one declared search expression: a substring `LIKE`
+    /// over the model's `name` column, which is all the loaders ask a source
+    /// for. A real resource answers it from its `Table`'s `searchable()`
+    /// columns; that spelling is `Table::search_expr`'s own test.
+    fn name_search_expr<M: toasty::schema::Model>(
+        path: FieldLens<M, String>,
+        term: &str,
+    ) -> Option<Expr<bool>> {
+        Some(path.like_with_escape(format!("%{term}%"), '\\'))
     }
 
+    /// Denies every request: the whole load fails closed (the trait's
+    /// `can_view_any` default).
     struct DenyAllAuthors;
-    impl crate::resource::Resource for DenyAllAuthors {
+    impl OptionSource for DenyAllAuthors {
         type Model = PolicyAuthor;
-        fn can_view_any(_cx: &Cx) -> bool {
-            false
-        }
-        fn table(cx: &Cx) -> crate::resource::Table<PolicyAuthor> {
-            policy_author_table(cx)
+        fn scoped_query(_cx: &Cx) -> Result<Query<List<PolicyAuthor>>> {
+            Ok(Query::all())
         }
     }
 
     struct HideOneAuthor;
-    impl crate::resource::Resource for HideOneAuthor {
+    impl OptionSource for HideOneAuthor {
         type Model = PolicyAuthor;
+        fn scoped_query(_cx: &Cx) -> Result<Query<List<PolicyAuthor>>> {
+            Ok(Query::all())
+        }
         fn can_view_any(_cx: &Cx) -> bool {
             true
         }
         fn can_view(_cx: &Cx, record: &PolicyAuthor) -> bool {
             record.name != "Hidden"
         }
-        fn table(cx: &Cx) -> crate::resource::Table<PolicyAuthor> {
-            policy_author_table(cx)
-        }
     }
 
     struct TenantScopedAuthors;
-    impl crate::resource::Resource for TenantScopedAuthors {
+    impl OptionSource for TenantScopedAuthors {
         type Model = PolicyAuthor;
+
+        /// Mirrors `Resource`'s blanket impl (`resource::scoped_query`), which
+        /// `schema` cannot call without re-creating the cycle (GH #208).
+        fn scoped_query(cx: &Cx) -> Result<Query<List<PolicyAuthor>>> {
+            let tenant = crate::tenancy::require_tenant(cx)?;
+            let filter = crate::tenancy::derived_tenant_filter::<PolicyAuthor>(tenant)
+                .expect("PolicyAuthor declares a tenant_id column");
+            Ok(Query::all().filter(filter))
+        }
+
         fn can_view_any(_cx: &Cx) -> bool {
             true
         }
@@ -383,15 +511,10 @@ mod tests {
         fn requires_tenant() -> bool {
             true
         }
-        fn table(cx: &Cx) -> crate::resource::Table<PolicyAuthor> {
-            policy_author_table(cx)
-        }
     }
 
     #[tokio::test]
     async fn relationship_loader_fails_past_option_cap() {
-        use crate::resource::Resource;
-
         #[derive(Debug, toasty::Model, Clone)]
         struct RefAuthor {
             #[key]
@@ -399,22 +522,17 @@ mod tests {
             id: uuid::Uuid,
             name: String,
         }
-        struct RefAuthorResource;
-        impl Resource for RefAuthorResource {
+        struct RefAuthorSource;
+        impl OptionSource for RefAuthorSource {
             type Model = RefAuthor;
+            fn scoped_query(_cx: &Cx) -> Result<Query<List<RefAuthor>>> {
+                Ok(Query::all())
+            }
             fn can_view_any(_cx: &Cx) -> bool {
                 true
             }
             fn can_view(_cx: &Cx, _record: &RefAuthor) -> bool {
                 true
-            }
-            fn table(cx: &Cx) -> crate::resource::Table<RefAuthor> {
-                crate::resource::Table::r#for(cx)
-                    .id(|a: &RefAuthor| a.id.to_string())
-                    .columns(crate::resource::TextColumn::r#for(
-                        RefAuthor::fields().name(),
-                        |a: &RefAuthor| a.name.clone(),
-                    ))
             }
         }
         #[derive(Debug, toasty::Model)]
@@ -440,12 +558,11 @@ mod tests {
             .unwrap();
         }
         let cx = CxTestBuilder::new().app_context(db).build();
-        let select = Select::r#for(RefPost::fields().author_id())
-            .relationship::<RefAuthorResource>(
-                RefAuthorResource::query,
-                |a: &RefAuthor| a.id,
-                |a: &RefAuthor| a.name.clone(),
-            );
+        let select = Select::r#for(RefPost::fields().author_id()).relationship::<RefAuthorSource>(
+            |_cx| Query::all(),
+            |a: &RefAuthor| a.id,
+            |a: &RefAuthor| a.name.clone(),
+        );
         // Over the cap: bounded work, visible retry error — never an
         // empty-options passthrough (GH #91).
         let errs = select.validate_async(&cx, "whatever").await;
@@ -472,10 +589,10 @@ mod tests {
     #[tokio::test]
     async fn relationship_option_values_are_primary_keys_not_table_ids() {
         // GH #108: `Table::id` is a display projection (GH #85) — option
-        // values must come from the record's typed PK, or a non-canonical
-        // table key silently stores a label in the FK column.
-        use crate::resource::Resource;
-
+        // values must come from the record's typed PK, or a display string
+        // silently stores a label in the FK column. The source surface has no
+        // table row-key projection to reach for at all (GH #208), so the
+        // caller's typed projection is the only option-value seam.
         #[derive(Debug, toasty::Model, Clone)]
         struct RefAuthor {
             #[key]
@@ -483,23 +600,17 @@ mod tests {
             id: uuid::Uuid,
             name: String,
         }
-        struct RefAuthorResource;
-        impl Resource for RefAuthorResource {
+        struct RefAuthorSource;
+        impl OptionSource for RefAuthorSource {
             type Model = RefAuthor;
+            fn scoped_query(_cx: &Cx) -> Result<Query<List<RefAuthor>>> {
+                Ok(Query::all())
+            }
             fn can_view_any(_cx: &Cx) -> bool {
                 true
             }
             fn can_view(_cx: &Cx, _record: &RefAuthor) -> bool {
                 true
-            }
-            fn table(cx: &Cx) -> crate::resource::Table<RefAuthor> {
-                crate::resource::Table::r#for(cx)
-                    // Deliberately non-canonical: display key != PK.
-                    .id(|a: &RefAuthor| format!("display:{}", a.name))
-                    .columns(crate::resource::TextColumn::r#for(
-                        RefAuthor::fields().name(),
-                        |a: &RefAuthor| a.name.clone(),
-                    ))
             }
         }
 
@@ -517,15 +628,15 @@ mod tests {
         .unwrap();
         let pk = row.id.to_string();
         let cx = CxTestBuilder::new().app_context(db).build();
-        let select = Select::r#for(RefAuthor::fields().name()).relationship::<RefAuthorResource>(
-            RefAuthorResource::query,
+        let select = Select::r#for(RefAuthor::fields().name()).relationship::<RefAuthorSource>(
+            |_cx| Query::all(),
             |a: &RefAuthor| a.id,
             |a: &RefAuthor| a.name.clone(),
         );
-        // The PK validates; the display key never does.
+        // The PK validates; the label never does.
         assert!(select.validate_async(&cx, &pk).await.is_empty());
         assert_eq!(
-            select.validate_async(&cx, "display:Ada").await,
+            select.validate_async(&cx, "Ada").await,
             vec!["Name is invalid".to_string()]
         );
         let html = select
@@ -541,17 +652,16 @@ mod tests {
             "option value must be the PK, got {html}"
         );
         assert!(
-            !html.contains("display:Ada"),
-            "display key leaked into option values: {html}"
+            !html.contains("value=\"Ada\""),
+            "the label leaked into option values: {html}"
         );
     }
 
     #[tokio::test]
     async fn relationship_load_fails_closed_when_can_view_any_denies() {
-        // GH #108: a related resource that denies `can_view_any` must not
+        // GH #108: a related source that denies `can_view_any` must not
         // leak labels or ids through a dependent form, and the error must be
         // "not available" — retrying cannot fix a permission decision.
-        use crate::resource::Resource;
 
         let mut db = toasty::Db::builder()
             .models(toasty::models!(PolicyAuthor))
@@ -568,7 +678,7 @@ mod tests {
         let pk = row.id.to_string();
         let cx = CxTestBuilder::new().app_context(db).build();
         let select = Select::r#for(PolicyAuthor::fields().id()).relationship::<DenyAllAuthors>(
-            DenyAllAuthors::query,
+            |_cx| Query::all(),
             |a: &PolicyAuthor| a.id,
             |a: &PolicyAuthor| a.name.clone(),
         );
@@ -605,9 +715,8 @@ mod tests {
         // GH #108, GH #223: option loads are another path into the related
         // resource's rows; a tenant-scoped related resource must not serve
         // unscoped options just because the parent form is reachable without a
-        // tenant, and the framework's derived filter must narrow the load to
-        // the request tenant's rows.
-        use crate::resource::Resource;
+        // tenant, and the derived filter must narrow the load to the request
+        // tenant's rows.
 
         let mut db = toasty::Db::builder()
             .models(toasty::models!(PolicyAuthor))
@@ -627,7 +736,7 @@ mod tests {
         let cx = CxTestBuilder::new().app_context(db).build();
         let select = Select::r#for(PolicyAuthor::fields().id())
             .relationship::<TenantScopedAuthors>(
-                TenantScopedAuthors::query,
+                |_cx| Query::all(),
                 |a: &PolicyAuthor| a.id,
                 |a: &PolicyAuthor| a.name.clone(),
             );
@@ -639,11 +748,13 @@ mod tests {
         // memoize key too).
         let tenanted = cx.with(crate::tenancy::Tenant(tenant));
         assert!(select.validate_async(&tenanted, &pk).await.is_empty());
-        // Another tenant's request sees nothing: the option load runs through
-        // the framework's derived tenant filter, not through `R::query`. The
-        // load itself succeeds (the resource is viewable), so the row is
-        // *absent from the options* rather than denied — "invalid", the
-        // empty-set answer, not the "not available" the gate gives.
+        // Another tenant's request sees nothing: the option load runs the
+        // source's `scoped_query` — the fixture spells it as the framework's
+        // derived tenant filter, and `Resource`'s blanket impl spells it as
+        // `scoped_query::<R>` — never an unscoped base. The load itself
+        // succeeds (the source is viewable), so the row is *absent from the
+        // options* rather than denied — "invalid", the empty-set answer, not
+        // the "not available" the gate gives.
         let foreign = cx.with(crate::tenancy::Tenant(uuid::Uuid::new_v4()));
         assert_eq!(
             select.validate_async(&foreign, &pk).await,
@@ -656,7 +767,6 @@ mod tests {
         // GH #108: `can_view`-denied rows are absent from options and
         // validation — a value outside the viewable set is invalid, not
         // merely unlisted.
-        use crate::resource::Resource;
 
         let mut db = toasty::Db::builder()
             .models(toasty::models!(PolicyAuthor))
@@ -678,7 +788,7 @@ mod tests {
         .unwrap();
         let cx = CxTestBuilder::new().app_context(db).build();
         let select = Select::r#for(PolicyAuthor::fields().id()).relationship::<HideOneAuthor>(
-            HideOneAuthor::query,
+            |_cx| Query::all(),
             |a: &PolicyAuthor| a.id,
             |a: &PolicyAuthor| a.name.clone(),
         );
@@ -713,7 +823,6 @@ mod tests {
         // counted post-`can_view` rows, a single hidden record would defeat
         // it and silently truncate a larger table, misreporting viewable FKs
         // as "invalid" — the exact failure the cap exists to prevent.
-        use crate::resource::Resource;
 
         let mut db = toasty::Db::builder()
             .models(toasty::models!(PolicyAuthor))
@@ -740,7 +849,7 @@ mod tests {
         }
         let cx = CxTestBuilder::new().app_context(db).build();
         let select = Select::r#for(PolicyAuthor::fields().id()).relationship::<HideOneAuthor>(
-            HideOneAuthor::query,
+            |_cx| Query::all(),
             |a: &PolicyAuthor| a.id,
             |a: &PolicyAuthor| a.name.clone(),
         );
@@ -757,7 +866,6 @@ mod tests {
         // GH #108: `can_view` filtering happens before labels render, so a
         // row the user may not view is absent from options and does not
         // validate — and the stored value is not re-rendered on the form.
-        use crate::resource::Resource;
 
         let mut db = toasty::Db::builder()
             .models(toasty::models!(PolicyAuthor))
@@ -774,7 +882,7 @@ mod tests {
         let pk = hidden.id.to_string();
         let cx = CxTestBuilder::new().app_context(db).build();
         let select = Select::r#for(PolicyAuthor::fields().id()).relationship::<HideOneAuthor>(
-            HideOneAuthor::query,
+            |_cx| Query::all(),
             |a: &PolicyAuthor| a.id,
             |a: &PolicyAuthor| a.name.clone(),
         );
@@ -798,9 +906,8 @@ mod tests {
 
     #[tokio::test]
     async fn relationship_options_share_one_load_per_request_and_tenant() {
-        // GH #91: selects over one resource share a single bounded load per
+        // GH #91: selects over one source share a single bounded load per
         // (request, tenant) — validate + re-render no longer rescan.
-        use crate::resource::Resource;
         use std::sync::atomic::{AtomicUsize, Ordering};
 
         static OPTION_LOADS: AtomicUsize = AtomicUsize::new(0);
@@ -812,26 +919,18 @@ mod tests {
             id: uuid::Uuid,
             name: String,
         }
-        struct CountingResource;
-        impl Resource for CountingResource {
+        struct CountingSource;
+        impl OptionSource for CountingSource {
             type Model = Ref;
+            fn scoped_query(_cx: &Cx) -> Result<Query<List<Ref>>> {
+                OPTION_LOADS.fetch_add(1, Ordering::SeqCst);
+                Ok(Query::all())
+            }
             fn can_view_any(_cx: &Cx) -> bool {
                 true
             }
             fn can_view(_cx: &Cx, _record: &Ref) -> bool {
                 true
-            }
-            fn query(_cx: &Cx) -> toasty::stmt::Query<toasty::stmt::List<Ref>> {
-                OPTION_LOADS.fetch_add(1, Ordering::SeqCst);
-                toasty::stmt::Query::<toasty::stmt::List<Ref>>::all()
-            }
-            fn table(cx: &Cx) -> crate::resource::Table<Ref> {
-                crate::resource::Table::r#for(cx)
-                    .id(|r: &Ref| r.id.to_string())
-                    .columns(crate::resource::TextColumn::r#for(
-                        Ref::fields().name(),
-                        |r: &Ref| r.name.clone(),
-                    ))
             }
         }
 
@@ -850,14 +949,14 @@ mod tests {
         let id = row.id.to_string();
         let cx = CxTestBuilder::new().app_context(db).build();
 
-        // Two selects, different labels, same resource.
-        let s1 = Select::r#for(Ref::fields().name()).relationship::<CountingResource>(
-            CountingResource::query,
+        // Two selects, different labels, same source.
+        let s1 = Select::r#for(Ref::fields().name()).relationship::<CountingSource>(
+            |_cx| Query::all(),
             |r: &Ref| r.id,
             |r: &Ref| r.name.clone(),
         );
-        let s2 = Select::r#for(Ref::fields().name()).relationship::<CountingResource>(
-            CountingResource::query,
+        let s2 = Select::r#for(Ref::fields().name()).relationship::<CountingSource>(
+            |_cx| Query::all(),
             |r: &Ref| r.id,
             |r: &Ref| format!("{}!", r.name),
         );
@@ -893,7 +992,6 @@ mod tests {
     async fn relationship_overflow_is_distinct_from_load_failed() {
         // GH #150 D3: over-cap is `Overflow`, not `LoadFailed`, so searchable
         // selects degrade to type-to-search while DB errors stay retryable.
-        use crate::resource::Resource;
 
         #[derive(Debug, toasty::Model, Clone)]
         struct BigRef {
@@ -902,22 +1000,17 @@ mod tests {
             id: uuid::Uuid,
             name: String,
         }
-        struct BigRefResource;
-        impl Resource for BigRefResource {
+        struct BigRefSource;
+        impl OptionSource for BigRefSource {
             type Model = BigRef;
+            fn scoped_query(_cx: &Cx) -> Result<Query<List<BigRef>>> {
+                Ok(Query::all())
+            }
             fn can_view_any(_cx: &Cx) -> bool {
                 true
             }
             fn can_view(_cx: &Cx, _record: &BigRef) -> bool {
                 true
-            }
-            fn table(cx: &Cx) -> crate::resource::Table<BigRef> {
-                crate::resource::Table::r#for(cx)
-                    .id(|r: &BigRef| r.id.to_string())
-                    .columns(crate::resource::TextColumn::r#for(
-                        BigRef::fields().name(),
-                        |r: &BigRef| r.name.clone(),
-                    ))
             }
         }
 
@@ -937,13 +1030,13 @@ mod tests {
         }
         let cx = CxTestBuilder::new().app_context(db).build();
         let tenant = crate::tenancy::tenant_id(&cx);
-        let err = super::related_records::<BigRefResource>(&cx, tenant)
+        let err = super::related_records::<BigRefSource>(&cx, tenant)
             .await
             .unwrap_err();
         assert_eq!(err, &super::OptionLoadError::Overflow);
         // Non-searchable keeps the retry message (today's behavior).
-        let plain = Select::r#for(BigRef::fields().name()).relationship::<BigRefResource>(
-            BigRefResource::query,
+        let plain = Select::r#for(BigRef::fields().name()).relationship::<BigRefSource>(
+            |_cx| Query::all(),
             |r: &BigRef| r.id,
             |r: &BigRef| r.name.clone(),
         );
@@ -955,10 +1048,9 @@ mod tests {
 
     #[tokio::test]
     async fn relationship_search_narrows_past_the_cap() {
-        // GH #150 D1: `related_records_search` reuses the related table's
-        // searchable columns — a 201-row table overflows unfiltered but a
+        // GH #150 D1: `related_records_search` reuses the source's declared
+        // search expression — a 201-row table overflows unfiltered but a
         // distinctive term returns its bounded match.
-        use crate::resource::Resource;
 
         #[derive(Debug, toasty::Model, Clone)]
         struct SearchRef {
@@ -967,25 +1059,20 @@ mod tests {
             id: uuid::Uuid,
             name: String,
         }
-        struct SearchRefResource;
-        impl Resource for SearchRefResource {
+        struct SearchRefSource;
+        impl OptionSource for SearchRefSource {
             type Model = SearchRef;
+            fn scoped_query(_cx: &Cx) -> Result<Query<List<SearchRef>>> {
+                Ok(Query::all())
+            }
             fn can_view_any(_cx: &Cx) -> bool {
                 true
             }
             fn can_view(_cx: &Cx, _record: &SearchRef) -> bool {
                 true
             }
-            fn table(cx: &Cx) -> crate::resource::Table<SearchRef> {
-                crate::resource::Table::r#for(cx)
-                    .id(|r: &SearchRef| r.id.to_string())
-                    .columns(
-                        crate::resource::TextColumn::r#for(
-                            SearchRef::fields().name(),
-                            |r: &SearchRef| r.name.clone(),
-                        )
-                        .searchable(),
-                    )
+            fn search_expr(_cx: &Cx, term: &str) -> Option<Expr<bool>> {
+                name_search_expr(SearchRef::fields().name(), term)
             }
         }
 
@@ -1012,26 +1099,26 @@ mod tests {
         let cx = CxTestBuilder::new().app_context(db).build();
         let tenant = crate::tenancy::tenant_id(&cx);
         // Unfiltered overflows (201 rows).
-        let err = super::related_records::<SearchRefResource>(&cx, tenant)
+        let err = super::related_records::<SearchRefSource>(&cx, tenant)
             .await
             .unwrap_err();
         assert_eq!(err, &super::OptionLoadError::Overflow);
         // Distinctive term narrows to one.
-        let rows = super::related_records_search::<SearchRefResource>(&cx, "Zebra".to_string())
+        let rows = super::related_records_search::<SearchRefSource>(&cx, "Zebra".to_string())
             .await
             .unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].name, "Zebra Unique");
         // Empty q is the bounded head → still overflows on this table.
-        let err = super::related_records_search::<SearchRefResource>(&cx, "".to_string())
+        let err = super::related_records_search::<SearchRefSource>(&cx, "".to_string())
             .await
             .unwrap_err();
         assert_eq!(err, super::OptionLoadError::Overflow);
         // `Select::search_options` shares the same seam.
         let select = Select::r#for(SearchRef::fields().name())
             .searchable()
-            .relationship::<SearchRefResource>(
-                SearchRefResource::query,
+            .relationship::<SearchRefSource>(
+                |_cx| Query::all(),
                 |r: &SearchRef| r.id,
                 |r: &SearchRef| r.name.clone(),
             );
@@ -1045,7 +1132,6 @@ mod tests {
     async fn relationship_search_without_searchable_falls_back_to_cap() {
         // GH #150 D1a: no searchable columns → unfiltered bounded load, which
         // overflows large tables instead of silently truncating.
-        use crate::resource::Resource;
 
         #[derive(Debug, toasty::Model, Clone)]
         struct PlainRef {
@@ -1054,22 +1140,19 @@ mod tests {
             id: uuid::Uuid,
             name: String,
         }
-        struct PlainRefResource;
-        impl Resource for PlainRefResource {
+        /// Declares no search expression (the trait's `None` default), which is
+        /// what a resource with no `searchable()` column answers.
+        struct PlainRefSource;
+        impl OptionSource for PlainRefSource {
             type Model = PlainRef;
+            fn scoped_query(_cx: &Cx) -> Result<Query<List<PlainRef>>> {
+                Ok(Query::all())
+            }
             fn can_view_any(_cx: &Cx) -> bool {
                 true
             }
             fn can_view(_cx: &Cx, _record: &PlainRef) -> bool {
                 true
-            }
-            fn table(cx: &Cx) -> crate::resource::Table<PlainRef> {
-                crate::resource::Table::r#for(cx)
-                    .id(|r: &PlainRef| r.id.to_string())
-                    .columns(crate::resource::TextColumn::r#for(
-                        PlainRef::fields().name(),
-                        |r: &PlainRef| r.name.clone(),
-                    ))
             }
         }
 
@@ -1088,7 +1171,7 @@ mod tests {
             .unwrap();
         }
         let cx = CxTestBuilder::new().app_context(db).build();
-        let err = super::related_records_search::<PlainRefResource>(&cx, "author-1".to_string())
+        let err = super::related_records_search::<PlainRefSource>(&cx, "author-1".to_string())
             .await
             .unwrap_err();
         assert_eq!(err, super::OptionLoadError::Overflow);
@@ -1098,7 +1181,6 @@ mod tests {
     async fn relationship_overflowed_searchable_validates_via_targeted_check() {
         // GH #150 D4: searchable selects over overflowed tables validate
         // legitimate FKs via the targeted PK check, not membership.
-        use crate::resource::Resource;
 
         #[derive(Debug, toasty::Model, Clone)]
         struct CheckRef {
@@ -1107,25 +1189,20 @@ mod tests {
             id: uuid::Uuid,
             name: String,
         }
-        struct CheckRefResource;
-        impl Resource for CheckRefResource {
+        struct CheckRefSource;
+        impl OptionSource for CheckRefSource {
             type Model = CheckRef;
+            fn scoped_query(_cx: &Cx) -> Result<Query<List<CheckRef>>> {
+                Ok(Query::all())
+            }
             fn can_view_any(_cx: &Cx) -> bool {
                 true
             }
             fn can_view(_cx: &Cx, record: &CheckRef) -> bool {
                 record.name != "Hidden"
             }
-            fn table(cx: &Cx) -> crate::resource::Table<CheckRef> {
-                crate::resource::Table::r#for(cx)
-                    .id(|r: &CheckRef| r.id.to_string())
-                    .columns(
-                        crate::resource::TextColumn::r#for(
-                            CheckRef::fields().name(),
-                            |r: &CheckRef| r.name.clone(),
-                        )
-                        .searchable(),
-                    )
+            fn search_expr(_cx: &Cx, term: &str) -> Option<Expr<bool>> {
+                name_search_expr(CheckRef::fields().name(), term)
             }
         }
 
@@ -1160,8 +1237,8 @@ mod tests {
         let cx = CxTestBuilder::new().app_context(db).build();
         let searchable = Select::r#for(CheckRef::fields().name())
             .searchable()
-            .relationship::<CheckRefResource>(
-                CheckRefResource::query,
+            .relationship::<CheckRefSource>(
+                |_cx| Query::all(),
                 |r: &CheckRef| r.id,
                 |r: &CheckRef| r.name.clone(),
             );
@@ -1178,9 +1255,9 @@ mod tests {
                 .await,
             vec!["Name is invalid".to_string()]
         );
-        // Non-searchable over the same table keeps the retry error.
-        let plain = Select::r#for(CheckRef::fields().name()).relationship::<CheckRefResource>(
-            CheckRefResource::query,
+        // Non-searchable over the same source keeps the retry error.
+        let plain = Select::r#for(CheckRef::fields().name()).relationship::<CheckRefSource>(
+            |_cx| Query::all(),
             |r: &CheckRef| r.id,
             |r: &CheckRef| r.name.clone(),
         );
@@ -1194,7 +1271,6 @@ mod tests {
     async fn relationship_overflowed_searchable_renders_hint_and_keeps_value() {
         // GH #150 D6: over-cap searchable renders stored value + search input
         // + hint, with server data-attributes for the fetch.
-        use crate::resource::Resource;
 
         #[derive(Debug, toasty::Model, Clone)]
         struct HintRef {
@@ -1203,25 +1279,20 @@ mod tests {
             id: uuid::Uuid,
             name: String,
         }
-        struct HintRefResource;
-        impl Resource for HintRefResource {
+        struct HintRefSource;
+        impl OptionSource for HintRefSource {
             type Model = HintRef;
+            fn scoped_query(_cx: &Cx) -> Result<Query<List<HintRef>>> {
+                Ok(Query::all())
+            }
             fn can_view_any(_cx: &Cx) -> bool {
                 true
             }
             fn can_view(_cx: &Cx, _record: &HintRef) -> bool {
                 true
             }
-            fn table(cx: &Cx) -> crate::resource::Table<HintRef> {
-                crate::resource::Table::r#for(cx)
-                    .id(|r: &HintRef| r.id.to_string())
-                    .columns(
-                        crate::resource::TextColumn::r#for(
-                            HintRef::fields().name(),
-                            |r: &HintRef| r.name.clone(),
-                        )
-                        .searchable(),
-                    )
+            fn search_expr(_cx: &Cx, term: &str) -> Option<Expr<bool>> {
+                name_search_expr(HintRef::fields().name(), term)
             }
         }
 
@@ -1242,8 +1313,8 @@ mod tests {
         let cx = CxTestBuilder::new().app_context(db).build();
         let select = Select::r#for(HintRef::fields().name())
             .searchable()
-            .relationship::<HintRefResource>(
-                HintRefResource::query,
+            .relationship::<HintRefSource>(
+                |_cx| Query::all(),
                 |r: &HintRef| r.id,
                 |r: &HintRef| r.name.clone(),
             );
@@ -1278,7 +1349,6 @@ mod tests {
         // GH #150 + #91: bounded searchable sets narrow by label substring in
         // the browser — the server flag is overflow-only, or every small
         // table pays a debounced round-trip per keystroke.
-        use crate::resource::Resource;
 
         #[derive(Debug, toasty::Model, Clone)]
         struct SmallRef {
@@ -1287,25 +1357,20 @@ mod tests {
             id: uuid::Uuid,
             name: String,
         }
-        struct SmallRefResource;
-        impl Resource for SmallRefResource {
+        struct SmallRefSource;
+        impl OptionSource for SmallRefSource {
             type Model = SmallRef;
+            fn scoped_query(_cx: &Cx) -> Result<Query<List<SmallRef>>> {
+                Ok(Query::all())
+            }
             fn can_view_any(_cx: &Cx) -> bool {
                 true
             }
             fn can_view(_cx: &Cx, _record: &SmallRef) -> bool {
                 true
             }
-            fn table(cx: &Cx) -> crate::resource::Table<SmallRef> {
-                crate::resource::Table::r#for(cx)
-                    .id(|r: &SmallRef| r.id.to_string())
-                    .columns(
-                        crate::resource::TextColumn::r#for(
-                            SmallRef::fields().name(),
-                            |r: &SmallRef| r.name.clone(),
-                        )
-                        .searchable(),
-                    )
+            fn search_expr(_cx: &Cx, term: &str) -> Option<Expr<bool>> {
+                name_search_expr(SmallRef::fields().name(), term)
             }
         }
 
@@ -1324,8 +1389,8 @@ mod tests {
         let cx = CxTestBuilder::new().app_context(db).build();
         let select = Select::r#for(SmallRef::fields().name())
             .searchable()
-            .relationship::<SmallRefResource>(
-                SmallRefResource::query,
+            .relationship::<SmallRefSource>(
+                |_cx| Query::all(),
                 |r: &SmallRef| r.id,
                 |r: &SmallRef| r.name.clone(),
             );

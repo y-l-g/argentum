@@ -12,9 +12,9 @@ use topcoat::{Result, context::Cx, view::*};
 
 use super::lenses::{FieldResolver, lens_field, lens_field_unique, lens_label};
 use super::relationship::{
-    OptionLoadError, RelatedCheck, RelatedPrimaryKey, RelationshipCheckFuture, RelationshipChecker,
-    RelationshipLoadFuture, RelationshipLoader, RelationshipSearchLoader, related_record_check,
-    related_records, related_records_search,
+    OptionLoadError, OptionSource, RelatedCheck, RelatedPrimaryKey, RelationshipCheckFuture,
+    RelationshipChecker, RelationshipLoadFuture, RelationshipLoader, RelationshipSearchLoader,
+    related_record_check, related_records, related_records_search,
 };
 use super::tree::Mode;
 
@@ -772,13 +772,15 @@ impl Select {
         self
     }
 
-    /// Load options via a related resource's tenant-scoped query, a typed
+    /// Load options via a related source's tenant-scoped query, a typed
     /// primary-key projection, and a label closure.
     ///
-    /// The first argument is the resource's `query` fn (e.g. `AuthorResource::query`) — it is
-    /// only used for type inference; the loader calls the resource's scoped
-    /// query directly, so the tenant gate and the framework's derived tenant
-    /// filter apply (GH #223). The second argument projects each related record to the
+    /// `R` is any [`OptionSource`] (GH #208) — every `Resource` is one through
+    /// the blanket impl in `resource`. The first argument is the related
+    /// resource's `query` fn (e.g. `AuthorResource::query`) — it is only a
+    /// type-inference witness; the loader calls the source's scoped query
+    /// directly, so the tenant gate and the framework's derived tenant filter
+    /// apply (GH #223). The second argument projects each related record to the
     /// model's **primary key**: it is stringified with `Display` and becomes
     /// the `<option value>`. The third maps the record to its display label.
     ///
@@ -825,8 +827,7 @@ impl Select {
         label: impl Fn(&R::Model) -> String + Send + Sync + 'static,
     ) -> Self
     where
-        R: crate::resource::Resource + 'static,
-        R::Model: Send + Sync + 'static,
+        R: OptionSource + 'static,
         RelatedPrimaryKey<R>: std::fmt::Display,
     {
         let value = std::sync::Arc::new(value);

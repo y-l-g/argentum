@@ -25,15 +25,15 @@ mod relation;
 mod state;
 mod table;
 
+#[cfg(test)]
+pub(crate) use crate::query_term::MAX_QUERY_TERM;
+pub(crate) use crate::query_term::clamp_query_term;
 pub use column::{IncludeNeeds, IntoColumns, TextColumn};
 pub(crate) use commit::run_after_commit;
 pub use commit::{Committed, Mutation};
 pub use filter::{DateFilter, Filter, IntoFilters, SelectFilter, TernaryFilter, VariantFilter};
 pub use navigation::{NavTarget, NavigationItem};
 pub use relation::{IntoRelationColumns, RelationColumn, RelationColumns, render_relation};
-#[cfg(test)]
-pub(crate) use state::MAX_QUERY_TERM;
-pub(crate) use state::clamp_query_term;
 pub(crate) use state::{
     BULK_DELETE_ROUTE_SEGMENT, CREATE_ROUTE_SEGMENT, DELETE_ROUTE_SEGMENT, EDIT_ROUTE_SEGMENT,
     RECORD_ROUTE_PARAM, create_page_url, cursor_after, cursor_before, cursor_none, split_cursor,
@@ -719,6 +719,55 @@ pub(crate) fn apply_tenant_scope<R: Resource>(
         .into());
     };
     Ok(query.filter(filter))
+}
+
+/// Every `Resource` is an [`OptionSource`](crate::schema::OptionSource) — the
+/// bridge that lets the relationship option loaders be generic over the source
+/// surface instead of over `Resource`, so `schema` no longer depends on
+/// `resource` (GH #208).
+///
+/// A resource answers the loaders here, so the loaders never name `Resource`:
+///
+/// - [`scoped_query`](crate::schema::OptionSource::scoped_query) — the one
+///   required method — forwards to [`scoped_query`], so an option load inherits
+///   the tenant gate and the framework's derived tenant predicate exactly as
+///   every other loader does (GH #223). It is deliberately not
+///   [`Resource::query`], which on a gated resource is the *tenant-unscoped*
+///   base.
+/// - the policy predicates and the tenant declaration forward unchanged.
+/// - the search expression and the default ordering come from the resource's
+///   declared [`table`](Resource::table), which is where "the option search
+///   searches the related resource's searchable columns" lives (GH #150).
+impl<R: Resource> crate::schema::OptionSource for R {
+    type Model = R::Model;
+
+    fn scoped_query(cx: &Cx) -> Result<Query<List<R::Model>>> {
+        scoped_query::<R>(cx)
+    }
+
+    fn can_view_any(cx: &Cx) -> bool {
+        <R as Resource>::can_view_any(cx)
+    }
+
+    fn can_view(cx: &Cx, record: &R::Model) -> bool {
+        <R as Resource>::can_view(cx, record)
+    }
+
+    fn requires_tenant() -> bool {
+        <R as Resource>::requires_tenant()
+    }
+
+    fn slug() -> String {
+        <R as Resource>::slug()
+    }
+
+    fn search_expr(cx: &Cx, term: &str) -> Option<toasty::stmt::Expr<bool>> {
+        <R as Resource>::table(cx).search_expr(term)
+    }
+
+    fn order_by(cx: &Cx) -> Option<toasty::stmt::OrderByExpr> {
+        <R as Resource>::table(cx).order_by(false)
+    }
 }
 
 #[cfg(test)]

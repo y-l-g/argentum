@@ -74,3 +74,15 @@ than an unscoped fetch. Option values, the typed PK projection, the policy
 checks and the cap semantics this ADR and its amendments describe are unchanged;
 `Select::relationship` still takes the resource's `query` fn for type inference
 only, and the loader no longer calls it directly.
+
+## Status 2026-09-22 (GH #208): the source trait behind `option_query`
+
+The note above still describes the tenancy contract, but the call it names
+changed shape. The option loaders are generic over `schema::OptionSource`
+(GH #208), and `option_query` now runs `R::scoped_query(cx)` — the source's own
+tenant-scoped query. For a `Resource` that is the same `scoped_query::<R>(cx)`
+the note means, reached through the blanket impl in `resource`, so the tenant
+gate, the derived predicate and the `Misdeclared` answer are unchanged; `schema`
+no longer names `resource` at all. Everything else the note says — typed PK
+values, the policy checks, the cap semantics, and `Select::relationship` taking
+the `query` fn for type inference only — stands.

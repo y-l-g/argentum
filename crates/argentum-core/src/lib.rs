@@ -22,6 +22,7 @@ pub mod cursor;
 pub mod db;
 pub mod notification;
 pub mod panel;
+mod query_term;
 pub mod resource;
 pub mod schema;
 pub mod tenancy;
