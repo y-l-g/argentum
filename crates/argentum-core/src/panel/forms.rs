@@ -501,7 +501,7 @@ fn strip_transport_keys(schema: &crate::schema::Schema, values: &mut HashMap<Str
 ///
 /// Generic over every marked field — the previous version was hard-coded to
 /// `email` with a dead full-table query behind it (GH #75 residue). Queries
-/// through `Resource::query` (the tenancy seam, ADR-0002) and returns
+/// through the tenant-scoped query (GH #223) and returns
 /// `field_name → ["<Label> has already been taken"]` per duplicated value.
 ///
 /// `current` holds the record's own hydrated values on edit: a field whose
@@ -513,8 +513,9 @@ fn strip_transport_keys(schema: &crate::schema::Schema, values: &mut HashMap<Str
 /// query, and no `""` written past an index that admits one.
 ///
 /// Known limits (GH #88, upstream gap #117): races with concurrent
-/// inserts (only a driver predicate closes it); the probe runs inside
-/// `R::query`'s scope, so a `unique()` field whose index carries components
+/// inserts (only a driver predicate closes it); the probe runs inside the
+/// tenant-scoped query's scope, so a `unique()` field whose index carries
+/// components
 /// outside that scope is not checked exactly — a **composite** index such as
 /// `#[unique(tenant_id, email)]` on a tenant-scoped resource is, which is the
 /// arrangement that lets two tenants share a value (GH #183, GH #88); `unique`
@@ -552,8 +553,9 @@ async fn check_unique<R: Resource>(
         // Inside the handler's tx (GH #84): the check observes the same
         // snapshot as the write that follows. A failing probe fails the
         // submit (GH #167) — swallowing it would write past a check that
-        // never ran.
-        let rows = R::query(cx)
+        // never ran. The probe runs through the tenant-scoped query (GH #223),
+        // like every other loader.
+        let rows = crate::resource::scoped_query::<R>(cx)?
             .filter(input.eq_filter::<R::Model>(submitted))
             .limit(1)
             .exec(&mut *ex)
@@ -683,7 +685,8 @@ pub(crate) fn resource_create_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<
     })))
 }
 
-/// Edit page GET — hydrates form from model via Resource::query seam.
+/// Edit page GET — hydrates the form from the record the tenant-scoped
+/// load returned (GH #223).
 pub(crate) fn resource_edit<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
     Box::pin(HoistView::new(ThenView::new(async move {
         enforce_auth(cx)?;

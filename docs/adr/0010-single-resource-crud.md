@@ -49,3 +49,19 @@ Topcoat now flushes pending `Set-Cookie`s on error responses (topcoat#408), so t
 ## Amendment (2026-09-22, GH #210)
 
 `Table::order_bys_for_state` is now `Table::order_bys_for(state, OrderMode)`. The `?sort=` resolution and the declared default are unchanged; the PK fallback — never a "tie-breaker", since the engine appends PK columns to ambiguous cursor orderings internally (GH #76) — is selected by the mode, so the CSV export can pin its chunked cursor walk (GH #172) without the list loader paying for an order it does not need. The same landing extracted `Table::apply_declaration`, the one routine that turns search, filters and ordering into a query for both loaders.
+
+## Status 2026-09-22 (GH #223): the tenancy seam split in two
+
+Three claims above are superseded by ADR-0002's 2026-09-22 amendment. The
+Context's "`TableState` drove search/sort/pagination via `Resource::query`", the
+Decision's "re-fetching the target via `Resource::query` (the tenancy seam)" and
+the Consequences' "`Resource::query` stays the single tenancy seam" all describe
+the pre-#223 contract. Every loader — the list, the record fetch behind
+edit/delete/bulk, the unique pre-check and the export — now runs
+`scoped_query::<R>(cx)`: the resource's `query` with the framework's tenant
+predicate ANDed on for a gated resource, derived from the model's `tenant_id` or
+declared in `tenant_scope` when the row inherits its tenant. `query` keeps the
+soft-delete and row-level half. Nothing else this ADR decided changed: the
+routes, the transaction discipline, `Policy` against the fetched row,
+`Schema`/`Notification`/`Table` seams and the default-deny vocabulary are all as
+recorded.

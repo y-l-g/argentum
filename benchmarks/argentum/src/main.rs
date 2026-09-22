@@ -1,8 +1,6 @@
 use std::time::Instant;
 
-use argentum_core::{
-    Panel, Resource, Schema, Table, TableState, Tenant, TextColumn, TextInput, tenant_id,
-};
+use argentum_core::{Panel, Resource, Schema, Table, TableState, Tenant, TextColumn, TextInput};
 use jiff::Timestamp;
 use toasty::{Db, Deferred};
 use topcoat::{
@@ -66,12 +64,12 @@ pub struct Comment {
 pub struct AuthorResource;
 impl Resource for AuthorResource {
     type Model = Author;
-    fn query(cx: &Cx) -> toasty::stmt::Query<toasty::stmt::List<Author>> {
-        let mut q = toasty::stmt::Query::<toasty::stmt::List<Author>>::all();
-        if let Some(tid) = tenant_id(cx) {
-            q = q.filter(Author::fields().tenant_id().eq(tid));
-        }
-        q
+    /// Gated like the showcase's `AuthorResource` (GH #223): the harness mirrors
+    /// the shipped resources, and a hand-written `tenant_id` filter here would
+    /// teach the recipe the framework removed. Nothing loads through this
+    /// resource — the workload is the posts list — so `query` stays the default.
+    fn requires_tenant() -> bool {
+        true
     }
     fn table(cx: &Cx) -> Table<Author> {
         Table::r#for(cx)
@@ -127,15 +125,17 @@ impl Resource for PostResource {
     fn requires_tenant() -> bool {
         true
     }
-    fn query(cx: &Cx) -> toasty::stmt::Query<toasty::stmt::List<Post>> {
-        let mut q = toasty::stmt::Query::<toasty::stmt::List<Post>>::all();
-        if let Some(tid) = tenant_id(cx) {
-            q = q.filter(Post::fields().tenant_id().eq(tid));
-        }
+    /// Includes only (GH #223): the tenant filter is the framework's now —
+    /// `scoped_query` derives it from `Post`'s own `tenant_id` column and ANDs
+    /// it onto this — so the harness must load through `scoped_query` to
+    /// measure the shipped, scoped path.
+    fn query(_cx: &Cx) -> toasty::stmt::Query<toasty::stmt::List<Post>> {
         let inc_author: toasty::stmt::Include<Post, Author> = Post::fields().author().into();
         let inc_comments: toasty::stmt::Include<Post, toasty::stmt::List<Comment>> =
             Post::fields().comments().into();
-        q.include(inc_author).include(inc_comments)
+        toasty::stmt::Query::<toasty::stmt::List<Post>>::all()
+            .include(inc_author)
+            .include(inc_comments)
     }
     fn table(cx: &Cx) -> Table<Post> {
         Table::r#for(cx)
@@ -245,12 +245,12 @@ fn summarize(mut times: Vec<f64>) -> (f64, f64, f64, f64, f64) {
 }
 
 /// The honest list path (GH #171): `TableState::from_cx` → `Table::load`
-/// (`Resource::query` + the declared `.paginate(50)`, tenancy set, policy
+/// (the tenant-scoped query + the declared `.paginate(50)`, tenancy set, policy
 /// enforced) → `render_with_state` → HTML. Fresh `Cx` per iteration (cold —
 /// no memoize hits across iterations).
 ///
 /// This is the exact body of the shipped `panel::load_table_page`
-/// (`table.load(cx, R::query(cx), state)` behind its paginate guard —
+/// (`table.load(cx, scoped_query::<R>(cx)?, state)` behind its paginate guard —
 /// `load_table_page` itself is `pub(crate)`, so the detached harness mirrors
 /// it rather than calling through). The declared page size is asserted so the
 /// `.paginate(50)` on the resource table is genuinely exercised through the
@@ -293,7 +293,11 @@ async fn bench_list_path(db: &Db, tenant: uuid::Uuid, iterations: usize) -> Vec<
             table
         };
         let page = table
-            .load(&cx, PostResource::query(&cx), &state)
+            .load(
+                &cx,
+                argentum_core::scoped_query::<PostResource>(&cx).expect("tenant scope"),
+                &state,
+            )
             .await
             .expect("table load");
         assert_eq!(page.rows.len(), 50, "expected first page of 50 rows");
@@ -314,7 +318,7 @@ async fn bench_list_path(db: &Db, tenant: uuid::Uuid, iterations: usize) -> Vec<
     times_ms
 }
 
-/// Query-only diagnostic (GH #171): raw `Resource::query` exec + touching
+/// Query-only diagnostic (GH #171): tenant-scoped query exec + touching
 /// includes on a fresh `Cx` — no `Table::load`, no render. Kept as a labeled
 /// diagnostic next to the list-path number; it is not the budget path and is
 /// not gated.
@@ -324,7 +328,8 @@ async fn bench_query_only(db: &Db, tenant: uuid::Uuid, iterations: usize) -> Vec
         let cx = bench_cx(db, tenant);
         let start = Instant::now();
         let mut db2 = argentum_core::db::db(&cx);
-        let rows: Vec<Post> = PostResource::query(&cx)
+        let rows: Vec<Post> = argentum_core::scoped_query::<PostResource>(&cx)
+            .expect("tenant scope")
             .exec(&mut db2)
             .await
             .expect("query");
@@ -398,7 +403,7 @@ async fn run_bench(iterations: usize) {
     println!("=== Argentum Phase-2 bench (GH #171, UNGATED): real list path ===");
     println!("workload: 50 rows, 2 includes (author + comments), tenancy set, policy enforced");
     println!(
-        "path: TableState::from_cx -> Table::load (Resource::query + .paginate(50)) -> render_with_state -> HTML"
+        "path: TableState::from_cx -> Table::load (scoped_query + .paginate(50)) -> render_with_state -> HTML"
     );
     println!(
         "budget: <40ms p50 (Phase 2, 50 rows, 2 includes) — reference only; UNGATED while GH #171 collects numbers, gating follows in a follow-up"

@@ -165,7 +165,7 @@ async fn comments_create_valid_redirects_and_creates() {
 /// post.
 #[tokio::test]
 async fn comment_writes_recheck_the_parent_post_tenant_inside_the_transaction() {
-    use argentum_core::{Resource, Tenant, db::db as db_handle};
+    use argentum_core::{Resource, Tenant, db::db as db_handle, scoped_query};
     use showcase::app::{CommentResource, PostResource};
     use std::collections::HashMap;
     use topcoat::context::CxTestBuilder;
@@ -177,16 +177,22 @@ async fn comment_writes_recheck_the_parent_post_tenant_inside_the_transaction() 
         .request_context(Tenant(t1))
         .build();
 
+    // The posts are read through `scoped_query`, the framework's tenant-scoped
+    // entry point (GH #223): plain `PostResource::query` is the unscoped base
+    // now, so it could hand back either tenant's post and this test would be
+    // asserting nothing.
     // A post that exists — in the other tenant.
     let cx_t2 = cx.with(Tenant(t2));
-    let foreign = PostResource::query(&cx_t2)
+    let foreign = scoped_query::<PostResource>(&cx_t2)
+        .unwrap()
         .first()
         .exec(&mut db_handle(&cx_t2))
         .await
         .unwrap()
         .expect("t2 seeds one post");
     // ...and one in this tenant, as the positive control.
-    let own = PostResource::query(&cx)
+    let own = scoped_query::<PostResource>(&cx)
+        .unwrap()
         .first()
         .exec(&mut db_handle(&cx))
         .await

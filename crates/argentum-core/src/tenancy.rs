@@ -1,7 +1,22 @@
 //! Tenancy via the `Cx` scoped value `Tenant(id)`.
 //!
-//! `Resource::query(cx)` is the single seam for tenancy (ADR-0002). Tenant-scoped
-//! resources filter `tenant_id().eq(tenant_id(cx))` for every loader.
+//! Since GH #223 the framework owns the tenant *filter*, not only the tenant
+//! gate. For a resource whose `requires_tenant()` is `true`, every loader runs
+//! [`scoped_query`](crate::resource::scoped_query) — the resource's own
+//! [`query`](crate::resource::Resource::query) with `tenant_id = <tenant>`
+//! ANDed onto it — and the column is discovered from the model's schema here
+//! ([`derived_tenant_filter`], the default body of `Resource::tenant_scope`),
+//! not named by hand in each resource. A gated resource
+//! therefore cannot serve unscoped rows by forgetting an override, and
+//! `Resource::query` is left as the app's *non-tenant* scoping seam (soft
+//! deletes, includes, row-level visibility). ADR-0002's 2026-09-22 note records
+//! the change.
+//!
+//! Discovery is deliberately narrow and fails closed: the model must declare a
+//! field whose application name is `tenant_id` and whose type is a UUID.
+//! Anything else — no such field, or a same-named field of another type — reads
+//! as "no tenant column", and a gated resource that hits that answers an error
+//! naming itself instead of querying unscoped.
 //!
 //! The authenticated user's tenant is the production source: the auth layer
 //! (ADR-0013) injects `Tenant` into the request `Cx` when the logged-in user
@@ -10,6 +25,7 @@
 //! override it deliberately. The `x-tenant-id` header fallback was removed in
 //! GH #131: learning another tenant's UUID no longer makes anyone that tenant.
 
+use toasty::stmt::Expr;
 use topcoat::context::{Cx, try_request_context};
 
 /// Request-scoped tenant identifier.
@@ -37,6 +53,64 @@ pub fn tenant_id(cx: &Cx) -> Option<uuid::Uuid> {
 /// Requires a tenant, returning an error if missing (for tenancy-gated resources).
 pub fn require_tenant(cx: &Cx) -> Result<uuid::Uuid, topcoat::Error> {
     tenant_id(cx).ok_or_else(|| topcoat::router::error::forbidden().into())
+}
+
+/// The application name of the column the framework scopes a gated resource by
+/// (GH #223).
+///
+/// The convention is public — it is the contract a model signs up to when its
+/// resource declares
+/// [`requires_tenant`](crate::resource::Resource::requires_tenant) — and this
+/// is the one place the discovery reads it.
+const TENANT_FIELD: &str = "tenant_id";
+
+/// Position of `M`'s tenant column in its own schema, or `None` when `M`
+/// declares none the framework can recognize (GH #223).
+///
+/// Found by **name and type** over [`Model::schema`]'s field list: a primitive
+/// field whose application name is `tenant_id` and whose type is
+/// [`toasty::stmt::Type::Uuid`]. The index is taken from the field's own
+/// [`FieldId`](toasty::schema::app::FieldId) — the index
+/// [`Model::path_field`] addresses — rather than from the position in the
+/// vector, so the filter and the generated `tenant_id()` accessor cannot drift.
+///
+/// Name-based discovery is the fragile half, so a miss is `None` and every
+/// caller treats it as *fail closed*: nothing falls back to the unscoped query,
+/// and nothing guesses. A `tenant_id` declared as `String`, or a tenant column
+/// spelled any other way, is invisible here on purpose — comparing a UUID
+/// against it would be a driver-level type error at best and a cross-tenant
+/// match at worst.
+pub(crate) fn tenant_field_index<M: toasty::schema::Model>() -> Option<usize> {
+    M::schema()
+        .fields()
+        .iter()
+        .find(|field| {
+            field.name.app.as_deref() == Some(TENANT_FIELD)
+                && field
+                    .ty
+                    .as_primitive()
+                    .is_some_and(|primitive| primitive.ty.is_uuid())
+        })
+        .map(|field| field.id.index)
+}
+
+/// The **derived** `tenant_id = tenant` over `M`, or `None` when
+/// [`tenant_field_index`] finds no tenant column (GH #223).
+///
+/// This is the default body of
+/// [`Resource::tenant_scope`](crate::resource::Resource::tenant_scope) — the
+/// public hook a resource overrides when its rows inherit their tenant instead
+/// of carrying one — so the name says *derived*: it is the name-based
+/// convenience, not the only way to scope a gated resource.
+///
+/// Built generically on purpose: `Model::path_field` addresses the column by
+/// index and `Value::Uuid` types the comparison, so no generated accessor — and
+/// no per-resource copy of the filter — is needed.
+pub(crate) fn derived_tenant_filter<M: toasty::schema::Model>(
+    tenant: uuid::Uuid,
+) -> Option<Expr<bool>> {
+    let index = tenant_field_index::<M>()?;
+    Some(M::path_field::<uuid::Uuid>(index).eq(tenant))
 }
 
 #[cfg(test)]
@@ -94,5 +168,83 @@ mod tests {
         // UUID in `x-tenant-id` must not resolve a tenant.
         let id = uuid::Uuid::new_v4();
         assert_eq!(tenant_id(&cx_with_header(&id.to_string())), None);
+    }
+
+    /// A model with the conventional column, one without any, and one whose
+    /// same-named column is the wrong type (GH #223).
+    #[derive(Debug, Clone, toasty::Model)]
+    struct Scoped {
+        #[key]
+        #[auto]
+        id: uuid::Uuid,
+        tenant_id: uuid::Uuid,
+        name: String,
+    }
+
+    #[derive(Debug, Clone, toasty::Model)]
+    struct Unscoped {
+        #[key]
+        #[auto]
+        id: uuid::Uuid,
+        name: String,
+    }
+
+    #[derive(Debug, Clone, toasty::Model)]
+    struct WronglyTyped {
+        #[key]
+        #[auto]
+        id: uuid::Uuid,
+        tenant_id: String,
+    }
+
+    #[test]
+    fn tenant_column_is_discovered_by_name_and_uuid_type() {
+        // `id` is index 0, `tenant_id` index 1, `name` index 2.
+        assert_eq!(tenant_field_index::<Scoped>(), Some(1));
+        // No column at all, and a `tenant_id` that is not a UUID: both are
+        // "cannot scope", never "scope by something else" (GH #223).
+        assert_eq!(tenant_field_index::<Unscoped>(), None);
+        assert_eq!(tenant_field_index::<WronglyTyped>(), None);
+    }
+
+    /// The derived filter is only real if it reaches SQL: the discovered index
+    /// and the UUID comparison must narrow a live query (GH #223).
+    #[tokio::test]
+    async fn derived_tenant_filter_scopes_a_live_query() {
+        let mut db = toasty::Db::builder()
+            .models(toasty::models!(Scoped))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        let mine = uuid::Uuid::new_v4();
+        let theirs = uuid::Uuid::new_v4();
+        toasty::create!(Scoped {
+            tenant_id: mine,
+            name: "Mine"
+        })
+        .exec(&mut db)
+        .await
+        .unwrap();
+        toasty::create!(Scoped {
+            tenant_id: theirs,
+            name: "Theirs"
+        })
+        .exec(&mut db)
+        .await
+        .unwrap();
+
+        let filter = derived_tenant_filter::<Scoped>(mine).expect("Scoped declares tenant_id");
+        let rows = toasty::stmt::Query::<toasty::stmt::List<Scoped>>::all()
+            .filter(filter)
+            .exec(&mut db)
+            .await
+            .unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].name, "Mine");
+
+        // No discoverable column → no filter → the caller must fail rather than
+        // run the query (GH #223).
+        assert!(derived_tenant_filter::<Unscoped>(mine).is_none());
     }
 }

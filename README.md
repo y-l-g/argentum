@@ -207,14 +207,66 @@ impl Resource for PostResource {
 Tenancy pattern:
 
 ```rust
-fn query(cx: &Cx) -> Query<List<Post>> {
-    let mut q = Query::<List<Post>>::all();
-    if let Some(tid) = tenant_id(cx) {
-        q = q.filter(Post::fields().tenant_id().eq(tid));
+impl Resource for PostResource {
+    type Model = Post;
+
+    // `Post` declares `tenant_id: uuid::Uuid`. Declaring this is the whole
+    // tenant contract (GH #223): every handler 403s without a tenant, and every
+    // loader — list, edit, delete, bulk, export, relationship options — ANDs
+    // `tenant_id = <request tenant>`, derived from the model's own schema, onto
+    // whatever `query` returns.
+    fn requires_tenant() -> bool {
+        true
     }
-    q
+
+    // The resource's *own* scoping only — a soft delete, row-level visibility,
+    // the includes a page loads. Writing the tenant filter here is redundant
+    // and was the GH #87 leak: one override that forgot it served every
+    // tenant's rows.
+    fn query(_cx: &Cx) -> Query<List<Post>> {
+        Query::<List<Post>>::all()
+    }
 }
 ```
+
+App code that loads rows outside the framework's loaders — a record fn
+double-checking a foreign key, a custom page — calls
+`scoped_query::<PostResource>(cx)?` rather than `PostResource::query(cx)`: on a
+gated resource that method is the **tenant-unscoped** base, deliberately, so the
+tenant-unscoped case is visible at the call site (it still carries whatever the
+resource's own `query` scopes — soft deletes included).
+
+Three shapes, one gate:
+
+1. **The model carries the tenant** (the common case): `requires_tenant() =
+   true` and nothing else. The framework derives `tenant_id = <request tenant>`
+   from the model's own schema.
+2. **The row inherits its tenant** — `Comment` has no `tenant_id`, it belongs to
+   a post that does. Declare the predicate instead of the column:
+
+   ```rust
+   fn requires_tenant() -> bool {
+       true
+   }
+
+   fn tenant_scope(tenant: uuid::Uuid) -> Option<toasty::stmt::Expr<bool>> {
+       // The framework ANDs this onto `query`/`export_query` at every loader,
+       // exactly as it ANDs the derived filter elsewhere.
+       Some(Comment::fields().post().tenant_id().eq(tenant))
+   }
+   ```
+
+   The gate is what matters: writing this filter inside `query` with
+   `requires_tenant() = false` would *skip* it for a tenantless request rather
+   than refuse it, which is how the comments queue once served every tenant's
+   rows to a tenantless admin.
+3. **The resource must serve more than one tenant** (a deliberate cross-tenant
+   view): `requires_tenant() = false` and scope in `query` by hand — the one
+   explicit way out, and the gate goes with it.
+
+A gated resource that supplies no predicate at all — no `tenant_id` column and
+no `tenant_scope` override — answers an error naming itself rather than querying
+tenant-unscoped. There is no override that removes the scope.
 
 ---
 
@@ -314,7 +366,7 @@ Select::r#for(Post::fields().author_id())
 ```
 
 - Relation options are bounded to 200 (`MAX_RELATIONSHIP_OPTIONS`) and memoized per `(request, tenant)`. Small tables validate against the bounded set; `can_view` filters before labels, `can_view_any`/tenant denial fails closed (`not available`).
-- Large reference tables (10k+ rows) need `.searchable()` on the `Select` (GH #150): over-cap searchable selects degrade to type-to-search instead of a retry error. Typing fetches `GET {parent_list_url}/options?field=&q=` (debounced 200ms, abort in-flight, selection preserved), which reuses the related `Table`'s declared `searchable()` columns (`search_expr`), bounds to 200, and filters `can_view` before labels. No searchable columns → hard-cap path (non-searchable keeps the cap error). Overflowed submits validate via a targeted PK check (`R::query` + `can_view`): legitimate FKs beyond the cap pass, hidden → `invalid`, denied → `not available`, DB failure → retry. Initial render keeps the stored value + search input + “Too many options — type to search” hint; no-JS keeps the plain select (other fields still submit, relation cannot be changed past the cap).
+- Large reference tables (10k+ rows) need `.searchable()` on the `Select` (GH #150): over-cap searchable selects degrade to type-to-search instead of a retry error. Typing fetches `GET {parent_list_url}/options?field=&q=` (debounced 200ms, abort in-flight, selection preserved), which reuses the related `Table`'s declared `searchable()` columns (`search_expr`), bounds to 200, and filters `can_view` before labels. No searchable columns → hard-cap path (non-searchable keeps the cap error). Overflowed submits validate via a targeted PK check (the tenant-scoped query + `can_view`): legitimate FKs beyond the cap pass, hidden → `invalid`, denied → `not available`, DB failure → retry. Initial render keeps the stored value + search input + “Too many options — type to search” hint; no-JS keeps the plain select (other fields still submit, relation cannot be changed past the cap).
 
 - `FileUpload` binds a `String` path and owns the request half: no `value` on `type=file`, `enctype="multipart/form-data"` when a form has one, a 10 MiB body cap (413), a 400 for multipart without a boundary, and sanitized basenames (`.` / `..` / Windows reserved names surface as inline errors). On an edit the control drops native `required` (GH #184) — a `required` file input cannot be pre-filled, so it blocked every untouched save; `required` still holds on create.
 - **Where the bytes go is the app's** (GH #188, ADR-0017): install an `Uploader` once with `Panel::uploads(store)`. `store(filename, bytes) -> Result<String, String>` receives the sanitized name and the content (bounded by the cap) and returns the value the record stores; a refusal is an inline error (`"<Label> could not be uploaded: <reason>"`), not a 500. With no uploader installed the sanitized basename is stored, which is the pre-#188 contract, and the bytes are drained rather than buffered.
@@ -336,7 +388,7 @@ fn view(cx: &Cx) -> Schema {
 }
 ```
 
-That registers `GET /admin/{slug}/{id}` — loaded through `Resource::query`, so an unknown id and one outside the tenant are the same 404, while `can_view` denial is a 403 — and adds a `View` link beside `Edit` on each row. A resource with no `view` declaration has no page and no link, and the route answers 404 rather than rendering an empty shell.
+That registers `GET /admin/{slug}/{id}` — loaded through the tenant-scoped query, so an unknown id and one outside the tenant are the same 404, while `can_view` denial is a 403 — and adds a `View` link beside `Edit` on each row. A resource with no `view` declaration has no page and no link, and the route answers 404 rather than rendering an empty shell.
 
 - **Read-only is not a disabled form.** Fields render labels and stored values: `TextInput`/`Textarea` show text, `Select` shows the option label the form offered (or the stored value when no option matches, a relationship key included), `FileUpload` shows the stored path and previews a stored image (GH #188), and layout blocks keep their structure. No control, no CSRF field, no validation slot.
 - **Values come from `hydrate_form_values`**, the same projection the edit form hydrates, so a field that renders in the form renders here.
@@ -406,7 +458,7 @@ Explicit opt-out:
 Panel::new("admin").auth(Auth::disabled())
 ```
 
-Tenancy comes from the logged-in user. `tenant_id(cx)` reads the request `Tenant`, which the auth layer sets; a server-set `Tenant` request extension overrides deliberately (for middleware/tests). Scope `query()` with it and mark tenant-owned resources with `requires_tenant()` so handlers fail closed (403) without one. Never trust a tenant header from the client.
+Tenancy comes from the logged-in user. `tenant_id(cx)` reads the request `Tenant`, which the auth layer sets; a server-set `Tenant` request extension overrides deliberately (for middleware/tests). Mark tenant-owned resources with `requires_tenant()`: handlers fail closed (403) without a tenant, and the framework derives the `tenant_id` filter from the model and applies it at every loader (GH #223), so no `query()` override has to restate it. Never trust a tenant header from the client.
 
 No built-in rate limiter or lockout: enforce at the edge (proxy/WAF). `Notification` is a one-time `__Host-argentum_notification` flash cookie on the 303 Post/Redirect/Get response, consumed on follow-up so reloads never replay it.
 
@@ -478,7 +530,7 @@ Schema setup: `db.push_schema().await` for prototypes, `toasty-cli` migrations f
 
 Render invariants: pages, layouts, and components are side-effect free and deterministic — no `HashMap` iteration, `Utc::now()`, or random IDs in a streamed region (breaks concurrent/streaming re-renders). Query Toasty directly with explicit `include` for relations, `#[index]` for filter columns, and `#[memoize]` for shared loads. `Cx`-scoped values (`Tenant`, auth), not middleware, carry request scope. Every value read on the server via `get()` / `read()` is untrusted client input.
 
-Reactivity: `signal(cx, init)` runs only in a page/layout/component body; loop bodies need `#[key(...)]` and reorderable rows need a stable `id` from the row key. `get()` / `read()` re-runs track and morph in place; `get_untracked()` opts out. Page/layout guards do not run on shard requests — shards authorize themselves (`requires_tenant` + `can_view_any` + `query()` scoping).
+Reactivity: `signal(cx, init)` runs only in a page/layout/component body; loop bodies need `#[key(...)]` and reorderable rows need a stable `id` from the row key. `get()` / `read()` re-runs track and morph in place; `get_untracked()` opts out. Page/layout guards do not run on shard requests — shards authorize themselves (`requires_tenant` + `can_view_any` + the tenant-scoped query).
 
 ---
 

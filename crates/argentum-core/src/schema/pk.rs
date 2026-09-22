@@ -83,7 +83,8 @@ where
 /// PK is not a single primitive field.
 ///
 /// Consumers: the panel's edit/delete loaders, which filter the
-/// tenancy-scoped [`crate::resource::Resource::query`] instead of fetching
+/// tenant-scoped [`scoped_query`](crate::resource::scoped_query) instead of
+/// fetching
 /// every row and matching row keys in memory (GH #75 item 1).
 pub(crate) fn pk_eq_expr<M>(id: &str) -> Option<toasty::stmt::Expr<bool>>
 where

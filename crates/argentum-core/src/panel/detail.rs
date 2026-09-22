@@ -3,7 +3,8 @@
 //! One record, rendered through [`Resource::view`] — the same `Schema` a form
 //! uses, read the other way round. It lives beside the form handlers rather
 //! than in `list.rs` because it is a record page: it loads through the same
-//! `Resource::query` seam (`find_by_key`), checks the same `can_view` policy,
+//! tenant-scoped query (`find_by_key`, GH #223), checks the same `can_view`
+//! policy,
 //! and answers the same 404 for an unknown or out-of-scope id.
 
 use topcoat::view::internal::ThenView;
@@ -25,8 +26,9 @@ use crate::resource::Resource;
 /// "declares nothing" and "no such page" the same answer for a hand-typed URL
 /// and makes the row link's absence honest.
 ///
-/// The record loads through `R::query` (`find_by_key` — the tenancy and
-/// soft-delete seam, ADR-0002), so an unknown id and an id outside the
+/// The record loads through the tenant-scoped query (`find_by_key` — the
+/// tenancy half derived by the framework, GH #223 — and the resource's own
+/// soft-delete scope, ADR-0002), so an unknown id and an id outside the
 /// request's scope get one answer, as everywhere else in the panel. `can_view`
 /// on the loaded record is a 403 rather than a 404: the record exists and this
 /// caller may not see it.

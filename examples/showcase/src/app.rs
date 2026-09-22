@@ -5,7 +5,7 @@ use argentum_core::{
     Brand, DateFilter, FileUpload, Grid, Group, IncludeNeeds, Panel, RelationColumn,
     RelationColumns, Repeater, Resource, Schema, Section, Select, SelectFilter, Table, Tabs,
     TernaryFilter, TextColumn, TextInput, Textarea, Uploader, VariantFilter, read_embedded,
-    render_relation, submitted, tenant_id, write_embedded,
+    render_relation, require_tenant, scoped_query, submitted, tenant_id, write_embedded,
 };
 use toasty::Db;
 use topcoat::{
@@ -278,14 +278,9 @@ impl Resource for AuthorResource {
         "Writers".to_string()
     }
 
-    fn query(cx: &Cx) -> toasty::stmt::Query<toasty::stmt::List<Author>> {
-        let mut q = toasty::stmt::Query::<toasty::stmt::List<Author>>::all();
-        if let Some(tid) = tenant_id(cx) {
-            q = q.filter(Author::fields().tenant_id().eq(tid));
-        }
-        q
-    }
-
+    // No `query` override (GH #223): the framework ANDs `tenant_id = <tenant>`
+    // onto the default query for a `requires_tenant` resource, derived from
+    // `Author`'s own schema, so the filter cannot be forgotten here.
     fn can_view_any(cx: &Cx) -> bool {
         if tenant_id(cx).is_some_and(|tid| tid == BLOCKED_TENANT) {
             return false;
@@ -370,8 +365,10 @@ impl Resource for AuthorResource {
                 .unwrap_or_default()
                 .trim()
                 .to_string();
-            let tid =
-                tenant_id(&cx).expect("requires_tenant handlers always set a tenant (GH #87)");
+            // `requires_tenant` makes the handler answer 403 before this runs
+            // (GH #87), so this re-check is the non-panicking form of the old
+            // `expect` (GH #223): minting a nil-tenant orphan stays impossible.
+            let tid = require_tenant(&cx)?;
             // The created row goes back to the framework (GH #112).
             toasty::create!(Author {
                 tenant_id: tid,
@@ -459,19 +456,23 @@ impl Resource for AuthorResource {
 pub struct PostResource;
 
 impl PostResource {
-    /// The posts base query, tenancy-scoped, with the two relations the table
-    /// can render loaded only when `needs` asks (GH #177).
+    /// The posts base query with the two relations the table can render loaded
+    /// only when `needs` asks (GH #177).
+    ///
+    /// No tenant filter (GH #223): `requires_tenant` is `true`, so the
+    /// framework scopes every loader — list, edit, delete, bulk, export — by
+    /// ANDing the filter it derives from `Post`'s own `tenant_id` column onto
+    /// whatever this returns. Writing it by hand here was the GH #87 hole: one
+    /// override that forgot the filter served every tenant's rows.
     ///
     /// `query` is the list/detail half and loads both — the Comments column
     /// renders the count and the detail page reads `view_relations` — while
     /// `export_query` gets the includes the exported table's columns declared.
-    /// Both go through this one function so the tenancy filter cannot be lost
-    /// in one of them.
-    fn base(cx: &Cx, needs: &IncludeNeeds) -> toasty::stmt::Query<toasty::stmt::List<Post>> {
+    /// Both go through this one function so the includes cannot drift apart.
+    /// It takes no `Cx` because there is nothing left to resolve from the
+    /// request: the scope belongs to the framework now.
+    fn base(needs: &IncludeNeeds) -> toasty::stmt::Query<toasty::stmt::List<Post>> {
         let mut q = toasty::stmt::Query::<toasty::stmt::List<Post>>::all();
-        if let Some(tid) = tenant_id(cx) {
-            q = q.filter(Post::fields().tenant_id().eq(tid));
-        }
         if needs.wants("author") {
             let inc_author: toasty::stmt::Include<Post, Author> = Post::fields().author().into();
             q = q.include(inc_author);
@@ -492,18 +493,18 @@ impl Resource for PostResource {
         "Blog Posts".to_string()
     }
 
-    fn query(cx: &Cx) -> toasty::stmt::Query<toasty::stmt::List<Post>> {
-        Self::base(cx, &IncludeNeeds::from(["author", "comments"]))
+    fn query(_cx: &Cx) -> toasty::stmt::Query<toasty::stmt::List<Post>> {
+        Self::base(&IncludeNeeds::from(["author", "comments"]))
     }
 
     /// The export asks for the includes the exported columns declared
     /// (GH #177), so this table's two relation columns decide what the CSV
     /// query loads.
     fn export_query(
-        cx: &Cx,
+        _cx: &Cx,
         needs: &IncludeNeeds,
     ) -> toasty::stmt::Query<toasty::stmt::List<Post>> {
-        Self::base(cx, needs)
+        Self::base(needs)
     }
 
     /// One post, read-only (GH #187). Each entry binds the same storage name
@@ -793,8 +794,11 @@ impl Resource for PostResource {
             let author_id = author_id_str.parse::<uuid::Uuid>().map_err(|e| {
                 topcoat::Error::from(std::io::Error::other(format!("invalid author_id: {e}")))
             })?;
-            // Verify author exists via AuthorResource::query (tenancy-aware) - existence already checked in validation but double.
-            let author_exists = AuthorResource::query(&cx)
+            // Verify the author exists *in this tenant*: `scoped_query` is the
+            // framework's tenancy-scoped entry point (GH #223) — plain
+            // `AuthorResource::query` is the tenant-unscoped base now that the
+            // framework applies the tenant filter at every loader.
+            let author_exists = scoped_query::<AuthorResource>(&cx)?
                 .filter(Author::fields().id().eq(author_id))
                 .first()
                 .exec(&mut *ex)
@@ -834,8 +838,10 @@ impl Resource for PostResource {
                 values.get("featured").map(|s| s.trim().to_string()),
                 Some(s) if s == "true"
             );
-            let tid =
-                tenant_id(&cx).expect("requires_tenant handlers always set a tenant (GH #87)");
+            // `requires_tenant` already answered 403 to a tenantless submit
+            // (GH #87); this is the non-panicking form of the old `expect`
+            // (GH #223), so a nil-tenant orphan still cannot be minted.
+            let tid = require_tenant(&cx)?;
             // Embedded values (GH #191): the codec reads each one back from the
             // submission, choosing an enum's variant from the discriminant the
             // form posted rather than from which payloads are non-empty.
@@ -889,8 +895,10 @@ impl Resource for PostResource {
                 None => rec.author_id,
             };
             // Symmetric FK double-check (GH #91, mirrors create): validate_async
-            // already checked, but the author may be cross-tenant or deleted since.
-            let author_exists = AuthorResource::query(&cx)
+            // already checked, but the author may be cross-tenant or deleted
+            // since — so the check runs through the tenant-scoped query
+            // (GH #223), exactly as the create above does.
+            let author_exists = scoped_query::<AuthorResource>(&cx)?
                 .filter(Author::fields().id().eq(author_id))
                 .first()
                 .exec(&mut *ex)
@@ -1017,8 +1025,18 @@ impl Resource for PostResource {
 /// Comments resource over `Comment`: the moderation queue.
 ///
 /// Comments carry no tenant of their own — they inherit visibility from their
-/// post (GH #169) — so the query scopes through the parent post's `tenant_id`
-/// and `requires_tenant` stays false.
+/// post (GH #169) — so the request tenant is required like any other gated
+/// resource, and the scope is the parent post's tenant, declared in
+/// [`tenant_scope`](Resource::tenant_scope) (GH #223).
+///
+/// That declaration is what the framework's default cannot supply: the default
+/// derives the filter from a `tenant_id` column on the model, and `Comment` has
+/// none. Leaving `requires_tenant` false and writing the filter inside `query`
+/// was the GH #223 review's leak — a tenantless request silently *skipped* the
+/// filter instead of being refused, and with `can_view_any`/`can_view` true the
+/// caller could read and moderate every tenant's comments. Gated + declared is
+/// the shape that fails closed: no tenant is a 403 everywhere, and the
+/// predicate is the framework's to apply.
 ///
 /// The queue moderates: row and bulk delete are enabled (GH #184), which is
 /// what `can_delete`, `delete_record` and `bulk_delete_records` were already
@@ -1027,7 +1045,8 @@ impl Resource for PostResource {
 pub struct CommentResource;
 
 /// Re-resolve a comment's parent post through the tenant-scoped
-/// [`PostResource::query`] inside the caller's open transaction (GH #178).
+/// [`scoped_query::<PostResource>`] inside the caller's open transaction
+/// (GH #178, GH #223).
 ///
 /// `Schema::validate_async` / `Select::validate_async` already reject a
 /// `post_id` outside the tenant-scoped option set before the tx opens, but that
@@ -1045,7 +1064,7 @@ async fn ensure_post_in_tenant(
     post_id: uuid::Uuid,
     ex: &mut dyn toasty::Executor,
 ) -> Result<()> {
-    let in_tenant = PostResource::query(cx)
+    let in_tenant = scoped_query::<PostResource>(cx)?
         .filter(Post::fields().id().eq(post_id))
         .first()
         .exec(&mut *ex)
@@ -1059,21 +1078,19 @@ async fn ensure_post_in_tenant(
 }
 
 impl CommentResource {
-    /// The comments base query, scoped through the parent post's tenant
-    /// (GH #169), with the post loaded only when `needs` asks.
+    /// The comments base query with the post loaded only when `needs` asks
+    /// (GH #177).
     ///
-    /// The list/detail half always loads it — the Post column renders the
+    /// No tenant filter (GH #223): the scope is declared once, in
+    /// [`tenant_scope`](Resource::tenant_scope), and the framework ANDs it onto
+    /// whatever this returns — for the list, the edit load, the bulk fetch, the
+    /// export and the relationship option loads alike.
+    ///
+    /// The list/detail half always loads the post — the Post column renders the
     /// title and the edit form's relationship `Select` reads it — while the
     /// export passes what its columns declared (GH #177).
-    fn base(cx: &Cx, needs: &IncludeNeeds) -> toasty::stmt::Query<toasty::stmt::List<Comment>> {
-        // Inherit-through-the-relation (GH #169): scope through the parent
-        // post's tenant, mirroring the Author/Post `tenant_id(cx)` filter
-        // style. Toasty rewrites the relation-path comparison into a
-        // foreign-key subquery.
+    fn base(needs: &IncludeNeeds) -> toasty::stmt::Query<toasty::stmt::List<Comment>> {
         let mut q = toasty::stmt::Query::<toasty::stmt::List<Comment>>::all();
-        if let Some(tid) = tenant_id(cx) {
-            q = q.filter(Comment::fields().post().tenant_id().eq(tid));
-        }
         if needs.wants("post") {
             let inc_post: toasty::stmt::Include<Comment, Post> = Comment::fields().post().into();
             q = q.include(inc_post);
@@ -1091,6 +1108,25 @@ impl Resource for CommentResource {
         // — would be the set of comments on one post, which is not a record the
         // panel can list or moderate.
         "Comments".to_string()
+    }
+
+    /// Tenant-scoped from the parent post, and gated like every other
+    /// tenant-owned resource (GH #169, GH #223).
+    ///
+    /// `true` is what makes a tenantless request a 403 here instead of a read
+    /// that quietly dropped the filter; the predicate below replaces the
+    /// framework's name-based derivation, which finds no `tenant_id` on
+    /// `Comment`.
+    fn requires_tenant() -> bool {
+        true
+    }
+
+    /// Inherit-through-the-relation (GH #169): scope through the parent post's
+    /// tenant. Toasty rewrites the relation-path comparison into a foreign-key
+    /// subquery, and the framework ANDs the result onto `query`/`export_query`
+    /// exactly as it ANDs the derived `tenant_id` filter elsewhere.
+    fn tenant_scope(tenant: uuid::Uuid) -> Option<toasty::stmt::Expr<bool>> {
+        Some(Comment::fields().post().tenant_id().eq(tenant))
     }
 
     fn can_view_any(_cx: &Cx) -> bool {
@@ -1118,17 +1154,17 @@ impl Resource for CommentResource {
         true
     }
 
-    fn query(cx: &Cx) -> toasty::stmt::Query<toasty::stmt::List<Comment>> {
-        Self::base(cx, &IncludeNeeds::from(["post"]))
+    fn query(_cx: &Cx) -> toasty::stmt::Query<toasty::stmt::List<Comment>> {
+        Self::base(&IncludeNeeds::from(["post"]))
     }
 
     /// The export asks for the includes the exported columns declared
     /// (GH #177) — here the Post column's `post`.
     fn export_query(
-        cx: &Cx,
+        _cx: &Cx,
         needs: &IncludeNeeds,
     ) -> toasty::stmt::Query<toasty::stmt::List<Comment>> {
-        Self::base(cx, needs)
+        Self::base(needs)
     }
 
     fn table(cx: &Cx) -> Table<Comment> {

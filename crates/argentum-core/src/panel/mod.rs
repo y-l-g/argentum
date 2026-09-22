@@ -313,7 +313,8 @@ impl Panel {
             route_path(&bulk_delete_url),
             resource_bulk_delete::<R>,
         ));
-        // CSV export — GET reusing Resource::query + Table filters/sort (ADR-0012).
+        // CSV export — GET over the tenant-scoped export query + Table
+        // filters/sort (ADR-0012, GH #223).
         let export_url = format!("{}/export", url);
         self.routes.push(RouteFn::new(
             http::Method::GET,

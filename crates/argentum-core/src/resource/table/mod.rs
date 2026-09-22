@@ -424,11 +424,11 @@ impl<M> Table<M> {
     /// [`LIVE_SEARCH_DEBOUNCE_MS`]), morphing in place so focus
     /// and typing survive, instead of a GET submit. The `?q=` GET form stays
     /// inside `<noscript>` as the no-JS fallback. Opt-in per resource; the
-    /// shard authorizes itself (`can_view_any` + tenancy via
-    /// `Resource::query`) and every arg is validated like the GET path.
+    /// shard authorizes itself (`can_view_any` + the tenant-scoped query,
+    /// GH #223) and every arg is validated like the GET path.
     /// Per-row `can_view` is not applied here, matching the list page:
     /// page-local row filtering would mislabel pagination, so row scoping
-    /// belongs in `Resource::query` (GH #86).
+    /// belongs in `Resource::query`, inside that scope (GH #86).
     /// Note: Topcoat coalesces same-tick keystrokes and aborts in-flight
     /// reruns (latest wins); the time-based debounce above composes with
     /// that (delayed writes rerun normally).
@@ -592,9 +592,9 @@ impl<M> Table<M> {
     /// the search term, the filters and the ordering into a query (GH #210).
     ///
     /// `query` is the caller's seed, which is the one thing the two loaders
-    /// legitimately differ on: the list loads
-    /// [`Resource::query`](crate::resource::Resource::query) (the tenancy
-    /// seam, ADR-0002) while the export loads
+    /// legitimately differ on: the list loads the tenant-scoped
+    /// [`Resource::query`](crate::resource::Resource::query) (the row-scoping
+    /// seam, ADR-0002) while the export loads the tenant-scoped
     /// [`Resource::export_query`](crate::resource::Resource::export_query),
     /// narrowed to the relations the rendered columns declared (GH #177).
     /// `mode` picks the ordering fallback each caller needs.
@@ -630,7 +630,8 @@ impl<M> Table<M> {
     /// The loader half of the live-table seam (GH #154 §2): a page that owns
     /// its own table (the showcase demos) can hand its shard a query and this
     /// hook applies the same declaration pipeline `panel::load_table_page`
-    /// applies to `Resource::query`, so a page-level shard does not
+    /// applies to the tenant-scoped `Resource::query` (GH #223), so a
+    /// page-level shard does not
     /// reimplement filtering, ordering, or cursor validation.
     pub async fn load(
         &self,

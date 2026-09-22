@@ -29,8 +29,9 @@ use crate::schema::OptionLoadError;
 /// Fetch one record by its URL `id` through the tenancy-scoped query seam.
 ///
 /// The string id is parsed against the model's primary-key type and the PK
-/// filter is ANDed onto [`Resource::query`](crate::resource::Resource::query)
-/// (ADR-0002), so tenancy/soft-delete scoping holds. Replaces the #75 item-1
+/// filter is ANDed onto the tenant-scoped
+/// [`scoped_query`](crate::resource::scoped_query) (ADR-0002, GH #223), so
+/// tenancy and soft-delete scoping both hold. Replaces the #75 item-1
 /// pattern of fetching every row and matching `Table::key_for` in memory —
 /// O(N) rows per edit/delete, leaking the whole table before the policy
 /// check.
@@ -59,7 +60,7 @@ pub(crate) async fn find_by_key<R: Resource>(
         }
         return Err(topcoat::router::error::not_found().into());
     };
-    R::query(cx)
+    crate::resource::scoped_query::<R>(cx)?
         .filter(expr)
         .first()
         .exec(&mut *ex)
@@ -72,7 +73,8 @@ pub(crate) async fn find_by_key<R: Resource>(
 /// Load the record the request names, scoped and policy-checked (GH #187).
 ///
 /// The record-page prologue — auth, tenant gate, `{id}` param, load through
-/// `Resource::query`, `can_view` — was written out at each page that needed it
+/// the tenant-scoped query, `can_view` — was written out at each page that
+/// needed it
 /// (`resource_view`, `resource_edit`). A page that forgets one of the two gates
 /// is a hole rather than a bug in what it renders, so the sequence lives here,
 /// in the order every handler already used: auth, the tenant gate, the load
@@ -124,7 +126,7 @@ pub(crate) fn resource_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
                 );
             }
             // Confirmed and authenticated: open the transaction only now (GH
-            // #144), fetch through the tenancy seam, check Policy against the
+            // #144), fetch through the tenant-scoped query, check Policy against the
             // loaded record, and delete inside the tx — commit makes the checked
             // delete durable, any error rolls it back (GH #84). Delete takes
             // the edit contract (GH #86, GH #168): `can_view` plus
@@ -226,7 +228,7 @@ pub(crate) fn resource_bulk_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<
             };
             let mut db = db(cx);
             let mut tx = db.transaction().await.map_err(crate::db::unavailable)?;
-            let rows = R::query(cx)
+            let rows = crate::resource::scoped_query::<R>(cx)?
                 .filter(pk_filter)
                 .exec(&mut tx)
                 .await
@@ -355,7 +357,8 @@ fn parse_bulk_ids(raw: &str, max: usize) -> Vec<String> {
     ids
 }
 
-/// CSV export — reuses `Resource::query` + `Table` filters/sort, downloads `text/csv`.
+/// CSV export — the tenant-scoped `export_query` + `Table` filters/sort,
+/// downloads `text/csv`.
 ///
 /// Streams the response as a chunked body (GH #172): the filtered query is
 /// walked in cursor chunks ([`EXPORT_CHUNK_ROWS`] rows at a time) and each
@@ -397,7 +400,7 @@ pub(crate) fn resource_export<R: Resource>(cx: &Cx, _body: Body) -> RouteFuture<
         }
         // Phase 1: bounded visibility scan — count receivable rows inside the
         // raw cap window, so the 413 below fires before any response bytes.
-        let mut chunker = ExportChunker::new(export_base_query::<R>(cx, &table, &state));
+        let mut chunker = ExportChunker::new(export_base_query::<R>(cx, &table, &state)?);
         let mut db_handle = db(cx);
         let mut visible = 0usize;
         while let Some(rows) = chunker.next_chunk(&mut db_handle).await? {
@@ -414,7 +417,18 @@ pub(crate) fn resource_export<R: Resource>(cx: &Cx, _body: Body) -> RouteFuture<
         let cx2 = cx.clone();
         tokio::spawn(async move {
             let mut tx = tx;
-            let mut chunker = ExportChunker::new(export_base_query::<R>(&cx2, &table, &state));
+            // The tenant scope was already resolved for phase 1 against the
+            // same `cx`, table and state, so this cannot fail again — but a
+            // stream that cannot build its query aborts instead of sending a
+            // truncated CSV (GH #223 moved the seed behind a `Result`).
+            let mut chunker = match export_base_query::<R>(&cx2, &table, &state) {
+                Ok(query) => ExportChunker::new(query),
+                Err(error) => {
+                    tracing::error!(resource = R::slug(), error = %error, "export stream failed");
+                    tx.abort(std::io::Error::other("export unavailable"));
+                    return;
+                }
+            };
             let mut db_handle = crate::db::db(&cx2);
             let mut first = true;
             let mut visible = 0usize;
@@ -479,26 +493,27 @@ pub(crate) fn resource_export<R: Resource>(cx: &Cx, _body: Body) -> RouteFuture<
 }
 
 /// The export's filtered + ordered base query (GH #172): the resource's
-/// [`export_query`](crate::resource::Resource::export_query) — the tenancy seam
-/// (ADR-0002) narrowed to the relations the rendered columns declared
-/// (GH #177) — with the table's declaration applied through the one shared
-/// routine the list loader uses (GH #210).
+/// [`export_query`](crate::resource::Resource::export_query) — the soft-delete /
+/// row-level seam (ADR-0002) narrowed to the relations the rendered columns
+/// declared (GH #177), and tenant-scoped by the framework on the way in
+/// (GH #223, [`crate::resource::scoped_query`]) — with the table's declaration
+/// applied through the one shared routine the list loader uses (GH #210).
 ///
 /// The seed query and the ordering mode are the only things the two loaders
-/// differ on: the list loads `Resource::query` with [`OrderMode::List`], the
-/// export loads the narrowed `export_query` with [`OrderMode::Export`] — whose
-/// PK fallback applies whether or not the table paginates, because the chunked
-/// cursor walk needs a deterministic order either way.
+/// differ on: the list loads the tenant-scoped `Resource::query` with
+/// [`OrderMode::List`], the export loads the tenant-scoped narrowed
+/// `export_query` with [`OrderMode::Export`] — whose PK fallback applies whether
+/// or not the table paginates, because the chunked cursor walk needs a
+/// deterministic order either way. Both therefore pay the same scope, and a
+/// gated resource cannot export unscoped.
 fn export_base_query<R: Resource>(
     cx: &Cx,
     table: &Table<R::Model>,
     state: &TableState,
-) -> toasty::stmt::Query<toasty::stmt::List<R::Model>> {
-    table.apply_declaration(
-        R::export_query(cx, &table.include_needs()),
-        state,
-        OrderMode::Export,
-    )
+) -> Result<toasty::stmt::Query<toasty::stmt::List<R::Model>>> {
+    let seed =
+        crate::resource::apply_tenant_scope::<R>(cx, R::export_query(cx, &table.include_needs()))?;
+    Ok(table.apply_declaration(seed, state, OrderMode::Export))
 }
 
 /// One cursor-chunked pass over an export base query (GH #172).
@@ -620,6 +635,12 @@ pub(crate) fn resource_options<R: Resource>(cx: &Cx, _body: Body) -> RouteFuture
             Err(OptionLoadError::Denied) => Err(forbidden().into()),
             Err(OptionLoadError::LoadFailed) => Err(topcoat::Error::from(std::io::Error::other(
                 "option search failed",
+            ))),
+            // Permanent (GH #223): the related resource cannot be scoped at
+            // all, so the search cannot succeed until the declaration is
+            // fixed — a 500 that says so, not a retry.
+            Err(OptionLoadError::Misdeclared) => Err(topcoat::Error::from(std::io::Error::other(
+                "option search unavailable: the related resource requires a tenant the                      framework cannot scope (GH #223)",
             ))),
             Err(OptionLoadError::Overflow) => {
                 let html = "<option value=\"\" disabled>Too many results — keep typing</option>"
@@ -1715,8 +1736,9 @@ mod tests {
             .build();
         let table = TinyResource::table(&cx);
         let state = crate::resource::TableState::default();
-        let mut chunker =
-            ExportChunker::new(export_base_query::<TinyResource>(&cx, &table, &state));
+        let mut chunker = ExportChunker::new(
+            export_base_query::<TinyResource>(&cx, &table, &state).expect("tenant scope"),
+        );
         let first = chunker
             .next_chunk(&mut db)
             .await
@@ -1834,8 +1856,9 @@ mod tests {
             "the seed must exercise search + filter + sort"
         );
 
-        let mut chunker =
-            ExportChunker::new(export_base_query::<TaskResource>(&cx, &table, &state));
+        let mut chunker = ExportChunker::new(
+            export_base_query::<TaskResource>(&cx, &table, &state).expect("tenant scope"),
+        );
         let mut exported: Vec<String> = Vec::new();
         while let Some(rows) = chunker.next_chunk(&mut db).await.unwrap() {
             exported.extend(rows.iter().map(|t| t.title.clone()));

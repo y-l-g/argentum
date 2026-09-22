@@ -111,3 +111,17 @@ in the same direction: with no derive, every resource declares its own `table`,
 so the "a derived resource is never mounted and never serves an export" case
 cannot arise, and `export_query` stays a hand-written override of
 `Resource::query`.
+
+## Amendment (2026-09-22, the tenant half of the seed moved — GH #223)
+
+Decision 2 above says "the resource is the only layer that knows the tenancy
+filter", and the sample has `base(cx, ..)` return the tenant filter by hand.
+Neither is true now. The framework owns the tenant filter (ADR-0002's 2026-09-22
+amendment): a gated resource's `export_query` returns *includes only*, and the
+export loader wraps it — `apply_tenant_scope(cx, R::export_query(cx, needs))` —
+exactly
+as the list loader wraps `query`, so the tenant scope is applied once, after the
+override, for both seeds, and an export cannot be unscoped. Nothing else here
+changes: the declaration still lives on the column, the default still inherits
+`query`, only the export still narrows, and the unloaded-relation guard is still
+the check.

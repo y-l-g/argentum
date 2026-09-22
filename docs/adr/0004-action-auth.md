@@ -23,3 +23,15 @@ Two signatures changed so the seam can name what it wrote: `create_record` and `
 The hook is an **associated fn**, not a method: every `Resource` hook is (`create_record` and friends take no `self`), so there is no instance to receive. An app that needs configuration in its hook gets it where its record fns already do — a module-level value, or the app context through `cx`.
 
 **`Action` stays a term, not a type.** The first suggestion in #112 — "a small `Action` value type for non-CRUD mutations with before/after hooks" — is not built: the four record fns are the CRUD implementation, `Mutation` names their kinds, and a non-CRUD operation (publish, archive) is still a record fn or a hand-written page. Whether that deserves a first-class value with its own hooks is a separate question with no caller yet.
+
+## Status 2026-09-22 (GH #223): the seam this fetches through moved
+
+The Decision section's "fetch the target via `Resource::query(cx)` (the tenancy
+seam)" is superseded by ADR-0002's 2026-09-22 amendment: the tenant half of the
+scope is the framework's now, applied by `scoped_query` *after* whatever
+`query` returned. The invariant this ADR records is unchanged — every mutation
+still runs in a framework-owned transaction and checks `can_*` against the row
+the loader fetched — but the fetch is the tenant-scoped one, so an id outside
+the request tenant is still not found before any policy check runs. `query` is
+the resource's own (soft-delete, row-level) seam; app code that fetches records
+itself calls `scoped_query::<R>(cx)`.

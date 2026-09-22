@@ -10,7 +10,7 @@
 
 use std::collections::HashMap;
 
-use toasty::stmt::List;
+use toasty::stmt::{List, Query};
 use topcoat::Result;
 use topcoat::context::Cx;
 
@@ -111,9 +111,10 @@ pub trait Resource: Sized + Send + Sync + 'static {
     /// `can_view_any` (GH #86): `can_view` is an in-memory Rust predicate
     /// that cannot run in SQL, and filtering rows after cursor pagination
     /// would mislabel pages (holes, wrong Next/Prev). Row-level visibility
-    /// that must hold on the list belongs in [`Self::query`] (the tenancy
-    /// seam, ADR-0002), which every loader — list, edit, delete, bulk,
-    /// export — already funnels through.
+    /// that must hold on the list belongs in [`Self::query`] (ADR-0002),
+    /// which every loader — list, edit, delete, bulk, export — funnels
+    /// through *inside* [`scoped_query`], so the tenant half of the scope is
+    /// applied after the override rather than by it (GH #223).
     fn can_view(_cx: &Cx, _record: &Self::Model) -> bool {
         false
     }
@@ -268,8 +269,23 @@ pub trait Resource: Sized + Send + Sync + 'static {
         pluralize(type_short_name::<Self::Model>())
     }
 
-    /// Base query — the **single seam** for tenancy/soft-delete scoping
-    /// (ADR-0002). Every loader starts from this query.
+    /// Base query — the seam for a resource's **own** row scoping (ADR-0002 and
+    /// its 2026-09-22 status note): soft deletes, row-level visibility, and the
+    /// relations a page loads.
+    ///
+    /// **Tenancy is not this method's job any more (GH #223).** When
+    /// [`requires_tenant`](Self::requires_tenant) is `true` the framework ANDs
+    /// the tenant filter — derived from the model's `tenant_id` column — onto
+    /// whatever this returns, at every loader, through [`scoped_query`]. Do not
+    /// re-state `tenant_id().eq(tenant_id(cx))` here: the copy is redundant,
+    /// and one that disagreed with the derived column would hide rows rather
+    /// than widen access. The gate that makes a missing tenant a 403 is
+    /// unchanged (GH #87).
+    ///
+    /// That also means an override of this method is **not** the tenant seam it
+    /// once was: code outside the framework's loaders must start from
+    /// [`scoped_query`], because on a gated resource this is the
+    /// *tenant-unscoped* base. See [`scoped_query`] for why.
     ///
     /// Returns the raw typed statement query (the spec's original signature):
     /// raw queries compose generically — `filter`, `order_by`, and
@@ -281,18 +297,18 @@ pub trait Resource: Sized + Send + Sync + 'static {
     ///
     /// # Keep unique constraints in step with this scope (GH #88)
     ///
-    /// The app-side unique pre-check probes submitted values **through this
-    /// query**, so it only sees the rows this query returns. A `#[unique]` index
-    /// *broader* than the scope is therefore invisible to it: the probe misses
-    /// the colliding row, the database refuses the write, and the user gets a
-    /// 500 instead of the inline "has already been taken".
+    /// The app-side unique pre-check probes submitted values **through
+    /// [`scoped_query`]**, so it only sees the rows that query returns. A
+    /// `#[unique]` index *broader* than the scope is therefore invisible to it:
+    /// the probe misses the colliding row, the database refuses the write, and
+    /// the user gets a 500 instead of the inline "has already been taken".
     ///
-    /// The tenant case is the one that bites — scoping to `tenant_id` here while
-    /// the column carries a plain `#[unique]` (global) makes two tenants sharing
-    /// a value a legitimate pair to the probe and a constraint violation to the
-    /// database. Scope the constraint to match: `#[unique(tenant_id, email)]`,
-    /// which also makes it say what it means. `Author.email` in the showcase is
-    /// the worked example.
+    /// The tenant case is the one that bites — the framework scopes to
+    /// `tenant_id` while the column carries a plain `#[unique]` (global), which
+    /// makes two tenants sharing a value a legitimate pair to the probe and a
+    /// constraint violation to the database. Scope the constraint to match:
+    /// `#[unique(tenant_id, email)]`, which also makes it say what it means.
+    /// `Author.email` in the showcase is the worked example.
     ///
     /// The invariant cannot be *checked* at declaration time — a query's filters
     /// are not introspectable, so nothing can compare the two automatically.
@@ -341,9 +357,13 @@ pub trait Resource: Sized + Send + Sync + 'static {
     ///
     /// # What an override must keep
     ///
-    /// - **The scope of [`Self::query`].** This is the same tenancy/soft-delete
-    ///   seam (ADR-0002), and the export is a reader like any other: an
-    ///   override that drops the filter exports other tenants' rows.
+    /// - **The non-tenant scope of [`Self::query`].** This is the same
+    ///   soft-delete/row-level seam (ADR-0002), and the export is a reader like
+    ///   any other: an override that drops that half exports other rows. The
+    ///   *tenant* half is not the override's to keep — the framework ANDs it
+    ///   onto what this returns, exactly as it does for [`Self::query`]
+    ///   (GH #223), so a gated export is scoped whether or not the override
+    ///   re-states the filter.
     /// - **Whatever the policy path reads.** The export's visibility scan calls
     ///   [`Self::can_view`] on every row of both passes, before any cell is
     ///   written, so a `can_view` that reads a relation needs that relation
@@ -363,12 +383,52 @@ pub trait Resource: Sized + Send + Sync + 'static {
 
     /// Whether this resource requires a tenant in every handler (GH #87).
     ///
-    /// Opt-in and default-open today: `false` preserves the current behavior
-    /// (unscoped `Resource::query` default). Resources with a `tenant_id`
-    /// column should override to `true` so a missing tenant fails closed
-    /// (403) instead of leaking unscoped rows or minting nil-tenant orphans.
+    /// Opt-in and default-open: `false` preserves the default behavior — no
+    /// gate, and [`Self::query`] exactly as written. Override to `true` on a
+    /// resource whose model carries rows per tenant.
+    ///
+    /// `true` means two things, and the second is GH #223:
+    ///
+    /// 1. **The gate.** Every handler 403s when the request carries no tenant,
+    ///    instead of leaking unscoped rows or minting nil-tenant orphans
+    ///    (#87's tenantless-create rejection, unchanged).
+    /// 2. **The scope.** Every loader ANDs `tenant_id = <request tenant>` onto
+    ///    the resource's base query, deriving the column from the model's own
+    ///    schema — see [`scoped_query`] and [`Self::tenant_scope`]. A gated
+    ///    resource is therefore never unscoped because an override forgot to
+    ///    re-state the filter, and it is never unscoped because the derivation
+    ///    failed either: the model must declare a `tenant_id` UUID column, or
+    ///    the resource must declare its own predicate in
+    ///    [`Self::tenant_scope`], and a gated resource that does neither
+    ///    answers an error naming itself rather than serving rows unscoped.
+    ///
+    /// A resource that must genuinely serve more than the request tenant — a
+    /// deliberate cross-tenant view — declares `false` and scopes in
+    /// [`Self::query`] by hand. That is the explicit, visible way out, and it
+    /// gives up the gate above along with the derived filter.
     fn requires_tenant() -> bool {
         false
+    }
+
+    /// The predicate the framework ANDs onto this resource's base query to
+    /// scope it to `tenant` (GH #223), or `None` when there is nothing to AND.
+    ///
+    /// The default derives it from the model: `tenant_id = tenant`, on the
+    /// field named `tenant_id` whose type is a UUID (see [`crate::tenancy`]).
+    /// Override it when the resource's tenancy is not a column on its own
+    /// model — a row that inherits its parent's tenant states the relation
+    /// path here instead, and the framework applies it exactly as it applies
+    /// the derived one. The showcase's comments are the worked example.
+    ///
+    /// Only consulted when [`requires_tenant`](Self::requires_tenant) is
+    /// `true`. `None` from a gated resource is a **misdeclaration**, not a way
+    /// to be unscoped: every loader answers an error naming the resource
+    /// instead of running its query without a tenant predicate. There is
+    /// deliberately no override that *removes* the scope — a resource that
+    /// must serve more than one tenant declares `requires_tenant() = false`
+    /// and owns the scope in [`Self::query`], visibly, with the gate given up.
+    fn tenant_scope(tenant: uuid::Uuid) -> Option<toasty::stmt::Expr<bool>> {
+        crate::tenancy::derived_tenant_filter::<Self::Model>(tenant)
     }
 
     /// Description of the list view.
@@ -583,6 +643,84 @@ pub trait Resource: Sized + Send + Sync + 'static {
     }
 }
 
+/// The tenant-scoped query every loader executes (GH #223).
+///
+/// [`Resource::query`] with the tenant predicate from
+/// [`Resource::tenant_scope`] ANDed onto it: for a resource whose
+/// [`requires_tenant`](Resource::requires_tenant) is `true`, the rows are
+/// narrowed to the request tenant — derived from `tenant_id` by default,
+/// declared by the resource when its tenancy is inherited. The filter is
+/// applied *here*, outside the resource's `query`, so a resource that
+/// overrides `query` for includes or soft deletes cannot drop the tenant scope
+/// by forgetting to re-state it.
+///
+/// This is the entry point; [`apply_tenant_scope`] is the same composition for
+/// a seed that is not [`Resource::query`].
+///
+/// # Errors
+///
+/// - A gated resource and no tenant in `cx` → 403, the same fail-closed answer
+///   the handler gate gives (GH #87).
+/// - A gated resource that supplies no tenant predicate — no discoverable
+///   `tenant_id` UUID column, no [`Resource::tenant_scope`] override → an
+///   error naming the resource and the model. It is deliberately **not** a
+///   fallback to the unscoped query: discovery is by name, and a silent miss
+///   would be exactly the leak [`Resource::requires_tenant`] exists to
+///   prevent.
+///
+/// # When to call this
+///
+/// Every framework loader does, and app code that loads rows itself must too —
+/// a record fn double-checking a foreign key, a custom page, a test. On a gated
+/// resource [`Resource::query`] is the *tenant-unscoped* base by design, so
+/// calling it directly is safe only for rows whose tenant membership is already
+/// settled (a write by id against a record the framework loaded and
+/// authorized).
+pub fn scoped_query<R: Resource>(cx: &Cx) -> Result<Query<List<R::Model>>> {
+    apply_tenant_scope::<R>(cx, R::query(cx))
+}
+
+/// AND the framework's tenant predicate onto `query` (GH #223).
+///
+/// [`scoped_query`]'s body, split out for the one loader whose base is not
+/// [`Resource::query`]: the export seeds from
+/// [`Resource::export_query`](Resource::export_query), which carries the
+/// includes the rendered columns declared (GH #177). Everything else — the
+/// gate, the predicate, the fail-closed error — is shared, so the two seeds can
+/// not drift apart. It is crate-internal because a caller outside the crate
+/// always has a `Resource`, and so always wants [`scoped_query`].
+pub(crate) fn apply_tenant_scope<R: Resource>(
+    cx: &Cx,
+    query: Query<List<R::Model>>,
+) -> Result<Query<List<R::Model>>> {
+    if !R::requires_tenant() {
+        return Ok(query);
+    }
+    let tenant = crate::tenancy::require_tenant(cx)?;
+    let Some(filter) = R::tenant_scope(tenant) else {
+        // Fail closed and loudly: the resource declared a gate whose scope the
+        // framework cannot derive and the resource did not state, and running
+        // the query unscoped is the one outcome that declaration exists to
+        // prevent.
+        tracing::error!(
+            resource = R::slug(),
+            model = std::any::type_name::<R::Model>(),
+            "requires_tenant is true but the resource supplies no tenant predicate: no `tenant_id` \
+             UUID column on the model and no `tenant_scope` override (GH #223)"
+        );
+        return Err(std::io::Error::other(format!(
+            "resource '{}' requires a tenant, but the framework cannot scope it: {} declares no \
+             `tenant_id` UUID column to derive the filter from, and the resource does not override \
+             `tenant_scope` (GH #223); declare the column, override `tenant_scope`, or drop \
+             `requires_tenant` and scope in `query`",
+            R::slug(),
+            std::any::type_name::<R::Model>(),
+        ))
+        .into());
+    };
+    Ok(query.filter(filter))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -642,5 +780,86 @@ mod tests {
 
         let rows_all = BareResource::query(&cx).exec(&mut db).await.unwrap();
         assert_eq!(rows_all.len(), 2);
+    }
+
+    /// A gated resource over a model the framework cannot scope from: declared
+    /// as requiring a tenant, no `tenant_id` column to derive the filter from.
+    struct Misdeclared;
+
+    impl Resource for Misdeclared {
+        type Model = User;
+
+        fn requires_tenant() -> bool {
+            true
+        }
+    }
+
+    /// GH #223: the failure mode is an error naming the resource, not a
+    /// fallback to the unscoped query. `User` has no `tenant_id`, and
+    /// `scoped_query` must refuse to answer rather than serve every row.
+    #[test]
+    fn gated_resource_without_a_tenant_column_fails_closed() {
+        let cx = CxTestBuilder::new()
+            .request_context(crate::Tenant(uuid::Uuid::new_v4()))
+            .build();
+        let error = scoped_query::<Misdeclared>(&cx).expect_err("must not run unscoped");
+        let message = error.to_string();
+        assert!(
+            message.contains("misdeclareds"),
+            "the error must name the resource: {message}"
+        );
+        assert!(
+            message.contains("tenant_id") && message.contains("tenant_scope"),
+            "the error must name both ways to scope it: {message}"
+        );
+    }
+
+    /// A gated resource whose tenancy is not a column on its own model declares
+    /// the predicate itself (GH #223) — the shape the showcase's comments need,
+    /// where the tenant lives on the parent post. `name` stands in for the
+    /// relation path here: the point is that the hook is consulted and ANDed.
+    struct DeclaredScope;
+
+    impl Resource for DeclaredScope {
+        type Model = User;
+
+        fn requires_tenant() -> bool {
+            true
+        }
+
+        fn tenant_scope(tenant: uuid::Uuid) -> Option<toasty::stmt::Expr<bool>> {
+            Some(User::fields().name().eq(tenant.to_string()))
+        }
+    }
+
+    #[tokio::test]
+    async fn declared_tenant_scope_is_anded_onto_the_base_query() {
+        let mut db = Db::builder()
+            .models(toasty::models!(User))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        let mine = uuid::Uuid::new_v4();
+        let theirs = uuid::Uuid::new_v4();
+        for name in [mine.to_string(), theirs.to_string()] {
+            toasty::create!(User { name }).exec(&mut db).await.unwrap();
+        }
+        let cx = CxTestBuilder::new()
+            .app_context(db)
+            .request_context(crate::Tenant(mine))
+            .build();
+        let mut db = crate::db::db(&cx);
+        let rows = scoped_query::<DeclaredScope>(&cx)
+            .expect("a declared scope is not a misdeclaration")
+            .exec(&mut db)
+            .await
+            .unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].name, mine.to_string());
+
+        // And the gate still runs first: no tenant, no query.
+        let tenantless = CxTestBuilder::new().build();
+        assert!(scoped_query::<DeclaredScope>(&tenantless).is_err());
     }
 }

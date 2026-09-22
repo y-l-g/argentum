@@ -638,7 +638,8 @@ pub(crate) fn lens_label(field: &toasty::schema::app::Field) -> String {
 /// tenant", and the app-side pre-check has to recognise it or the field's
 /// `unique()` declaration would be silently dead. Recognizing the index is not
 /// the same as checking it exactly: the pre-check probes the field's value
-/// inside `R::query`'s scope, so it enforces the constraint only when that
+/// inside the tenant-scoped query's scope (GH #223), so it enforces the
+/// constraint only when that
 /// scope matches the index's remaining components — which is the arrangement
 /// `#[unique(tenant_id, ..)]` on a tenant-scoped resource produces, and which
 /// `two_tenants_may_share_an_author_email` / `duplicate_email_within_one_tenant

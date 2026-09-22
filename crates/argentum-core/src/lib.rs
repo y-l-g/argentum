@@ -36,12 +36,12 @@ pub use resource::{
     Committed, DateFilter, Filter, IncludeNeeds, IntoFilters, IntoRelationColumns, Mutation,
     NavTarget, NavigationItem, RelationColumn, RelationColumns, Resource, RowKey, SelectFilter,
     Sort, Table, TablePage, TableSignals, TableState, TernaryFilter, TextColumn, VariantFilter,
-    render_relation,
+    render_relation, scoped_query,
 };
 pub use schema::{
     EmbeddedForm, EnumSpec, FieldLens, FileUpload, Grid, Group, IntoSchema, Repeater, Schema,
     Section, Select, Tabs, TextInput, Textarea, TypedValue, discriminant_input, enum_spec,
     leaf_key, parse_leaf, read_embedded, submitted, write_embedded,
 };
-pub use tenancy::{Tenant, tenant_id};
+pub use tenancy::{Tenant, require_tenant, tenant_id};
 pub use upload::Uploader;

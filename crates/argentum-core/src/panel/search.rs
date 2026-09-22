@@ -117,7 +117,8 @@ fn search_entry(cx: &Cx, path: &str) -> Result<SearchFn> {
 /// (allow-list, never a raw route), and every signal value is clamped or
 /// re-parsed through [`TableState::from_live_args`] like the GET path.
 /// Authorization mirrors the list page (`requires_tenant` + `can_view_any`,
-/// row scoping via `Resource::query`); shard POSTs carry no CSRF token, and
+/// row scoping via the tenant-scoped query, GH #223); shard POSTs carry no
+/// CSRF token, and
 /// none is needed for this read-only rerun. The GET toolbar stays as the
 /// no-JS fallback.
 ///

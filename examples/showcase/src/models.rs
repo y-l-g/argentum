@@ -23,8 +23,8 @@ pub struct User {
 }
 
 #[derive(Debug, Clone, toasty::Model)]
-// Scoped, not global (GH #88): the form's unique probe runs through
-// `AuthorResource::query`, which is tenant-filtered, so a *global* unique index
+// Scoped, not global (GH #88): the form's unique probe runs through the
+// tenant-scoped query (`scoped_query`, GH #223), so a *global* unique index
 // on `email` would be rejected by the database for an email another tenant
 // already owns — after the probe passed — and surface as a 500. Constraining
 // `(tenant_id, email)` makes the constraint say what the probe enforces, so two

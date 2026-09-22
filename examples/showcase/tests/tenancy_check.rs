@@ -97,7 +97,10 @@ async fn per_tenant_policy_deny_yields_403() {
 
 #[tokio::test]
 async fn tenancy_via_cx_with_tenant_scopes_query_directly() {
-    use argentum_core::{Resource, Tenant};
+    // GH #223: the tenant filter is the framework's, applied by `scoped_query`
+    // — the direct-query entry point app code must use, because
+    // `PostResource::query` is the unscoped base now.
+    use argentum_core::{Tenant, scoped_query};
     use showcase::app::PostResource;
     use topcoat::context::CxTestBuilder;
     let (db, t1, _) = tenanted_db().await;
@@ -106,14 +109,22 @@ async fn tenancy_via_cx_with_tenant_scopes_query_directly() {
         .request_context(Tenant(t1))
         .build();
     let mut db_cx = argentum_core::db::db(&cx_t1);
-    let rows = PostResource::query(&cx_t1).exec(&mut db_cx).await.unwrap();
+    let rows = scoped_query::<PostResource>(&cx_t1)
+        .unwrap()
+        .exec(&mut db_cx)
+        .await
+        .unwrap();
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].title, "T1 Post");
 
     // Different tenant via Cx::with
     let cx_t2 = cx_t1.with(Tenant(uuid::Uuid::from_u128(2)));
     let mut db_cx2 = argentum_core::db::db(&cx_t2);
-    let rows2 = PostResource::query(&cx_t2).exec(&mut db_cx2).await.unwrap();
+    let rows2 = scoped_query::<PostResource>(&cx_t2)
+        .unwrap()
+        .exec(&mut db_cx2)
+        .await
+        .unwrap();
     assert_eq!(rows2.len(), 1);
     assert_eq!(rows2[0].title, "T2 Post");
 }
@@ -170,6 +181,44 @@ async fn tenantless_requests_to_gated_resources_fail_closed() {
         nil_rows.is_empty(),
         "seed migration must leave zero nil-tenant rows"
     );
+}
+
+#[tokio::test]
+async fn tenantless_requests_to_the_comments_queue_fail_closed() {
+    // GH #223 review: comments inherit their post's tenant, so the framework's
+    // `tenant_id` derivation cannot reach them — the resource declares
+    // `tenant_scope` instead. That declaration must not become a way to be
+    // unscoped: before the fix the tenantless request skipped the filter
+    // entirely and rendered (and offered to moderate) *both* tenants' comments.
+    let (mut db, _, _) = tenanted_db().await;
+    // `tenanted_db` seeds only the tenanted admin; the tenantless one comes
+    // from the same public helper the full seed uses.
+    showcase::models::create_admin(
+        &mut db,
+        TENANTLESS_ADMIN_EMAIL,
+        "No Tenant",
+        DEMO_ADMIN_PASSWORD,
+        None,
+    )
+    .await
+    .expect("seed tenantless admin");
+    let router = router(db);
+    let client = login(&router, TENANTLESS_ADMIN_EMAIL, DEMO_ADMIN_PASSWORD).await;
+
+    let resp = client.get("/admin/comments").await;
+    let status = resp.status();
+    let body = body_string(resp).await;
+    assert!(
+        !body.contains("T1 comment") && !body.contains("T2 comment"),
+        "no tenant's comment may render without a tenant: {body}"
+    );
+    assert_eq!(
+        status, 403,
+        "a tenantless comments list must fail closed, not list every tenant's queue"
+    );
+    // The same gate covers the read-only export route.
+    let resp = client.get("/admin/comments/export").await;
+    assert_eq!(resp.status(), 403, "tenantless export must fail closed");
 }
 
 #[tokio::test]
@@ -339,8 +388,9 @@ async fn comments_search_is_scoped_through_parent_post() {
 
 #[tokio::test]
 async fn comments_export_is_scoped_through_parent_post() {
-    // GH #169: export reuses `R::query`, so each tenant's CSV carries only
-    // comments on its own posts.
+    // GH #169, GH #223: the export runs the tenant-scoped query — `Comment`'s
+    // own relation filter here — so each tenant's CSV carries only comments on
+    // its own posts.
     let (db, t1, t2) = tenanted_db().await;
     let router = router(db.clone());
     let client = demo_client(&router).await;
@@ -390,8 +440,10 @@ async fn comments_edit_with_wrong_tenant_yields_404_via_resource_query() {
 
 #[tokio::test]
 async fn comments_query_scopes_directly_through_parent_post() {
-    // GH #169, Cx-level proof alongside the HTTP tests above.
-    use argentum_core::{Resource, Tenant};
+    // GH #169, Cx-level proof alongside the HTTP tests above. GH #223: the
+    // scope is declared in `CommentResource::tenant_scope` and applied by
+    // `scoped_query` — `CommentResource::query` is the tenant-unscoped base.
+    use argentum_core::{Tenant, scoped_query};
     use showcase::app::CommentResource;
     use topcoat::context::CxTestBuilder;
     let (db, t1, t2) = tenanted_db().await;
@@ -400,7 +452,8 @@ async fn comments_query_scopes_directly_through_parent_post() {
         .request_context(Tenant(t1))
         .build();
     let mut db_cx = argentum_core::db::db(&cx_t1);
-    let rows = CommentResource::query(&cx_t1)
+    let rows = scoped_query::<CommentResource>(&cx_t1)
+        .unwrap()
         .exec(&mut db_cx)
         .await
         .unwrap();
@@ -409,7 +462,8 @@ async fn comments_query_scopes_directly_through_parent_post() {
 
     let cx_t2 = cx_t1.with(Tenant(t2));
     let mut db_cx2 = argentum_core::db::db(&cx_t2);
-    let rows2 = CommentResource::query(&cx_t2)
+    let rows2 = scoped_query::<CommentResource>(&cx_t2)
+        .unwrap()
         .exec(&mut db_cx2)
         .await
         .unwrap();
@@ -419,9 +473,10 @@ async fn comments_query_scopes_directly_through_parent_post() {
 
 #[tokio::test]
 async fn export_is_scoped_by_tenant() {
-    // GH #136 extension: `group_export_check.rs` had zero `tenant`
-    // references — export reuses `R::query`, so each tenant sees only its
-    // own rows.
+    // GH #136 extension, GH #223: `group_export_check.rs` had zero `tenant`
+    // references — the export runs the tenant-scoped query, so each tenant
+    // sees only its own rows. `PostResource` states no tenant filter of its
+    // own, so this passes on the framework's derived one.
     let (db, t1, t2) = tenanted_db().await;
     let router = router(db.clone());
     let client = demo_client(&router).await;
@@ -445,10 +500,11 @@ async fn export_is_scoped_by_tenant() {
 }
 
 /// GH #88 failure 2, fixed: the app-side unique check scopes through
-/// `AuthorResource::query` (tenant-filtered), so the constraint has to be scoped
-/// the same way. `Author.email` is `#[unique(tenant_id, email)]`, which makes
-/// two tenants sharing an email a legitimate pair rather than a constraint
-/// violation the probe could not see (previously a 500).
+/// `scoped_query::<AuthorResource>` — the tenant filter the framework derives
+/// (GH #223) — so the constraint has to be scoped the same way. `Author.email`
+/// is `#[unique(tenant_id, email)]`, which makes two tenants sharing an email a
+/// legitimate pair rather than a constraint violation the probe could not see
+/// (previously a 500).
 #[tokio::test]
 async fn two_tenants_may_share_an_author_email() {
     let (db, t1, t2) = tenanted_db().await;

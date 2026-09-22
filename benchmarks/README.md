@@ -11,8 +11,9 @@ render no 50-row workload, so no cross-framework comparison exists.
 
 Phase-2 workload: **list with 50 rows, 2 includes (`author` + `comments`),
 tenancy set, `can_view_any` enforced**, measured on the real list path
-(`TableState::from_cx` → `Table::load` over `Resource::query` with the
-declared `.paginate(50)` → `render_with_state` → HTML). The raw query-only
+(`TableState::from_cx` → `Table::load` over the tenant-scoped
+`scoped_query` with the declared `.paginate(50)` → `render_with_state` →
+HTML). The raw query-only
 figure is kept as a labeled diagnostic alongside it. The budget is
 **< 40 ms p50** on SQLite/Postgres local (TTFB dominated by the
 slowest `defer` region's skeleton, not the query — `README.md:8`).

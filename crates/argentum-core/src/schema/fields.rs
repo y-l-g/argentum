@@ -633,7 +633,8 @@ impl TextInput {
 /// Select field bound to a lens (often a foreign key like `author_id`).
 ///
 /// `Select::for(Post::fields().author_id()).relationship(AuthorResource::query, |a| a.id, |a| a.name.clone())`
-/// loads options via `AuthorResource::query(cx)` (tenancy-aware) and stores the
+/// loads options through the related resource's tenant-scoped query
+/// (GH #223) and stores the
 /// related record's primary key as the value. Typos in the lens fail at compile
 /// time; a wrong value projection fails where the projected type differs from
 /// the PK. Option values are never read from the related table's `Table::id`
@@ -771,12 +772,13 @@ impl Select {
         self
     }
 
-    /// Load options via a related `Resource::query` (tenancy-aware), a typed
+    /// Load options via a related resource's tenant-scoped query, a typed
     /// primary-key projection, and a label closure.
     ///
     /// The first argument is the resource's `query` fn (e.g. `AuthorResource::query`) — it is
-    /// only used for type inference; the loader calls `R::query(cx)` directly so tenancy is
-    /// preserved. The second argument projects each related record to the
+    /// only used for type inference; the loader calls the resource's scoped
+    /// query directly, so the tenant gate and the framework's derived tenant
+    /// filter apply (GH #223). The second argument projects each related record to the
     /// model's **primary key**: it is stringified with `Display` and becomes
     /// the `<option value>`. The third maps the record to its display label.
     ///
@@ -924,6 +926,11 @@ impl Select {
             Err(OptionLoadError::LoadFailed) | Err(OptionLoadError::Overflow) => {
                 vec![format!("{} could not load options, retry", self.label)]
             }
+            // A misdeclaration (GH #223) is permanent: retrying cannot fix it,
+            // so it is reported without the retry wording.
+            Err(OptionLoadError::Misdeclared) => {
+                vec![format!("{} could not load options", self.label)]
+            }
         }
     }
 
@@ -969,6 +976,10 @@ impl Select {
                     }
                     Err(OptionLoadError::Overflow) | Err(OptionLoadError::LoadFailed) => {
                         errs.push(format!("{} could not load options, retry", self.label));
+                    }
+                    // Permanent (GH #223): no retry wording, same as a denial.
+                    Err(OptionLoadError::Misdeclared) => {
+                        errs.push(format!("{} could not load options", self.label));
                     }
                 }
             } else if !self.options_static.is_empty() {
@@ -1036,7 +1047,9 @@ impl Select {
         let overflow_searchable = overflowed && searchable && self.relationship.is_some();
         let keep_current_value = matches!(
             &loaded,
-            Err(OptionLoadError::LoadFailed) | Err(OptionLoadError::Overflow)
+            Err(OptionLoadError::LoadFailed)
+                | Err(OptionLoadError::Overflow)
+                | Err(OptionLoadError::Misdeclared)
         );
         let mut options = loaded.unwrap_or_default();
         if keep_current_value && !current.is_empty() && !options.iter().any(|(v, _)| v == &current)

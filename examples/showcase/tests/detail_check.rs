@@ -86,8 +86,8 @@ async fn post_detail_renders_the_record_read_only() {
 #[tokio::test]
 async fn post_detail_is_scoped_like_every_other_route() {
     // Unknown id and wrong tenant are one answer (ADR-0002): the load runs
-    // through `Resource::query`, so the page cannot tell the caller which ids
-    // exist outside their scope.
+    // through the tenant-scoped query, so the page cannot tell the caller
+    // which ids exist outside their scope.
     let (db, t1, t2) = tenanted_db().await;
     let router = router(db.clone());
     let client = demo_client(&router).await;

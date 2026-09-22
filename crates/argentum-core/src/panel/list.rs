@@ -167,7 +167,7 @@ pub(crate) fn table_error_view<'a, R: Resource>(
 /// The list page every declared [`Resource`] gets at `{prefix}/{slug}`.
 ///
 /// One generic handler drives all resources: resolve the [`TableState`] from
-/// the URL, scope through `Resource::query` (the tenancy seam, ADR-0002),
+/// the URL, scope through the tenant-scoped query (GH #223),
 /// apply the table's search/sort/pagination declarations, render through
 /// `Resource::table`. The page title is the resource's navigation label.
 ///
@@ -395,7 +395,8 @@ pub(crate) fn resource_list_live<R: Resource>(
 }
 
 /// Resolve the declared table (search / filters / sort / pagination) against
-/// `Resource::query` and execute it — the data-loading half of
+/// the tenant-scoped [`scoped_query`](crate::resource::scoped_query) — the
+/// data-loading half of
 /// [`resource_list`], kept separate so the page shell can stream before it.
 ///
 /// Resource lists must declare a page size (GH #172): without
@@ -415,7 +416,9 @@ pub(crate) async fn load_table_page<R: Resource>(
         )
         .into());
     }
-    table.load(cx, R::query(cx), state).await
+    table
+        .load(cx, crate::resource::scoped_query::<R>(cx)?, state)
+        .await
 }
 
 #[cfg(test)]
@@ -1498,6 +1501,108 @@ mod tests {
             resp.status().is_success(),
             "tenant-gated GET with tenant must pass the gate, got {}",
             resp.status()
+        );
+    }
+
+    /// GH #223: the case no tenancy test exercised — `requires_tenant()` is
+    /// `true` **and** the request carries a valid tenant, but the resource
+    /// overrides nothing (`query` stays the default). The framework's derived
+    /// tenant filter is the only thing scoping this list, so before it existed
+    /// the page served every tenant's rows.
+    #[tokio::test]
+    async fn tenant_gated_resource_scopes_rows_to_the_request_tenant() {
+        use crate::resource::Resource;
+
+        #[derive(Debug, toasty::Model, Clone)]
+        struct Scoped {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            tenant_id: uuid::Uuid,
+            name: String,
+        }
+        struct ScopedResource;
+        impl Resource for ScopedResource {
+            type Model = Scoped;
+            fn slug() -> String {
+                "scoped".to_string()
+            }
+            fn requires_tenant() -> bool {
+                true
+            }
+            fn can_view_any(_cx: &Cx) -> bool {
+                true
+            }
+            fn table(cx: &Cx) -> crate::resource::Table<Scoped> {
+                crate::resource::Table::r#for(cx)
+                    .id(|s: &Scoped| s.id.to_string())
+                    .pk(|s: &Scoped| s.id.to_string())
+                    .columns(crate::resource::TextColumn::r#for(
+                        Scoped::fields().name(),
+                        |s: &Scoped| s.name.clone(),
+                    ))
+                    .paginate(25)
+            }
+        }
+
+        let mut db = Db::builder()
+            .models(toasty::models!(Scoped))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        let mine = uuid::Uuid::new_v4();
+        let theirs = uuid::Uuid::new_v4();
+        toasty::create!(Scoped {
+            tenant_id: mine,
+            name: "Mine Widget"
+        })
+        .exec(&mut db)
+        .await
+        .unwrap();
+        toasty::create!(Scoped {
+            tenant_id: theirs,
+            name: "Theirs Widget"
+        })
+        .exec(&mut db)
+        .await
+        .unwrap();
+
+        let router = Panel::new("admin")
+            .app_context(db)
+            .resource::<ScopedResource>()
+            .auth(crate::Auth::disabled())
+            .build()
+            .expect("panel builds");
+        // A server-set `Tenant` request extension supplies the tenant (GH #131).
+        let (mut parts, ()) = http::Request::builder()
+            .uri("/admin/scoped")
+            .body(())
+            .unwrap()
+            .into_parts();
+        parts.extensions.insert(crate::Tenant(mine));
+        let resp = router
+            .handle(http::Request::from_parts(parts, Body::empty()))
+            .await;
+        assert_eq!(
+            resp.status(),
+            http::StatusCode::OK,
+            "gated list with tenant"
+        );
+        let html = String::from_utf8_lossy(
+            &http_body_util::BodyExt::collect(resp.into_body())
+                .await
+                .unwrap()
+                .to_bytes(),
+        )
+        .into_owned();
+        assert!(
+            html.contains("Mine Widget"),
+            "the request tenant's row must render: {html}"
+        );
+        assert!(
+            !html.contains("Theirs Widget"),
+            "another tenant's row must not render: {html}"
         );
     }
 

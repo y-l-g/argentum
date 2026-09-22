@@ -56,3 +56,21 @@ Server-side option search for tables above the cap. The cap failure splits into 
 - **Endpoint:** `GET {parent_list_url}/options?field=&q=` (e.g. `/admin/posts/options?field=author_id&q=ada`), `field` allow-listed to a declared searchable relationship `Select` in the parent `R::form(cx)` (400 otherwise). `q` trimmed + clamped to the shared query bound; empty `q` is the bounded head. Bounded `limit(201)`, `can_view` before labels, `Denied` → 403, driver failure → 500, filtered overflow → 200 with a keep-typing hint option. No whole-table loads.
 - **Validation:** overflowed searchable selects use a targeted check (`pk_eq_expr` + `R::query` + `can_view`): viewable → pass, hidden/not-found → `invalid`, denied → `not available`, DB failure → retry. Bounded sets keep membership validation.
 - **UI:** native `<select>` + `selects.js` fetch (debounced 200ms, abort in-flight, selection + placeholder preserved). Initial over-cap render keeps the stored value + search input + hint; no-JS keeps the plain select (documented limitation). No custom combobox (tracked separately if needed).
+
+## Status 2026-09-22 (GH #223): what "via Resource::query" means now
+
+The decision this ADR records — relations ride the resource seam, no new
+`Relation` trait — stands. What changed is which call that seam is. The title,
+the Context's "`Resource::query(cx) -> Query<List<M>>` is the single seam for
+tenancy/soft-delete (ADR-0002)", the Decision's "it reuses `Resource::query` so
+tenancy is preserved", and the Consequences' "`Panel` and `Resource::query` stay
+the single owners of tenancy" all read as if the resource's `query` carried the
+tenant filter itself. It does not any more: the framework applies the tenant
+predicate *after* `query`, through `scoped_query` (ADR-0002's 2026-09-22
+amendment), and the relationship option loaders run every load through it —
+`option_query` in `schema/relationship.rs` is that call, and a related resource
+whose tenancy cannot be scoped at all is a `Misdeclared` option error rather
+than an unscoped fetch. Option values, the typed PK projection, the policy
+checks and the cap semantics this ADR and its amendments describe are unchanged;
+`Select::relationship` still takes the resource's `query` fn for type inference
+only, and the loader no longer calls it directly.

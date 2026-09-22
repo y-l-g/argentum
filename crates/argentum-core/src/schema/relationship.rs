@@ -25,6 +25,14 @@ pub(crate) enum OptionLoadError {
     LoadFailed,
     /// The related table overflows the option cap (GH #150).
     Overflow,
+    /// The related resource's tenancy cannot be scoped at all: it requires a
+    /// tenant, its model has no derivable `tenant_id`, and it declares no
+    /// `tenant_scope` (GH #223).
+    ///
+    /// Distinct from [`Self::LoadFailed`] because retrying cannot fix a broken
+    /// declaration: the option UI must not offer a retry, and the search
+    /// endpoint answers a 500 that names the misdeclaration.
+    Misdeclared,
 }
 
 /// The boxed future a relationship loader returns — the bounded load and the
@@ -64,10 +72,39 @@ where
     }
     if R::requires_tenant() && crate::tenancy::tenant_id(cx).is_none() {
         // The panel gates every handler through `enforce_tenant::<R>`;
-        // option loads must not be the one tenantless path into `R::query`.
+        // option loads must not be the one tenantless path into the related
+        // resource's scoped query (GH #223).
         return Err(OptionLoadError::Denied);
     }
     Ok(())
+}
+
+/// The relationship option loaders' seed query: [`scoped_query`] with the
+/// load's own error kind (GH #223).
+///
+/// Every loader below starts here rather than at `R::query` so option loads
+/// inherit the framework's tenant scope (`ensure_option_access` above already
+/// answered the tenantless case with `Denied`). The one error left for this
+/// step is a resource the framework cannot scope at all, which is a
+/// **permanent** misdeclaration and therefore
+/// [`Misdeclared`](OptionLoadError::Misdeclared) rather than a retryable load
+/// failure.
+///
+/// [`scoped_query`]: crate::resource::scoped_query
+fn option_query<R>(
+    cx: &Cx,
+) -> Result<toasty::stmt::Query<toasty::stmt::List<R::Model>>, OptionLoadError>
+where
+    R: crate::resource::Resource + 'static,
+{
+    crate::resource::scoped_query::<R>(cx).map_err(|error| {
+        tracing::error!(
+            resource = R::slug(),
+            error = %error,
+            "relationship option load cannot scope the related resource (GH #223)"
+        );
+        OptionLoadError::Misdeclared
+    })
 }
 
 /// Max options a relationship `Select` will load (GH #91): the loader carries
@@ -87,8 +124,8 @@ pub(crate) type RelatedPrimaryKey<R> =
 /// `(request, tenant)` instead of scanning the table per select per validate
 /// plus re-render scans. `tenant` is an explicit cache key: memoize tracking
 /// alone cannot distinguish header-tenanted callers sharing one `Parts`, so
-/// tenancy isolation never rides on scope resolution. `R::query` stays the
-/// only data seam (tenancy preserved); value and label mapping stay in the
+/// tenancy isolation never rides on scope resolution. The tenant-scoped query
+/// (GH #223) stays the only data seam; value and label mapping stay in the
 /// caller so selects with different projections share the hit.
 ///
 /// Policy is part of the load (GH #108): `can_view_any` (and the related
@@ -111,7 +148,7 @@ where
 {
     ensure_option_access::<R>(cx)?;
     let mut db = crate::db::db(cx);
-    let mut records = R::query(cx)
+    let mut records = option_query::<R>(cx)?
         .limit(MAX_RELATIONSHIP_OPTIONS + 1)
         .exec(&mut db)
         .await
@@ -171,7 +208,7 @@ where
 {
     ensure_option_access::<R>(cx)?;
     let term = crate::resource::clamp_query_term(&q);
-    let mut query = R::query(cx);
+    let mut query = option_query::<R>(cx)?;
     if !term.is_empty() {
         let table = R::table(cx);
         // D1: reuse the related table's declared searchable columns. When it
@@ -218,7 +255,8 @@ where
 /// Outcome of the targeted existence check for overflowed selects (GH #150 D4).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum RelatedCheck {
-    /// PK parses and resolves through `R::query` and passes `can_view`.
+    /// PK parses and resolves through the tenant-scoped query and passes
+    /// `can_view`.
     FoundViewable,
     /// PK resolves but `can_view` denies it (maps to "invalid", never leaks).
     FoundHidden,
@@ -230,7 +268,7 @@ pub(crate) enum RelatedCheck {
 ///
 /// Membership in the bounded set cannot validate overflowed selects (the full
 /// set exceeds the cap), so validate the submitted value directly: parse via
-/// `pk_eq_expr`, fetch through tenancy-scoped `R::query`, then `can_view`.
+/// `pk_eq_expr`, fetch through the tenant-scoped query, then `can_view`.
 /// * `Denied` when `can_view_any` fails or tenant is missing (maps to
 ///   "not available").
 /// * `LoadFailed` on driver failure (maps to retry).
@@ -251,7 +289,7 @@ where
         return Ok(RelatedCheck::NotFound);
     };
     let mut db = crate::db::db(cx);
-    let row = R::query(cx)
+    let row = option_query::<R>(cx)?
         .filter(expr)
         .first()
         .exec(&mut db)
@@ -285,11 +323,17 @@ mod tests {
     use super::*;
     use topcoat::view::*;
     /// Related-resource fixtures shared by the option-policy tests (GH #108).
+    ///
+    /// `tenant_id` is optional so the fixtures that do not care about tenancy
+    /// keep creating rows without one; `TenantScopedAuthors` (GH #223) needs a
+    /// discoverable `tenant_id` column for the framework to derive its scope
+    /// from, and the test that uses it creates its row with a tenant.
     #[derive(Debug, toasty::Model, Clone)]
     struct PolicyAuthor {
         #[key]
         #[auto]
         id: uuid::Uuid,
+        tenant_id: Option<uuid::Uuid>,
         name: String,
     }
 
@@ -558,9 +602,11 @@ mod tests {
 
     #[tokio::test]
     async fn relationship_load_denies_tenantless_requests_for_tenant_scoped_targets() {
-        // GH #108: option loads are another path into `R::query`; a
-        // tenant-scoped related resource must not serve unscoped options
-        // just because the parent form is reachable without a tenant.
+        // GH #108, GH #223: option loads are another path into the related
+        // resource's rows; a tenant-scoped related resource must not serve
+        // unscoped options just because the parent form is reachable without a
+        // tenant, and the framework's derived filter must narrow the load to
+        // the request tenant's rows.
         use crate::resource::Resource;
 
         let mut db = toasty::Db::builder()
@@ -569,7 +615,9 @@ mod tests {
             .await
             .unwrap();
         db.push_schema().await.unwrap();
+        let tenant = uuid::Uuid::new_v4();
         let row = toasty::create!(PolicyAuthor {
+            tenant_id: Some(tenant),
             name: "Ada".to_string(),
         })
         .exec(&mut db)
@@ -587,9 +635,20 @@ mod tests {
             select.validate_async(&cx, &pk).await,
             vec!["Id is not available".to_string()]
         );
-        // A resolved tenant loads normally (a separate memoize key too).
-        let tenanted = cx.with(crate::tenancy::Tenant(uuid::Uuid::new_v4()));
+        // A resolved tenant that owns the row loads normally (a separate
+        // memoize key too).
+        let tenanted = cx.with(crate::tenancy::Tenant(tenant));
         assert!(select.validate_async(&tenanted, &pk).await.is_empty());
+        // Another tenant's request sees nothing: the option load runs through
+        // the framework's derived tenant filter, not through `R::query`. The
+        // load itself succeeds (the resource is viewable), so the row is
+        // *absent from the options* rather than denied — "invalid", the
+        // empty-set answer, not the "not available" the gate gives.
+        let foreign = cx.with(crate::tenancy::Tenant(uuid::Uuid::new_v4()));
+        assert_eq!(
+            select.validate_async(&foreign, &pk).await,
+            vec!["Id is invalid".to_string()]
+        );
     }
 
     #[tokio::test]
