@@ -319,9 +319,9 @@ pub trait Resource: Sized + Send + Sync + 'static {
     /// - **Whatever the policy path reads.** The export's visibility scan calls
     ///   [`Self::can_view`] on every row of both passes, before any cell is
     ///   written, so a `can_view` that reads a relation needs that relation
-    ///   included even though no column declared it. Reading an un-included
-    ///   relation panics in `Deferred::get`; add the name with
-    ///   [`IncludeNeeds::insert`].
+    ///   included even though no column declared it — include it
+    ///   unconditionally in the narrowed branch. Reading an un-included
+    ///   relation panics in `Deferred::get`.
     /// - **Every name a column declared.** A declared name with no matching
     ///   include renders an unloaded relation, which the column's `is_unloaded`
     ///   guard (ADR-0011) reports in test builds instead of a silent `"-"`.

@@ -66,7 +66,7 @@ What one successful mutation wrote, handed to `Resource::after_commit` (GH #112)
 _Avoid_: CommittedSet, ChangeSet, Event, PostCommit
 
 ### Query
-The base filtered query for a Resource. Returned by Resource::query(cx) and used by every loader. The single seam for tenancy and soft-delete scoping.
+The base filtered query for a Resource. Returned by Resource::query(cx) and used by every loader; the CSV export asks Resource::export_query(cx, needs) instead, which defaults to this query and may narrow its includes to the ones the exported columns declared (GH #177). The single seam for tenancy and soft-delete scoping.
 
 _Avoid_: Scope, EloquentQuery, Builder (as domain term)
 

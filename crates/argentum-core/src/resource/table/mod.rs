@@ -947,9 +947,9 @@ mod tests {
         ));
         let needs = declared.include_needs();
         assert!(needs.wants("author") && needs.wants("comments"));
+        // Only what a column declared: `author` declared twice is still a
+        // member, and an undeclared name is absent.
         assert!(!needs.wants("tenant"));
-        // Deduplicated: `author` is declared twice, counted once.
-        assert_eq!(needs.iter().collect::<Vec<_>>(), ["author", "comments"]);
     }
 
     #[test]

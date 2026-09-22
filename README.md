@@ -165,8 +165,7 @@ What to know:
   override it to narrow the includes to what the exported columns declared with `TextColumn::needs(..)`
   — an include `query` carries for another page then stops riding along on every export (GH #177,
   ADR-0018). Keep the tenancy filter and whatever your `can_view` reads in the narrowed branch.
-- `table()` and `form()` are hand-written. The derive only fills in `Model` and the optional
-  `query` / `export_query`:
+- `table()` and `form()` are hand-written. The derive only fills in `Model` and an optional `query`:
 
 ```rust
 #[derive(Resource)]
@@ -174,7 +173,7 @@ What to know:
 struct UserResource;
 
 #[derive(Resource)]
-#[resource(model = Post, query = all_posts, export_query = export_posts)]
+#[resource(model = Post, query = all_posts)]
 struct PostResource;
 ```
 
@@ -241,7 +240,7 @@ Grouping and export:
 ```
 
 - Grouping is page-local with a row count per group. Toasty has no `GROUP BY` yet, so grouping never claims full-table totals. Unknown `?group_by=` values render no headers and drop from nav links.
-- `GET /admin/{slug}/export` returns the filtered set as CSV (`text/csv; charset=utf-8` + `Content-Disposition`, RFC4180 with OWASP formula-defusing), reusing the same `query`, filters, and sort. Capped at 10k viewable rows: per-row `can_view` runs before the cap, so 413 reflects what the caller may receive. `?bom=1` opts into an Excel BOM.
+- `GET /admin/{slug}/export` returns the filtered set as CSV (`text/csv; charset=utf-8` + `Content-Disposition`, RFC4180 with OWASP formula-defusing), reusing the same filters and sort over `export_query` — the base `query` unless the resource narrows it to the includes its columns declared (GH #177). Capped at 10k viewable rows: per-row `can_view` runs before the cap, so 413 reflects what the caller may receive. `?bom=1` opts into an Excel BOM.
 - Failed table loads render the branded `ErrorState` in-region, not a blank page.
 
 Live updates:

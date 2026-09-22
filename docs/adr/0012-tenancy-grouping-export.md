@@ -37,3 +37,7 @@ The `sum` summarizer and the raw-SQL `trait Aggregate` shim promised by spec #71
 ## Amendment (GH #184)
 
 `Panel::dark_mode` is no longer set by the showcase. The build-time default was never authoritative — the stored preference wins in both directions, and the earlier implementation only ever *added* the `dark` class, so a visitor who chose light was re-darkened on the next navigation. The showcase now paints light by default and the header toggle is the only thing that turns dark on; `dark_mode(true)` remains available for an app that wants a dark-first panel. `Panel::brand` is still set (the amendment above said otherwise — that part was stale).
+
+## Amendment (2026-09-22, GH #177)
+
+The export no longer reuses `Resource::query` for its **includes**. It asks `Resource::export_query(cx, needs)` — whose default returns `query(cx)` unchanged — and an override may narrow to the relations the exported `Table`'s columns declared (`TextColumn::needs`, `Table::include_needs`); decided in ADR-0018. Everything else this ADR records about the export stands: the tenancy scope is still `query`'s (ADR-0002), and the filters, sort, 10k visibility cap, `can_view`-before-cap, and `Content-Disposition` contracts are unchanged. Buffering is the one earlier detail already gone — GH #172 replaced the single buffered fetch with a chunked stream, so an export holds one chunk plus one CSV fragment.
