@@ -89,7 +89,8 @@ See `examples/showcase/src/app.rs` for the full version with forms, filters, and
 ## Documentation
 
 - **Guide**: [`docs/guide/`](docs/guide/) — build with `mdbook build docs/guide`, or read the
-  published copy at <https://y-l-g.github.io/argentum/nightly/guide/>.
+  published copy at <https://y-l.fr/argentum/nightly/guide/>. The rustdoc reference is published
+  beside it at <https://y-l.fr/argentum/nightly/api/argentum_core/>.
 - [`CONTEXT.md`](CONTEXT.md) — the vocabulary.
 - [`docs/adr/`](docs/adr/) — the decisions, one note each.
 - [`examples/showcase/`](examples/showcase/) — the runnable reference.
