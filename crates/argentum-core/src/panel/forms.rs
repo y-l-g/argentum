@@ -676,10 +676,14 @@ pub(crate) fn resource_create_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<
             },
             // A unique violation that slipped past the app-side check (a
             // concurrent insert) surfaces as an error, not a string-matched
-            // inline message (upstream gap #117) — and now with a toast.
-            Err(e) => {
+            // inline message: Toasty exposes no unique-violation predicate
+            // (upstream gap #117), so the failure cannot be classified here.
+            // It is still not echoed raw (GH #229): the driver's text goes to
+            // the log through the opaque mapping, and an app-authored hook
+            // error keeps its own. The toast names the operation either way.
+            Err(error) => {
                 notify_write_failure(cx, WRITE_CREATE);
-                Err(e)
+                Err(crate::db::hook_failure(error))
             }
         }
     })))
@@ -814,10 +818,12 @@ pub(crate) fn resource_edit_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_
             },
             // A unique violation that slipped past the app-side check (a
             // concurrent update) surfaces as an error, not a string-matched
-            // inline message (upstream gap #117) — and now with a toast.
-            Err(e) => {
+            // inline message: Toasty exposes no unique-violation predicate
+            // (upstream gap #117), so the failure cannot be classified here.
+            // It is still not echoed raw (GH #229) — see create.
+            Err(error) => {
                 notify_write_failure(cx, WRITE_UPDATE);
-                Err(e)
+                Err(crate::db::hook_failure(error))
             }
         }
     })))
@@ -1069,6 +1075,283 @@ mod tests {
             "transport keys must be stripped before the record fn, got {keys:?}"
         );
         assert_eq!(keys.len(), 2, "declared fields only, got {keys:?}");
+    }
+
+    /// GH #229, create half: a write that fails at the driver surfaces the
+    /// opaque mapping (GH #174), never the driver's own text — the property
+    /// `db.rs` pins for `unavailable`, one layer up and through the real
+    /// create handler.
+    #[tokio::test]
+    async fn a_driver_create_failure_does_not_echo_driver_text() {
+        use crate::resource::Resource;
+        use crate::schema::{Schema, TextInput};
+        use topcoat::context::CxTestBuilder;
+        use topcoat::cookie::CookieJarCell;
+
+        #[derive(Debug, toasty::Model, Clone)]
+        struct Dummy {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            name: String,
+        }
+
+        struct WritingResource;
+        impl Resource for WritingResource {
+            type Model = Dummy;
+            fn slug() -> String {
+                "dummies".to_string()
+            }
+            fn can_view_any(_cx: &Cx) -> bool {
+                true
+            }
+            fn can_create(_cx: &Cx) -> bool {
+                true
+            }
+            fn form(_cx: &Cx) -> Schema {
+                Schema::new(TextInput::r#for(Dummy::fields().name()))
+            }
+            async fn create_record(
+                _cx: &Cx,
+                values: HashMap<String, String>,
+                ex: &mut dyn toasty::Executor,
+            ) -> Result<Dummy> {
+                // The write the hook performs is the one that fails.
+                toasty::create!(Dummy {
+                    name: values.get("name").cloned().unwrap_or_default(),
+                })
+                .exec(&mut *ex)
+                .await
+                .map_err(Into::into)
+            }
+        }
+
+        // Schema never pushed: the INSERT cannot run, so the failure is the
+        // driver's own (the `unique_check_propagates_probe_errors` setup).
+        let db = Db::builder()
+            .models(toasty::models!(Dummy))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+
+        // Positive control: the same insert outside the handler really does
+        // carry driver text, so the assertions below cannot pass vacuously.
+        let mut raw = db.clone();
+        let driver = toasty::create!(Dummy {
+            name: "Ada".to_string(),
+        })
+        .exec(&mut raw)
+        .await
+        .expect_err("the table is missing")
+        .to_string();
+        drop(raw);
+        assert!(
+            driver.contains("no such table"),
+            "the control must be a driver failure, got {driver:?}"
+        );
+
+        let token = uuid::Uuid::new_v4().to_string();
+        let parts = http::Request::builder()
+            .method(http::Method::POST)
+            .uri("/admin/dummies/create")
+            .header(
+                http::header::CONTENT_TYPE,
+                "application/x-www-form-urlencoded",
+            )
+            .header(
+                http::header::COOKIE,
+                format!("{}={token}", crate::csrf::COOKIE_NAME),
+            )
+            .body(())
+            .unwrap()
+            .into_parts()
+            .0;
+        let cx = CxTestBuilder::new()
+            .app_context(db)
+            .request_context(parts)
+            .request_context(CookieJarCell::new())
+            .build();
+
+        let error = resource_create_post::<WritingResource>(
+            &cx,
+            Body::from(format!("name=Ada&csrf_token={token}")),
+        )
+        .first()
+        .await
+        .expect_err("the write must fail");
+
+        let rendered = error.to_string();
+        assert!(
+            rendered.contains("database unavailable"),
+            "the opaque message must survive, got {rendered:?}"
+        );
+        assert!(
+            !rendered.contains(&driver) && !rendered.contains("no such table"),
+            "driver text must not reach the response: the driver said {driver:?}, the response said {rendered:?}"
+        );
+    }
+
+    /// GH #229, edit half: the update arm is the same seam as create's, and a
+    /// write that fails at the driver must not echo the driver's text there
+    /// either. The failing write is a unique violation the app-side check
+    /// never saw — the case the arm's own comment names (upstream gap #117).
+    ///
+    /// The edit handler needs the `{id}` the router captures, so the test
+    /// mounts it behind a route of its own and renders the error it returns —
+    /// the body is exactly what a page would be handed.
+    #[tokio::test]
+    async fn a_driver_update_failure_does_not_echo_driver_text() {
+        use crate::resource::Resource;
+        use crate::schema::{Schema, TextInput};
+        use topcoat::cookie::RouterBuilderCookieExt;
+        use topcoat::router::response::IntoResponse;
+        use topcoat::router::{RouteFn, RouteFuture, Router};
+
+        #[derive(Debug, toasty::Model, Clone)]
+        struct Dummy {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            name: String,
+        }
+
+        // The hook's own write targets this model: its unique column is not
+        // one the panel's form probes, so the duplicate is the driver's to
+        // refuse.
+        #[derive(Debug, toasty::Model, Clone)]
+        struct Ghost {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            #[unique]
+            name: String,
+        }
+
+        struct EditingResource;
+        impl Resource for EditingResource {
+            type Model = Dummy;
+            fn slug() -> String {
+                "dummies".to_string()
+            }
+            fn can_view_any(_cx: &Cx) -> bool {
+                true
+            }
+            fn can_view(_cx: &Cx, _record: &Dummy) -> bool {
+                true
+            }
+            fn can_update(_cx: &Cx, _record: &Dummy) -> bool {
+                true
+            }
+            fn form(_cx: &Cx) -> Schema {
+                Schema::new(TextInput::r#for(Dummy::fields().name()))
+            }
+            async fn update_record(
+                _cx: &Cx,
+                record: Dummy,
+                _values: HashMap<String, String>,
+                ex: &mut dyn toasty::Executor,
+            ) -> Result<Dummy> {
+                // The write the hook performs is the one that fails: the name
+                // is taken, and only the database knows it.
+                toasty::create!(Ghost {
+                    name: "taken".to_string(),
+                })
+                .exec(&mut *ex)
+                .await?;
+                Ok(record)
+            }
+        }
+
+        /// Runs the edit handler under a route that captures `{id}`, and hands
+        /// its error back as the body.
+        fn edit_error(cx: &Cx, body: Body) -> RouteFuture<'_> {
+            Box::pin(async move {
+                let error = resource_edit_post::<EditingResource>(cx, body)
+                    .first()
+                    .await
+                    .expect_err("the write must fail");
+                error.to_string().into_response(cx)
+            })
+        }
+
+        let mut db = Db::builder()
+            .models(toasty::models!(Dummy, Ghost))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        let row = toasty::create!(Dummy {
+            name: "Ada".to_string(),
+        })
+        .exec(&mut db)
+        .await
+        .unwrap();
+        toasty::create!(Ghost {
+            name: "taken".to_string(),
+        })
+        .exec(&mut db)
+        .await
+        .unwrap();
+
+        // Positive control: the hook's own write really does carry driver
+        // text, so the assertions below cannot pass vacuously.
+        let mut raw = db.clone();
+        let driver = toasty::create!(Ghost {
+            name: "taken".to_string(),
+        })
+        .exec(&mut raw)
+        .await
+        .expect_err("the name is taken")
+        .to_string();
+        drop(raw);
+        assert!(
+            driver.contains("UNIQUE constraint failed"),
+            "the control must be a driver failure, got {driver:?}"
+        );
+
+        let router = Router::builder()
+            .cookies()
+            .app_context(db)
+            .route(RouteFn::new(
+                http::Method::POST,
+                "/admin/capture/{id}",
+                edit_error,
+            ))
+            .build();
+        let token = uuid::Uuid::new_v4().to_string();
+        let response = router
+            .handle(
+                http::Request::builder()
+                    .method(http::Method::POST)
+                    .uri(format!("/admin/capture/{}", row.id))
+                    .header(
+                        http::header::CONTENT_TYPE,
+                        "application/x-www-form-urlencoded",
+                    )
+                    .header(
+                        http::header::COOKIE,
+                        format!("{}={token}", crate::csrf::COOKIE_NAME),
+                    )
+                    .body(Body::from(format!("name=Ada&csrf_token={token}")))
+                    .unwrap(),
+            )
+            .await;
+        let rendered = String::from_utf8_lossy(
+            &http_body_util::BodyExt::collect(response.into_body())
+                .await
+                .unwrap()
+                .to_bytes(),
+        )
+        .to_string();
+
+        assert!(
+            rendered.contains("database unavailable"),
+            "the opaque message must survive, got {rendered:?}"
+        );
+        assert!(
+            !rendered.contains(&driver) && !rendered.contains("UNIQUE constraint failed"),
+            "driver text must not reach the response: the driver said {driver:?}, the response said {rendered:?}"
+        );
     }
 
     /// Post/Redirect/Get (GH #97, #126): a mutation answers 303, the flash

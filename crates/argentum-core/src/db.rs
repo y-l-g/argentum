@@ -30,10 +30,31 @@ pub fn db(cx: &Cx) -> Db {
 /// `table_error_view`); mutation/export paths must match it.
 ///
 /// Only infra failures come here. App-hook errors (`create_record` et al.)
-/// and explicit guards (404s, 403s, config errors) keep their own mapping.
+/// and explicit guards (404s, 403s, config errors) keep their own mapping;
+/// [`hook_failure`] is the seam that separates the two when both arrive
+/// through the same record fn.
 pub(crate) fn unavailable(source: impl std::fmt::Display) -> topcoat::Error {
     tracing::error!(error = %source, "database unavailable");
     topcoat::Error::from(std::io::Error::other("database unavailable"))
+}
+
+/// Map a failed record hook to the error the response carries (GH #229).
+///
+/// A hook (`create_record`, `update_record`, `delete_record`, …) is app code,
+/// so its error is one of two things: the app's own — a guard's 404, a config
+/// error, the default stub's "not implemented" — or the driver's. GH #174
+/// keeps the app's mapping (a guard must still answer 404, not a 500), while
+/// the driver's is an infra failure and takes [`unavailable`]: its text goes
+/// to the log, and the page never echoes it. The error's own type settles
+/// which one it is, never its message — Toasty owns [`toasty::Error`], so a
+/// downcast decides (the same seam the crate uses for
+/// `ContentTooLargeError` and `CursorDecodeError`).
+pub(crate) fn hook_failure(error: topcoat::Error) -> topcoat::Error {
+    if error.is::<toasty::Error>() {
+        unavailable(error)
+    } else {
+        error
+    }
 }
 
 #[cfg(test)]
@@ -94,6 +115,38 @@ mod tests {
         assert!(
             !rendered.contains("gunk"),
             "driver text must not leak, got {rendered}"
+        );
+    }
+
+    /// GH #229: a record hook that fails at the driver is an infra failure, so
+    /// the write surfaces the opaque mapping — the property
+    /// `unavailable_maps_infra_failures_to_an_opaque_error` pins, reached
+    /// through the hook seam.
+    #[test]
+    fn hook_failure_maps_driver_errors_to_an_opaque_error() {
+        let err = super::hook_failure(
+            toasty::Error::from_args(format_args!("secret driver gunk: no such table")).into(),
+        );
+        let rendered = err.to_string();
+        assert!(
+            rendered.contains("database unavailable"),
+            "the opaque message must survive, got {rendered}"
+        );
+        assert!(
+            !rendered.contains("gunk"),
+            "driver text must not leak, got {rendered}"
+        );
+    }
+
+    /// GH #229 must not undo GH #174: an app-authored hook error is not the
+    /// driver's, so it keeps its own mapping — a guard's 404 stays a 404
+    /// rather than becoming the opaque 500.
+    #[test]
+    fn hook_failure_keeps_an_app_error_intact() {
+        let guard: topcoat::Error = topcoat::router::error::not_found().into();
+        assert!(
+            super::hook_failure(guard).is::<topcoat::router::error::NotFoundError>(),
+            "an app-hook error must keep its own mapping"
         );
     }
 }

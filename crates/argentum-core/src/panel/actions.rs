@@ -148,7 +148,9 @@ pub(crate) fn resource_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
             let committed_record = record.clone();
             if let Err(error) = R::delete_record(cx, record, &mut tx).await {
                 notify_write_failure(cx, WRITE_DELETE);
-                return Err(error);
+                // Same seam as create/update (GH #229): the driver's text
+                // stays in the log, an app-authored hook error keeps its own.
+                return Err(crate::db::hook_failure(error));
             }
             if let Err(error) = tx.commit().await {
                 notify_write_failure(cx, WRITE_DELETE);
@@ -257,7 +259,8 @@ pub(crate) fn resource_bulk_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<
             let committed_rows = rows.clone();
             if let Err(error) = R::bulk_delete_records(cx, rows, &mut tx).await {
                 notify_write_failure(cx, WRITE_BULK_DELETE);
-                return Err(error);
+                // Same seam as the row delete (GH #229).
+                return Err(crate::db::hook_failure(error));
             }
             if let Err(error) = tx.commit().await {
                 notify_write_failure(cx, WRITE_BULK_DELETE);
