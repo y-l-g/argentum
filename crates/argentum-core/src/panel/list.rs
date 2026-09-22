@@ -49,13 +49,13 @@ pub(crate) fn retry_url_for_error(
 /// `live` selects the shard variant: the swapped region is everything except
 /// the toolbar the page owns eagerly (the live host owns those slots, so swaps
 /// must never nest invocations or duplicate inputs), hence the shard forces
-/// `.without_skeleton().search(false).filters(false)` while the streamed page
-/// keeps the declared table as-is. The filter bar joins the search toolbar
-/// there (GH #166): a control rebuilt by its own rerun loses focus.
+/// `.search(false).filters(false)` while the streamed page keeps the declared
+/// table as-is. The filter bar joins the search toolbar there (GH #166): a
+/// control rebuilt by its own rerun loses focus.
 pub(crate) fn wire_table_actions<R: Resource>(cx: &Cx, live: bool) -> Table<R::Model> {
     let mut table = R::table(cx);
     if live {
-        table = table.without_skeleton().search(false).filter_bar(false);
+        table = table.search(false).filter_bar(false);
     }
     if R::deletable() {
         table = table
@@ -187,9 +187,6 @@ pub(crate) fn resource_list<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
         // the response status. (For children that partially stream before
         // failing, topcoat's `error_boundary` is the replace-in-place seam.)
         let skeleton = table.render_skeleton(cx).await?;
-        // The swap payload must be rows even when the declared table sets
-        // `.defer(true)` (GH #98 trap: render() would return a second skeleton).
-        let table = table.without_skeleton();
         // Normalize once for the closure (GH #153): the retry link must not
         // echo an unknown `?group_by=`. The render re-normalizes internally.
         let state = table.normalize_state(&state);
@@ -316,9 +313,6 @@ pub(crate) fn resource_list_live<R: Resource>(
         // list — a real link above the swapped region, gated on `can_create`.
         let create_url = R::can_create(cx).then(|| format!("{}/create", list_path));
         let create_label = format!("Create {}", R::navigation_label());
-        // The swap payload must be rows even when the declared table sets
-        // `.defer(true)` (GH #98 trap).
-        let table = table.without_skeleton();
         // Normalize once for the closure (GH #153): the retry link must not
         // echo an unknown `?group_by=`. The invocation normalizes internally.
         let state = table.normalize_state(&state);

@@ -129,12 +129,6 @@ impl<M> Table<M> {
             .into());
         };
         let row_key = row_key.clone();
-        // Eager skeleton path (`without_skeleton` cleared the flag on the
-        // streamed swap): same markup the streamed path uses as its suspense
-        // fallback.
-        if self.show_skeleton {
-            return self.render_skeleton(cx).await;
-        }
         let delete_prefix = self.delete_prefix.clone();
         let edit_prefix = self.edit_prefix.clone();
         let view_prefix = self.view_prefix.clone();

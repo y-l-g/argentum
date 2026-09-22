@@ -48,7 +48,6 @@ pub struct Table<M> {
     page_size: Option<usize>,
     search_ui: Option<bool>,
     filters_ui: Option<bool>,
-    show_skeleton: bool,
     delete_prefix: Option<String>,
     edit_prefix: Option<String>,
     view_prefix: Option<String>,
@@ -68,7 +67,6 @@ impl<M> std::fmt::Debug for Table<M> {
             .field("page_size", &self.page_size)
             .field("search_ui", &self.search_ui)
             .field("filters_ui", &self.filters_ui)
-            .field("show_skeleton", &self.show_skeleton)
             .field("delete_prefix", &self.delete_prefix)
             .field("edit_prefix", &self.edit_prefix)
             .field("view_prefix", &self.view_prefix)
@@ -95,7 +93,6 @@ impl<M> Table<M> {
             page_size: None,
             search_ui: None,
             filters_ui: None,
-            show_skeleton: false,
             delete_prefix: None,
             edit_prefix: None,
             view_prefix: None,
@@ -371,17 +368,6 @@ impl<M> Table<M> {
     /// that (delayed writes rerun normally).
     pub fn live_search(mut self, enabled: bool) -> Self {
         self.live_search = enabled;
-        self
-    }
-
-    /// Clear the eager-skeleton flag for the streamed swap payload (GH #98).
-    ///
-    /// The list page streams `skeleton` as the `suspense` fallback, then swaps
-    /// in `table.render(page)`. A declared table that rendered a skeleton on
-    /// first paint would make the swap a second one; the streamed path renders
-    /// through a copy with the flag cleared so rows always arrive.
-    pub(crate) fn without_skeleton(mut self) -> Self {
-        self.show_skeleton = false;
         self
     }
 
