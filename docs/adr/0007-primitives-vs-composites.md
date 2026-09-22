@@ -20,4 +20,5 @@ sibling clone is required. The upstream `sidebar` is synced into `primitives/sid
 
 A two-crate split (`argentum-ui-primitives` + `argentum-ui`) is rejected as crate proliferation, and
 `topcoat ui add` copy-source vendoring per app is rejected for the upgrade breakage it reintroduces
-(ADR-0006). New upstream components land in `primitives/`; owned components stay in `composites/`.
+(ADR-0006). New upstream components are added to `primitives/`; owned components stay in
+`composites/`.

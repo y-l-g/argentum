@@ -1,11 +1,11 @@
-# Authentication ships with the panel — server-side sessions, one override seam
+# Authentication is part of the panel — server-side sessions, one override seam
 
 Date: 2026-09-10 — Status: accepted — Amended: 2026-09-14
 
 ## Decision
 
-Authentication is a first-class, default-on `Panel` concern in `argentum-core`, behind a feature that
-ships enabled:
+Authentication is a default-on `Panel` concern in `argentum-core`, behind a feature that is enabled by
+default:
 
 - **One override seam.** An object-safe `Authenticator` trait (boxed futures) is stored per `Panel`
   via `Panel::auth(...)`, erased to a boxed trait object. The default `PasswordAuth` authenticates
@@ -51,6 +51,6 @@ remain open, each with a seam that does not need reopening: per-user session rev
 `Auth` values, and `can_access_panel`.
 
 Rejected: stateless signed-cookie sessions (no revocation), making `Panel` generic over the user type
-(it would poison every framework type, and an erased value suffices), and requiring apps to hand-roll
-auth over generic Topcoat sessions (it breaks the out-of-the-box promise). Account lockout and an
-in-process rate limiter are covered by the scope bullet above.
+(it would make every framework type generic, and an erased value suffices), and requiring apps to build
+auth on generic Topcoat sessions themselves (it breaks the default-panel promise). Account lockout and
+an in-process rate limiter are covered by the scope bullet above.

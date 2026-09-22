@@ -18,7 +18,7 @@ on, and those tests do not link the server stack.
 ## Consequences
 
 - A file's tests are now its module's: `cargo test --test it admin::` instead of
-  `cargo test --test admin`. README §10 keeps `cargo test -p showcase`, which runs everything.
+  `cargo test --test admin`; `cargo test -p showcase` runs everything.
 - Failure isolation is gone: a compile error in any module fails the whole target, and a panic can no
   longer be attributed by binary name — the test *path* (`admin::some_test`) stays unique, which is
   what CI reports.

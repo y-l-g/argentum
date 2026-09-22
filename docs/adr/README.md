@@ -18,7 +18,7 @@ code and an ADR disagree, the code wins and the ADR is the thing to fix.
 | [0010](0010-single-resource-crud.md) | One resource gets working CRUD, policy, and notifications |
 | [0011](0011-relations-via-resource-query.md) | Relations use explicit includes, not a `Relation` trait |
 | [0012](0012-tenancy-grouping-export.md) | Tenancy rides `Cx`; grouping and CSV export are in-memory |
-| [0013](0013-panel-auth.md) | Authentication ships with the panel behind one override seam |
+| [0013](0013-panel-auth.md) | Authentication is part of the panel behind one override seam |
 | [0014](0014-shell-js-assets.md) | Shell JS is document-owned, all-loaded, and hook-checked |
 | [0015](0015-test-binary-consolidation.md) | One integration-test binary per crate, not per file |
 | [0016](0016-detail-pages.md) | Detail pages are one Schema rendered read-only plus relations |

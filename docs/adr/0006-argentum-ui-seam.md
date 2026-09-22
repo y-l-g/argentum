@@ -4,7 +4,7 @@ Date: 2026-08-28 — Status: accepted — Amended: 2026-09-10, 2026-09-16, 2026-
 
 ## Decision
 
-Argentum must be beautiful out of the box — a new project that defines a Panel and a Resource gets a
+Argentum must be beautiful by default — a new project that defines a Panel and a Resource gets a
 Filament-grade dashboard with no extra setup — yet Topcoat UI is copy-source (`topcoat ui init` +
 `topcoat ui add` drops owned files into the app). The beautiful primitives live in the
 `argentum-ui` crate, which depends on `topcoat-ui-registry` as a library and re-exports styled

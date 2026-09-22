@@ -7,8 +7,8 @@ Date: 2026-08-19 — Status: accepted — Amended: 2026-09-10
 Every Schema field and Table column binds through a typed Toasty field lens
 (`User::fields().email()`), never a string `statePath`. The lens carries nullability, uniqueness,
 column renames, and type, so hydration (Model → Schema) and dehydration (Schema → Create/Update)
-are compile-time checked. Filament's `"data.author.name"` magic, and its `data_set`/`data_get`
-runtime, has no place in Rust.
+are compile-time checked. Filament's `"data.author.name"` string paths, and its `data_set`/`data_get`
+runtime, have no place in Rust.
 
 `required` defaults from lens nullability (GH #100, GH #147), and a single-segment `String` lens
 carries uniqueness too, read from the model's index list rather than from the field

@@ -3,15 +3,15 @@
 Admin toolkit for Rust — server-rendered on Topcoat, persisted with Toasty. Provides the CRUD
 core of Filament (Panel + Resource → Table + Schema, deletes via Resource record fns) with no
 Livewire port, explicit preloading and cursor pagination, and a narrow reactivity seam: streamed
-`suspense` regions ship the list shell first and swap the loaded table in, while reruns morph in
+`suspense` regions render the list shell first and swap the loaded table in, while reruns morph in
 place (focus survives) and tables opting into `Table::live_search` re-render their table in place
 through the slug-dispatched `table_search` shard: search, sort, filters, and pagination write
 signals, and the table morphs without a navigation (ticket #104, GH #151).
 
 > **Shipped vs spec:** everything the terms below call shipped — Panel, Resource, Table, Schema,
 > Policy, authentication, tenancy, and uploads — lives in `argentum-core`. `examples/showcase` is
-> the runnable reference and `README.md` the guide for what each seam does in detail. Where a term
-> calls something spec-level or future work, it is not shipped.
+> the runnable reference and `docs/guide` the user guide for what each seam does in detail. A term
+> marked spec-level or future work is not implemented.
 
 ## Language
 
@@ -96,7 +96,7 @@ without `pk` is a render error, not a silent 404 (GH #168).
 A `live_search(true)` table hands its chrome to the page's `TableSignals`: the shard's tracked
 reads re-render the table in place when search, sort, filters, or pagination write a signal
 (GH #151). Grouping rides the same signal set, seeded from the page-load `?group_by=` and changed
-via navigation until a live control ships (GH #157). A page can own the same seam directly —
+via navigation until a live control exists (GH #157). A page can own the same seam directly —
 create the `TableSignals`, render the live toolbar, and let its own shard load through `Table::load`
 and re-render with `Table::render_live_with_state` — which is how the showcase table demos stay
 live without being resources (GH #154 §2).
@@ -137,8 +137,8 @@ A user-invoked delete/create/edit operation driven by a `Resource` record fn (`d
 transaction, with authorization checked against the passed record inside the handler. The four
 kinds are the mutation vocabulary, and they exist as one value — `Mutation::Create/Update/Delete` —
 which is what a `Committed` carries to `after_commit`. **Not** an operation *type*: a non-CRUD
-operation (publish, archive) is still modelled as a record fn or a hand-written page, and a
-first-class `Action` value with its own before/after hooks remains future work (GH #112).
+operation (publish, archive) is still modelled as a record fn or a hand-written page, and an
+`Action` value with its own before/after hooks remains future work (GH #112).
 
 _Avoid_: Command, Mutation, Operation, Modal
 
@@ -370,7 +370,7 @@ _Avoid_: Container, Wrapper, Layout
 
 ### Theme
 
-The named set of design tokens that determines the admin's look. Argentum ships **no stylesheet**:
+The named set of design tokens that determines the admin's look. Argentum provides **no stylesheet**:
 the tokens are the app's, declared in its `styles.css` as the per-app contract of ADR-0006, and
 `examples/showcase/styles.css` is the reference — a neutral set that re-tunes upstream's
 `--primary`/`--ring`. The one theme component `argentum-ui` owns is `theme_init_script`, a free

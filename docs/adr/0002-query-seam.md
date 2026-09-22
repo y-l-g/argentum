@@ -7,8 +7,8 @@ Date: 2026-08-19 — Status: accepted — Amended: 2026-09-22
 `Resource::query(cx) -> Query<List<Model>>` is the one overridable seam for a resource's **own** row
 scoping: soft deletes, row-level visibility, and the includes a page loads. Every list, form, record
 and shard loader reaches its rows through it, and tenancy enters as `cx.with(Tenant(id))` on the way
-in, not as a global scope appended elsewhere — there is no `withoutGlobalScope` footgun to forget. The
-tenant filter itself is not stated there: the framework owns that half.
+in, not as a global scope a caller must remember to remove. The tenant filter itself is not stated
+there: the framework owns that half.
 
 For a resource whose `requires_tenant()` is `true`, every loader — list, edit/delete load, bulk
 fetch, unique pre-check, export, and the three relationship option loaders — runs

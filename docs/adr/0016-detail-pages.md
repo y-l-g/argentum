@@ -11,8 +11,8 @@ rather than a parallel field set: `Schema::render_readonly` is the entry point a
 `Select` resolves a static option label (falling back to the stored value, a relationship key
 included), `FileUpload` renders its path — while layout keeps the structure it declares (`Grid` stays
 a grid, `Section`/`Group` keep their chrome). Error slots are empty in view mode by construction:
-`RenderSource::errors_for` returns nothing in `Mode::View`, the one chokepoint, so a layout cannot
-forget the rule and a stored record cannot render as invalid.
+`RenderSource::errors_for` returns nothing in `Mode::View`, the one place that rule lives, so a layout
+cannot forget it and a stored record cannot render as invalid.
 
 **`viewed(cx)` is derived, never declared.** `Resource::viewed` is `!Self::view(cx).is_empty()`, so the
 row link, the handler's answer, and the schema that renders the page cannot disagree.

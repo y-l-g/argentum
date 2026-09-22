@@ -5,7 +5,7 @@ Date: 2026-08-31 — Status: accepted — Amended: 2026-09-10, 2026-09-15, 2026-
 ## Decision
 
 Relations ride the resource query seam; there is no top-level `Relation` trait. `Table` and `Schema`
-never hand-roll `#[shard]` or a relation query, and `via` many-to-many stays SQL-only and out of
+never write their own `#[shard]` or relation query, and `via` many-to-many stays SQL-only and out of
 scope for v1 tables (use the join model's query when it is needed).
 
 **Loader.** A page that needs a relation binds an explicit `include` on the resource's query, in two

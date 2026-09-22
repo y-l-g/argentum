@@ -12,7 +12,8 @@ gzipped summed per asset, with no build or minify step). They are declared as `A
 document with `ShellAssets`, including the login page, where all but `theme.js`'s backstop apply are
 no-ops. Only the document emits `<script>` tags, `defer`red (GH #152 — parsing never waits for them;
 every asset either registers document-level listeners at execution or binds in a `DOMContentLoaded`
-handler). The blocking `theme_init_script` stays inline so the `dark` class lands pre-paint.
+handler). The blocking `theme_init_script` stays inline so the `dark` class applies before first
+paint.
 Per-component `<script>` tags stay out: duplicate execution stacks document listeners, and the runtime
 does not manage script lifecycles in swapped content.
 
