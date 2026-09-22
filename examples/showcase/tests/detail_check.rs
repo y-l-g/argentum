@@ -11,7 +11,7 @@ use showcase::{
 
 use crate::common::{body_string, demo_client, full_db, tenanted_db, tenantless_client};
 
-/// The first seeded post's id, as the URL carries it.
+/// A post id from the database — title-first, so it is deterministic.
 async fn a_post_id(db: &mut toasty::Db) -> String {
     Post::all()
         .order_by(Post::fields().title().asc())
@@ -76,10 +76,9 @@ async fn post_detail_renders_the_record_read_only() {
         !body.contains("ac-field--error"),
         "a stored record has nothing to be invalid about: {body}"
     );
-    // A field is present as a value, not as a control: the read-only shape
-    // (GH #216 — the `whitespace-pre-wrap` class this used to grep for is
-    // paint). The form's label carries `data-slot="field-label"`; the
-    // read-only title deliberately does not.
+    // A field is present as a value, not as a control: the read-only shape. The
+    // form's label carries `data-slot="field-label"`; the read-only title
+    // deliberately does not.
     assert!(
         body.contains("data-slot=\"field\"") && !body.contains("data-slot=\"field-label\""),
         "the page renders values through the read-only field shape: {body}"
@@ -224,8 +223,8 @@ async fn post_detail_enforces_requires_tenant() {
 
 #[tokio::test]
 async fn post_detail_hides_the_record_from_a_denied_tenant() {
-    // The blocked tenant is refused before policy is even consulted: its
-    // `query` filter finds no such row, so the answer is the same 404 an
+    // The blocked tenant is refused before policy is even consulted: the
+    // tenant-scoped load finds no such row, so the answer is the same 404 an
     // unknown id gets — scoping first, `can_view` second, which is the order
     // that keeps a 403 from confirming a record's existence across tenants.
     use showcase::models::BLOCKED_TENANT;
@@ -234,7 +233,8 @@ async fn post_detail_hides_the_record_from_a_denied_tenant() {
     let router = router(db.clone());
     let client = demo_client(&router, &db).await;
     let mut db_q = db.clone();
-    // A real id, so the refusal comes from the policy and not from the load.
+    // A real id, so the 404 is the tenant scope excluding the row rather than
+    // an unknown id.
     let id = a_post_id(&mut db_q).await;
 
     let resp = client

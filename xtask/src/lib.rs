@@ -361,9 +361,10 @@ pub const ASSET_FILES: &[(&str, &str)] = &[
 
 /// One hook-contract entry (GH #152, ADR-0014): `js` must appear in the
 /// asset's source and `rust` must appear somewhere in the Rust render sources
-/// (`argentum-ui/src` + `argentum-core/src`, render sites and their tests).
-/// Usually both are the same attribute hook; dataset-mapped hooks name each
-/// side's spelling (`dialogOpenParam` reads `data-dialog-open-param`).
+/// (`argentum-ui/src` + `argentum-core/src`; test modules and comment-only
+/// lines are stripped). Usually both are the same attribute hook;
+/// dataset-mapped hooks name each side's spelling (`dialogOpenParam` reads
+/// `data-dialog-open-param`).
 pub struct AssetHook {
     /// The asset file under `assets/` that consumes the hook.
     pub asset: &'static str,

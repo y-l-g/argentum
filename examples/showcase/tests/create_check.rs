@@ -7,7 +7,6 @@ use crate::common::{
     seeded_db, set_cookie_header, user_count,
 };
 
-/// The create page serves the resource's declared form.
 #[tokio::test]
 async fn create_page_serves_the_declared_fields() {
     let db = seeded_db().await;
@@ -131,7 +130,6 @@ async fn create_valid_redirects_with_a_one_time_flash() {
     );
 }
 
-/// The create wrote the row, and the shell renders the consumed toast.
 #[tokio::test]
 async fn create_valid_persists_the_new_user_and_toasts_it() {
     let db = seeded_db().await;
@@ -169,7 +167,6 @@ async fn create_valid_persists_the_new_user_and_toasts_it() {
         .unwrap();
     assert!(new_user.is_some(), "new user should exist");
 
-    // Production page size is 25: the new user sorts onto page 1.
     let resp2 = client.cookies(&response_cookies(&resp)).get(&loc).await;
     let html2 = body_string(resp2).await;
     assert!(
@@ -352,8 +349,8 @@ async fn users_create_duplicate_email_shows_taken() {
 
 #[tokio::test]
 async fn users_create_static_selects_set_role_and_active() {
-    // Both Select kinds on one form: relationship selects live on posts;
-    // static options (role vocabulary, active Yes/No) live here.
+    // Static-options Selects: the role vocabulary and the Yes/No active pair.
+    // Relationship Selects live on the post and comment forms.
     let db = seeded_db().await;
     let router = router(db.clone());
     let client = demo_client(&router, &db).await;

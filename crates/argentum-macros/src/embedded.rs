@@ -331,7 +331,7 @@ fn field_label(field: &syn::Field, ident: &syn::Ident) -> String {
         .unwrap_or_else(|| label(ident))
 }
 
-/// The variant control plus one control per payload leaf.
+/// One write, read, presence check, and control per named field.
 fn expand_struct(
     krate: &TokenStream2,
     input: &DeriveInput,
@@ -444,6 +444,7 @@ fn expand_struct(
     expanded.into()
 }
 
+/// The variant control plus one control per payload leaf.
 fn expand_enum(krate: &TokenStream2, input: &DeriveInput, data: &syn::DataEnum) -> TokenStream {
     let ident = &input.ident;
     let owner = quote! { #ident };

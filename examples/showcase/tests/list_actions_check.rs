@@ -132,12 +132,10 @@ async fn posts_pagination_walks_forward_and_back() {
     );
 }
 
-/// The `Next` pager link's href, HTML-unescaped.
 fn next_link(html: &str) -> Option<String> {
     link_href(html, "Next")
 }
 
-/// The `Previous` pager link's href, HTML-unescaped.
 fn previous_link(html: &str) -> Option<String> {
     link_href(html, "Previous")
 }

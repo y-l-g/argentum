@@ -16,10 +16,7 @@ use topcoat::{
 ///
 /// The stored preference is **authoritative in both directions** (GH #184): a
 /// stored `light` *removes* the server-rendered `dark` class rather than
-/// leaving it in place. An earlier revision only ever added `dark`, so a user
-/// who toggled to light got re-darkened by the next server render — the
-/// `default_dark` argument is only the fallback for a visitor with no stored
-/// preference.
+/// leaving it in place.
 ///
 /// The script deliberately avoids `&&`: topcoat has no DOM-safe inline-script
 /// primitive, so the body goes through the normal HTML escape path, which
@@ -49,7 +46,7 @@ else document.documentElement.classList.remove('dark')})();",
 /// topcoat has no DOM-safe script primitive, and the body is ours — a fixed
 /// ASCII program with one `true`/`false` interpolated — so escaping is
 /// harmless as long as the program stays free of characters HTML would
-/// rewrite (see [`theme_init_script_body`]).
+/// rewrite (see `theme_init_script_body`).
 ///
 /// ```ignore
 /// <head>

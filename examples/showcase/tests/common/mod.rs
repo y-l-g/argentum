@@ -23,9 +23,7 @@ use topcoat::router::{Body, Router};
 /// cares about. A narrower `models!(..)` made the panel's schema incomplete, so
 /// a form for an unregistered model could not resolve its embedded paths — and
 /// would have bound whichever model the id happened to name. An empty table
-/// costs nothing; an incomplete schema misleads. It used to be written four
-/// times (three here, one in `states_check`'s local `empty_db`), which is four
-/// places to forget a model.
+/// costs nothing; an incomplete schema misleads.
 pub async fn empty_schema_db() -> Db {
     let db = Db::builder()
         .models(toasty::models!(
@@ -197,7 +195,6 @@ pub struct TestClient<'a> {
 }
 
 impl<'a> TestClient<'a> {
-    /// A client with no cookies and no tenant.
     pub fn new(router: &'a Router) -> Self {
         Self {
             router,
@@ -245,7 +242,6 @@ impl<'a> TestClient<'a> {
         client
     }
 
-    /// GET `uri`.
     pub async fn get(&self, uri: &str) -> http::Response<Body> {
         self.router
             .handle(self.request(http::Method::GET, uri))
@@ -538,11 +534,9 @@ pub fn file_input_tag(html: &str) -> String {
 /// The first `href="…"` in `html` whose value contains `needle`, with the
 /// entities an HTML attribute encoder emits decoded.
 ///
-/// One copy for the whole suite (GH #217): the three former copies decoded
-/// differently — one returned the raw attribute, one replaced `&amp;`, one
-/// unescaped fully — and the raw one was fed straight back as a request URI,
-/// so it followed a URL no browser would send. `&amp;` is decoded *last* so
-/// `&amp;lt;` becomes the literal `&lt;`, exactly as a browser reads it.
+/// The result is followed as a request URI, so it must be the URL a browser
+/// would send. `&amp;` is decoded *last* so `&amp;lt;` becomes the literal
+/// `&lt;`, exactly as a browser reads it.
 pub fn find_href_with(html: &str, needle: &str) -> Option<String> {
     let mut rest = html;
     loop {
@@ -596,8 +590,7 @@ pub fn row_titles(html: &str) -> Vec<String> {
 /// How many `Post` rows the database holds.
 ///
 /// Rejected submissions assert "nothing was created" by comparing this before
-/// and after, rather than against a literal row count: the seed grew a
-/// pagination fixture (GH #184), and a magic `6` there was asserting the
+/// and after, rather than against a literal row count: a literal asserts the
 /// fixture's size instead of the handler's behaviour.
 pub async fn post_count(db: &Db) -> usize {
     let mut db = db.clone();
@@ -611,8 +604,8 @@ pub async fn post_count(db: &Db) -> usize {
 /// How many `User` rows the database holds (GH #217).
 ///
 /// [`post_count`]'s pattern for the team roster: a seeded-row literal like
-/// `8` asserts the fixture's size, so one added seed row broke eight tests with
-/// no bug behind it. Write/delete tests compare this before and after instead.
+/// `8` asserts the fixture's size. Write/delete tests compare this before and
+/// after instead.
 pub async fn user_count(db: &Db) -> usize {
     let mut db = db.clone();
     showcase::models::User::all()

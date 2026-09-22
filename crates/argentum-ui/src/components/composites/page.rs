@@ -3,18 +3,13 @@ use topcoat::{
     view::{Attributes, Child, StaticClass, View, class, component, view},
 };
 
-// ---------------------------------------------------------------------------
-// Page container — owns max-width, padding and vertical rhythm so pages need
-// no Tailwind layout classes. See CONTEXT.md:Page and ADR-0008.
-// ---------------------------------------------------------------------------
-
 const PAGE: StaticClass = class!("mx-auto flex w-full max-w-7xl flex-col gap-6 p-6");
 const PAGE_HEADER: StaticClass = class!("flex flex-col gap-1.5");
 const PAGE_TITLE: StaticClass = class!("text-2xl font-bold tracking-tight text-foreground");
 const PAGE_DESCRIPTION: StaticClass = class!("text-sm text-muted-foreground");
 const PAGE_CONTENT: StaticClass = class!("flex flex-col gap-6");
 
-/// Standard container for an admin page.
+/// Standard container for an admin page (CONTEXT.md:Page, ADR-0008).
 ///
 /// Owns `max-w-7xl mx-auto p-6 flex flex-col gap-6` so pages declare title
 /// and content, not Tailwind layout classes.

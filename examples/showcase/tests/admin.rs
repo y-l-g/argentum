@@ -17,10 +17,9 @@ async fn admin_resource_list_page_serve_seeded_users() {
     );
     let html = body_string(response).await;
 
-    // Layout shell — beautiful: Token classes, sidebar, Token borders.
-    // Light first paint (GH #184): the showcase no longer defaults to dark, so
-    // a visitor with no stored preference gets a light document. The
-    // preference plumbing itself is covered in `auth_check`.
+    // Light first paint (GH #184): a visitor with no stored preference gets a
+    // light document, and the preference plumbing itself is covered in
+    // `auth_check`.
     assert!(
         html.contains("<html>"),
         "showcase must paint light by default in {html}"
@@ -58,9 +57,9 @@ async fn admin_resource_list_page_serve_seeded_users() {
         html.contains("href=\"/admin/comments\"") || html.contains("/admin/comments"),
         "missing Comments navigation url in {html}"
     );
-    // GH #184: the Published saved view is gone — it was the Blog Posts table
-    // with a filter, so it showed the same page twice and was the only
-    // arrangement that highlighted two entries at once.
+    // GH #184: no Published saved view — it would duplicate the Blog Posts
+    // table with a filter, and it is the only arrangement that would highlight
+    // two sidebar entries at once.
     assert!(
         !html.contains("status:published"),
         "the redundant Published saved view must be gone: {html}"
@@ -229,9 +228,9 @@ async fn admin_list_pagination_walks_cursor_links() {
     let router = router(db.clone());
     let client = demo_client(&router, &db).await;
     // GH #217: derive the overflow from the fixture and the page size rather
-    // than seeding a literal 23 — a `6` here was asserting the seed's size.
-    // Production page size is 25, so page 1 holds the seeded roster plus
-    // `extra - 1` filler rows and exactly one filler row spills to page 2.
+    // than seeding a literal 23. Production page size is 25, so page 1 holds
+    // the seeded roster plus `extra - 1` filler rows and exactly one filler row
+    // spills to page 2.
     let seeded = user_count(&db).await;
     let page_size = 25usize;
     let extra = page_size - seeded + 1;
@@ -363,7 +362,7 @@ async fn admin_list_search_matches_substrings_and_escapes_wildcards() {
     .expect("seed the percent user");
 
     // The same client: the new row is visible through the session it already
-    // holds (GH #218 dropped the second login, which pinned nothing).
+    // holds.
     let response = client.get("/admin/users?q=100%25").await;
     let html = body_string(response).await;
     assert!(

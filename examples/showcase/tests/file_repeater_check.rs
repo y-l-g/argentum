@@ -13,7 +13,7 @@ async fn posts_create_shows_fileupload_and_repeater() {
     let resp = client.get("/admin/posts/create").await;
     assert!(resp.status().is_success());
     let html = body_string(resp).await;
-    // FileUpload should be an input type="file" with for/id linking and Tokens
+    // FileUpload should be an input type="file" with for/id linking
     assert!(
         html.contains("type=\"file\""),
         "missing file input {}",
@@ -36,8 +36,8 @@ async fn posts_create_shows_fileupload_and_repeater() {
         "missing tags input {}",
         html
     );
-    // Content/Group/Tabs composition: sectioned story fields, grouped
-    // metadata grid, tabbed media.
+    // Content/Group composition: sectioned story fields and a grouped metadata
+    // grid.
     assert!(html.contains("Content"), "missing Content section {}", html);
     assert!(
         html.contains("name=\"status\"") && html.contains("name=\"featured\""),
@@ -426,12 +426,9 @@ async fn posts_author_select_is_searchable() {
     );
 }
 
-/// The reported bug (GH #184): the edit form's file input rendered `required`
-/// with no visible stored value, so the browser refused to submit a save that
-/// left the control untouched — the image path looked empty and the field
-/// blocked the edit. The edit must now surface the stored path, drop the
-/// native `required`, and let an untouched submit through while the server
-/// preserves the stored value.
+/// The edit form surfaces the stored image path, drops the native `required`
+/// from the file control, and preserves the stored value when the submit leaves
+/// the control untouched (GH #184).
 #[tokio::test]
 async fn posts_edit_without_reupload_keeps_the_stored_image() {
     let db = full_db().await;

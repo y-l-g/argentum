@@ -12,14 +12,12 @@ async fn edit_page_hydrates_and_updates() {
     let router = router(db.clone());
     let client = demo_client(&router, &db).await;
 
-    // Get a user id
     let mut db_q = db.clone();
     let users = User::all().exec(&mut db_q).await.unwrap();
     let user = users.first().unwrap();
     let id = user.id.to_string();
     let edit_url = format!("/admin/users/{}/edit", id);
 
-    // GET edit should be 200 with hydrated values
     let resp = client.get(&edit_url).await;
     assert!(
         resp.status().is_success(),
@@ -40,7 +38,6 @@ async fn edit_page_hydrates_and_updates() {
         "edit should contain hydrated email"
     );
 
-    // Invalid POST should re-render with errors and not mutate
     let csrf = uuid::Uuid::new_v4().to_string();
     let resp = client
         .csrf(&csrf)
@@ -62,7 +59,6 @@ async fn edit_page_hydrates_and_updates() {
     let fresh = User::get_by_id(&mut db_check, &user.id).await.unwrap();
     assert_eq!(fresh.name, user.name, "should not mutate on invalid");
 
-    // Valid POST should update and redirect with notification
     let resp = client
         .csrf(&csrf)
         .post_form(
@@ -94,7 +90,6 @@ async fn edit_page_hydrates_and_updates() {
         flash.contains("Updated"),
         "the flash carries the action, got {flash}"
     );
-    // Follow redirect carrying the flash cookie and check the toast
     let resp2 = client.cookies(&response_cookies(&resp)).get(loc).await;
     let html2 = body_string(resp2).await;
     assert!(
@@ -102,7 +97,6 @@ async fn edit_page_hydrates_and_updates() {
         "notification should survive, got {}",
         html2
     );
-    // Check DB mutated
     let mut db_check2 = db.clone();
     let updated = User::get_by_id(&mut db_check2, &user.id).await.unwrap();
     assert_eq!(updated.name, "Updated Name");
@@ -260,7 +254,7 @@ async fn edit_sso_managed_user_is_forbidden() {
 #[tokio::test]
 async fn post_body_renders_as_a_textarea() {
     // GH #184 §9: a post body is prose, so the edit form renders a
-    // `<textarea>` instead of the one-line input it used to share with `title`.
+    // `<textarea>` for it while `title` stays a one-line input.
     use showcase::models::Post;
 
     let db = crate::common::full_db().await;

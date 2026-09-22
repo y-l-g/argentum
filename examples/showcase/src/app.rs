@@ -32,8 +32,7 @@ const GEIST: Font = fontsource_font!(GEIST, host: Asset);
 /// Admin resource for `User`.
 ///
 /// A hand-written `Resource` impl: this one declares a custom `Table`, and the
-/// hooks are the declaration, so there is nothing for a derive to fill in
-/// (`derive(Resource)` was removed as dead surface, GH #222).
+/// hooks are the declaration, so there is nothing for a derive to fill in.
 pub struct UserResource;
 
 impl Resource for UserResource {
@@ -366,8 +365,8 @@ impl Resource for AuthorResource {
                 .trim()
                 .to_string();
             // `requires_tenant` makes the handler answer 403 before this runs
-            // (GH #87), so this re-check is the non-panicking form of the old
-            // `expect` (GH #223): minting a nil-tenant orphan stays impossible.
+            // (GH #87), so `require_tenant` never panics on a tenantless submit
+            // and a nil-tenant orphan stays impossible (GH #223).
             let tid = require_tenant(&cx)?;
             // The created row goes back to the framework (GH #112).
             toasty::create!(Author {
@@ -838,9 +837,9 @@ impl Resource for PostResource {
                 values.get("featured").map(|s| s.trim().to_string()),
                 Some(s) if s == "true"
             );
-            // `requires_tenant` already answered 403 to a tenantless submit
-            // (GH #87); this is the non-panicking form of the old `expect`
-            // (GH #223), so a nil-tenant orphan still cannot be minted.
+            // The same fail-closed check as the author create above: the 403 is
+            // already answered (GH #87), so a nil-tenant post cannot be minted
+            // (GH #223).
             let tid = require_tenant(&cx)?;
             // Embedded values (GH #191): the codec reads each one back from the
             // submission, choosing an enum's variant from the discriminant the
@@ -1319,18 +1318,10 @@ impl Resource for CommentResource {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Layout — Panel shell at /admin, wraps every /admin/* page
-// ---------------------------------------------------------------------------
-
 #[layout("/admin")]
 async fn admin_layout(cx: &Cx, slot: Slot<'_>) -> Result<impl View> {
     Panel::layout_shell(cx, slot).await
 }
-
-// ---------------------------------------------------------------------------
-// Router helper (used by `main.rs` and tests)
-// ---------------------------------------------------------------------------
 
 pub fn router(db: Db) -> Router {
     build_router(db, Some(load_assets()), Some(upload_dir()))
@@ -1417,13 +1408,10 @@ fn build_router(db: Db, bundle: Option<AssetBundle>, uploads: Option<PathBuf>) -
         .resource::<AuthorResource>()
         .resource::<PostResource>()
         .resource::<CommentResource>();
-    // No "Published" saved-view entry (GH #184): it pointed at
+    // No "Published" saved-view entry (GH #184): it would point at
     // `/admin/posts?filters=status:published`, i.e. the Blog Posts table with a
     // filter — the same page twice in the sidebar, and the one arrangement the
-    // shell's path matching highlights twice at once. A query-aware navigation
-    // target, the right tool for a saved view that says something the base list
-    // cannot, was removed with the rest of the custom-navigation seam (GH #221)
-    // for having no consumer; it comes back with one.
+    // shell's path matching highlights twice at once.
     // Demo credentials stay available for local development via
     // SHOWCASE_LOGIN_HINT, but the default login page is shippable with no
     // hint. Empty values install nothing (no empty hint paragraph).

@@ -1,6 +1,6 @@
 use showcase::app::router_for_tests as router;
 
-use crate::common::{body_string, demo_client, find_href_with, full_db};
+use crate::common::{body_string, demo_client, find_href_with, full_db, row_titles};
 
 #[tokio::test]
 async fn posts_filter_widgets_render_typed_controls() {
@@ -43,19 +43,16 @@ async fn posts_filter_select_status_published() {
     let db = full_db().await;
     let router = router(db.clone());
     let client = demo_client(&router, &db).await;
-    // filter status:published should show only Hello Toasty (published)
+    // The filter narrows the page to the one published post. The row list is
+    // the whole assertion: with the filter ignored, page 1 would carry 25
+    // title-first rows, 24 of them drafts.
     let resp = client.get("/admin/posts?filters=status:published").await;
     assert!(resp.status().is_success());
     let html = body_string(resp).await;
-    assert!(
-        html.contains("Hello Toasty"),
-        "should contain published {}",
-        html
-    );
-    assert!(
-        !html.contains("Second Post"),
-        "should not contain draft {}",
-        html
+    assert_eq!(
+        row_titles(&html),
+        vec!["Hello Toasty".to_string()],
+        "the published filter must drop every draft: {html}"
     );
 }
 
@@ -64,19 +61,16 @@ async fn posts_filter_ternary_featured_true() {
     let db = full_db().await;
     let router = router(db.clone());
     let client = demo_client(&router, &db).await;
-    // featured:true should show only Hello Toasty (featured true)
+    // featured:true narrows the page to the one featured post, and the row list
+    // is the whole assertion: with the filter ignored, page 1 would carry 25
+    // title-first rows, 24 of them non-featured.
     let resp = client.get("/admin/posts?filters=featured:true").await;
     assert!(resp.status().is_success());
     let html = body_string(resp).await;
-    assert!(
-        html.contains("Hello Toasty"),
-        "featured true should show Hello {}",
-        html
-    );
-    assert!(
-        !html.contains("Second Post"),
-        "featured true should not show Second {}",
-        html
+    assert_eq!(
+        row_titles(&html),
+        vec!["Hello Toasty".to_string()],
+        "the featured filter must drop every non-featured post: {html}"
     );
 }
 

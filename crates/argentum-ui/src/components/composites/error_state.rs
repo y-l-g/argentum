@@ -4,12 +4,6 @@ use topcoat::{
     view::{Attributes, Child, StaticClass, View, class, component, view},
 };
 
-// ---------------------------------------------------------------------------
-// ErrorState — the failed-load rendering for a content region
-// (CONTEXT.md:ErrorState). Distinct from EmptyState: zero rows is a
-// *result*; a failed load is not, and pretending otherwise hides outages.
-// ---------------------------------------------------------------------------
-
 const ERROR_STATE: StaticClass = class!(
     "flex flex-col items-center gap-3 rounded-lg border border-destructive/30 \
      bg-background px-6 py-12 text-center [&>svg]:size-5 [&>svg]:text-destructive"

@@ -136,7 +136,7 @@ async fn posts_export_streams_csv_with_content_disposition() {
         "a declared include must reach the export query, got {}",
         csv
     );
-    // Should respect filters if provided
+    // A filter narrows the export: only the published post survives.
     let resp = client
         .get("/admin/posts/export?filters=status:published")
         .await;

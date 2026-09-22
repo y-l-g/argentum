@@ -16,7 +16,8 @@ pub struct User {
     pub name: String,
     #[unique]
     pub email: String,
-    /// "admin" or "member" — a string until Select fields land (GH #13).
+    /// "admin" or "member" — the form renders them as a static-options Select
+    /// (GH #13).
     pub role: String,
     pub active: bool,
     pub created_at: Timestamp,
@@ -137,12 +138,9 @@ pub enum Media {
 
 /// Post statistics — an embedded struct (GH #185), bindable since GH #192.
 ///
-/// It was a `#[document]` until the typed binding landed: a document's inner
-/// fields share its single JSON column, so no control could bind `word_count`
-/// on its own — which is why the record fn parsed it with `unwrap_or(0)` and a
-/// mistyped number became a silent zero. Embedding flattens it into
-/// `post_stats_word_count` / `post_stats_read_minutes`, and those are integers
-/// the form binds through `TextInput::typed`.
+/// Embedding flattens it into `post_stats_word_count` /
+/// `post_stats_read_minutes`, and those are integers the form binds through
+/// `TextInput::typed`.
 #[derive(Debug, Clone, toasty::Embed, argentum_core::EmbeddedForm)]
 pub struct PostStats {
     #[form(label = "Word count")]
@@ -168,7 +166,7 @@ pub struct Post {
     pub created_at: Timestamp,
     pub image_path: String,
     pub tags: String,
-    /// Embedded struct + nested document (GH #185).
+    /// Embedded struct (GH #185).
     pub seo: Seo,
     /// Shared column + per-variant payloads.
     pub publication: Publication,
@@ -300,23 +298,20 @@ pub const DEMO_TENANT: uuid::Uuid = uuid::Uuid::from_u128(100);
 
 /// A deterministic id for the `index`th seeded post (GH #184).
 ///
-/// `PostResource` declares no sortable column, so a paginated list falls back
-/// to primary-key order. With `#[auto]` ids that order is effectively random,
-/// which put the rows the showcase pins — "Hello Toasty" and "Second Post" —
-/// wherever a UUID hash happened to land once the seed outgrew one page.
-/// Pinning the six narrative rows first and the pagination filler after them
-/// (`FILLER_ID_BASE`) makes page 1 deterministic: the stories, then filler.
+/// The six narrative rows take ids 0..=5 and the pagination filler ids above
+/// `7fff…` (`FILLER_ID_BASE`), so primary-key order reads the stories first and
+/// the filler behind them. With `#[auto]` ids each row would land wherever its
+/// random UUID fell.
 fn seeded_post_id(index: usize) -> uuid::Uuid {
     uuid::Uuid::from_u128(index as u128)
 }
 
-/// First id handed to a pagination filler row (GH #184): above `7fff…`, which
-/// is outside the range a random v4 UUID practically lands in, so the filler
-/// always sorts after the narrative rows above.
+/// First id handed to a pagination filler row (GH #184): above `7fff…`, so the
+/// filler always sorts after the narrative rows, whose ids start at zero.
 const FILLER_ID_BASE: u128 = 0x8000_0000_0000_0000_0000_0000_0000_0000;
 
 /// Backlog titles for the pagination fixture (GH #184): sixty drafts, which
-/// with the six rows above and `PostResource`'s page size of 10 gives seven
+/// with the six rows above and `PostResource`'s page size of 25 give three
 /// pages — enough to walk forward, walk back, and land mid-list.
 ///
 /// A `const` with a compile-time length assertion, so shrinking it below a
@@ -474,10 +469,10 @@ fn filler_embedded(index: usize) -> (Seo, Publication, Media, PostStats) {
 /// published/featured filter assertions keep holding while the list shows a
 /// believable backlog.
 ///
-/// GH #184 added the pagination filler below, which puts the list well past one
-/// page. Assertions that need a specific row now narrow by `?q=` rather than
-/// assuming it is on the title-ordered first page, and "nothing was created"
-/// assertions compare a before/after count instead of a literal seed size.
+/// The pagination filler below puts the list well past one page. Assertions
+/// that need a specific row narrow by `?q=` rather than assuming it is on the
+/// title-ordered first page, and "nothing was created" assertions compare a
+/// before/after count instead of a literal seed size.
 pub async fn seed_phase2(db: &mut Db) -> toasty::Result<()> {
     // Authors
     if Author::all().exec(db).await?.is_empty() {
@@ -522,7 +517,8 @@ pub async fn seed_phase2(db: &mut Db) -> toasty::Result<()> {
             tags: "rust,async".to_string(),
             // Embedded shapes with real values (GH #185): an embedded struct,
             // an embedded enum whose timestamps share one column, an embedded
-            // struct nested inside a variant, and a document.
+            // struct nested inside a variant, and an embedded struct of typed
+            // leaves.
             seo: Seo {
                 title: "Hello Toasty — the admin panel".to_string(),
                 description: "How we render admin tables over Toasty.".to_string(),
@@ -632,20 +628,20 @@ pub async fn seed_phase2(db: &mut Db) -> toasty::Result<()> {
             .exec(db)
             .await?;
         }
-        // Pagination filler (GH #184): `PostResource` paginates at 10, so the
-        // six rows above could never cross a page boundary and the pager had
-        // no demo path at all. These are drafts with `featured = false`, which
-        // keeps every published/featured assertion holding.
+        // Pagination filler (GH #184): `PostResource` paginates at 25, and the
+        // six rows above do not fill one page — these sixty drafts make the
+        // list three pages, so the pager is walkable. They are drafts with
+        // `featured = false`, which keeps every published/featured assertion
+        // holding.
         //
         // Deterministic on purpose: titles are a fixed ordered list, ids and
         // `created_at` are both derived from the index.
         //
-        // The ids are pinned high on purpose. `PostResource` declares no
-        // sortable column, so a paginated list falls back to primary-key order
-        // ascending — and the two original rows above carry random UUID keys.
-        // Filler past `7fff…` therefore widens the list behind them instead of
-        // shuffling them off page 1, which is what the pinned assertions in
-        // `filter_check` / `group_export_check` / `relation_check` rely on.
+        // The ids are pinned high on purpose. `PostResource`'s list orders by
+        // its first sortable column (`title` asc), and toasty appends the
+        // primary key to a cursor ordering as the tie-breaker, so the narrative
+        // rows keep ids 0..=5 and the filler sits behind them rather than ahead
+        // of them.
         for (index, title) in PAGINATION_FILLER_TITLES.iter().enumerate() {
             let created_at = jiff::civil::date(2024, 7, 1)
                 .at(9, 0, 0, 0)
