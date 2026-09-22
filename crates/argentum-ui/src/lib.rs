@@ -67,6 +67,7 @@ pub const FILTERS_JS: topcoat::asset::Asset = topcoat::asset::asset!("../assets/
 pub const LIVE_SEARCH_JS: topcoat::asset::Asset =
     topcoat::asset::asset!("../assets/live-search.js");
 pub const SELECTS_JS: topcoat::asset::Asset = topcoat::asset::asset!("../assets/selects.js");
+pub const VARIANT_JS: topcoat::asset::Asset = topcoat::asset::asset!("../assets/variant.js");
 pub const NOTIFICATION_JS: topcoat::asset::Asset =
     topcoat::asset::asset!("../assets/notifications.js");
 

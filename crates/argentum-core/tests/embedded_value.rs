@@ -166,6 +166,13 @@ async fn keys_come_from_the_compiled_mapping() {
     );
     assert_eq!(publication.len(), 3, "three variants, in declaration order");
     assert_eq!(publication.value_of_index(1), Some("2"));
+    assert_eq!(
+        publication.name_of_index(1),
+        Some("Published"),
+        "the value a variant stores and the name it is labelled with are two \
+         different things"
+    );
+    assert_eq!(publication.name_of_index(3), None);
     assert_eq!(publication.index_of("3"), Some(2));
     assert_eq!(publication.index_of("nope"), None);
 
@@ -532,6 +539,14 @@ async fn variant_casing_needs_no_normalisation() {
         .render(&cx);
     assert!(html.contains("name=\"casing\""), "got {html}");
     assert!(html.contains("name=\"casing_at\""), "got {html}");
+    // The label is the *normalised* name — `OK` reads `Ok` — which is exactly
+    // why the codec addresses variants by index and the label is never a
+    // handle: a normalized name need not round-trip.
+    assert_eq!(
+        variant_option_labels(&html),
+        vec!["-- Select --", "Ok", "Draft"],
+        "got {html}"
+    );
 }
 
 /// `bool` and the wider integer types are leaves too (GH #191 widened
@@ -569,10 +584,10 @@ async fn typed_leaves_cover_bool_and_the_integer_family() {
     );
 }
 
-/// The generated form: every leaf control, plus the hidden discriminant, named
-/// from the compiled mapping — and no control at all in view mode.
+/// The generated form: the variant `Select`, every variant's payload in its own
+/// marked group, and no control at all in view mode.
 #[tokio::test]
-async fn the_derived_form_renders_every_leaf_and_the_discriminant() {
+async fn the_derived_form_renders_the_variant_select_and_every_payload() {
     let cx = post_cx().await;
     let schema = Schema::new(Publication::form(&cx, Post::fields().publication()));
     let mut values = HashMap::new();
@@ -586,22 +601,19 @@ async fn the_derived_form_renders_every_leaf_and_the_discriminant() {
         &mut values,
     );
 
-    let html = schema
-        .render_with(&cx, &values, &HashMap::new())
-        .await
-        .unwrap()
-        .single()
-        .await
-        .unwrap()
-        .render(&cx);
+    let html = render_form(&cx, &schema, &values).await;
 
     assert!(
-        html.contains("type=\"hidden\"") && html.contains("name=\"publication\""),
-        "the discriminant must ride the form as a hidden control, got {html}"
+        html.contains("<select") && html.contains("name=\"publication\""),
+        "the discriminant must ride the form as a visible control, got {html}"
     );
     assert!(
-        html.contains("value=\"3\""),
-        "the stored variant hydrates into the discriminant, got {html}"
+        html.contains("data-variant-select=\"publication\""),
+        "the control must name the groups it drives, got {html}"
+    );
+    assert!(
+        html.contains("value=\"3\" selected"),
+        "the stored variant hydrates as the selected option, got {html}"
     );
     for name in [
         "publication_timestamp",
@@ -616,18 +628,242 @@ async fn the_derived_form_renders_every_leaf_and_the_discriminant() {
         "an unlabelled field is humanized from its name, got {html}"
     );
 
-    // Read-only: the discriminant is not a value a reader wants, so the view
-    // renders nothing for it — no control leaks into a read-only page.
-    let view = schema
-        .render_readonly(&cx, &values)
+    // Read-only: the control itself must not render, and the page names the
+    // stored variant instead of printing the machine value it stores
+    // (ADR-0016) — the payload rows are every variant's, so the name is what
+    // says which state the record is in.
+    let view = render_view(&cx, &schema, &values).await;
+    assert!(
+        !view.contains("<select") && !view.contains("<input"),
+        "a variant control must not render in view mode, got {view}"
+    );
+    assert!(
+        view.contains(">Publication<") && view.contains(">Archived<"),
+        "the view must name the stored variant, got {view}"
+    );
+    assert!(
+        !view.contains(">3<"),
+        "the view must print the variant's name, never its discriminant, got {view}"
+    );
+
+    // A record with no stored variant has no name to show: the row is absent
+    // rather than blank — the pre-#191 hidden control rendered nothing either.
+    let unnamed = render_view(&cx, &schema, &HashMap::new()).await;
+    assert!(
+        !unnamed.contains(">Publication<"),
+        "an unset variant must not render a row, got {unnamed}"
+    );
+}
+
+/// The form's HTML, hydrated with `values` (empty for a create form).
+async fn render_form(cx: &Cx, schema: &Schema, values: &HashMap<String, String>) -> String {
+    schema
+        .render_with(cx, values, &HashMap::new())
         .await
         .unwrap()
         .single()
         .await
         .unwrap()
-        .render(&cx);
+        .render(cx)
+}
+
+/// The form's read-only HTML, hydrated with `values`.
+async fn render_view(cx: &Cx, schema: &Schema, values: &HashMap<String, String>) -> String {
+    schema
+        .render_readonly(cx, values)
+        .await
+        .unwrap()
+        .single()
+        .await
+        .unwrap()
+        .render(cx)
+}
+
+/// Every `data-variant="…"` value in `html`, in document order.
+///
+/// The marker's own attribute — the `="` is what tells it from
+/// `data-variant-of` and `data-variant-select`, whose prefixes it shares.
+fn variant_markers(html: &str) -> Vec<String> {
+    html.match_indices("data-variant=\"")
+        .map(|(at, needle)| {
+            let rest = &html[at + needle.len()..];
+            rest[..rest.find('"').expect("a closed marker")].to_string()
+        })
+        .collect()
+}
+
+/// The variant `Select`'s own markup: from its hook to the first `</select>`.
+fn variant_select(html: &str) -> &str {
+    html.split_once("data-variant-select=")
+        .and_then(|(_, rest)| rest.split_once("</select>").map(|(select, _)| select))
+        .expect("a variant select")
+}
+
+/// The `value="…"` of every option in the first variant `Select` of `html`, in
+/// document order — the placeholder first, then one per variant.
+fn variant_options(html: &str) -> Vec<String> {
+    let select = variant_select(html);
+    select
+        .match_indices("value=\"")
+        .map(|(at, needle)| {
+            let rest = &select[at + needle.len()..];
+            rest[..rest.find('"').expect("a closed value")].to_string()
+        })
+        .collect()
+}
+
+/// The text of every option in the first variant `Select` of `html`, in
+/// document order — what a person reads, the placeholder included.
+fn variant_option_labels(html: &str) -> Vec<String> {
+    let select = variant_select(html);
+    select
+        .match_indices("<option")
+        .map(|(at, _)| {
+            let option = &select[at..];
+            let text = option.find('>').expect("a closed option tag") + 1;
+            let end = option[text..].find("</option>").expect("a closed option");
+            option[text..text + end].to_string()
+        })
+        .collect()
+}
+
+/// GH #191: one marked group per variant, and the marker set **is** the
+/// schema's variant list — so a variant added to the enum cannot silently lose
+/// its group, and no group can name a variant the schema does not declare.
+///
+/// The markers are the discriminant values the `Select` offers, which is what
+/// makes `variant.js` able to compare them with the submitted value — so the
+/// control's options are asserted against the same list, values **and** labels:
+/// an option labelled with the value it submits (`3`) is the hidden input made
+/// clickable, not a variant a person can choose.
+#[tokio::test]
+async fn the_variant_groups_are_exactly_the_schemas_variants() {
+    let cx = post_cx().await;
+    let spec = enum_spec(&cx, Post::fields().publication()).expect("an embedded enum");
+    let html = render_form(
+        &cx,
+        &Schema::new(Publication::form(&cx, Post::fields().publication())),
+        &HashMap::new(),
+    )
+    .await;
+
+    let expected: Vec<String> = (0..spec.len())
+        .map(|index| spec.value_of_index(index).expect("declared").to_string())
+        .collect();
+    assert_eq!(
+        variant_markers(&html),
+        expected,
+        "one group per variant, in declaration order, got {html}"
+    );
+    assert_eq!(
+        html.matches("data-variant-of=\"publication\"").count(),
+        spec.len(),
+        "every group must name the enum it belongs to, got {html}"
+    );
+    let mut offered = variant_options(&html);
+    assert_eq!(
+        offered.first().map(String::as_str),
+        Some(""),
+        "the control opens on the empty choice — the create form has no stored \
+         variant — so the marker values follow it, got {html}"
+    );
+    offered.remove(0);
+    assert_eq!(
+        offered, expected,
+        "the control must offer every variant, and only those, in declaration \
+         order: the marker a group carries is the option that shows it, got {html}"
+    );
+
+    let expected_names: Vec<String> = (0..spec.len())
+        .map(|index| spec.name_of_index(index).expect("declared").to_string())
+        .collect();
+    assert_eq!(
+        expected_names,
+        vec!["Scheduled", "Published", "Archived"],
+        "the schema's variant names are what the labels are built from"
+    );
+    let mut labels = variant_option_labels(&html);
+    assert_eq!(
+        labels.first().map(String::as_str),
+        Some("-- Select --"),
+        "the empty choice reads as prose too, got {html}"
+    );
+    labels.remove(0);
+    assert_eq!(
+        labels, expected_names,
+        "every option reads as its variant's name, got {html}"
+    );
+}
+
+/// A unit variant has no payload but still gets its group: the marker set is
+/// the variant list, so the one variant with nothing to show cannot be the one
+/// that loses its marker. Its option is labelled like any other.
+#[tokio::test]
+async fn a_unit_variant_still_gets_its_group() {
+    let cx = post_cx().await;
+    let html = render_form(
+        &cx,
+        &Schema::new(Visibility::form(&cx, Post::fields().visibility())),
+        &HashMap::new(),
+    )
+    .await;
+    assert_eq!(variant_markers(&html), vec!["1", "2"], "got {html}");
+    assert_eq!(
+        html.matches("data-variant-of=\"visibility\"").count(),
+        2,
+        "got {html}"
+    );
+    assert_eq!(
+        variant_option_labels(&html),
+        vec!["-- Select --", "Public", "Private"],
+        "a unit variant is still named in the chooser, got {html}"
+    );
+}
+
+/// Each variant's own payload renders **inside** its own group, and a
+/// `#[shared(..)]` column renders once outside every group: the marker is what
+/// `variant.js` toggles, so a leaf outside it would show for the wrong variant,
+/// and a shared column inside one would vanish for the other two.
+#[tokio::test]
+async fn each_variants_payload_sits_in_its_own_group() {
+    let cx = post_cx().await;
+    let html = render_form(
+        &cx,
+        &Schema::new(Publication::form(&cx, Post::fields().publication())),
+        &HashMap::new(),
+    )
+    .await;
+
+    let group_at = |marker: &str| {
+        html.find(&format!("data-variant=\"{marker}\""))
+            .unwrap_or_else(|| panic!("no group for variant {marker} in {html}"))
+    };
+    let bounds = [
+        ("1", "publication_scheduled_for"),
+        ("2", "publication_canonical_url"),
+        ("3", "publication_reason"),
+    ];
+    for (index, (marker, leaf)) in bounds.iter().enumerate() {
+        let start = group_at(marker);
+        let end = bounds
+            .get(index + 1)
+            .map(|(next, _)| group_at(next))
+            .unwrap_or(html.len());
+        let leaf_at = html
+            .find(leaf)
+            .unwrap_or_else(|| panic!("no {leaf} in {html}"));
+        assert!(
+            start < leaf_at && leaf_at < end,
+            "{leaf} must render inside variant {marker}'s group, got {html}"
+        );
+    }
+
+    let shared_at = html
+        .find("publication_timestamp")
+        .expect("the shared column");
     assert!(
-        !view.contains("<input"),
-        "a hidden control must not render in view mode, got {view}"
+        shared_at < group_at("1"),
+        "a shared column belongs to every variant, so it renders outside the \
+         groups, got {html}"
     );
 }

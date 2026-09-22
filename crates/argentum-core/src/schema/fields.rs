@@ -10,7 +10,7 @@ use argentum_ui::{
 };
 use topcoat::{Result, context::Cx, view::*};
 
-use super::lenses::{FieldResolver, lens_field, lens_field_unique, lens_label};
+use super::lenses::{FieldResolver, capitalize, lens_field, lens_field_unique, lens_label};
 use super::relationship::{
     OptionLoadError, OptionSource, RelatedCheck, RelatedPrimaryKey, RelationshipCheckFuture,
     RelationshipChecker, RelationshipLoadFuture, RelationshipLoader, RelationshipSearchLoader,
@@ -68,30 +68,6 @@ fn render_value<'a>(
         )
     }
     .boxed())
-}
-
-/// The control a [hidden](TextInput::hidden) field renders (GH #191): a bare
-/// `<input type="hidden">` in form mode, and **nothing** in view mode.
-///
-/// Nothing is deliberate: a read-only page renders values a reader wants under
-/// the labels the form uses (ADR-0016), and a discriminant is neither — its
-/// stored text is an integer or an opaque variant value. Rendering no control
-/// is also what keeps the read-only promise testable (`readonly_render.rs`
-/// asserts no `<input>` in view mode).
-fn render_hidden<'a>(
-    cx: &'a Cx,
-    name: &str,
-    value: Option<&str>,
-    mode: Mode,
-) -> Result<BoxView<'a>> {
-    if mode == Mode::View {
-        return Ok(().boxed());
-    }
-    let name = name.to_string();
-    let value = value.unwrap_or_default().to_string();
-    // A raw element, not `ui_input`: a hidden control needs no styling, and
-    // `ui_input` would dress it in the visible input's classes.
-    Ok(view! { cx => <input type="hidden" name=(name.clone()) value=(value)> }.boxed())
 }
 
 /// A typed column's own spelling rules, for the typed constructors (GH #192).
@@ -187,11 +163,6 @@ pub struct TextInput {
     /// How a submission becomes the stored value (GH #192): identity for a
     /// `String` column, the type's own parse-and-`Display` for a typed one.
     parser: ValueParser,
-    /// A transport-only control (GH #191): renders a bare
-    /// `<input type="hidden">` with no label, chrome, or read-only row. It
-    /// carries a value the form must post back — the discriminant of an
-    /// embedded enum — through the ordinary value map.
-    hidden: bool,
 }
 
 impl std::fmt::Debug for TextInput {
@@ -205,7 +176,6 @@ impl std::fmt::Debug for TextInput {
             .field("is_email", &self.is_email)
             .field("unique", &self.unique)
             .field("placeholder", &self.placeholder)
-            .field("hidden", &self.hidden)
             .field("typed", &(std::sync::Arc::strong_count(&self.parser) > 0))
             .finish()
     }
@@ -237,7 +207,6 @@ impl TextInput {
             // inline. Override with `.optional()` for nullable columns.
             required: !field.nullable(),
             is_email: false,
-            hidden: false,
             unique,
             placeholder: None,
             parser: identity_parser(),
@@ -271,7 +240,6 @@ impl TextInput {
             label: leaf.label,
             required: !leaf.nullable,
             is_email: false,
-            hidden: false,
             unique: false,
             placeholder: None,
             parser: identity_parser(),
@@ -321,38 +289,9 @@ impl TextInput {
             label: label_str,
             required: !field.nullable(),
             is_email: false,
-            hidden: false,
             unique: false,
             placeholder: None,
             parser: typed_parser::<T>(),
-        }
-    }
-
-    /// A transport-only control (GH #191): a bare
-    /// `<input type="hidden" name="…" value="…">` that carries a value the
-    /// form must post back without showing it.
-    ///
-    /// The one caller is the discriminant of an embedded enum
-    /// ([`discriminant_input`](crate::schema::discriminant_input)): an edit
-    /// hydrates the stored variant, the browser posts it back, and the value
-    /// codec reads the variant from it rather than inferring one from which
-    /// payload columns happen to be non-empty. It takes a **name**, not a lens,
-    /// because a discriminant column has no generated accessor.
-    ///
-    /// It renders no label, no chrome, no error slot, and no read-only row: it
-    /// is not something a user reads or corrects. Validation never refuses it
-    /// (there is nothing to validate), and it rides the ordinary value map, so
-    /// hydration, re-render, and `field_names()` treat it like any other field.
-    pub fn hidden(name: impl Into<String>) -> Self {
-        Self {
-            name: name.into(),
-            label: String::new(),
-            required: false,
-            is_email: false,
-            hidden: true,
-            unique: false,
-            placeholder: None,
-            parser: identity_parser(),
         }
     }
 
@@ -374,7 +313,6 @@ impl TextInput {
             label: leaf.label,
             required: !leaf.nullable,
             is_email: false,
-            hidden: false,
             unique: false,
             placeholder: None,
             parser: typed_parser::<T>(),
@@ -559,9 +497,6 @@ impl TextInput {
         errors: &[String],
         mode: Mode,
     ) -> Result<BoxView<'a>> {
-        if self.hidden {
-            return render_hidden(cx, &self.name, value, mode);
-        }
         if mode == Mode::View {
             return render_value(cx, &self.label, value, ValueKind::Machine);
         }
@@ -645,6 +580,11 @@ pub struct Select {
     label: String,
     required: bool,
     searchable: bool,
+    /// The embedded value whose variant this control chooses (GH #191): the
+    /// discriminant column. When set, the control is a **variant driver** — it
+    /// renders `data-variant-select`, and `variant.js` keeps only the groups
+    /// marked with that column and the chosen value visible.
+    variant_of: Option<String>,
     pub(crate) options_static: Vec<(String, String)>,
     #[allow(clippy::type_complexity)]
     pub(crate) relationship: Option<RelationshipLoader>,
@@ -661,6 +601,7 @@ impl std::fmt::Debug for Select {
             .field("label", &self.label)
             .field("required", &self.required)
             .field("searchable", &self.searchable)
+            .field("variant_of", &self.variant_of)
             .field("options_static", &self.options_static)
             .field("relationship", &self.relationship.is_some())
             .field("relationship_search", &self.relationship_search.is_some())
@@ -676,6 +617,7 @@ impl Clone for Select {
             label: self.label.clone(),
             required: self.required,
             searchable: self.searchable,
+            variant_of: self.variant_of.clone(),
             options_static: self.options_static.clone(),
             relationship: self.relationship.clone(),
             relationship_search: self.relationship_search.clone(),
@@ -703,6 +645,40 @@ impl Select {
             name: field.name.app_unwrap().to_string(),
             label: lens_label(&field),
             required: !field.nullable(),
+            searchable: false,
+            variant_of: None,
+            options_static: Vec::new(),
+            relationship: None,
+            relationship_search: None,
+            relationship_check: None,
+        }
+    }
+
+    /// Create a `Select` over a column the schema generates no lens for
+    /// (GH #191): the **discriminant** of an embedded enum.
+    ///
+    /// The one caller is [`discriminant_select`](crate::schema::discriminant_select),
+    /// which fills the options from the app schema's variant list — each one
+    /// submitting the variant's stored value and reading as its name. A
+    /// discriminant column has no typed accessor, so there is no lens to bind
+    /// and the control takes its name instead — exactly as the record fn reads
+    /// it, out of the ordinary value map.
+    ///
+    /// It is never required: an empty submit is "no variant named", which the
+    /// value codec answers with its own fallback (a create form has no stored
+    /// variant to hydrate), so refusing it would make the fallback
+    /// unreachable. It is also the **driver** of the derived variant groups:
+    /// it renders `data-variant-select`, and `variant.js` shows only the group
+    /// whose `data-variant-of` names this column and whose `data-variant` is
+    /// the chosen value. A read-only page names the stored variant instead of
+    /// the control (see [`Self::render_with`]).
+    pub(crate) fn named(name: impl Into<String>) -> Self {
+        let name = name.into();
+        Self {
+            label: capitalize(&name),
+            variant_of: Some(name.clone()),
+            name,
+            required: false,
             searchable: false,
             options_static: Vec::new(),
             relationship: None,
@@ -1008,6 +984,28 @@ impl Select {
         errors: &[String],
         mode: Mode,
     ) -> Result<BoxView<'a>> {
+        // A variant driver (GH #191) reads as the variant's **name** on a
+        // read-only page — `Published`, never the `3` the column holds, which
+        // is a machine value a reader gets nothing from (ADR-0016). It is the
+        // one row that says which state the record is in: the payload rows
+        // beside it are all of every variant's, so on their own they do not.
+        //
+        // A record with no stored variant has no name to show, and neither has
+        // one whose value the schema does not declare (data the control cannot
+        // read back either): both render **nothing**, which is what the
+        // pre-#191 hidden control did in view mode.
+        if mode == Mode::View && self.variant_of.is_some() {
+            let stored = value.unwrap_or("").trim();
+            let named = self
+                .options_static
+                .iter()
+                .find(|(v, _)| v == stored)
+                .map(|(_, name)| name.clone());
+            return match named {
+                Some(name) => render_value(cx, &self.label, Some(&name), ValueKind::Prose),
+                None => Ok(().boxed()),
+            };
+        }
         // View mode resolves a static option label and never loads options
         // (GH #187): a detail page renders one record, so a relationship's
         // option load would be a query per page, and its scoped/denied paths
@@ -1105,6 +1103,7 @@ impl Select {
         let options_field = overflow_searchable.then(|| name.clone());
         let options_server = overflow_searchable.then_some("true");
         let options_overflow = overflow_searchable.then_some("true");
+        let variant_of = self.variant_of.clone();
         let overflow_hint = "Too many options — type to search".to_string();
         Ok(view! {
             cx =>
@@ -1166,6 +1165,7 @@ impl Select {
                         aria-required=(required.then_some("true"))
                         aria-invalid=(if has_error { "true" } else { "false" })
                         aria-describedby=(has_error.then_some(error_id.clone()))
+                        data-variant-select=(variant_of)
                     },
                     for opt in option_views {
                         (opt)

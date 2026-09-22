@@ -486,6 +486,7 @@ impl Panel {
                 <script src=(argentum_ui::FILTERS_JS) defer=""></script>
                 <script src=(argentum_ui::LIVE_SEARCH_JS) defer=""></script>
                 <script src=(argentum_ui::SELECTS_JS) defer=""></script>
+                <script src=(argentum_ui::VARIANT_JS) defer=""></script>
                 <script src=(argentum_ui::NOTIFICATION_JS) defer=""></script>
             }
             .boxed(),

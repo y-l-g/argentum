@@ -85,7 +85,9 @@ rule 2 unnecessary, and it is expected to retire it.
 renders a bare `<input type="hidden">` (nothing in view mode) so the stored
 variant hydrates into the edit form, the browser posts it back, and the update
 writes the variant the record already had — through the ordinary value map, with
-no new field kind, no validation, and no read-only row.
+no new field kind, no validation, and no read-only row. *(Superseded by the
+GH #191 status note below: the control is a visible `Select`. "Nothing in view
+mode" is unchanged.)*
 
 **5. Hydration takes the request context.** `Resource::hydrate_form_values`
 becomes `hydrate_form_values(cx, record)`. Its keys come from the compiled
@@ -102,8 +104,9 @@ starts at a model root; nesting inside structs works at any depth), a tuple or
 unit struct, and a variant **control** — every variant's payload still renders,
 and choosing one in the UI needs a form-reactivity seam the panel does not have
 (the live binding is `TextInput`-only, GH #154 §4). The last is the outstanding
-half of GH #191. A first slice documents its edges; it does not pretend they are
-not there.
+half of GH #191. *(The variant control is no longer outstanding — see the
+GH #191 status note below.)* A first slice documents its edges; it does not
+pretend they are not there.
 
 ## Consequences
 
@@ -134,7 +137,8 @@ not there.
 - `TextInput::hidden` is public and general, but has one caller: the
   discriminant. It exists as a `TextInput` rather than a new node so it rides
   `field_names()`, hydration, validation and re-render without widening the
-  render tree.
+  render tree. *(Removed with `discriminant_input` and replaced by the variant
+  `Select` — see the GH #191 status note below.)*
 - `Schema::extend` is added because `IntoSchema`'s tuple form stops at four
   nodes and a derived form has one control per leaf.
 - A derived form's labels default to the humanized Rust field name, which is a
@@ -142,3 +146,12 @@ not there.
   is overridable per field.
 
 **Status 2026-09-22 (GH #204):** the "form-reactivity seam the panel does not have" named above lost its one live binding — `Schema::render_live_with`, `RenderSource::Live`, `TextInput::render_live_with` and `argentum_ui::bound_input` were removed as zero-caller API. The variant **control** gap is therefore wider, not narrower: choosing a variant in the UI needs that seam built, not merely wired to an existing one. The rest of this ADR is unaffected.
+
+**Status 2026-09-22 (GH #191):** the variant control landed, and decision 4 is superseded. The panel never needed the reactivity seam: the feature is the one Django admin and Rails ship — the declaration carries the dependency as markup, and a small script toggles visibility. `discriminant_select` renders a `Select` over the discriminant column, one option per variant the schema declares — submitting the stored value, reading as the variant's name (`value_of_index` / `name_of_index`) — and the derive wraps each variant's payload in `Group::variant(discriminant, value)` — `data-variant` plus `data-variant-of`, the same `data-` hook precedent as `data-slot` / `data-filter-name`. `assets/variant.js` (registered in `xtask`'s `ASSET_FILES` / `ASSET_HOOKS`, so GH #213's guard covers both sides) hides the groups whose marker is not the control's value, scoped to the form so two enums never toggle each other. Consequences worth recording:
+
+- **It is markup-only, so no-JS loses nothing**: every group still renders, which is exactly the pre-#191 behaviour. A create form therefore opens on the empty choice (`-- Select --`) and shows no variant's group until one is picked; the driver is deliberately not `required`, so an empty submit still reaches rule 2's payload fallback.
+- **A `#[shared(..)]` column renders once, outside every group**, because it belongs to several variants and must stay editable whichever one is chosen. Only a variant's own payload goes inside its group.
+- **An option submits the variant's value and reads as its name**: `app::EnumVariant` carries both, so `EnumSpec` keeps them together (`value_of_index` / `name_of_index`, where the name is humanized into sentence case as a derived field label is) and `discriminant_select` labels each option with the name while submitting the discriminant the column stores. A chooser reading `1` / `2` / `3` would be the hidden input made clickable. The name is a label, never a handle — the normalization is lossy (`OK` reads `Ok`) — so code still addresses variants by declaration index.
+- **The read-only page names the stored variant** (`Publication` / `Archived`) instead of printing its discriminant, which is the one row that says which state the record is in: every variant's payload rows render beside it and on their own do not. A record with no stored variant renders no row at all, as the pre-#191 hidden control did (ADR-0016).
+- **A unit variant gets its group too**, so the marker set is the schema's variant list and a variant added later cannot silently lose its group (pinned by `the_variant_groups_are_exactly_the_schemas_variants`).
+- **It is a visible breaking change**: the discriminant is no longer a hidden input, so any app (or test) that read the form markup for it updates. The submitted value, `read_form`, the unknown-discriminant refusal and the fallback are unchanged.

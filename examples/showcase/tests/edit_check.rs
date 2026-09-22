@@ -415,16 +415,33 @@ async fn post_edit_switches_the_publication_variant_explicitly() {
         "the fixture must start Published"
     );
 
-    // Hydration: the stored variant reaches the form as its discriminant.
+    // Hydration (GH #191): the stored variant reaches the form as the selected
+    // option of the variant `Select` — the control a user changes it with, and
+    // the driver `variant.js` toggles the payload groups by.
     let html = body_string(client.get(&format!("/admin/posts/{}/edit", post.id)).await).await;
+    let publication_select = html
+        .split_once("data-variant-select=\"publication\"")
+        .unwrap_or_else(|| {
+            panic!("the edit form must carry the publication variant control, got {html}")
+        })
+        .1;
+    let publication_select = publication_select
+        .split_once("</select>")
+        .map(|(select, _)| select)
+        .unwrap_or(publication_select);
     assert!(
-        html.contains("name=\"publication\"") && html.contains("type=\"hidden\""),
-        "the discriminant must ride the edit form, got {html}"
+        publication_select.contains("value=\"2\" selected"),
+        "the stored Published variant must be the selected option, got {publication_select}"
     );
-    assert!(
-        html.contains("value=\"2\""),
-        "the stored Published variant must hydrate into the discriminant, got {html}"
-    );
+    // And the chooser reads as the lifecycle states, not as the discriminants
+    // the column stores: `1` / `2` / `3` would be the hidden input made
+    // clickable, which is not a variant anyone can pick.
+    for name in ["Scheduled", "Published", "Archived"] {
+        assert!(
+            publication_select.contains(&format!(">{name}<")),
+            "the option must read as the variant name {name}, got {publication_select}"
+        );
+    }
 
     // Submit Archived while leaving the Published payload filled in: the
     // discriminant decides, so the post is Archived and the stale canonical URL

@@ -60,9 +60,15 @@
 //!   at a model root, and a variant-rooted path addresses one variant's leaf
 //!   (which leaf binding does handle). Nesting inside *structs* works at any
 //!   depth.
-//! - The variant **control**: this module carries the discriminant and derives
-//!   the leaf controls; choosing a variant in the UI is the follow-up on GH #191
-//!   (the active variant's fields rendering alone needs a form-reactivity seam).
+//! - The variant **control** is a `Select` over the discriminant column
+//!   ([`discriminant_select`]), one option per variant — submitting the value
+//!   the column stores, reading as the variant's name — and each variant's
+//!   payload renders inside a `Group` marked with that variant's value, so the
+//!   client can show the chosen variant alone (GH #191). The grouping is the
+//!   derive's, the marker is
+//!   [`Group::variant`](crate::schema::Group::variant), and the toggle is
+//!   `assets/variant.js`; with JavaScript off every group renders, which is
+//!   what the panel has always done.
 //!
 //! # What a derived control declares
 //!
@@ -77,7 +83,7 @@ use std::collections::HashMap;
 use toasty::stmt::Path;
 use topcoat::context::Cx;
 
-use crate::schema::TextInput;
+use crate::schema::Select;
 use crate::schema::lenses::FieldResolver;
 
 /// The resolver for this request, with the one failure a value binding cannot
@@ -145,24 +151,45 @@ where
     resolver(cx).resolve(path.into()).name
 }
 
-/// An embedded enum's discriminant column and variant values (GH #191).
+/// An embedded enum's discriminant column and variants (GH #191).
 ///
-/// Variants are addressed by **declaration index**, the same handle the schema
+/// A variant carries two things, and they are not interchangeable: the **value**
+/// its discriminant column stores (`2`, or a string discriminant's own text),
+/// which is the form's transport, and the **name** a person reads (`Published`),
+/// which is the control's label. [`discriminant_select`] submits the first and
+/// shows the second.
+///
+/// The name is the schema's — Toasty keeps a `Name` as word parts, so it
+/// survives in both spellings — but it is humanized into sentence case here
+/// (`In progress`), exactly as a derived field label is, because a label is the
+/// one place an identifier becomes prose. It is a *label*, never a handle: the
+/// normalization is lossy in the other direction (`OK` reads `Ok`), so code
+/// addresses variants by **declaration index**, the same handle the schema
 /// itself uses (`VariantId { index }`) and the one a generated codec can rely
-/// on: the app schema lists variants in the order the Rust enum declares them,
-/// and a name is not recoverable from the schema (Toasty normalises it, so
-/// `OK` and `Ok` both read `Ok`).
+/// on (the app schema lists variants in the order the Rust enum declares them).
 #[derive(Debug, Clone)]
 pub struct EnumSpec {
     discriminant: String,
-    variants: Vec<String>,
+    variants: Vec<Variant>,
+}
+
+/// One variant of an embedded enum: what it stores, and what it is called.
+#[derive(Debug, Clone)]
+struct Variant {
+    /// The discriminant text this variant stores (`2`).
+    value: String,
+    /// The name it is labelled with, in sentence case (`Published`).
+    name: String,
 }
 
 impl EnumSpec {
-    pub(crate) fn new(discriminant: String, variants: Vec<String>) -> Self {
+    pub(crate) fn new(discriminant: String, variants: Vec<(String, String)>) -> Self {
         Self {
             discriminant,
-            variants,
+            variants: variants
+                .into_iter()
+                .map(|(value, name)| Variant { value, name })
+                .collect(),
         }
     }
 
@@ -173,12 +200,26 @@ impl EnumSpec {
 
     /// The discriminant text variant `index` stores, if the enum declares it.
     pub fn value_of_index(&self, index: usize) -> Option<&str> {
-        self.variants.get(index).map(|value| value.as_str())
+        self.variants
+            .get(index)
+            .map(|variant| variant.value.as_str())
+    }
+
+    /// The name variant `index` is labelled with, if the enum declares it.
+    ///
+    /// The label half of [`Self::value_of_index`]: the control shows this and
+    /// submits that.
+    pub fn name_of_index(&self, index: usize) -> Option<&str> {
+        self.variants
+            .get(index)
+            .map(|variant| variant.name.as_str())
     }
 
     /// The index of the variant a submission names, if it names a known one.
     pub fn index_of(&self, submitted: &str) -> Option<usize> {
-        self.variants.iter().position(|value| value == submitted)
+        self.variants
+            .iter()
+            .position(|variant| variant.value == submitted)
     }
 
     /// How many variants the enum declares.
@@ -261,16 +302,40 @@ where
         .any(|key| values.contains_key(key))
 }
 
-/// The hidden control that carries an embedded enum's discriminant (GH #191).
+/// The variant control for an embedded enum (GH #191): a `Select` over the
+/// discriminant column, one option per variant the app schema declares.
 ///
-/// `None` for an embedded struct, which has no variant to name. The control is
-/// a hidden `TextInput`, so it rides the existing value map, validation, and
-/// re-render paths instead of adding a field kind.
-pub fn discriminant_input<M, T>(cx: &Cx, parent: impl Into<Path<M, T>>) -> Option<TextInput>
+/// Each option **submits the variant's stored discriminant** and **reads as its
+/// name** (`Published`): the form's transport stays the value the column holds,
+/// while the person choosing sees which state they are picking. A control
+/// offering `1` / `2` / `3` would be the hidden input made clickable.
+///
+/// `None` for an embedded struct, which has no variant to choose. The control
+/// is a `Select` rather than a hidden input so the variant is **choosable** —
+/// on create there is no stored variant to hydrate, and on edit the stored one
+/// must be changeable — and it is the driver the derived variant groups follow:
+/// it renders `data-variant-select`, and each group carries `data-variant-of`
+/// (this column) plus `data-variant` (the value this select offers for it), so
+/// `variant.js` can show only the chosen variant's payload.
+///
+/// It is not required: an empty submit is "no variant named", which
+/// [`EmbeddedForm::read_form`] answers with its own payload fallback, so
+/// refusing it would make that fallback unreachable from the form.
+pub fn discriminant_select<M, T>(cx: &Cx, parent: impl Into<Path<M, T>>) -> Option<Select>
 where
     M: toasty::schema::Model,
 {
-    enum_spec(cx, parent).map(|spec| TextInput::hidden(spec.discriminant().to_string()))
+    enum_spec(cx, parent).map(|spec| {
+        let options = (0..spec.len())
+            .filter_map(|index| {
+                Some((
+                    spec.value_of_index(index)?.to_string(),
+                    spec.name_of_index(index)?.to_string(),
+                ))
+            })
+            .collect();
+        Select::named(spec.discriminant()).options_with_labels(options)
+    })
 }
 
 /// Write the typed `value` into the form map, under the columns the schema

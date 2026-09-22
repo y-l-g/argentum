@@ -355,6 +355,7 @@ pub const ASSET_FILES: &[(&str, &str)] = &[
     ("filters.js", "FILTERS_JS"),
     ("live-search.js", "LIVE_SEARCH_JS"),
     ("selects.js", "SELECTS_JS"),
+    ("variant.js", "VARIANT_JS"),
     ("notifications.js", "NOTIFICATION_JS"),
 ];
 
@@ -509,6 +510,24 @@ pub const ASSET_HOOKS: &[AssetHook] = &[
         asset: "selects.js",
         js: "data-options-filter",
         rust: "data-options-filter",
+    },
+    // The embedded-enum variant toggle (GH #191). `data-variant` must be found
+    // as the group's own attribute, and neither `data-variant-of`'s nor
+    // `data-variant-select`'s prefix may stand in for it.
+    AssetHook {
+        asset: "variant.js",
+        js: "data-variant-select",
+        rust: "data-variant-select",
+    },
+    AssetHook {
+        asset: "variant.js",
+        js: "data-variant-of",
+        rust: "data-variant-of",
+    },
+    AssetHook {
+        asset: "variant.js",
+        js: "data-variant",
+        rust: "data-variant",
     },
     AssetHook {
         asset: "notifications.js",

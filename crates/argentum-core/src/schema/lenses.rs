@@ -283,7 +283,10 @@ impl<'a> FieldResolver<'a> {
                 let variants = e
                     .variants
                     .iter()
-                    .map(|v| discriminant_text(&v.discriminant))
+                    .map(|v| {
+                        discriminant_text(&v.discriminant)
+                            .map(|value| (value, capitalize(&v.name.snake_case())))
+                    })
                     .collect::<Option<Vec<_>>>()?;
                 Some(crate::schema::embedded::EnumSpec::new(
                     discriminant,
@@ -500,8 +503,9 @@ pub(crate) struct EmbeddedValueSpec {
     /// struct or a variant. A `#[shared(..)]` column declared by several
     /// variants appears once, because it *is* one column.
     pub(crate) columns: Vec<String>,
-    /// `Some` for an embedded enum: its discriminant column and variant
-    /// values. The one `EnumSpec` type is shared with the public seam.
+    /// `Some` for an embedded enum: its discriminant column and its variants
+    /// (each one's stored value and the name it is labelled with). The one
+    /// `EnumSpec` type is shared with the public seam.
     pub(crate) enum_spec: Option<crate::schema::embedded::EnumSpec>,
 }
 

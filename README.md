@@ -518,7 +518,7 @@ pub enum Publication {
     Published { #[shared(timestamp)] published_at: String, canonical_url: String },
 }
 
-// form declaration: controls, flattened names, and the hidden discriminant
+// form declaration: controls, flattened names, and the variant Select
 Section::new("Publication").schema(Publication::form(cx, Post::fields().publication()))
 
 // hydration and the record fn: the typed value, keys resolved from the schema
@@ -527,7 +527,7 @@ let publication = read_embedded(cx, Post::fields().publication(), &values);
 if submitted(cx, Post::fields().publication(), &values) { /* the submit mentioned it */ }
 ```
 
-An enum's variant is its **discriminant column**, carried by the form: a named discriminant always wins (and one the enum does not declare is refused loudly, never read as some other variant), so a stale payload is not a vote. Only when no discriminant is named at all — the create form, a hand-written POST — do payloads select one, by a variant's own **non-shared** payload through resolved keys. `#[form(label = "…")]`, `#[form(textarea)]` and `#[form(textarea, rows = N)]` are the per-field overrides; an unknown key is a compile error. A `#[document]` inside a value, a relation, an enum nested inside an enum variant, and a tuple struct are not covered; every variant's payload renders until the variant-`Select` follow-up lands.
+An enum's variant is its **discriminant column**, carried by the form as a `Select` over the schema's variant list — each option submitting the variant's stored value and reading as its name — and each variant's payload renders inside its own marked group, so the client shows only the chosen variant's, and a variant can be picked on create and changed on edit (a read-only page names the stored variant instead of printing its discriminant). A named discriminant always wins (and one the enum does not declare is refused loudly, never read as some other variant), so a stale payload is not a vote. Only when no discriminant is named at all — the create form, a hand-written POST — do payloads select one, by a variant's own **non-shared** payload through resolved keys. The toggle is markup-only (`variant.js` hides the inactive groups): with JavaScript off every variant's payload renders, which is the pre-#191 behaviour, so no field the server still parses is lost. `#[form(label = "…")]`, `#[form(textarea)]` and `#[form(textarea, rows = N)]` are the per-field overrides; an unknown key is a compile error. A `#[document]` inside a value, a relation, an enum nested inside an enum variant, and a tuple struct are not covered.
 
 Schema setup: `db.push_schema().await` for prototypes, `toasty-cli` migrations for prod.
 

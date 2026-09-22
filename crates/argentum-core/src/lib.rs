@@ -41,7 +41,7 @@ pub use resource::{
 };
 pub use schema::{
     EmbeddedForm, EnumSpec, FieldLens, FileUpload, Grid, Group, IntoSchema, Repeater, Schema,
-    Section, Select, Tabs, TextInput, Textarea, TypedValue, discriminant_input, enum_spec,
+    Section, Select, Tabs, TextInput, Textarea, TypedValue, discriminant_select, enum_spec,
     leaf_key, parse_leaf, read_embedded, submitted, write_embedded,
 };
 pub use tenancy::{Tenant, require_tenant, tenant_id};

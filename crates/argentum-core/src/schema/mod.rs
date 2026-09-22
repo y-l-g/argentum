@@ -21,7 +21,7 @@ mod relationship;
 mod tree;
 
 pub use embedded::{
-    EmbeddedForm, EnumSpec, discriminant_input, enum_spec, leaf_key, parse_leaf, read_embedded,
+    EmbeddedForm, EnumSpec, discriminant_select, enum_spec, leaf_key, parse_leaf, read_embedded,
     submitted, write_embedded,
 };
 pub use fields::{FileUpload, Select, TextInput, Textarea, TypedValue};

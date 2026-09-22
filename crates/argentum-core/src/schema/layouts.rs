@@ -77,9 +77,29 @@ impl Section {
 }
 
 /// Group — unlabelled container, useful for grouping fields.
+///
+/// A group can be marked as one embedded enum **variant's** payload
+/// ([`Group::variant`]): it then renders `data-variant` / `data-variant-of`,
+/// the hooks `variant.js` reads to keep only the chosen variant's group
+/// visible. The marker rides the existing block rather than a new schema node,
+/// and it is **markup only**: with JavaScript off every group renders, which is
+/// the pre-#191 behaviour (every variant's controls visible at once), so no
+/// field the server still parses is lost.
 #[derive(Debug)]
 pub struct Group {
     pub(crate) children: Option<Schema>,
+    variant: Option<VariantMarker>,
+}
+
+/// Which embedded value a group holds a variant of, and which variant (GH #191).
+#[derive(Debug)]
+struct VariantMarker {
+    /// The discriminant column (`publication`) — the enum's identity, so two
+    /// enums whose variants share a value never toggle each other's groups.
+    owner: String,
+    /// The discriminant value the variant stores (`2`) — exactly what the
+    /// variant `Select` submits, so the client compares like with like.
+    value: String,
 }
 
 impl Default for Group {
@@ -90,11 +110,28 @@ impl Default for Group {
 
 impl Group {
     pub fn new() -> Self {
-        Self { children: None }
+        Self {
+            children: None,
+            variant: None,
+        }
     }
 
     pub fn schema(mut self, children: impl IntoSchema) -> Self {
         self.children = Some(children.into_schema());
+        self
+    }
+
+    /// Mark this group as variant `value` of the embedded value whose
+    /// discriminant column is `owner` (GH #191).
+    ///
+    /// The derived form of an embedded enum calls this once per variant, with
+    /// the same value the discriminant `Select` offers as an option, so the
+    /// marker set and the schema's variant list cannot drift.
+    pub fn variant(mut self, owner: impl Into<String>, value: impl Into<String>) -> Self {
+        self.variant = Some(VariantMarker {
+            owner: owner.into(),
+            value: value.into(),
+        });
         self
     }
 
@@ -103,11 +140,26 @@ impl Group {
         cx: &'a Cx,
         source: &RenderSource<'_>,
     ) -> Result<BoxView<'a>> {
+        let owner = self.variant.as_ref().map(|mark| mark.owner.clone());
+        let value = self.variant.as_ref().map(|mark| mark.value.clone());
         if let Some(schema) = &self.children {
             let child_view = schema.render_source(cx, source).await?;
-            Ok(view! { cx => ui_field_group((child_view)) }.boxed())
+            Ok(view! {
+                cx =>
+                ui_field_group(
+                    attrs: attributes! { data-variant=(value) data-variant-of=(owner) },
+                    (child_view)
+                )
+            }
+            .boxed())
         } else {
-            Ok(view! { cx => ui_field_group() }.boxed())
+            Ok(view! {
+                cx =>
+                ui_field_group(
+                    attrs: attributes! { data-variant=(value) data-variant-of=(owner) }
+                )
+            }
+            .boxed())
         }
     }
 }

@@ -331,7 +331,7 @@ fn field_label(field: &syn::Field, ident: &syn::Ident) -> String {
         .unwrap_or_else(|| label(ident))
 }
 
-/// The hidden discriminant control plus one control per variant payload.
+/// The variant control plus one control per payload leaf.
 fn expand_struct(
     krate: &TokenStream2,
     input: &DeriveInput,
@@ -451,7 +451,16 @@ fn expand_enum(krate: &TokenStream2, input: &DeriveInput, data: &syn::DataEnum) 
 
     let mut write_arms = Vec::new();
     let mut read_arms = Vec::new();
-    let mut controls = Vec::new();
+    // The controls a `#[shared(..)]` column renders: **one** control, outside
+    // every variant group. The column belongs to several variants, so it cannot
+    // live in one variant's group — the group is hidden when its variant is not
+    // chosen, and the shared column must stay editable whichever one is — and
+    // rendering it inside each group would post the same name several times.
+    let mut shared_controls = Vec::new();
+    // One group per variant, marked with the discriminant value that variant
+    // stores. The marker *is* the value the app schema declares, so the group
+    // set and `EnumSpec`'s variants cannot drift.
+    let mut variant_groups = Vec::new();
     // A `#[shared(..)]` column is declared by several variants and is one
     // column: its control renders once, from the first variant that declares
     // it. The codec still writes and reads each variant's own spelling.
@@ -480,6 +489,8 @@ fn expand_enum(krate: &TokenStream2, input: &DeriveInput, data: &syn::DataEnum) 
                     out.insert(spec.discriminant().to_string(), #discriminant_value);
                 }];
                 let mut reads = Vec::new();
+                // This variant's own controls — the ones that go in its group.
+                let mut controls = Vec::new();
                 // What the *fallback* may read: a variant's own, non-shared
                 // payloads.
                 let mut present_checks = Vec::new();
@@ -524,7 +535,7 @@ fn expand_enum(krate: &TokenStream2, input: &DeriveInput, data: &syn::DataEnum) 
                                 Some(id) if seen_shared.contains(&id) => {}
                                 Some(id) => {
                                     seen_shared.push(id);
-                                    controls.push(control);
+                                    shared_controls.push(control);
                                 }
                                 None => controls.push(control),
                             }
@@ -566,16 +577,20 @@ fn expand_enum(krate: &TokenStream2, input: &DeriveInput, data: &syn::DataEnum) 
                 read_arms.push(quote! {
                     #variant_index => Self::#variant_name { #(#reads),* },
                 });
+                variant_groups.push(variant_group(krate, &discriminant_value, &controls));
             }
             Fields::Unit => {
                 // A unit variant carries no payload, so nothing can infer it:
-                // only its discriminant names it.
+                // only its discriminant names it. It still gets its group: the
+                // marker set must stay the schema's variant list, so a unit
+                // variant added later cannot silently lose one.
                 write_arms.push(quote! {
                     Self::#variant_name => {
                         out.insert(spec.discriminant().to_string(), #discriminant_value);
                     }
                 });
                 read_arms.push(quote! { #variant_index => Self::#variant_name, });
+                variant_groups.push(variant_group(krate, &discriminant_value, &[]));
             }
             Fields::Unnamed(_) => {
                 return unsupported(input, "a struct or enum with named fields");
@@ -670,13 +685,13 @@ fn expand_enum(krate: &TokenStream2, input: &DeriveInput, data: &syn::DataEnum) 
         }
 
         impl #impl_generics #ident #ty_generics #where_clause {
-            /// The form controls for this embedded value (GH #191): the hidden
-            /// discriminant plus one control per payload leaf, under this
-            /// value's parent path.
+            /// The form controls for this embedded value (GH #191): the variant
+            /// `Select`, then the controls a `#[shared(..)]` column declares,
+            /// then one marked group per variant.
             ///
             /// **Every** variant's payload renders, which is what the panel has
-            /// always done by hand; choosing one variant in the UI is the
-            /// follow-up on GH #191.
+            /// always done; `assets/variant.js` is what shows only the chosen
+            /// one, so a no-JS form keeps every field the server still parses.
             pub fn form<M>(
                 cx: &#krate::__macro::Cx,
                 parent: impl Into<#krate::__macro::Path<M, Self>>,
@@ -685,16 +700,45 @@ fn expand_enum(krate: &TokenStream2, input: &DeriveInput, data: &syn::DataEnum) 
                 M: #krate::__macro::Model,
             {
                 let parent: #krate::__macro::Path<M, Self> = parent.into();
+                let spec = #krate::schema::enum_spec(cx, parent.clone())
+                    .expect("an embedded enum has a discriminant column");
                 let mut schema = #krate::schema::Schema::new(
-                    #krate::schema::discriminant_input(cx, parent.clone())
+                    #krate::schema::discriminant_select(cx, parent.clone())
                         .expect("an embedded enum has a discriminant column"),
                 );
-                #( schema = schema.extend(#controls); )*
+                #( schema = schema.extend(#shared_controls); )*
+                #( schema = schema.extend(#variant_groups); )*
                 schema
             }
         }
     };
     expanded.into()
+}
+
+/// One variant's group: its own controls, marked with the discriminant value
+/// the variant stores (GH #191).
+///
+/// The marker is the same value [`discriminant_select`](argentum_core) offers
+/// as that variant's option, and both come from the app schema's variant list,
+/// so the group set and the schema cannot drift. The group renders whether or
+/// not JavaScript runs — `variant.js` is what hides the inactive ones — so a
+/// no-JS form keeps showing every variant's payload.
+fn variant_group(
+    krate: &TokenStream2,
+    value: &TokenStream2,
+    controls: &[TokenStream2],
+) -> TokenStream2 {
+    quote! {
+        {
+            let mut variant_schema = #krate::schema::Schema::empty();
+            #( variant_schema = variant_schema.extend(#controls); )*
+            #krate::schema::Schema::new(
+                #krate::schema::Group::new()
+                    .variant(spec.discriminant(), #value)
+                    .schema(variant_schema),
+            )
+        }
+    }
 }
 
 /// The `#[shared(ident)]` identifier a field declares, if any.
