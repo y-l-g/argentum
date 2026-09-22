@@ -406,7 +406,7 @@ pub async fn create_admin(
 ) -> toasty::Result<AdminUser> {
     toasty::create!(AdminUser {
         email: email.to_string(),
-        password_hash: hash_password(password).expect("hash a demo password"),
+        password_hash: memoized_password_hash(password),
         display_name: display_name.to_string(),
         active: true,
         tenant_id,
@@ -416,6 +416,31 @@ pub async fn create_admin(
     .await
 }
 
+/// The Argon2id PHC hash of a demo password, computed once per process.
+///
+/// Argon2id at the shipped parameters costs ~0.4s in a debug build *by design*,
+/// and the integration suite seats a fresh database for almost every test —
+/// so the same two demo passwords were being hashed ~260 times per run, which
+/// was the suite's single largest setup cost (GH #218). The hash is a pure
+/// function of the password, so compute it once and hand the same PHC string to
+/// every caller.
+///
+/// Verification is untouched: a login still runs a real Argon2id verify against
+/// this string, at the shipped parameters, and the login tests still exercise
+/// that. Only the *hashing* is memoised, and only in this demo seeder.
+fn memoized_password_hash(password: &str) -> String {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+
+    static HASHES: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
+    HASHES
+        .get_or_init(|| Mutex::new(HashMap::new()))
+        .lock()
+        .expect("the demo hash cache is never poisoned")
+        .entry(password.to_string())
+        .or_insert_with(|| hash_password(password).expect("hash a demo password"))
+        .clone()
+}
 /// The embedded shapes a filler/backlog row carries (GH #185).
 ///
 /// A compact, valid default so the pagination filler does not repeat four

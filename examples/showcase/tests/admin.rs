@@ -1,12 +1,12 @@
 use showcase::app::router_for_tests as router;
 
-use crate::common::{body_string, demo_client, seeded_db};
+use crate::common::{body_string, demo_client, find_href_with, seeded_db, user_count};
 
 #[tokio::test]
 async fn admin_resource_list_page_serve_seeded_users() {
     let db = seeded_db().await;
-    let router = router(db);
-    let client = demo_client(&router).await;
+    let router = router(db.clone());
+    let client = demo_client(&router, &db).await;
 
     let response = client.get("/admin/users").await;
 
@@ -24,10 +24,6 @@ async fn admin_resource_list_page_serve_seeded_users() {
     assert!(
         html.contains("<html>"),
         "showcase must paint light by default in {html}"
-    );
-    assert!(
-        html.contains("border-border") && html.contains("bg-background"),
-        "missing admin layout Token chrome in {html}"
     );
     assert!(
         html.contains("data-sidebar=\"sidebar\"") || html.contains("data-sidebar=\"menu\""),
@@ -75,7 +71,8 @@ async fn admin_resource_list_page_serve_seeded_users() {
     );
     // List page content — production page size (25 per page) shows all
     // seeded users on page 1; cursor pagination across pages is exercised by
-    // admin_list_pagination_walks_cursor_links with 23 extra rows.
+    // admin_list_pagination_walks_cursor_links, which seeds one row past the
+    // page size.
     assert!(html.contains("Team</h1>"), "missing heading in {html}");
     assert!(html.contains("Ada Lovelace"), "missing Ada in {html}");
     assert!(html.contains("Alan Turing"), "missing Alan in {html}");
@@ -93,8 +90,8 @@ async fn admin_resource_list_page_serve_seeded_users() {
 #[tokio::test]
 async fn admin_unknown_route_is_not_found() {
     let db = seeded_db().await;
-    let router = router(db);
-    let client = demo_client(&router).await;
+    let router = router(db.clone());
+    let client = demo_client(&router, &db).await;
     let response = client.get("/admin/unknown").await;
     assert_eq!(response.status(), 404);
 }
@@ -102,8 +99,8 @@ async fn admin_unknown_route_is_not_found() {
 #[tokio::test]
 async fn admin_root_redirects_to_first_resource() {
     let db = seeded_db().await;
-    let router = router(db);
-    let client = demo_client(&router).await;
+    let router = router(db.clone());
+    let client = demo_client(&router, &db).await;
     let response = client.get("/admin").await;
 
     assert_eq!(response.status(), http::StatusCode::TEMPORARY_REDIRECT);
@@ -116,8 +113,8 @@ async fn admin_root_redirects_to_first_resource() {
 #[tokio::test]
 async fn removed_showcase_routes_are_not_found() {
     let db = seeded_db().await;
-    let router = router(db);
-    let client = demo_client(&router).await;
+    let router = router(db.clone());
+    let client = demo_client(&router, &db).await;
     for path in [
         "/admin/showcase",
         "/admin/showcase/ui",
@@ -158,8 +155,8 @@ async fn admin_table_via_resource_has_searchable_sortable() {
 #[tokio::test]
 async fn admin_list_renders_search_box_and_sort_links() {
     let db = seeded_db().await;
-    let router = router(db);
-    let client = demo_client(&router).await;
+    let router = router(db.clone());
+    let client = demo_client(&router, &db).await;
     let response = client.get("/admin/users").await;
     assert!(
         response.status().is_success(),
@@ -230,12 +227,18 @@ async fn admin_list_pagination_walks_cursor_links() {
 
     let db = seeded_db().await;
     let router = router(db.clone());
-    let client = demo_client(&router).await;
-    // Production page size is 25: seed 23 extra users (3 seeded + 23 = 26)
-    // so the list spans two pages. Extra names sort after Grace Hopper.
+    let client = demo_client(&router, &db).await;
+    // GH #217: derive the overflow from the fixture and the page size rather
+    // than seeding a literal 23 — a `6` here was asserting the seed's size.
+    // Production page size is 25, so page 1 holds the seeded roster plus
+    // `extra - 1` filler rows and exactly one filler row spills to page 2.
+    let seeded = user_count(&db).await;
+    let page_size = 25usize;
+    let extra = page_size - seeded + 1;
+    let last = format!("User {:02}", extra - 1);
     {
         let mut db_q = db.clone();
-        for i in 0..23 {
+        for i in 0..extra {
             let name = format!("User {:02}", i);
             let email = format!("user{:02}@example.com", i);
             toasty::create!(User {
@@ -250,7 +253,10 @@ async fn admin_list_pagination_walks_cursor_links() {
             .unwrap();
         }
     }
-    let response = client.get("/admin/users").await;
+    // Sorted ascending so the cursor links carry two query parameters: the
+    // pager must preserve that state, which is also what makes the `&amp;`
+    // decoding below observable (a one-parameter URL has no `&` to encode).
+    let response = client.get("/admin/users?sort=name&dir=asc").await;
     let page1 = body_string(response).await;
 
     // Page 1 (name asc, 25 per page): Ada + Alan + Grace, not the last user; a real Next link.
@@ -261,11 +267,21 @@ async fn admin_list_pagination_walks_cursor_links() {
         "page1 missing Grace: {page1}"
     );
     assert!(
-        !page1.contains("User 22"),
-        "page1 must not show the last overflow row (page size 25): {page1}"
+        !page1.contains(&last),
+        "page1 must not show the last overflow row {last} (page size {page_size}): {page1}"
     );
     let next_href = find_href_with(&page1, "after=")
         .unwrap_or_else(|| panic!("page1 missing Next (after=) link: {page1}"));
+    // GH #217: the href is followed as a request URI, so it must be the URL a
+    // browser would send — decoded, never `&amp;`.
+    assert!(
+        !next_href.contains("&amp;"),
+        "the Next link must be followed decoded, got {next_href}"
+    );
+    assert!(
+        next_href.contains("sort=name") && next_href.contains("dir=asc"),
+        "the pager must preserve the sort state, got {next_href}"
+    );
 
     let response = client.get(&next_href).await;
     assert!(
@@ -275,8 +291,8 @@ async fn admin_list_pagination_walks_cursor_links() {
     );
     let page2 = body_string(response).await;
     assert!(
-        page2.contains("User 22"),
-        "page2 missing overflow row: {page2}"
+        page2.contains(&last),
+        "page2 missing the overflow row {last}: {page2}"
     );
     assert!(
         !page2.contains("Ada Lovelace") && !page2.contains("Alan Turing"),
@@ -289,6 +305,10 @@ async fn admin_list_pagination_walks_cursor_links() {
 
     // Following Previous returns to the first page.
     let prev_href = find_href_with(&page2, "before=").unwrap();
+    assert!(
+        !prev_href.contains("&amp;"),
+        "the Previous link must be followed decoded, got {prev_href}"
+    );
     let response = client.get(&prev_href).await;
     assert!(
         response.status().is_success(),
@@ -302,21 +322,6 @@ async fn admin_list_pagination_walks_cursor_links() {
     );
 }
 
-/// Extracts the first `href="…" containing `needle` from an HTML string.
-fn find_href_with(html: &str, needle: &str) -> Option<String> {
-    let mut rest = html;
-    loop {
-        let start = rest.find("href=\"")?;
-        rest = &rest[start + "href=\"".len()..];
-        let end = rest.find('"')?;
-        let href = &rest[..end];
-        if href.contains(needle) {
-            return Some(href.to_string());
-        }
-        rest = &rest[end..];
-    }
-}
-
 /// GH #116: search matches anywhere in the value, not just a prefix, and the
 /// term is escaped — a literal `%` matches that character instead of acting as
 /// a wildcard (which would have matched every row).
@@ -326,7 +331,7 @@ async fn admin_list_search_matches_substrings_and_escapes_wildcards() {
     let router = router(db.clone());
 
     // Mid-string term: "vela" sits inside "Ada Lovelace" -> 1 row.
-    let client = demo_client(&router).await;
+    let client = demo_client(&router, &db).await;
     let response = client.get("/admin/users?q=vela").await;
     assert!(response.status().is_success());
     let html = body_string(response).await;
@@ -351,13 +356,14 @@ async fn admin_list_search_matches_substrings_and_escapes_wildcards() {
     })
     .exec(&mut argentum_core::db::db(
         &topcoat::context::CxTestBuilder::new()
-            .app_context(db)
+            .app_context(db.clone())
             .build(),
     ))
     .await
     .expect("seed the percent user");
 
-    let client = demo_client(&router).await;
+    // The same client: the new row is visible through the session it already
+    // holds (GH #218 dropped the second login, which pinned nothing).
     let response = client.get("/admin/users?q=100%25").await;
     let html = body_string(response).await;
     assert!(
@@ -373,8 +379,8 @@ async fn admin_list_search_matches_substrings_and_escapes_wildcards() {
 #[tokio::test]
 async fn admin_list_empty_search_shows_no_results_with_clear() {
     let db = seeded_db().await;
-    let router = router(db);
-    let client = demo_client(&router).await;
+    let router = router(db.clone());
+    let client = demo_client(&router, &db).await;
     let response = client.get("/admin/users?q=zzz-none").await;
     assert!(
         response.status().is_success(),
@@ -403,8 +409,8 @@ async fn admin_list_empty_search_shows_no_results_with_clear() {
 #[tokio::test]
 async fn admin_list_filters_via_q_param() {
     let db = seeded_db().await;
-    let router = router(db);
-    let client = demo_client(&router).await;
+    let router = router(db.clone());
+    let client = demo_client(&router, &db).await;
     let response = client.get("/admin/users?q=Ada").await;
     assert!(
         response.status().is_success(),
@@ -420,14 +426,6 @@ async fn admin_list_filters_via_q_param() {
         !html.contains("Grace Hopper"),
         "filtered should not contain Grace in {html}"
     );
-    assert!(
-        html.contains("rounded-xl") && html.contains("border-border"),
-        "filtered table should still render via Table chrome in {html}"
-    );
-    assert!(
-        !html.contains("Prefix search matches this column"),
-        "searchable headers must not carry a loupe, got {html}"
-    );
 }
 
 #[tokio::test]
@@ -435,8 +433,8 @@ async fn users_list_renders_live_search_host_with_get_fallback() {
     // GH #104: the users table opts into the keystroke-live shard; the ?q=
     // GET toolbar stays as the no-JS fallback.
     let db = seeded_db().await;
-    let router = router(db);
-    let client = demo_client(&router).await;
+    let router = router(db.clone());
+    let client = demo_client(&router, &db).await;
     let resp = client.get("/admin/users").await;
     assert!(resp.status().is_success());
     let html = body_string(resp).await;

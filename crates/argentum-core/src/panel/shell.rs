@@ -702,12 +702,14 @@ mod tests {
             "a title-only toast renders no description, got {html}"
         );
 
-        // Error + description: the destructive icon and the supporting line.
+        // Error + description: the typed toast and the supporting line. The
+        // icon's colour is paint (GH #216); `data-type="error"` is what selects
+        // the destructive icon, and the `<svg>` proves one rendered.
         let enc = serde_json::to_string(&Notification::error("Boom").description("What happened"))
             .unwrap();
         let html = shell_html_with_flash(&enc).await;
         assert!(
-            html.contains("data-type=\"error\"") && html.contains("text-destructive"),
+            html.contains("data-type=\"error\"") && html.contains("<svg"),
             "an error toast must carry its type and destructive icon, got {html}"
         );
         assert!(
@@ -967,11 +969,12 @@ mod tests {
         // `Attributes` renders in no guaranteed order (topcoat#122).
         let tag_start = html[..label].rfind('<').expect("close control tag start");
         let tag = opening_tag_at(&html, tag_start);
+        // GH #216: `md:hidden` is the responsive class that makes this control
+        // mobile-only, and it is paint; what a regression would break is that
+        // the close control is a real button wired to the sheet's close hook.
         assert!(
-            tag.contains("<button")
-                && tag.contains("md:hidden")
-                && tag.contains("data-topcoat-on:click"),
-            "close control must be a mobile-only button wired to close the sheet, got {tag}"
+            tag.contains("<button") && tag.contains("data-topcoat-on:click"),
+            "close control must be a button wired to close the sheet, got {tag}"
         );
     }
 

@@ -134,10 +134,11 @@ async fn a_repeater_renders_its_children_without_form_affordances() {
         html.contains("published"),
         "a child field renders its value inside the group: {html}"
     );
+    // GH #216: the required marker's colour is paint; these two state hooks
+    // (`aria-invalid`, the `ac-field--error` marker) are what a regression would
+    // actually break.
     assert!(
-        !html.contains("text-destructive")
-            && !html.contains("aria-invalid")
-            && !html.contains("ac-field--error"),
+        !html.contains("aria-invalid") && !html.contains("ac-field--error"),
         "a read-only group has no required marker and nothing to be invalid about: {html}"
     );
 }
@@ -159,11 +160,14 @@ async fn an_empty_value_renders_as_empty() {
         &HashMap::from([("title".to_string(), String::new())]),
     )
     .await;
+    // The value node is the innermost `<div>` of the rendered field: located
+    // structurally rather than by its utility classes, so a restyle cannot
+    // silently turn the lookup into an empty string (GH #216).
     let value = |html: &str| {
-        html.split_once("whitespace-pre-wrap\">")
-            .and_then(|(_, rest)| rest.split_once("</div>"))
-            .map(|(value, _)| value.to_string())
-            .expect("each render has the value node")
+        let start = html.rfind("<div").expect("each render has the value node");
+        let open_end = html[start..].find('>').expect("its tag's end") + start + 1;
+        let close = html[open_end..].find("</div>").expect("its closing tag") + open_end;
+        html[open_end..close].to_string()
     };
     assert_eq!(
         value(&absent),
@@ -193,9 +197,13 @@ async fn layout_blocks_keep_their_structure_around_values() {
     )));
     let html = render(&schema, &values()).await;
     assert!(html.contains("Content"), "section title survives: {html}");
+    // GH #216: the grid's column class is pinned once, in core, by
+    // `grid_renders_with_cols_and_children`'s table over `Grid::new(1..=12)`;
+    // re-pinning the literal here only added a second place to break. What is
+    // view-specific is that the values render inside the structure at all.
     assert!(
-        html.contains("grid-cols-2"),
-        "a grid still lays its values out: {html}"
+        html.contains("Title") && html.contains("published") && html.contains("Line one"),
+        "every value renders inside the layout blocks: {html}"
     );
     assert!(
         !html.contains("<input"),

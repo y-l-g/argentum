@@ -42,7 +42,7 @@ async fn fixture_posts(db: &mut toasty::Db) -> (Post, Post) {
 async fn detail_page_shows_the_records_own_related_rows() {
     let db = full_db().await;
     let router = router(db.clone());
-    let client = demo_client(&router).await;
+    let client = demo_client(&router, &db).await;
     let mut db_q = db.clone();
     let (commented, bare) = fixture_posts(&mut db_q).await;
 
@@ -56,12 +56,11 @@ async fn detail_page_shows_the_records_own_related_rows() {
         "the seed attaches comments to Hello Toasty"
     );
 
-    // The commented post's page shows its comments under their own heading.
+    // The commented post's page shows its comments' *rows*. The heading is not
+    // asserted: "Comments" is the sidebar nav label present on every panel page
+    // (GH #216), and `render_relation`'s own heading is pinned in core
+    // (`a_relation_table_renders_every_row_and_column`).
     let html = body_string(client.get(&format!("/admin/posts/{}", commented.id)).await).await;
-    assert!(
-        html.contains("Comments"),
-        "the relation must render under its own heading: {html}"
-    );
     for comment in &related {
         assert!(
             html.contains(&comment.body),
@@ -94,7 +93,7 @@ async fn detail_relation_renders_no_list_chrome() {
     // this page never runs.
     let db = full_db().await;
     let router = router(db.clone());
-    let client = demo_client(&router).await;
+    let client = demo_client(&router, &db).await;
     let mut db_q = db.clone();
     let (commented, _) = fixture_posts(&mut db_q).await;
 
@@ -126,6 +125,24 @@ async fn detail_relation_renders_no_list_chrome() {
 /// installed for the duration of one request counts them without touching
 /// global state or the driver.
 async fn statements_for_page(client: &TestClient<'_>, path: &str) -> usize {
+    // A thread-local subscriber only sees events emitted on this thread, and
+    // the driver runs a statement on whichever thread its connection hands it
+    // to — so the first request after the subscriber is installed can slip past
+    // it entirely and measure zero while the next one sees the lot (observed:
+    // attempt 1 -> 0, attempt 2 -> 7 under a loaded suite). Retrying until the
+    // counter is live costs one extra request and removes the flake;
+    // `with_rows > 0` below still fails loudly if it never is.
+    for _ in 0..8 {
+        let count = count_statements_once(client, path).await;
+        if count > 0 {
+            return count;
+        }
+    }
+    0
+}
+
+/// One measurement: install the counting subscriber, fetch the page, count.
+async fn count_statements_once(client: &TestClient<'_>, path: &str) -> usize {
     /// toasty's sqlite driver, the layer that actually talks to the database.
     const DRIVER_TARGET: &str = "toasty_driver_sqlite";
     struct OpField(String);
@@ -167,14 +184,20 @@ async fn statements_for_page(client: &TestClient<'_>, path: &str) -> usize {
         .with(tracing_subscriber::filter::LevelFilter::TRACE)
         .with(SqlCounter(hits.clone()));
     let _guard = tracing::subscriber::set_default(subscriber);
-    let _ = client.get(path).await;
+    // Collect the whole body: a page streams (a skeleton, then the swapped
+    // region), and the statements that load the record run while the body is
+    // polled. Dropping the response without reading it would measure a page
+    // that had not been built yet.
+    let _ = body_string(client.get(path).await).await;
     hits.load(Ordering::SeqCst)
 }
 
 /// A counting subscriber is thread-local, and the default `#[tokio::test]`
 /// runtime is multi-threaded: a request can resume on a worker that never saw
 /// the subscriber, which made this test fail roughly one run in four. Pinning
-/// the runtime to the current thread makes the measurement deterministic.
+/// the runtime to the current thread fixed that; `statements_for_page` warms the
+/// counter because `tracing` caches the callsite's interest, which the fixtures
+/// have already fixed against the default dispatcher.
 #[tokio::test(flavor = "current_thread")]
 async fn the_relation_issues_no_query_of_its_own() {
     // The property item 6 asked for, measured rather than argued: a record
@@ -183,7 +206,7 @@ async fn the_relation_issues_no_query_of_its_own() {
     // would show up as a difference between the two pages.
     let db = full_db().await;
     let router = router(db.clone());
-    let client = demo_client(&router).await;
+    let client = demo_client(&router, &db).await;
     let mut db_q = db.clone();
     let (commented, bare) = fixture_posts(&mut db_q).await;
 
@@ -192,7 +215,8 @@ async fn the_relation_issues_no_query_of_its_own() {
 
     assert!(
         with_rows > 0,
-        "the counter must see the page's own statements, or it proves nothing"
+        "the counter must see the page's own statements, or it proves nothing: \
+         with_rows={with_rows} without_rows={without_rows}"
     );
     assert_eq!(
         with_rows, without_rows,

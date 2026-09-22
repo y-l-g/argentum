@@ -6,8 +6,8 @@ use crate::common::{body_string, demo_client, full_db};
 async fn posts_export_bom_opt_in_prepends_bom() {
     // GH #94: `?bom=1` opts into a UTF-8 BOM for Excel; default stays BOM-free.
     let db = full_db().await;
-    let router = router(db);
-    let client = demo_client(&router).await;
+    let router = router(db.clone());
+    let client = demo_client(&router, &db).await;
     let resp = client.get("/admin/posts/export?bom=1").await;
     assert!(resp.status().is_success());
     let csv = body_string(resp).await;
@@ -27,8 +27,20 @@ async fn posts_export_bom_opt_in_prepends_bom() {
 #[tokio::test]
 async fn posts_group_by_status_shows_counts() {
     let db = full_db().await;
-    let router = router(db);
-    let client = demo_client(&router).await;
+    let mut db_q = db.clone();
+    // Derived, not literal (GH #217): the page-local count is the number of
+    // published rows in the fixture, so one more seeded post cannot break it.
+    let published = showcase::models::Post::filter(
+        showcase::models::Post::fields()
+            .status()
+            .eq("published".to_string()),
+    )
+    .exec(&mut db_q)
+    .await
+    .unwrap()
+    .len();
+    let router = router(db.clone());
+    let client = demo_client(&router, &db).await;
     let resp = client.get("/admin/posts?group_by=status").await;
     assert!(
         resp.status().is_success(),
@@ -36,21 +48,24 @@ async fn posts_group_by_status_shows_counts() {
         resp.status()
     );
     let html = body_string(resp).await;
-    // Should show group headers with counts (in-memory grouping)
+    // The header label *and* its page-local count. The bare label is not
+    // asserted separately: the status SelectFilter renders "published" and
+    // "draft" as options on every list page (GH #216), so a label-only check
+    // passes with grouping off. `on this page` is emitted only by a group
+    // header (`render.rs`), and core pins the ordering and exact
+    // "draft (2 on this page)" labels in
+    // `group_by_orders_each_row_under_its_own_header`.
     assert!(
-        html.contains("published") || html.contains("draft"),
-        "missing group header {}",
-        html
+        html.contains(&format!("published ({published} on this page)")),
+        "missing the published group header in {html}"
     );
-    // Each group shows a page-local count: "published (1 on this page)".
-    assert!(html.contains("(1 on this page)"), "missing count {}", html);
 }
 
 #[tokio::test]
 async fn posts_export_streams_csv_with_content_disposition() {
     let db = full_db().await;
-    let router = router(db);
-    let client = demo_client(&router).await;
+    let router = router(db.clone());
+    let client = demo_client(&router, &db).await;
     let resp = client.get("/admin/posts/export").await;
     assert!(
         resp.status().is_success(),
@@ -185,19 +200,14 @@ async fn export_over_cap_413s_at_route_level() {
         .await
         .unwrap();
     db.push_schema().await.unwrap();
-    // One row past the 10_000 cap, in batches so the seed stays fast.
-    for batch in 0..11 {
-        let base = batch * 1000;
-        let end = (base + 1000).min(10_001);
-        for i in base..end {
-            toasty::create!(Dummy {
-                name: format!("row-{i:05}")
-            })
-            .exec(&mut db)
-            .await
-            .unwrap();
-        }
+    // One row past the 10_000 cap, in one batched insert (GH #218): a
+    // `toasty::create!` per row spent ~2s going through the engine pipeline
+    // 10,001 times, which was more than the route under test.
+    let mut create = Dummy::create_many();
+    for i in 0..10_001 {
+        create = create.item(Dummy::create().name(format!("row-{i:05}")));
     }
+    create.exec(&mut db).await.unwrap();
     let router = argentum_core::Panel::new("admin")
         .app_context(db)
         .auth(argentum_core::Auth::disabled())

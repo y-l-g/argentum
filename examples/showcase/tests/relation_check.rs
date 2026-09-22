@@ -1,7 +1,7 @@
 use http::header::LOCATION;
 use showcase::{
     app::router_for_tests as router,
-    models::{Author, Post},
+    models::{Author, Comment, Post},
 };
 
 use crate::common::{
@@ -12,7 +12,7 @@ use crate::common::{
 async fn posts_list_shows_author_name() {
     let db = full_db().await;
     let router = router(db.clone());
-    let client = demo_client(&router).await;
+    let client = demo_client(&router, &db).await;
     let resp = client.get("/admin/posts").await;
     assert!(resp.status().is_success(), "status {}", resp.status());
     let html = body_string(resp).await;
@@ -23,8 +23,8 @@ async fn posts_list_shows_author_name() {
 #[tokio::test]
 async fn posts_create_shows_select_with_author_options() {
     let db = full_db().await;
-    let router = router(db);
-    let client = demo_client(&router).await;
+    let router = router(db.clone());
+    let client = demo_client(&router, &db).await;
     let resp = client.get("/admin/posts/create").await;
     assert!(resp.status().is_success(), "status {}", resp.status());
     let html = body_string(resp).await;
@@ -40,7 +40,7 @@ async fn posts_create_shows_select_with_author_options() {
 async fn posts_create_empty_author_shows_required_error() {
     let db = full_db().await;
     let router = router(db.clone());
-    let client = demo_client(&router).await;
+    let client = demo_client(&router, &db).await;
     let before = post_count(&db).await;
     let csrf = uuid::Uuid::new_v4().to_string();
     let resp = client
@@ -74,7 +74,7 @@ async fn posts_create_empty_author_shows_required_error() {
 async fn posts_create_invalid_author_shows_invalid_error() {
     let db = full_db().await;
     let router = router(db.clone());
-    let client = demo_client(&router).await;
+    let client = demo_client(&router, &db).await;
     let before = post_count(&db).await;
     let csrf = uuid::Uuid::new_v4().to_string();
     let fake_id = uuid::Uuid::new_v4();
@@ -107,7 +107,7 @@ async fn posts_create_invalid_author_shows_invalid_error() {
 async fn posts_create_valid_redirects_and_creates() {
     let db = full_db().await;
     let router = router(db.clone());
-    let client = demo_client(&router).await;
+    let client = demo_client(&router, &db).await;
     let csrf = uuid::Uuid::new_v4().to_string();
     let mut db2 = db.clone();
     let authors = Author::all().exec(&mut db2).await.unwrap();
@@ -145,7 +145,7 @@ async fn posts_create_valid_redirects_and_creates() {
 async fn posts_edit_hydrates_author() {
     let db = full_db().await;
     let router = router(db.clone());
-    let client = demo_client(&router).await;
+    let client = demo_client(&router, &db).await;
     let csrf = uuid::Uuid::new_v4().to_string();
     let mut db2 = db.clone();
     let authors = Author::all().exec(&mut db2).await.unwrap();
@@ -190,19 +190,39 @@ async fn posts_edit_hydrates_author() {
 async fn posts_list_shows_comments_count_via_include() {
     let db = full_db().await;
     let router = router(db.clone());
-    let client = demo_client(&router).await;
+    let client = demo_client(&router, &db).await;
     let resp = client.get("/admin/posts").await;
     assert!(resp.status().is_success());
     let html = body_string(resp).await;
-    // Table should have Comments header and counts 1 and 0 (one query, no N+1)
+    // GH #217: the expected counts are read from the fixture rather than
+    // written as literals, so the assertion names which post gets which count
+    // instead of hard-coding the seed's two numbers. The column's *cells* are
+    // the observable here; "Comments" alone is the sidebar nav label present on
+    // every panel page (GH #216).
+    let mut db_q = db.clone();
+    let comments_of = async |db: &mut toasty::Db, title: &str| {
+        let post = Post::filter(Post::fields().title().eq(title.to_string()))
+            .first()
+            .exec(db)
+            .await
+            .unwrap()
+            .unwrap_or_else(|| panic!("the seed creates {title}"));
+        Comment::filter(Comment::fields().post_id().eq(post.id))
+            .exec(db)
+            .await
+            .unwrap()
+            .len()
+    };
+    let hello = comments_of(&mut db_q, "Hello Toasty").await;
+    let bare = comments_of(&mut db_q, "Second Post").await;
     assert!(
-        html.contains("Comments"),
-        "missing Comments header {}",
-        html
+        html.contains(&format!(">{hello}<")),
+        "the Comments column must show {hello} for Hello Toasty in {html}"
     );
-    // Hello Toasty has 3 comments, Second Post has 0 (cell content only)
-    assert!(html.contains(">3<"), "missing comment count 3 {}", html);
-    assert!(html.contains(">0<"), "missing comment count 0 {}", html);
+    assert!(
+        html.contains(&format!(">{bare}<")),
+        "the Comments column must show {bare} for Second Post in {html}"
+    );
     // GH #101: loaded relations must never render the unloaded marker.
     assert!(
         !html.contains("(unloaded)"),
@@ -215,7 +235,7 @@ async fn posts_list_shows_comments_count_via_include() {
 async fn posts_update_rechecks_author_existence() {
     let db = full_db().await;
     let router = router(db.clone());
-    let client = demo_client(&router).await;
+    let client = demo_client(&router, &db).await;
     let csrf = uuid::Uuid::new_v4().to_string();
     let mut db_q = db.clone();
     let authors = Author::all().exec(&mut db_q).await.unwrap();
@@ -288,7 +308,7 @@ async fn posts_create_lifecycle_fields_persist() {
     // the author relationship select.
     let db = full_db().await;
     let router = router(db.clone());
-    let client = demo_client(&router).await;
+    let client = demo_client(&router, &db).await;
     let csrf = uuid::Uuid::new_v4().to_string();
     let mut db2 = db.clone();
     let authors = Author::all().exec(&mut db2).await.unwrap();
@@ -326,7 +346,7 @@ async fn posts_create_omitted_lifecycle_fields_default_to_draft() {
     // create a plain draft, not a validation error.
     let db = full_db().await;
     let router = router(db.clone());
-    let client = demo_client(&router).await;
+    let client = demo_client(&router, &db).await;
     let csrf = uuid::Uuid::new_v4().to_string();
     let mut db2 = db.clone();
     let authors = Author::all().exec(&mut db2).await.unwrap();
@@ -364,7 +384,7 @@ async fn post_author_options_are_tenant_scoped() {
     // tenant sees none of this tenant's writers.
     let db = full_db().await;
     let router = router(db.clone());
-    let client = demo_client(&router).await;
+    let client = demo_client(&router, &db).await;
 
     let resp = client.get("/admin/posts/options?field=author_id").await;
     assert!(resp.status().is_success());
@@ -391,7 +411,7 @@ async fn post_author_options_deny_blocked_tenant() {
     // Policy denial fails the options load closed: no options, no leak.
     let db = full_db().await;
     let router = router(db.clone());
-    let client = demo_client(&router).await;
+    let client = demo_client(&router, &db).await;
     let resp = client
         .tenant(showcase::models::BLOCKED_TENANT)
         .get("/admin/posts/options?field=author_id")

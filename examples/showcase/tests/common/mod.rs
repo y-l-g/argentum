@@ -14,17 +14,20 @@ use toasty::Db;
 use topcoat::context::Cx;
 use topcoat::router::{Body, Router};
 
-/// `Db` with the phase-1 users seed applied.
+/// A fresh in-memory `Db` carrying the **full** showcase model set, schema
+/// pushed and no rows — the one place the model list is written (GH #217).
 ///
-/// The model list is the **full** showcase set even though only users are
-/// seeded (GH #185): a lens path is resolved against the app schema, and the
+/// The list is the whole showcase set even though most tests touch one or two
+/// tables (GH #185): a lens path is resolved against the app schema, and the
 /// `Panel` registers every resource regardless of which tables a given test
-/// cares about. A narrower `models!(..)` here made the panel's schema
-/// incomplete, so a form for an unregistered model could not resolve its
-/// embedded paths — and would have bound whichever model the id happened to
-/// name. An empty table costs nothing; an incomplete schema misleads.
-pub async fn seeded_db() -> Db {
-    let mut db = Db::builder()
+/// cares about. A narrower `models!(..)` made the panel's schema incomplete, so
+/// a form for an unregistered model could not resolve its embedded paths — and
+/// would have bound whichever model the id happened to name. An empty table
+/// costs nothing; an incomplete schema misleads. It used to be written four
+/// times (three here, one in `states_check`'s local `empty_db`), which is four
+/// places to forget a model.
+pub async fn empty_schema_db() -> Db {
+    let db = Db::builder()
         .models(toasty::models!(
             showcase::models::User,
             showcase::models::Author,
@@ -37,6 +40,27 @@ pub async fn seeded_db() -> Db {
         .await
         .expect("connect");
     db.push_schema().await.expect("push_schema");
+    db
+}
+
+/// [`empty_schema_db`] with the demo admin seeded and zero team rows.
+pub async fn empty_team_db() -> Db {
+    let mut db = empty_schema_db().await;
+    create_admin(
+        &mut db,
+        DEMO_ADMIN_EMAIL,
+        "Demo Admin",
+        DEMO_ADMIN_PASSWORD,
+        Some(showcase::models::DEMO_TENANT),
+    )
+    .await
+    .expect("seed demo admin");
+    db
+}
+
+/// `Db` with the phase-1 users seed applied.
+pub async fn seeded_db() -> Db {
+    let mut db = empty_schema_db().await;
     seed(&mut db).await.expect("seed");
     db
 }
@@ -44,19 +68,7 @@ pub async fn seeded_db() -> Db {
 /// `Db` with both seed phases (users, authors, posts, comments) and the
 /// shipped auth models.
 pub async fn full_db() -> Db {
-    let mut db = Db::builder()
-        .models(toasty::models!(
-            showcase::models::User,
-            showcase::models::Author,
-            showcase::models::Post,
-            showcase::models::Comment,
-            argentum_core::auth::AdminUser,
-            argentum_core::auth::AuthSession
-        ))
-        .connect("sqlite::memory:")
-        .await
-        .expect("connect");
-    db.push_schema().await.expect("push_schema");
+    let mut db = empty_schema_db().await;
     seed(&mut db).await.expect("seed");
     seed_phase2(&mut db).await.expect("seed_phase2");
     db
@@ -66,19 +78,7 @@ pub async fn full_db() -> Db {
 pub async fn tenanted_db() -> (Db, uuid::Uuid, uuid::Uuid) {
     let t1 = uuid::Uuid::from_u128(1);
     let t2 = uuid::Uuid::from_u128(2);
-    let mut db = Db::builder()
-        .models(toasty::models!(
-            showcase::models::User,
-            showcase::models::Author,
-            showcase::models::Post,
-            showcase::models::Comment,
-            argentum_core::auth::AdminUser,
-            argentum_core::auth::AuthSession
-        ))
-        .connect("sqlite::memory:")
-        .await
-        .expect("connect");
-    db.push_schema().await.expect("push_schema");
+    let mut db = empty_schema_db().await;
     create_admin(
         &mut db,
         DEMO_ADMIN_EMAIL,
@@ -347,13 +347,75 @@ pub fn set_cookie_header(response: &http::Response<Body>, name: &str) -> Option<
 
 /// Log in through `{prefix}/login` like a browser: fetch the page, reuse its
 /// CSRF pair, post the credentials, and keep every cookie the exchange set.
+///
+/// GH #218: this is a real GET + POST + Argon2id verify (~0.4s at the shipped
+/// parameters). Use it only where the login flow **is** the subject — the
+/// `auth_check` suite, session revocation, deactivation, rotation, failed
+/// logins, and the one test that needs a session cookie *without* the paired
+/// CSRF cookie. Everywhere else, an authenticated client is setup: use
+/// [`demo_client`] / [`tenantless_client`], which mint the session row instead.
 pub async fn login<'a>(router: &'a Router, email: &str, password: &str) -> TestClient<'a> {
     login_next(router, email, password, "").await.0
 }
 
-/// A client logged in as the seeded demo admin.
-pub async fn demo_client(router: &Router) -> TestClient<'_> {
-    login(router, DEMO_ADMIN_EMAIL, DEMO_ADMIN_PASSWORD).await
+/// The raw session cookie value for the seeded admin with `email`, minted
+/// directly into `db` (GH #218).
+///
+/// The login handler writes one `AuthSession` row keyed by the SHA-256 of a
+/// random token and hands the client the encoded token; this does exactly that
+/// and nothing else. The request path afterwards is identical — `AuthGate`
+/// resolves the cookie through `auth::resolve`, which looks the row up, rejects
+/// an expired one, and re-reads the user through `Authenticator::find_by_id`
+/// (so `active` and `can_access_panel` still apply). What is skipped is the
+/// password verification, which is the point: ~110 tests re-authenticated to
+/// get an authenticated client, at ~0.4s each.
+pub async fn mint_session(db: &Db, email: &str) -> String {
+    use std::fmt::Write as _;
+    use std::time::SystemTime;
+
+    use argentum_core::auth::{AdminUser, AuthSession, SESSION_LIFETIME};
+    use topcoat::session::Token;
+
+    let mut db = db.clone();
+    let user = AdminUser::filter(AdminUser::fields().email().eq(email.to_string()))
+        .first()
+        .exec(&mut db)
+        .await
+        .expect("look up the seeded admin")
+        .unwrap_or_else(|| panic!("the seed creates the admin {email}"));
+    let token = Token::random();
+    let mut token_hash = String::with_capacity(64);
+    for byte in token.hash().iter() {
+        write!(token_hash, "{byte:02x}").expect("writing to a String cannot fail");
+    }
+    toasty::create!(AuthSession {
+        token_hash,
+        user_id: user.id.to_string(),
+        expires_at: jiff::Timestamp::try_from(SystemTime::now() + SESSION_LIFETIME)
+            .expect("a representable session expiry"),
+        created_at: jiff::Timestamp::now(),
+    })
+    .exec(&mut db)
+    .await
+    .expect("mint the session row");
+    token.encode()
+}
+
+/// A client holding a freshly minted session for `email` (GH #218).
+pub async fn signed_in_client<'a>(router: &'a Router, db: &Db, email: &str) -> TestClient<'a> {
+    let token = mint_session(db, email).await;
+    TestClient::new(router).cookie(SESSION_COOKIE, &token)
+}
+
+/// A client holding a freshly minted session for the seeded demo admin.
+pub async fn demo_client<'a>(router: &'a Router, db: &Db) -> TestClient<'a> {
+    signed_in_client(router, db, DEMO_ADMIN_EMAIL).await
+}
+
+/// A client holding a freshly minted session for the tenantless admin, for the
+/// `requires_tenant` fail-closed tests.
+pub async fn tenantless_client<'a>(router: &'a Router, db: &Db) -> TestClient<'a> {
+    signed_in_client(router, db, showcase::models::TENANTLESS_ADMIN_EMAIL).await
 }
 
 /// The session cookie value a response set, if any.
@@ -473,6 +535,37 @@ pub fn file_input_tag(html: &str) -> String {
     panic!("unterminated <input> tag at byte {start}");
 }
 
+/// The first `href="…"` in `html` whose value contains `needle`, with the
+/// entities an HTML attribute encoder emits decoded.
+///
+/// One copy for the whole suite (GH #217): the three former copies decoded
+/// differently — one returned the raw attribute, one replaced `&amp;`, one
+/// unescaped fully — and the raw one was fed straight back as a request URI,
+/// so it followed a URL no browser would send. `&amp;` is decoded *last* so
+/// `&amp;lt;` becomes the literal `&lt;`, exactly as a browser reads it.
+pub fn find_href_with(html: &str, needle: &str) -> Option<String> {
+    let mut rest = html;
+    loop {
+        let start = rest.find("href=\"")?;
+        rest = &rest[start + "href=\"".len()..];
+        let end = rest.find('"')?;
+        let href = &rest[..end];
+        if href.contains(needle) {
+            return Some(unescape_href(href));
+        }
+        rest = &rest[end..];
+    }
+}
+
+/// Decode the entities an HTML attribute encoder emits in a URL attribute.
+fn unescape_href(href: &str) -> String {
+    href.replace("&quot;", "\"")
+        .replace("&#x27;", "'")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&amp;", "&")
+}
+
 /// The row titles rendered into a table table, in document order.
 ///
 /// Each row's first cell is the title projection, so this reads the table the
@@ -509,6 +602,30 @@ pub fn row_titles(html: &str) -> Vec<String> {
 pub async fn post_count(db: &Db) -> usize {
     let mut db = db.clone();
     showcase::models::Post::all()
+        .exec(&mut db)
+        .await
+        .unwrap()
+        .len()
+}
+
+/// How many `User` rows the database holds (GH #217).
+///
+/// [`post_count`]'s pattern for the team roster: a seeded-row literal like
+/// `8` asserts the fixture's size, so one added seed row broke eight tests with
+/// no bug behind it. Write/delete tests compare this before and after instead.
+pub async fn user_count(db: &Db) -> usize {
+    let mut db = db.clone();
+    showcase::models::User::all()
+        .exec(&mut db)
+        .await
+        .unwrap()
+        .len()
+}
+
+/// How many `Comment` rows the database holds (GH #217).
+pub async fn comment_count(db: &Db) -> usize {
+    let mut db = db.clone();
+    showcase::models::Comment::all()
         .exec(&mut db)
         .await
         .unwrap()

@@ -702,6 +702,31 @@ mod tests {
     use super::*;
     use toasty::Db;
 
+    /// The minimal table-backed model most of this module's tests share
+    /// (GH #217): it was declared nine times, byte-identically, inside the test
+    /// bodies. The resources that use it differ; the table does not.
+    #[derive(Debug, Clone, toasty::Model)]
+    struct Dummy {
+        #[key]
+        #[auto]
+        id: uuid::Uuid,
+        name: String,
+    }
+
+    /// Seed one row past the export cap in a single batched insert (GH #218).
+    ///
+    /// Both export-cap tests used to run a `toasty::create!` per row, so the
+    /// seed went through the engine pipeline 10,001 times and cost ~2s each —
+    /// more than the behaviour under test. `create_many` accumulates the
+    /// inserts into one statement. `name` maps a row index to its label.
+    async fn seed_past_the_export_cap(db: &mut Db, name: impl Fn(usize) -> String) {
+        let mut create = Dummy::create_many();
+        for i in 0..MAX_EXPORT_ROWS + 1 {
+            create = create.item(Dummy::create().name(name(i)));
+        }
+        create.exec(&mut *db).await.unwrap();
+    }
+
     #[test]
     fn parse_bulk_ids_dedupes_and_trims() {
         assert!(parse_bulk_ids("", MAX_BULK_IDS).is_empty());
@@ -721,13 +746,6 @@ mod tests {
         use crate::resource::Resource;
         use std::collections::HashMap;
 
-        #[derive(Debug, toasty::Model, Clone)]
-        struct Dummy {
-            #[key]
-            #[auto]
-            id: uuid::Uuid,
-            name: String,
-        }
         struct ViewDeniedResource;
         impl Resource for ViewDeniedResource {
             type Model = Dummy;
@@ -821,13 +839,6 @@ mod tests {
         use crate::resource::Resource;
         use std::collections::HashMap;
 
-        #[derive(Debug, toasty::Model, Clone)]
-        struct Dummy {
-            #[key]
-            #[auto]
-            id: uuid::Uuid,
-            name: String,
-        }
         struct UpperKeyResource;
         impl Resource for UpperKeyResource {
             type Model = Dummy;
@@ -960,13 +971,6 @@ mod tests {
         use crate::resource::Resource;
         use std::collections::HashMap;
 
-        #[derive(Debug, toasty::Model, Clone)]
-        struct Dummy {
-            #[key]
-            #[auto]
-            id: uuid::Uuid,
-            name: String,
-        }
         struct NameKeyResource;
         impl Resource for NameKeyResource {
             type Model = Dummy;
@@ -1099,13 +1103,6 @@ mod tests {
         use crate::resource::Resource;
         use std::collections::HashMap;
 
-        #[derive(Debug, toasty::Model, Clone)]
-        struct Dummy {
-            #[key]
-            #[auto]
-            id: uuid::Uuid,
-            name: String,
-        }
         struct FlakyBulkResource;
         impl Resource for FlakyBulkResource {
             type Model = Dummy;
@@ -1215,13 +1212,6 @@ mod tests {
         use http_body_util::BodyExt;
         use std::collections::HashMap;
 
-        #[derive(Debug, toasty::Model, Clone)]
-        struct Dummy {
-            #[key]
-            #[auto]
-            id: uuid::Uuid,
-            name: String,
-        }
         struct RowPolicyResource;
         impl Resource for RowPolicyResource {
             type Model = Dummy;
@@ -1495,13 +1485,6 @@ mod tests {
         use http_body_util::BodyExt;
         use std::collections::HashMap;
 
-        #[derive(Debug, Clone, toasty::Model)]
-        struct Dummy {
-            #[key]
-            #[auto]
-            id: uuid::Uuid,
-            name: String,
-        }
         struct ChunkedResource;
         impl Resource for ChunkedResource {
             type Model = Dummy;
@@ -1609,13 +1592,6 @@ mod tests {
         use http_body_util::BodyExt;
         use std::collections::HashMap;
 
-        #[derive(Debug, Clone, toasty::Model)]
-        struct Dummy {
-            #[key]
-            #[auto]
-            id: uuid::Uuid,
-            name: String,
-        }
         struct MixedResource;
         impl Resource for MixedResource {
             type Model = Dummy;
@@ -1648,14 +1624,14 @@ mod tests {
             .await
             .unwrap();
         db.push_schema().await.unwrap();
-        for i in 0..MAX_EXPORT_ROWS + 1 {
-            let name = if i % 2 == 0 {
+        seed_past_the_export_cap(&mut db, |i| {
+            if i % 2 == 0 {
                 format!("allowed-{i:05}")
             } else {
                 format!("denied-{i:05}")
-            };
-            toasty::create!(Dummy { name }).exec(&mut db).await.unwrap();
-        }
+            }
+        })
+        .await;
         let router = Panel::new("admin")
             .app_context(db)
             .resource::<MixedResource>()
@@ -1687,13 +1663,6 @@ mod tests {
         use crate::resource::Resource;
         use std::collections::HashMap;
 
-        #[derive(Debug, Clone, toasty::Model)]
-        struct Dummy {
-            #[key]
-            #[auto]
-            id: uuid::Uuid,
-            name: String,
-        }
         struct TinyResource;
         impl Resource for TinyResource {
             type Model = Dummy;
@@ -1895,13 +1864,6 @@ mod tests {
         use crate::resource::Resource;
         use std::collections::HashMap;
 
-        #[derive(Debug, Clone, toasty::Model)]
-        struct Dummy {
-            #[key]
-            #[auto]
-            id: uuid::Uuid,
-            name: String,
-        }
         struct CappedResource;
         impl Resource for CappedResource {
             type Model = Dummy;
@@ -1934,14 +1896,7 @@ mod tests {
             .await
             .unwrap();
         db.push_schema().await.unwrap();
-        for i in 0..MAX_EXPORT_ROWS + 1 {
-            toasty::create!(Dummy {
-                name: format!("user-{i:05}"),
-            })
-            .exec(&mut db)
-            .await
-            .unwrap();
-        }
+        seed_past_the_export_cap(&mut db, |i| format!("user-{i:05}")).await;
         let router = Panel::new("admin")
             .app_context(db)
             .resource::<CappedResource>()
@@ -2273,9 +2228,10 @@ mod tests {
             )
             .await;
         assert_eq!(resp.status(), http::StatusCode::BAD_REQUEST);
-
-        // Labels escape (no raw HTML passthrough).
-        assert!(!html.contains("<script"), "options must escape, got {html}");
+        // Escaping itself is pinned where it can fail: `escape_option`'s unit
+        // test feeds characters that must be escaped and asserts the exact
+        // output. These fixtures are "Ada"/"Grace"/"Alan", so a
+        // `!html.contains("<script")` here could never fail (GH #216).
     }
 
     #[tokio::test]

@@ -6,10 +6,10 @@
 
 use showcase::{
     app::router_for_tests as router,
-    models::{Author, DEMO_ADMIN_PASSWORD, Post, TENANTLESS_ADMIN_EMAIL},
+    models::{Author, Post},
 };
 
-use crate::common::{body_string, demo_client, full_db, login, tenanted_db};
+use crate::common::{body_string, demo_client, full_db, tenanted_db, tenantless_client};
 
 /// The first seeded post's id, as the URL carries it.
 async fn a_post_id(db: &mut toasty::Db) -> String {
@@ -27,7 +27,7 @@ async fn a_post_id(db: &mut toasty::Db) -> String {
 async fn post_detail_renders_the_record_read_only() {
     let db = full_db().await;
     let router = router(db.clone());
-    let client = demo_client(&router).await;
+    let client = demo_client(&router, &db).await;
     let mut db_q = db.clone();
     let id = a_post_id(&mut db_q).await;
     let post = Post::all()
@@ -73,12 +73,15 @@ async fn post_detail_renders_the_record_read_only() {
         "a detail page must not render form controls: {body}"
     );
     assert!(
-        !body.contains("text-destructive") && !body.contains("ac-field--error"),
+        !body.contains("ac-field--error"),
         "a stored record has nothing to be invalid about: {body}"
     );
-    // A field is present as a value, not as a control: the read-only shape.
+    // A field is present as a value, not as a control: the read-only shape
+    // (GH #216 — the `whitespace-pre-wrap` class this used to grep for is
+    // paint). The form's label carries `data-slot="field-label"`; the
+    // read-only title deliberately does not.
     assert!(
-        body.contains("whitespace-pre-wrap"),
+        body.contains("data-slot=\"field\"") && !body.contains("data-slot=\"field-label\""),
         "the page renders values through the read-only field shape: {body}"
     );
 }
@@ -90,7 +93,7 @@ async fn post_detail_is_scoped_like_every_other_route() {
     // which ids exist outside their scope.
     let (db, t1, t2) = tenanted_db().await;
     let router = router(db.clone());
-    let client = demo_client(&router).await;
+    let client = demo_client(&router, &db).await;
     let mut db_q = db.clone();
     let post = Post::all()
         .filter(Post::fields().tenant_id().eq(t1))
@@ -132,7 +135,7 @@ async fn resources_without_a_view_declaration_have_no_detail_page() {
     // were none — which is what makes the missing row link honest.
     let db = full_db().await;
     let router = router(db.clone());
-    let client = demo_client(&router).await;
+    let client = demo_client(&router, &db).await;
     let mut db_q = db.clone();
     let author = Author::all().exec(&mut db_q).await.unwrap().remove(0);
 
@@ -171,7 +174,7 @@ async fn the_detail_route_does_not_shadow_create_or_edit() {
     // and the longer path, so neither page is lost to the detail route.
     let db = full_db().await;
     let router = router(db.clone());
-    let client = demo_client(&router).await;
+    let client = demo_client(&router, &db).await;
     let mut db_q = db;
     let id = a_post_id(&mut db_q).await;
 
@@ -209,7 +212,7 @@ async fn post_detail_enforces_requires_tenant() {
     let router = router(db.clone());
     let mut db_q = db.clone();
     let id = a_post_id(&mut db_q).await;
-    let client = login(&router, TENANTLESS_ADMIN_EMAIL, DEMO_ADMIN_PASSWORD).await;
+    let client = tenantless_client(&router, &db).await;
 
     let resp = client.get(&format!("/admin/posts/{id}")).await;
     assert_eq!(
@@ -229,7 +232,7 @@ async fn post_detail_hides_the_record_from_a_denied_tenant() {
 
     let db = full_db().await;
     let router = router(db.clone());
-    let client = demo_client(&router).await;
+    let client = demo_client(&router, &db).await;
     let mut db_q = db.clone();
     // A real id, so the refusal comes from the policy and not from the load.
     let id = a_post_id(&mut db_q).await;

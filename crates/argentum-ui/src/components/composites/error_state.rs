@@ -108,13 +108,13 @@ mod tests {
             html.contains("Something went wrong while loading the records."),
             "detail missing: {html}"
         );
-        // Action inherits the component's styling via the wrapper.
+        // The caller's action reaches the output intact (GH #216: the classes
+        // that style it are paint; the href is the caller's own markup).
         assert!(
-            html.contains("text-primary hover:underline") && html.contains("Retry"),
-            "styled action missing: {html}"
+            html.contains("Retry") && html.contains("href=\"/admin/users\""),
+            "caller action missing: {html}"
         );
-        // Destructive accent + icon.
-        assert!(html.contains("text-destructive"), "accent missing: {html}");
+        // Icon present; its colour is paint.
         assert!(html.contains("<svg"), "icon missing: {html}");
     }
 
@@ -138,8 +138,13 @@ mod tests {
             html.contains("Couldn't load Users"),
             "title missing: {html}"
         );
-        assert!(
-            !html.contains("text-muted-foreground"),
+        // No detail line: the title is the only `<p>` element the component
+        // renders when `detail` is empty (GH #216: the muted colour that used
+        // to stand in for this is paint). Spelled `<p ` / `<p>` so the icon's
+        // `<path>` cannot count as one.
+        assert_eq!(
+            html.matches("<p ").count() + html.matches("<p>").count(),
+            1,
             "no detail expected: {html}"
         );
         assert!(html.contains("id=\"load-error\""), "attrs missing: {html}");

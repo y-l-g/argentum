@@ -428,6 +428,53 @@ mod tests {
     use super::*;
     use toasty::Db;
 
+    /// The minimal table-backed model the list-chrome tests share (GH #217):
+    /// `list_html` was declared twice with byte-identical bodies apart from one
+    /// seeded row, so a change to the panel's list route had to be made twice.
+    #[derive(Debug, toasty::Model, Clone)]
+    struct Dummy {
+        #[key]
+        #[auto]
+        id: uuid::Uuid,
+        name: String,
+    }
+
+    /// The `GET /admin/dummies` body for a resource registered with one seeded
+    /// row, so the row-chrome assertions have a row to look at.
+    async fn list_html<R: Resource>() -> String {
+        use http_body_util::BodyExt;
+
+        let mut db = Db::builder()
+            .models(toasty::models!(Dummy))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        toasty::create!(Dummy {
+            name: "Ada".to_string(),
+        })
+        .exec(&mut db)
+        .await
+        .unwrap();
+        let router = Panel::new("admin")
+            .app_context(db)
+            .resource::<R>()
+            .auth(crate::Auth::disabled())
+            .build()
+            .expect("panel builds");
+        let resp = router
+            .handle(
+                http::Request::builder()
+                    .uri("/admin/dummies")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await;
+        assert!(resp.status().is_success());
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        String::from_utf8_lossy(&body).to_string()
+    }
+
     #[tokio::test]
     async fn live_search_host_and_shard_dispatch() {
         // GH #104: opt-in tables render the signal host (page bodies are
@@ -1028,16 +1075,8 @@ mod tests {
         // GH #162 (Filament's List page `CreateAction` in the page header):
         // the Create link is eager page chrome, gated on `can_create`.
         use crate::resource::Resource;
-        use http_body_util::BodyExt;
         use std::collections::HashMap;
 
-        #[derive(Debug, toasty::Model, Clone)]
-        struct Dummy {
-            #[key]
-            #[auto]
-            id: uuid::Uuid,
-            name: String,
-        }
         struct CreatableResource;
         impl Resource for CreatableResource {
             type Model = Dummy;
@@ -1084,32 +1123,6 @@ mod tests {
             }
         }
 
-        async fn list_html<R: Resource>() -> String {
-            let db = Db::builder()
-                .models(toasty::models!(Dummy))
-                .connect("sqlite::memory:")
-                .await
-                .unwrap();
-            db.push_schema().await.unwrap();
-            let router = Panel::new("admin")
-                .app_context(db)
-                .resource::<R>()
-                .auth(crate::Auth::disabled())
-                .build()
-                .expect("panel builds");
-            let resp = router
-                .handle(
-                    http::Request::builder()
-                        .uri("/admin/dummies")
-                        .body(Body::empty())
-                        .unwrap(),
-                )
-                .await;
-            assert!(resp.status().is_success());
-            let body = resp.into_body().collect().await.unwrap().to_bytes();
-            String::from_utf8_lossy(&body).to_string()
-        }
-
         let html = list_html::<CreatableResource>().await;
         assert!(
             html.contains("href=\"/admin/dummies/create\"") && html.contains("Create"),
@@ -1128,16 +1141,8 @@ mod tests {
         // the per-row Edit link — read-only resources hide it, writable ones
         // link each row to `{list}/{id}/edit`.
         use crate::resource::Resource;
-        use http_body_util::BodyExt;
         use std::collections::HashMap;
 
-        #[derive(Debug, toasty::Model, Clone)]
-        struct Dummy {
-            #[key]
-            #[auto]
-            id: uuid::Uuid,
-            name: String,
-        }
         struct WritableResource;
         impl Resource for WritableResource {
             type Model = Dummy;
@@ -1196,38 +1201,6 @@ mod tests {
             fn hydrate_form_values(_cx: &Cx, _record: &Dummy) -> HashMap<String, String> {
                 HashMap::new()
             }
-        }
-
-        async fn list_html<R: Resource>() -> String {
-            let mut db = Db::builder()
-                .models(toasty::models!(Dummy))
-                .connect("sqlite::memory:")
-                .await
-                .unwrap();
-            db.push_schema().await.unwrap();
-            toasty::create!(Dummy {
-                name: "Ada".to_string(),
-            })
-            .exec(&mut db)
-            .await
-            .unwrap();
-            let router = Panel::new("admin")
-                .app_context(db)
-                .resource::<R>()
-                .auth(crate::Auth::disabled())
-                .build()
-                .expect("panel builds");
-            let resp = router
-                .handle(
-                    http::Request::builder()
-                        .uri("/admin/dummies")
-                        .body(Body::empty())
-                        .unwrap(),
-                )
-                .await;
-            assert!(resp.status().is_success());
-            let body = resp.into_body().collect().await.unwrap().to_bytes();
-            String::from_utf8_lossy(&body).to_string()
         }
 
         let html = list_html::<WritableResource>().await;

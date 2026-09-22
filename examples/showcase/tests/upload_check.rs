@@ -32,7 +32,7 @@ async fn upload_a_cover_image(
     router: &topcoat::router::Router,
     db: &toasty::Db,
 ) -> (String, uuid::Uuid) {
-    let client = demo_client(router).await;
+    let client = demo_client(router, db).await;
     let mut db_q = db.clone();
     let author = Author::all().exec(&mut db_q).await.unwrap().remove(0);
     let csrf = uuid::Uuid::new_v4().to_string();
@@ -92,7 +92,7 @@ async fn an_uploaded_file_lands_in_the_served_directory_and_fetches_back() {
 
     // ...and the stored path — exactly the string in the record — fetches them
     // back through the panel's own router.
-    let client = demo_client(&router).await;
+    let client = demo_client(&router, &db).await;
     let response = client.get(&stored).await;
     assert_eq!(response.status(), 200, "{stored} must be fetchable");
     assert_eq!(
@@ -118,7 +118,7 @@ async fn the_edit_page_previews_the_stored_upload_and_offers_to_remove_it() {
     let router = router_with_uploads(db.clone(), temp_dir("preview"));
     let (stored, id) = upload_a_cover_image(&router, &db).await;
 
-    let client = demo_client(&router).await;
+    let client = demo_client(&router, &db).await;
     let response = client.get(&format!("/admin/posts/{id}/edit")).await;
     assert!(response.status().is_success());
     let html = body_string(response).await;

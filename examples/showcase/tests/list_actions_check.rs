@@ -11,7 +11,7 @@ use crate::common::{body_string, demo_client, full_db, post_count, row_titles, s
 async fn users_list_links_to_create_and_edit() {
     let db = seeded_db().await;
     let router = router(db.clone());
-    let client = demo_client(&router).await;
+    let client = demo_client(&router, &db).await;
     let resp = client.get("/admin/users").await;
     assert!(resp.status().is_success(), "status {}", resp.status());
     let html = body_string(resp).await;
@@ -35,8 +35,8 @@ async fn users_list_links_to_create_and_edit() {
 #[tokio::test]
 async fn authors_list_links_to_create_and_edit() {
     let db = full_db().await;
-    let router = router(db);
-    let client = demo_client(&router).await;
+    let router = router(db.clone());
+    let client = demo_client(&router, &db).await;
     let resp = client.get("/admin/authors").await;
     assert!(resp.status().is_success(), "status {}", resp.status());
     let html = body_string(resp).await;
@@ -53,8 +53,8 @@ async fn authors_list_links_to_create_and_edit() {
 #[tokio::test]
 async fn posts_list_links_to_create_and_edit() {
     let db = full_db().await;
-    let router = router(db);
-    let client = demo_client(&router).await;
+    let router = router(db.clone());
+    let client = demo_client(&router, &db).await;
     let resp = client.get("/admin/posts").await;
     assert!(resp.status().is_success(), "status {}", resp.status());
     let html = body_string(resp).await;
@@ -75,7 +75,7 @@ async fn posts_pagination_walks_forward_and_back() {
     // real cursor: page 1 -> after= -> page 2 -> before= -> page 1.
     let db = crate::common::full_db().await;
     let router = router(db.clone());
-    let client = demo_client(&router).await;
+    let client = demo_client(&router, &db).await;
 
     let total = post_count(&db).await;
     assert!(

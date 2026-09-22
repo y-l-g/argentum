@@ -1,25 +1,22 @@
 use http::header::COOKIE;
 use showcase::{
     app::router_for_tests as router,
-    models::{
-        Author, Comment, DEMO_ADMIN_EMAIL, DEMO_ADMIN_PASSWORD, DEMO_TENANT, Post,
-        TENANTLESS_ADMIN_EMAIL,
-    },
+    models::{Author, Comment, DEMO_ADMIN_PASSWORD, DEMO_TENANT, Post, TENANTLESS_ADMIN_EMAIL},
 };
 use topcoat::router::Body;
 
 use crate::common::{
-    SESSION_COOKIE, body_string, demo_client, form_body, full_db, input_value, login, login_next,
-    session_cookie_value, tenanted_db,
+    SESSION_COOKIE, body_string, demo_client, form_body, full_db, input_value, mint_session,
+    tenanted_db, tenantless_client,
 };
 
 #[tokio::test]
 async fn logged_in_tenant_reaches_tenant_scoped_resources_without_headers() {
-    // GH #131: the demo admin's tenant flows from the login, so tenant-scoped
+    // GH #131: the demo admin's tenant flows from the session, so tenant-scoped
     // resources serve without any tenant header or request extension.
     let db = full_db().await;
-    let router = router(db);
-    let client = login(&router, DEMO_ADMIN_EMAIL, DEMO_ADMIN_PASSWORD).await;
+    let router = router(db.clone());
+    let client = demo_client(&router, &db).await;
 
     for path in ["/admin/authors", "/admin/posts"] {
         let response = client.get(path).await;
@@ -33,7 +30,7 @@ async fn logged_in_tenant_reaches_tenant_scoped_resources_without_headers() {
 async fn posts_list_is_scoped_by_tenant_via_resource_query() {
     let (db, t1, t2) = tenanted_db().await;
     let router = router(db.clone());
-    let client = demo_client(&router).await;
+    let client = demo_client(&router, &db).await;
 
     let resp_t1 = client.tenant(t1).get("/admin/posts").await;
     assert!(resp_t1.status().is_success());
@@ -60,7 +57,7 @@ async fn posts_list_is_scoped_by_tenant_via_resource_query() {
 async fn edit_with_wrong_tenant_yields_404_via_resource_query() {
     let (db, t1, t2) = tenanted_db().await;
     let router = router(db.clone());
-    let client = demo_client(&router).await;
+    let client = demo_client(&router, &db).await;
     // Find T1 post id
     let mut db2 = db.clone();
     let t1_post = Post::filter(Post::fields().tenant_id().eq(t1))
@@ -83,8 +80,8 @@ async fn edit_with_wrong_tenant_yields_404_via_resource_query() {
 #[tokio::test]
 async fn per_tenant_policy_deny_yields_403() {
     let (db, _, _) = tenanted_db().await;
-    let router = router(db);
-    let client = demo_client(&router).await;
+    let router = router(db.clone());
+    let client = demo_client(&router, &db).await;
     let blocked = showcase::models::BLOCKED_TENANT;
     let resp = client.tenant(blocked).get("/admin/posts").await;
     assert_eq!(
@@ -136,7 +133,7 @@ async fn tenantless_requests_to_gated_resources_fail_closed() {
     // minting nil orphans.
     let db = full_db().await;
     let router = router(db.clone());
-    let client = login(&router, TENANTLESS_ADMIN_EMAIL, DEMO_ADMIN_PASSWORD).await;
+    let client = tenantless_client(&router, &db).await;
 
     // List without a tenant → 403 (not unscoped rows).
     let resp = client.get("/admin/posts").await;
@@ -202,8 +199,10 @@ async fn tenantless_requests_to_the_comments_queue_fail_closed() {
     )
     .await
     .expect("seed tenantless admin");
-    let router = router(db);
-    let client = login(&router, TENANTLESS_ADMIN_EMAIL, DEMO_ADMIN_PASSWORD).await;
+    let router = router(db.clone());
+    // GH #218: mint the session rather than performing a login — this test is
+    // about the tenant gate, not the login flow.
+    let client = tenantless_client(&router, &db).await;
 
     let resp = client.get("/admin/comments").await;
     let status = resp.status();
@@ -227,7 +226,7 @@ async fn create_assigns_the_logged_in_tenant() {
     // never nil.
     let db = full_db().await;
     let router = router(db.clone());
-    let client = demo_client(&router).await;
+    let client = demo_client(&router, &db).await;
     let tenant = DEMO_TENANT;
     let csrf = uuid::Uuid::new_v4().to_string();
     let mut db_q = db.clone();
@@ -265,10 +264,10 @@ async fn x_tenant_id_header_no_longer_grants_a_tenant() {
     // GH #131: learning another tenant's UUID must not make the caller that
     // tenant through the old harness header.
     let db = full_db().await;
-    let router = router(db);
-    let (_, login_response) =
-        login_next(&router, TENANTLESS_ADMIN_EMAIL, DEMO_ADMIN_PASSWORD, "").await;
-    let session = session_cookie_value(&login_response).expect("session cookie");
+    let router = router(db.clone());
+    // Minted, not logged in (GH #218): this replays a raw session cookie, and
+    // the login flow is not its subject.
+    let session = mint_session(&db, TENANTLESS_ADMIN_EMAIL).await;
     let response = router
         .handle(
             http::Request::builder()
@@ -293,7 +292,7 @@ async fn bulk_delete_wrong_tenant_404s_and_deletes_nothing() {
     // cross-tenant batch comes back short and 404s.
     let (db, t1, t2) = tenanted_db().await;
     let router = router(db.clone());
-    let client = demo_client(&router).await;
+    let client = demo_client(&router, &db).await;
     let mut db_q = db.clone();
     let t1_post = Post::filter(Post::fields().tenant_id().eq(t1))
         .first()
@@ -301,6 +300,11 @@ async fn bulk_delete_wrong_tenant_404s_and_deletes_nothing() {
         .await
         .unwrap()
         .expect("t1 post");
+    let before = Post::filter(Post::fields().tenant_id().eq(t1))
+        .exec(&mut db_q)
+        .await
+        .unwrap()
+        .len();
     let csrf = uuid::Uuid::new_v4().to_string();
     let resp = client
         .tenant(t2)
@@ -316,11 +320,15 @@ async fn bulk_delete_wrong_tenant_404s_and_deletes_nothing() {
         "cross-tenant bulk delete must 404, got {}",
         resp.status()
     );
-    let remaining = Post::filter(Post::fields().tenant_id().eq(t1))
-        .exec(&mut db_q)
-        .await
-        .unwrap();
-    assert_eq!(remaining.len(), 1, "cross-tenant batch deletes nothing");
+    assert_eq!(
+        Post::filter(Post::fields().tenant_id().eq(t1))
+            .exec(&mut db_q)
+            .await
+            .unwrap()
+            .len(),
+        before,
+        "cross-tenant batch deletes nothing"
+    );
 }
 
 #[tokio::test]
@@ -329,7 +337,7 @@ async fn comments_list_is_scoped_through_parent_post() {
     // inherits visibility from the parent post via `CommentResource::query`.
     let (db, t1, t2) = tenanted_db().await;
     let router = router(db.clone());
-    let client = demo_client(&router).await;
+    let client = demo_client(&router, &db).await;
 
     let resp = client.tenant(t1).get("/admin/comments").await;
     assert!(resp.status().is_success());
@@ -362,7 +370,7 @@ async fn comments_search_is_scoped_through_parent_post() {
     // match must not surface the other tenant's comment.
     let (db, t1, _) = tenanted_db().await;
     let router = router(db.clone());
-    let client = demo_client(&router).await;
+    let client = demo_client(&router, &db).await;
 
     let resp = client.tenant(t1).get("/admin/comments?q=T2+comment").await;
     assert!(resp.status().is_success());
@@ -393,7 +401,7 @@ async fn comments_export_is_scoped_through_parent_post() {
     // its own posts.
     let (db, t1, t2) = tenanted_db().await;
     let router = router(db.clone());
-    let client = demo_client(&router).await;
+    let client = demo_client(&router, &db).await;
 
     let resp = client.tenant(t1).get("/admin/comments/export").await;
     assert!(resp.status().is_success());
@@ -420,7 +428,7 @@ async fn comments_edit_with_wrong_tenant_yields_404_via_resource_query() {
     // cross-tenant comment id is not found.
     let (db, _, t2) = tenanted_db().await;
     let router = router(db.clone());
-    let client = demo_client(&router).await;
+    let client = demo_client(&router, &db).await;
     let mut db_q = db.clone();
     let t1_comment = Comment::filter(Comment::fields().body().eq("T1 comment".to_string()))
         .first()
@@ -479,7 +487,7 @@ async fn export_is_scoped_by_tenant() {
     // own, so this passes on the framework's derived one.
     let (db, t1, t2) = tenanted_db().await;
     let router = router(db.clone());
-    let client = demo_client(&router).await;
+    let client = demo_client(&router, &db).await;
     let resp = client.tenant(t1).get("/admin/posts/export").await;
     assert!(resp.status().is_success());
     let csv = body_string(resp).await;
@@ -509,7 +517,7 @@ async fn export_is_scoped_by_tenant() {
 async fn two_tenants_may_share_an_author_email() {
     let (db, t1, t2) = tenanted_db().await;
     let router = router(db.clone());
-    let client = demo_client(&router).await;
+    let client = demo_client(&router, &db).await;
 
     // A1 already owns this email in t1.
     let mut db_q = db.clone();
@@ -552,7 +560,7 @@ async fn two_tenants_may_share_an_author_email() {
 async fn duplicate_email_within_one_tenant_is_reported_inline() {
     let (db, t1, _t2) = tenanted_db().await;
     let router = router(db.clone());
-    let client = demo_client(&router).await;
+    let client = demo_client(&router, &db).await;
 
     let mut db_q = db.clone();
     let taken = Author::all().exec(&mut db_q).await.unwrap();

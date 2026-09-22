@@ -11,8 +11,8 @@ use crate::common::{
 #[tokio::test]
 async fn comments_list_shows_body_and_post_title() {
     let db = full_db().await;
-    let router = router(db);
-    let client = demo_client(&router).await;
+    let router = router(db.clone());
+    let client = demo_client(&router, &db).await;
     let resp = client.get("/admin/comments").await;
     assert!(resp.status().is_success());
     let html = body_string(resp).await;
@@ -38,8 +38,8 @@ async fn comments_list_offers_row_and_bulk_delete() {
     // control and the bulk bar render, and `can_delete`, `delete_record` and
     // `bulk_delete_records` stop being unreachable.
     let db = full_db().await;
-    let router = router(db);
-    let client = demo_client(&router).await;
+    let router = router(db.clone());
+    let client = demo_client(&router, &db).await;
     let resp = client.get("/admin/comments").await;
     let html = body_string(resp).await;
     assert!(
@@ -63,7 +63,7 @@ async fn comments_row_delete_removes_the_comment() {
     // The chrome above is only worth anything if the write behind it lands.
     let db = full_db().await;
     let router = router(db.clone());
-    let client = demo_client(&router).await;
+    let client = demo_client(&router, &db).await;
     let before = Comment::all().exec(&mut db.clone()).await.unwrap().len();
     assert!(before > 0, "the fixture must seed comments");
 
@@ -95,8 +95,8 @@ async fn comments_row_delete_removes_the_comment() {
 #[tokio::test]
 async fn comments_create_form_shows_post_select() {
     let db = full_db().await;
-    let router = router(db);
-    let client = demo_client(&router).await;
+    let router = router(db.clone());
+    let client = demo_client(&router, &db).await;
     let resp = client.get("/admin/comments/create").await;
     assert!(resp.status().is_success());
     let html = body_string(resp).await;
@@ -112,7 +112,7 @@ async fn comments_create_form_shows_post_select() {
 async fn comments_create_valid_redirects_and_creates() {
     let db = full_db().await;
     let router = router(db.clone());
-    let client = demo_client(&router).await;
+    let client = demo_client(&router, &db).await;
 
     let page = client.get("/admin/comments/create").await;
     let html = body_string(page).await;

@@ -1,6 +1,6 @@
 use showcase::app::router_for_tests as router;
 
-use crate::common::{body_string, demo_client, full_db};
+use crate::common::{body_string, demo_client, find_href_with, full_db};
 
 #[tokio::test]
 async fn posts_filter_widgets_render_typed_controls() {
@@ -9,8 +9,8 @@ async fn posts_filter_widgets_render_typed_controls() {
     // state, noscript fallback); this pins the HTTP wiring — the widgets
     // arrive with the active value in the hidden transport.
     let db = full_db().await;
-    let router = router(db);
-    let client = demo_client(&router).await;
+    let router = router(db.clone());
+    let client = demo_client(&router, &db).await;
     let resp = client.get("/admin/posts?filters=status:published").await;
     assert!(resp.status().is_success());
     let html = body_string(resp).await;
@@ -41,8 +41,8 @@ async fn posts_filter_widgets_render_typed_controls() {
 #[tokio::test]
 async fn posts_filter_select_status_published() {
     let db = full_db().await;
-    let router = router(db);
-    let client = demo_client(&router).await;
+    let router = router(db.clone());
+    let client = demo_client(&router, &db).await;
     // filter status:published should show only Hello Toasty (published)
     let resp = client.get("/admin/posts?filters=status:published").await;
     assert!(resp.status().is_success());
@@ -62,8 +62,8 @@ async fn posts_filter_select_status_published() {
 #[tokio::test]
 async fn posts_filter_ternary_featured_true() {
     let db = full_db().await;
-    let router = router(db);
-    let client = demo_client(&router).await;
+    let router = router(db.clone());
+    let client = demo_client(&router, &db).await;
     // featured:true should show only Hello Toasty (featured true)
     let resp = client.get("/admin/posts?filters=featured:true").await;
     assert!(resp.status().is_success());
@@ -83,8 +83,8 @@ async fn posts_filter_ternary_featured_true() {
 #[tokio::test]
 async fn posts_filter_ternary_featured_false() {
     let db = full_db().await;
-    let router = router(db);
-    let client = demo_client(&router).await;
+    let router = router(db.clone());
+    let client = demo_client(&router, &db).await;
     // Search rather than read the default page: the seed carries a pagination
     // fixture (GH #184), so with 60-odd non-featured posts the title-ordered
     // first page no longer reaches "Second Post". The search narrows to the
@@ -109,8 +109,8 @@ async fn posts_filter_ternary_featured_false() {
 #[tokio::test]
 async fn posts_filter_date_created_at() {
     let db = full_db().await;
-    let router = router(db);
-    let client = demo_client(&router).await;
+    let router = router(db.clone());
+    let client = demo_client(&router, &db).await;
     // filter by exact timestamp of Hello Toasty
     let resp = client
         .get("/admin/posts?filters=created_at:2024-01-15T09:30:00Z")
@@ -132,8 +132,8 @@ async fn posts_filter_date_created_at() {
 #[tokio::test]
 async fn posts_filter_composes_and() {
     let db = full_db().await;
-    let router = router(db);
-    let client = demo_client(&router).await;
+    let router = router(db.clone());
+    let client = demo_client(&router, &db).await;
     // status:published and featured:true should still show Hello Toasty (both true)
     let resp = client
         .get("/admin/posts?filters=status:published,featured:true")
@@ -167,8 +167,8 @@ async fn typo_filter_warns_on_list_but_refuses_export() {
     // GH #93: unknown/typo'd filters warn visibly on the list (200) and fail
     // closed on export (400) instead of silently over-sharing.
     let db = full_db().await;
-    let router = router(db);
-    let client = demo_client(&router).await;
+    let router = router(db.clone());
+    let client = demo_client(&router, &db).await;
 
     let resp = client.get("/admin/posts?filters=stauts:published").await;
     assert!(resp.status().is_success(), "typo filter keeps 200");
@@ -227,8 +227,8 @@ async fn typo_filter_warns_on_list_but_refuses_export() {
 async fn posts_list_renders_live_search_host() {
     // GH #104: posts table opts into the live shard (tenant header required).
     let db = full_db().await;
-    let router = router(db);
-    let client = demo_client(&router).await;
+    let router = router(db.clone());
+    let client = demo_client(&router, &db).await;
     let resp = client.get("/admin/posts").await;
     assert!(resp.status().is_success());
     let html = body_string(resp).await;
@@ -247,7 +247,7 @@ async fn posts_filter_with_cursor_paginates_filtered_rows() {
 
     let db = full_db().await;
     let router = router(db.clone());
-    let client = demo_client(&router).await;
+    let client = demo_client(&router, &db).await;
     // The posts table paginates by 25: seed 25 more published rows so the
     // `status:published` result spans two pages (Hello + 25 new).
     let mut db_q = db.clone();
@@ -299,6 +299,12 @@ async fn posts_filter_with_cursor_paginates_filtered_rows() {
         next.contains("filters="),
         "the pager must preserve filters, got {next}"
     );
+    // GH #217: this href is fed straight back as a request URI, so it must be
+    // the decoded URL a browser would send.
+    assert!(
+        !next.contains("&amp;"),
+        "the Next link must be followed decoded, got {next}"
+    );
     let resp = client.get(&next).await;
     assert!(resp.status().is_success());
     let page2 = body_string(resp).await;
@@ -311,6 +317,10 @@ async fn posts_filter_with_cursor_paginates_filtered_rows() {
         prev.contains("filters="),
         "the Previous link must preserve filters, got {prev}"
     );
+    assert!(
+        !prev.contains("&amp;"),
+        "the Previous link must be followed decoded, got {prev}"
+    );
     let resp = client.get(&prev).await;
     assert!(resp.status().is_success());
     let back = body_string(resp).await;
@@ -320,32 +330,13 @@ async fn posts_filter_with_cursor_paginates_filtered_rows() {
     );
 }
 
-/// Extracts the first `href="…"` containing `needle`.
-fn find_href_with(html: &str, needle: &str) -> Option<String> {
-    let mut rest = html;
-    loop {
-        let start = rest.find("href=\"")?;
-        rest = &rest[start + "href=\"".len()..];
-        let end = rest.find('"')?;
-        let href = &rest[..end];
-        if href.contains(needle) {
-            return Some(unescape_href_entities(href));
-        }
-        rest = &rest[end..];
-    }
-}
-
-fn unescape_href_entities(href: &str) -> String {
-    href.replace("&amp;", "&")
-}
-
 #[tokio::test]
 async fn posts_filter_variant_spotlight_splits_featured() {
     // The fourth filter kind: prebuilt-expression VariantFilter over the
     // featured flag, no embedded enum required.
     let db = full_db().await;
-    let router = router(db);
-    let client = demo_client(&router).await;
+    let router = router(db.clone());
+    let client = demo_client(&router, &db).await;
 
     // Both halves narrow by search so the row under test is on the page
     // regardless of where the pagination fixture (GH #184) puts it.

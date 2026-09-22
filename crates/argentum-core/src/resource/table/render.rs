@@ -1795,29 +1795,28 @@ mod tests {
             .await
             .unwrap()
             .render(&cx);
-        // Beautiful chrome: rounded-xl border border-border, table primitives, Token classes
-        assert!(
-            html.contains("rounded-xl") && html.contains("border-border"),
-            "missing table container chrome in {html}"
-        );
-        assert!(
-            html.contains("border-border") && html.contains("text-muted-foreground"),
-            "missing Token classes in {html}"
-        );
+        // GH #216: no Tailwind-class assertions. The chrome literals
+        // (`rounded-xl`, `border-border`, `text-muted-foreground`,
+        // `cursor-pointer`) are the showcase's business (#136), and pinning
+        // them here meant every restyle broke a core test.
+        //
         // Searchable columns render no extra header chrome (GH #154): the
-        // search input is the affordance. Sortable ones carry the inactive
-        // `arrow-up-down` with `aria-sort="none"`.
+        // search input is the affordance, so the header cell holds its label
+        // and nothing interactive. The sortable sibling next door *does* carry
+        // an `<a>` and an icon, so this can fail.
+        let title_at = html.find("Title").expect("the Title header");
+        let title_th = html[..title_at].rfind("<th").expect("its <th>");
+        let title_th_end = html[title_th..].find("</th>").expect("its </th>") + title_th;
+        let title_head = &html[title_th..title_th_end];
         assert!(
-            !html.contains("Prefix search matches this column"),
-            "searchable headers must not render a loupe, got {html}"
+            !title_head.contains("<svg") && !title_head.contains("<a "),
+            "a searchable header must render no sort or loupe chrome, got {title_head}"
         );
+        // Sortable ones carry the inactive `arrow-up-down` with
+        // `aria-sort="none"`.
         assert!(
             html.contains("aria-sort=\"none\""),
             "missing sortable indicator in {html}"
-        );
-        assert!(
-            html.contains("cursor-pointer"),
-            "missing sortable cursor-pointer in {html}"
         );
         assert!(html.contains("Title"), "missing Title header in {html}");
         assert!(html.contains("Status"), "missing Status header in {html}");
@@ -1972,6 +1971,27 @@ mod tests {
         assert!(
             !dialog_tag.contains("open=\""),
             "the bulk confirm dialog must render closed, got {dialog_tag}"
+        );
+        // The dialog is the decision, not decoration (GH #184): it asks, and
+        // it offers a way out that is not deleting. Absorbed from the showcase
+        // duplicate (GH #217) so the one test that owns bulk chrome owns all
+        // of it.
+        assert!(
+            html.contains("Delete the selected records?"),
+            "the dialog must ask before it deletes, got {html}"
+        );
+        assert!(
+            html.contains("data-dialog-close"),
+            "the dialog needs a way out that is not deleting, got {html}"
+        );
+        // The confirm control rides inside the bulk form, so the confirmed
+        // submit ships it with the same payload as the selection: `bulk.js`
+        // closes over `trigger.closest('form[data-bulk-form]')`, so a dialog
+        // outside the form would be decoration a crafted request skips.
+        let form_at = html.find("data-bulk-form").expect("the bulk form");
+        assert!(
+            form_at < dialog_at,
+            "the dialog must live inside the bulk form, got {html}"
         );
         assert!(
             html.contains("Bulk Delete"),

@@ -1,17 +1,16 @@
 use http::header::LOCATION;
 use showcase::{app::router_for_tests as router, models::User};
-use toasty::Db;
 
 use crate::common::{
-    TestClient, assert_hydrate_keys_are_form_fields, body_string, demo_client, response_cookies,
-    seeded_db, set_cookie_header,
+    assert_hydrate_keys_are_form_fields, body_string, demo_client, response_cookies, seeded_db,
+    set_cookie_header,
 };
 
 #[tokio::test]
 async fn edit_page_hydrates_and_updates() {
     let db = seeded_db().await;
     let router = router(db.clone());
-    let client = demo_client(&router).await;
+    let client = demo_client(&router, &db).await;
 
     // Get a user id
     let mut db_q = db.clone();
@@ -118,7 +117,7 @@ async fn edit_404_for_unknown_or_wrong_tenant() {
     // (`edit_with_wrong_tenant_yields_404_via_resource_query`).
     let db = seeded_db().await;
     let router = router(db.clone());
-    let client = demo_client(&router).await;
+    let client = demo_client(&router, &db).await;
     let fake_id = uuid::Uuid::new_v4().to_string();
     let resp = client.get(&format!("/admin/users/{}/edit", fake_id)).await;
     assert_eq!(
@@ -138,7 +137,7 @@ async fn edit_404_for_unknown_or_wrong_tenant() {
 async fn edit_rejects_forged_post_before_probing_the_record() {
     let db = seeded_db().await;
     let router = router(db.clone());
-    let client = demo_client(&router).await;
+    let client = demo_client(&router, &db).await;
     let fake_id = uuid::Uuid::new_v4().to_string();
     let csrf = uuid::Uuid::new_v4().to_string();
     let cookie_mismatch = uuid::Uuid::new_v4().to_string();
@@ -159,97 +158,6 @@ async fn edit_rejects_forged_post_before_probing_the_record() {
         );
     }
 }
-
-#[tokio::test]
-async fn edit_policy_deny() {
-    use argentum_core::{Resource, Schema, Table, TextColumn, TextInput};
-
-    #[derive(Debug, toasty::Model, Clone)]
-    struct DummyUser {
-        #[key]
-        #[auto]
-        id: uuid::Uuid,
-        name: String,
-        email: String,
-    }
-
-    struct DenyUpdateResource;
-    impl Resource for DenyUpdateResource {
-        type Model = DummyUser;
-        fn can_view_any(_cx: &topcoat::context::Cx) -> bool {
-            true
-        }
-        fn can_view(_cx: &topcoat::context::Cx, _r: &DummyUser) -> bool {
-            true
-        }
-        fn can_update(_cx: &topcoat::context::Cx, _r: &DummyUser) -> bool {
-            false
-        }
-        fn table(cx: &topcoat::context::Cx) -> Table<DummyUser> {
-            Table::r#for(cx)
-                .id(|u: &DummyUser| u.id.to_string())
-                .columns(TextColumn::r#for(
-                    DummyUser::fields().name(),
-                    |u: &DummyUser| u.name.clone(),
-                ))
-        }
-        fn form(_cx: &topcoat::context::Cx) -> Schema {
-            Schema::new(TextInput::r#for(DummyUser::fields().name()).required())
-        }
-        fn hydrate_form_values(
-            _cx: &topcoat::context::Cx,
-            _r: &DummyUser,
-        ) -> std::collections::HashMap<String, String> {
-            std::collections::HashMap::new()
-        }
-    }
-
-    let mut db = Db::builder()
-        .models(toasty::models!(DummyUser))
-        .connect("sqlite::memory:")
-        .await
-        .unwrap();
-    db.push_schema().await.unwrap();
-    let rec = toasty::create!(DummyUser {
-        name: "x".to_string(),
-        email: "x@example.com".to_string()
-    })
-    .exec(&mut db)
-    .await
-    .unwrap();
-    let router = argentum_core::Panel::new("admin")
-        .app_context(db.clone())
-        .auth(argentum_core::Auth::disabled())
-        .resource::<DenyUpdateResource>()
-        .build()
-        .expect("panel builds");
-    let client = TestClient::new(&router);
-    let slug = DenyUpdateResource::slug();
-    let edit_url = format!("/admin/{}/{}/edit", slug, rec.id);
-
-    // GET should be 403
-    let resp = client.get(&edit_url).await;
-    assert_eq!(
-        resp.status(),
-        403,
-        "GET edit should be 403 when update denied, got {}",
-        resp.status()
-    );
-
-    // POST should also be 403
-    let csrf = uuid::Uuid::new_v4().to_string();
-    let resp = client
-        .csrf(&csrf)
-        .post_form(&edit_url, format!("name=y&csrf_token={csrf}"))
-        .await;
-    assert_eq!(
-        resp.status(),
-        403,
-        "POST edit should be 403 when update denied, got {}",
-        resp.status()
-    );
-}
-
 #[tokio::test]
 async fn update_record_keeps_absent_fields() {
     use argentum_core::Resource;
@@ -302,7 +210,7 @@ async fn edit_sso_managed_user_is_forbidden() {
     // Row-level Policy on the update path: Ken's page and POST both deny.
     let db = seeded_db().await;
     let router = router(db.clone());
-    let client = demo_client(&router).await;
+    let client = demo_client(&router, &db).await;
     let mut db_q = db.clone();
     let ken = showcase::models::User::filter(
         showcase::models::User::fields()
@@ -357,7 +265,7 @@ async fn post_body_renders_as_a_textarea() {
 
     let db = crate::common::full_db().await;
     let router = router(db.clone());
-    let client = demo_client(&router).await;
+    let client = demo_client(&router, &db).await;
 
     let mut db_q = db.clone();
     let post = Post::all()
@@ -405,7 +313,7 @@ async fn post_edit_binds_and_saves_embedded_fields() {
 
     let db = crate::common::full_db().await;
     let router = router(db.clone());
-    let client = demo_client(&router).await;
+    let client = demo_client(&router, &db).await;
 
     let mut db_q = db.clone();
     let post = Post::filter(Post::fields().title().eq("Hello Toasty".to_string()))
@@ -493,7 +401,7 @@ async fn post_edit_switches_the_publication_variant_explicitly() {
 
     let db = crate::common::full_db().await;
     let router = router(db.clone());
-    let client = demo_client(&router).await;
+    let client = demo_client(&router, &db).await;
 
     let mut db_q = db.clone();
     let post = Post::filter(Post::fields().title().eq("Hello Toasty".to_string()))
@@ -586,7 +494,7 @@ async fn post_create_keeps_the_variant_its_payload_names() {
 
     let db = crate::common::full_db().await;
     let router = router(db.clone());
-    let client = demo_client(&router).await;
+    let client = demo_client(&router, &db).await;
     let mut db_q = db.clone();
     let author = showcase::models::Author::all()
         .first()
@@ -653,7 +561,7 @@ async fn post_edit_round_trips_typed_leaves_and_refuses_a_bad_number() {
 
     let db = crate::common::full_db().await;
     let router = router(db.clone());
-    let client = demo_client(&router).await;
+    let client = demo_client(&router, &db).await;
     let mut db_q = db.clone();
     let post = Post::filter(Post::fields().title().eq("Hello Toasty".to_string()))
         .first()

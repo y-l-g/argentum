@@ -8,8 +8,8 @@ use crate::common::{body_string, demo_client, file_input_tag, full_db, post_coun
 #[tokio::test]
 async fn posts_create_shows_fileupload_and_repeater() {
     let db = full_db().await;
-    let router = router(db);
-    let client = demo_client(&router).await;
+    let router = router(db.clone());
+    let client = demo_client(&router, &db).await;
     let resp = client.get("/admin/posts/create").await;
     assert!(resp.status().is_success());
     let html = body_string(resp).await;
@@ -27,11 +27,6 @@ async fn posts_create_shows_fileupload_and_repeater() {
     assert!(
         html.contains("data-slot=\"field\""),
         "missing field wrapper {}",
-        html
-    );
-    assert!(
-        html.contains("border-border"),
-        "missing border-border {}",
         html
     );
     // Repeater should render nested schema with Tags label and inner Tag input
@@ -65,7 +60,7 @@ async fn posts_create_shows_fileupload_and_repeater() {
 async fn posts_create_invalid_fileupload_repeater_shows_errors() {
     let db = full_db().await;
     let router = router(db.clone());
-    let client = demo_client(&router).await;
+    let client = demo_client(&router, &db).await;
     let before = post_count(&db).await;
     let csrf = uuid::Uuid::new_v4().to_string();
     let mut db2 = db.clone();
@@ -106,7 +101,7 @@ async fn posts_create_invalid_fileupload_repeater_shows_errors() {
 async fn posts_create_valid_fileupload_repeater_creates() {
     let db = full_db().await;
     let router = router(db.clone());
-    let client = demo_client(&router).await;
+    let client = demo_client(&router, &db).await;
     let csrf = uuid::Uuid::new_v4().to_string();
     let mut db2 = db.clone();
     let authors = Author::all().exec(&mut db2).await.unwrap();
@@ -147,7 +142,7 @@ async fn posts_create_valid_fileupload_repeater_creates() {
 async fn posts_create_with_empty_optional_tags_group_submits() {
     let db = full_db().await;
     let router = router(db.clone());
-    let client = demo_client(&router).await;
+    let client = demo_client(&router, &db).await;
     let csrf = uuid::Uuid::new_v4().to_string();
     let mut db2 = db.clone();
     let authors = Author::all().exec(&mut db2).await.unwrap();
@@ -187,8 +182,8 @@ async fn posts_create_with_empty_optional_tags_group_submits() {
 #[tokio::test]
 async fn posts_create_form_is_multipart() {
     let db = full_db().await;
-    let router = router(db);
-    let client = demo_client(&router).await;
+    let router = router(db.clone());
+    let client = demo_client(&router, &db).await;
     let resp = client.get("/admin/posts/create").await;
     assert!(resp.status().is_success());
     let html = body_string(resp).await;
@@ -207,8 +202,8 @@ async fn posts_create_form_is_multipart() {
 #[tokio::test]
 async fn users_create_form_stays_urlencoded() {
     let db = full_db().await;
-    let router = router(db);
-    let client = demo_client(&router).await;
+    let router = router(db.clone());
+    let client = demo_client(&router, &db).await;
     let resp = client.get("/admin/users/create").await;
     assert!(resp.status().is_success());
     let html = body_string(resp).await;
@@ -223,7 +218,7 @@ async fn users_create_form_stays_urlencoded() {
 async fn posts_create_multipart_file_stores_filename() {
     let db = full_db().await;
     let router = router(db.clone());
-    let client = demo_client(&router).await;
+    let client = demo_client(&router, &db).await;
     let csrf = uuid::Uuid::new_v4().to_string();
     let mut db2 = db.clone();
     let authors = Author::all().exec(&mut db2).await.unwrap();
@@ -269,7 +264,7 @@ async fn posts_edit_untouched_file_keeps_stored_path() {
     // means "keep" — it must not blank the stored path or trip required.
     let db = full_db().await;
     let router = router(db.clone());
-    let client = demo_client(&router).await;
+    let client = demo_client(&router, &db).await;
     let mut db_q = db.clone();
     let post = Post::filter(
         showcase::models::Post::fields()
@@ -322,7 +317,7 @@ async fn posts_edit_explicit_clear_flag_skips_preservation() {
     // keep), with the stored path untouched.
     let db = full_db().await;
     let router = router(db.clone());
-    let client = demo_client(&router).await;
+    let client = demo_client(&router, &db).await;
     let mut db_q = db.clone();
     let post = Post::filter(
         showcase::models::Post::fields()
@@ -373,7 +368,7 @@ async fn multipart_body_limit_matches_urlencoded_cap() {
     // urlencoded (Topcoat's 2 MiB default would 413 uploads we accept).
     let db = full_db().await;
     let router = router(db.clone());
-    let client = demo_client(&router).await;
+    let client = demo_client(&router, &db).await;
     let mut db_q = db.clone();
     let authors = Author::all().exec(&mut db_q).await.unwrap();
     let csrf = uuid::Uuid::new_v4().to_string();
@@ -420,8 +415,8 @@ async fn multipart_body_limit_matches_urlencoded_cap() {
 async fn posts_author_select_is_searchable() {
     // GH #91: the relationship select carries the client-side filter hook.
     let db = full_db().await;
-    let router = router(db);
-    let client = demo_client(&router).await;
+    let router = router(db.clone());
+    let client = demo_client(&router, &db).await;
     let resp = client.get("/admin/posts/create").await;
     assert!(resp.status().is_success());
     let html = body_string(resp).await;
@@ -441,7 +436,7 @@ async fn posts_author_select_is_searchable() {
 async fn posts_edit_without_reupload_keeps_the_stored_image() {
     let db = full_db().await;
     let router = router(db.clone());
-    let client = demo_client(&router).await;
+    let client = demo_client(&router, &db).await;
 
     let mut db2 = db.clone();
     let post = Post::filter(Post::fields().title().eq("Hello Toasty".to_string()))

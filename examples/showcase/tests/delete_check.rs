@@ -4,15 +4,17 @@ use toasty::Db;
 
 use crate::common::{
     TestClient, body_string, demo_client, response_cookies, seeded_db, set_cookie_header,
+    user_count,
 };
 
 #[tokio::test]
 async fn delete_requires_confirmation_and_deletes() {
     let db = seeded_db().await;
     let router = router(db.clone());
-    let client = demo_client(&router).await;
+    let client = demo_client(&router, &db).await;
     let mut db_q = db.clone();
     let users = User::all().exec(&mut db_q).await.unwrap();
+    let before = users.len();
     let user = users.first().unwrap();
     let id = user.id.to_string();
     let delete_url = format!("/admin/users/{}/delete", id);
@@ -122,10 +124,14 @@ async fn delete_requires_confirmation_and_deletes() {
         "the flash carries the action, got {flash}"
     );
 
-    // Check DB: user should be gone
+    // Check DB: user should be gone, and only that one.
+    assert_eq!(
+        user_count(&db).await,
+        before - 1,
+        "deleting one of {before} must leave {}",
+        before - 1
+    );
     let mut db_check = db.clone();
-    let count = User::all().exec(&mut db_check).await.unwrap().len();
-    assert_eq!(count, 7, "should have 7 after delete, got {}", count);
     let gone = User::filter(User::fields().id().eq(user.id))
         .first()
         .exec(&mut db_check)
@@ -151,7 +157,7 @@ async fn delete_404_for_missing_or_wrong_tenant() {
     // below for the batch paths).
     let db = seeded_db().await;
     let router = router(db.clone());
-    let client = demo_client(&router).await;
+    let client = demo_client(&router, &db).await;
     let fake_id = uuid::Uuid::new_v4().to_string();
     let csrf = uuid::Uuid::new_v4().to_string();
     let resp = client
@@ -291,89 +297,13 @@ async fn forged_delete_runs_no_record_query() {
         );
     }
 }
-
-#[tokio::test]
-async fn delete_policy_deny() {
-    use argentum_core::{Resource, Schema, Table, TextColumn, TextInput};
-
-    #[derive(Debug, toasty::Model, Clone)]
-    struct DummyUser {
-        #[key]
-        #[auto]
-        id: uuid::Uuid,
-        name: String,
-    }
-
-    struct DenyDeleteResource;
-    impl Resource for DenyDeleteResource {
-        type Model = DummyUser;
-        fn can_view_any(_cx: &topcoat::context::Cx) -> bool {
-            true
-        }
-        fn can_view(_cx: &topcoat::context::Cx, _r: &DummyUser) -> bool {
-            true
-        }
-        fn can_delete(_cx: &topcoat::context::Cx, _r: &DummyUser) -> bool {
-            false
-        }
-        fn table(cx: &topcoat::context::Cx) -> Table<DummyUser> {
-            Table::r#for(cx)
-                .id(|u: &DummyUser| u.id.to_string())
-                .columns(TextColumn::r#for(
-                    DummyUser::fields().name(),
-                    |u: &DummyUser| u.name.clone(),
-                ))
-        }
-        fn form(_cx: &topcoat::context::Cx) -> Schema {
-            Schema::new(TextInput::r#for(DummyUser::fields().name()))
-        }
-    }
-
-    let mut db = Db::builder()
-        .models(toasty::models!(DummyUser))
-        .connect("sqlite::memory:")
-        .await
-        .unwrap();
-    db.push_schema().await.unwrap();
-    let rec = toasty::create!(DummyUser {
-        name: "x".to_string()
-    })
-    .exec(&mut db)
-    .await
-    .unwrap();
-    let router = argentum_core::Panel::new("admin")
-        .app_context(db.clone())
-        .auth(argentum_core::Auth::disabled())
-        .resource::<DenyDeleteResource>()
-        .build()
-        .expect("panel builds");
-    let client = TestClient::new(&router);
-    let slug = DenyDeleteResource::slug();
-    let delete_url = format!("/admin/{}/{}/delete", slug, rec.id);
-    let csrf = uuid::Uuid::new_v4().to_string();
-    let resp = client
-        .csrf(&csrf)
-        .post_form(&delete_url, format!("confirm=1&csrf_token={csrf}"))
-        .await;
-    assert_eq!(
-        resp.status(),
-        403,
-        "delete should be 403 when denied, got {}",
-        resp.status()
-    );
-    // Check not deleted
-    let mut db_check = db.clone();
-    let count = DummyUser::all().exec(&mut db_check).await.unwrap().len();
-    assert_eq!(count, 1, "should not delete when denied");
-}
-
 #[tokio::test]
 async fn delete_sso_managed_user_is_forbidden() {
     // Row-level Policy over HTTP: Ken's SSO-managed account cannot be
     // deleted from the panel, while every other row still can.
     let db = seeded_db().await;
     let router = router(db.clone());
-    let client = demo_client(&router).await;
+    let client = demo_client(&router, &db).await;
     let mut db_q = db.clone();
     let ken = User::filter(User::fields().name().eq("Ken Thompson".to_string()))
         .first()
@@ -381,6 +311,7 @@ async fn delete_sso_managed_user_is_forbidden() {
         .await
         .unwrap()
         .expect("Ken seed");
+    let before = user_count(&db).await;
     let csrf = uuid::Uuid::new_v4().to_string();
     let resp = client
         .csrf(&csrf)
@@ -395,6 +326,9 @@ async fn delete_sso_managed_user_is_forbidden() {
         "protected row delete must be forbidden, got {}",
         resp.status()
     );
-    let remaining = User::all().exec(&mut db_q).await.unwrap();
-    assert_eq!(remaining.len(), 8, "forbidden delete must remove nothing");
+    assert_eq!(
+        user_count(&db).await,
+        before,
+        "forbidden delete must remove nothing"
+    );
 }

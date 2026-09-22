@@ -4,17 +4,22 @@ use toasty::Db;
 
 use crate::common::{
     TestClient, body_string, demo_client, response_cookies, seeded_db, set_cookie_header,
+    user_count,
 };
 
 #[tokio::test]
 async fn bulk_delete_deletes_selected() {
     let db = seeded_db().await;
     let router = router(db.clone());
-    let client = demo_client(&router).await;
+    let client = demo_client(&router, &db).await;
     let csrf = uuid::Uuid::new_v4().to_string();
     let mut db_q = db.clone();
     let users = User::all().exec(&mut db_q).await.unwrap();
-    assert_eq!(users.len(), 8);
+    let before = user_count(&db).await;
+    assert!(
+        users.len() >= 2,
+        "the roster fixture must hold at least two rows to bulk-delete"
+    );
     let ids: Vec<String> = users.iter().take(2).map(|u| u.id.to_string()).collect();
     let ids_param = ids.join(",");
 
@@ -65,14 +70,13 @@ async fn bulk_delete_deletes_selected() {
         "the flash carries the action, got {flash}"
     );
 
-    // Check DB: should have 6 left after bulk-deleting 2 of 8
-    let mut db_check = db.clone();
-    let remaining = User::all().exec(&mut db_check).await.unwrap();
+    // Check DB: exactly the two selected rows are gone.
+    let remaining = user_count(&db).await;
     assert_eq!(
-        remaining.len(),
-        6,
-        "should have 6 after bulk delete 2, got {}",
-        remaining.len()
+        remaining,
+        before - 2,
+        "bulk-deleting 2 of {before} must leave {}",
+        before - 2
     );
     // Follow redirect carrying the flash cookie and check the toast
     let resp2 = client.cookies(&response_cookies(&resp)).get(loc).await;
@@ -91,8 +95,9 @@ async fn bulk_delete_without_ids_redirects_with_the_reason() {
     // with an error toast, never the raw 400 page.
     let db = seeded_db().await;
     let router = router(db.clone());
-    let client = demo_client(&router).await;
+    let client = demo_client(&router, &db).await;
     let csrf = uuid::Uuid::new_v4().to_string();
+    let before = user_count(&db).await;
     let resp = client
         .csrf(&csrf)
         .post_form(
@@ -115,9 +120,11 @@ async fn bulk_delete_without_ids_redirects_with_the_reason() {
         "the flash must be the selection error, got {flash}"
     );
     // Nothing was deleted.
-    let mut db_check = db.clone();
-    let remaining = User::all().exec(&mut db_check).await.unwrap();
-    assert_eq!(remaining.len(), 8, "an empty bulk delete deletes nothing");
+    assert_eq!(
+        user_count(&db).await,
+        before,
+        "an empty bulk delete deletes nothing"
+    );
 }
 
 #[tokio::test]
@@ -126,10 +133,11 @@ async fn bulk_delete_short_fetch_404s_and_deletes_nothing() {
     // tenancy-scoped `IN` fetch and 404s — never half-applied.
     let db = seeded_db().await;
     let router = router(db.clone());
-    let client = demo_client(&router).await;
+    let client = demo_client(&router, &db).await;
     let csrf = uuid::Uuid::new_v4().to_string();
     let mut db_q = db.clone();
     let users = User::all().exec(&mut db_q).await.unwrap();
+    let before = users.len();
     let real = users.first().unwrap().id.to_string();
     let missing = uuid::Uuid::new_v4().to_string();
     let resp = client
@@ -145,13 +153,10 @@ async fn bulk_delete_short_fetch_404s_and_deletes_nothing() {
         "short-fetch bulk delete must 404, got {}",
         resp.status()
     );
-    let mut db_check = db.clone();
-    let remaining = User::all().exec(&mut db_check).await.unwrap();
     assert_eq!(
-        remaining.len(),
-        8,
-        "a short-fetch batch must delete nothing, got {}",
-        remaining.len()
+        user_count(&db).await,
+        before,
+        "a short-fetch batch must delete nothing"
     );
 }
 
@@ -163,26 +168,26 @@ async fn bulk_bar_renders_checkboxes_with_row_keys() {
     // checkbox-joined POST format.
     let db = seeded_db().await;
     let router = router(db.clone());
-    let client = demo_client(&router).await;
+    let client = demo_client(&router, &db).await;
     let csrf = uuid::Uuid::new_v4().to_string();
     let mut db_q = db.clone();
     let users = User::all().exec(&mut db_q).await.unwrap();
-    assert_eq!(users.len(), 8);
+    let roster = users.len();
     let ids: std::collections::HashSet<String> = users.iter().map(|u| u.id.to_string()).collect();
 
     // The list streams (skeleton first, rows in the swap payload); the
     // collected body contains both. The table paginates by 25, so the first
-    // page carries all 8 seeded row checkboxes.
+    // page carries every seeded row's checkbox.
     let resp = client.get("/admin/users").await;
     assert!(resp.status().is_success());
     let html = body_string(resp).await;
     assert_eq!(
         html.matches("data-row-select").count(),
-        8,
-        "first page should carry 8 row checkboxes in {}",
+        roster,
+        "first page should carry {roster} row checkboxes in {}",
         html
     );
-    // Every rendered checkbox value is a real row key (the three visible rows;
+    // Every rendered checkbox value is a real row key (the visible rows;
     // delete forms carry ids in actions, never in `value=`).
     let mut found = 0;
     for u in &users {
@@ -191,8 +196,8 @@ async fn bulk_bar_renders_checkboxes_with_row_keys() {
         }
     }
     assert_eq!(
-        found, 8,
-        "all visible row keys should be checkbox values in {}",
+        found, roster,
+        "all rendered row keys should be checkbox values in {}",
         html
     );
     // A filtered list shows only the matching row's checkbox.
@@ -319,62 +324,6 @@ async fn bulk_delete_partial_deny_aborts() {
         remaining.len()
     );
 }
-
-#[tokio::test]
-async fn view_any_deny_blocks_list() {
-    use argentum_core::{Resource, Schema, Table, TextColumn, TextInput};
-
-    #[derive(Debug, toasty::Model, Clone)]
-    struct DummyUser {
-        #[key]
-        #[auto]
-        id: uuid::Uuid,
-        name: String,
-    }
-
-    struct DenyViewAnyResource;
-    impl Resource for DenyViewAnyResource {
-        type Model = DummyUser;
-        fn can_view_any(_cx: &topcoat::context::Cx) -> bool {
-            false
-        }
-        fn table(cx: &topcoat::context::Cx) -> Table<DummyUser> {
-            Table::r#for(cx)
-                .id(|u: &DummyUser| u.id.to_string())
-                .pk(|u: &DummyUser| u.id.to_string())
-                .columns(TextColumn::r#for(
-                    DummyUser::fields().name(),
-                    |u: &DummyUser| u.name.clone(),
-                ))
-        }
-        fn form(_cx: &topcoat::context::Cx) -> Schema {
-            Schema::new(TextInput::r#for(DummyUser::fields().name()))
-        }
-    }
-
-    let db = Db::builder()
-        .models(toasty::models!(DummyUser))
-        .connect("sqlite::memory:")
-        .await
-        .unwrap();
-    db.push_schema().await.unwrap();
-    let router = argentum_core::Panel::new("admin")
-        .app_context(db.clone())
-        .auth(argentum_core::Auth::disabled())
-        .resource::<DenyViewAnyResource>()
-        .build()
-        .expect("panel builds");
-    let client = TestClient::new(&router);
-    let slug = DenyViewAnyResource::slug();
-    let resp = client.get(&format!("/admin/{}", slug)).await;
-    assert_eq!(
-        resp.status(),
-        403,
-        "viewAny deny should be 403, got {}",
-        resp.status()
-    );
-}
-
 /// GH #184: the batch asks before it acts, and the guarantee is the server's.
 /// A POST that does not carry the confirming control's marker is refused —
 /// otherwise the dialog would be decoration that a crafted request skips.
@@ -382,9 +331,10 @@ async fn view_any_deny_blocks_list() {
 async fn bulk_delete_without_confirmation_is_refused() {
     let db = seeded_db().await;
     let router = router(db.clone());
-    let client = demo_client(&router).await;
+    let client = demo_client(&router, &db).await;
     let mut db_q = db.clone();
     let users = User::all().exec(&mut db_q).await.unwrap();
+    let before = users.len();
     let id = users[0].id.to_string();
     let csrf = uuid::Uuid::new_v4().to_string();
 
@@ -402,51 +352,9 @@ async fn bulk_delete_without_confirmation_is_refused() {
         resp.status()
     );
 
-    let mut db_check = db.clone();
-    let remaining = User::all().exec(&mut db_check).await.unwrap();
-    assert_eq!(remaining.len(), 8, "a refused batch deletes nothing");
-}
-
-/// The dialog ships with the bulk bar (closed), carries the marker its confirm
-/// button submits, and opens client-side so that opening it is not a
-/// result-set change.
-#[tokio::test]
-async fn bulk_bar_ships_a_closed_confirmation_dialog() {
-    let db = seeded_db().await;
-    let router = router(db);
-    let client = demo_client(&router).await;
-    let html = body_string(client.get("/admin/users").await).await;
-
-    assert!(
-        html.contains("data-bulk-confirm-trigger"),
-        "missing the bulk confirm trigger: {html}"
-    );
-    assert!(
-        html.contains("data-bulk-confirm-dialog"),
-        "missing the bulk confirm dialog: {html}"
-    );
-    assert!(
-        html.contains("Delete the selected records?"),
-        "missing the dialog's question: {html}"
-    );
-    assert!(
-        html.contains("data-dialog-close"),
-        "the dialog needs a way out that is not deleting: {html}"
-    );
-    // The marker rides inside the bulk form, so the confirmed submit ships it
-    // with the same payload as the selection.
-    let dialog_at = html.find("data-bulk-confirm-dialog").unwrap();
-    let form_at = html.find("data-bulk-form").unwrap();
-    assert!(
-        form_at < dialog_at,
-        "the dialog must live inside the bulk form: {html}"
-    );
-    // Opened client-side, so it renders without `open`.
-    let tag_start = html[..dialog_at].rfind("<dialog").unwrap();
-    let tag_end = html[tag_start..].find('>').unwrap() + tag_start;
-    assert!(
-        !html[tag_start..tag_end].contains("open=\""),
-        "the bulk dialog must render closed: {}",
-        &html[tag_start..tag_end]
+    assert_eq!(
+        user_count(&db).await,
+        before,
+        "a refused batch deletes nothing"
     );
 }

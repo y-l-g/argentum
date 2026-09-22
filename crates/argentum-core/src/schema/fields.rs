@@ -1795,19 +1795,12 @@ mod tests {
             .await
             .unwrap()
             .render(&cx);
-        // Beautiful: the upstream field wrapper + field_label, and the input
-        // with Token classes
+        // GH #216: the field/field-label composition is the contract; the
+        // input's Token classes (`border-border`, `bg-transparent`,
+        // `focus-visible:ring-ring`) are paint and belong to the showcase.
         assert!(
             html.contains("data-slot=\"field\"") && html.contains("data-slot=\"field-label\""),
             "missing field/field-label markup in {html}"
-        );
-        assert!(
-            html.contains("border-border"),
-            "missing border-border in {html}"
-        );
-        assert!(
-            html.contains("bg-transparent") && html.contains("focus-visible:ring-ring"),
-            "missing Token input classes in {html}"
         );
         assert!(
             html.contains("name=\"name\""),
@@ -1823,7 +1816,7 @@ mod tests {
         // `field_error` only when there is an error, so a valid field leaves
         // no empty `role="alert"` behind.
         assert!(
-            !html.contains("text-sm text-destructive") && !html.contains("role=\"alert\""),
+            !html.contains("role=\"alert\""),
             "a valid field must not render an error slot in {html}"
         );
         // label derived from lens: DummyUser::fields().name() → "name" → "Name"
@@ -1926,10 +1919,6 @@ mod tests {
             "missing aria invalid/described-by in {html}"
         );
         assert!(
-            html.contains("aria-invalid:border-destructive"),
-            "missing error border styling in {html}"
-        );
-        assert!(
             html.contains("id=\"name-error\"") && html.contains("name is required"),
             "missing error slot content in {html}"
         );
@@ -2002,9 +1991,12 @@ mod tests {
             .await
             .unwrap()
             .render(&cx);
+        // The required marker is the visible asterisk (GH #216: `required` /
+        // `aria-required` below pin the attribute; the star is what a reader
+        // sees, and `>*<` is emitted only by it).
         assert!(
-            html_req.contains("text-destructive"),
-            "required should render star with text-destructive in {html_req}"
+            html_req.contains(">*</span>"),
+            "required should render its asterisk in {html_req}"
         );
         assert!(
             html_req.contains("required"),
@@ -2047,7 +2039,7 @@ mod tests {
         );
         // A required-but-valid field renders no error node either.
         assert!(
-            !html_req.contains("text-sm text-destructive"),
+            !html_req.contains("role=\"alert\""),
             "a valid required field must not render an error slot in {html_req}"
         );
     }
@@ -2152,7 +2144,7 @@ mod tests {
             "a unique field is required in the markup too"
         );
         assert!(
-            html.contains("text-destructive"),
+            html.contains(">*</span>"),
             "the required asterisk must render"
         );
     }
@@ -2407,10 +2399,9 @@ mod tests {
             preview.starts_with("<img"),
             "an image path must be previewed as an image, got {preview}"
         );
-        assert!(
-            preview.contains("max-h-40"),
-            "the preview is the full image with a size cap, not a thumbnail, got {preview}"
-        );
+        // GH #216: the size cap (`max-h-40`) is paint. What the preview must be
+        // is the stored path itself, as an `<img>`, not a link to somewhere
+        // else — the `src` slice above and `data-file-current` below are that.
         assert!(
             image.contains("data-file-current=\"/uploads/cover.png\""),
             "the path stays readable next to the preview, got {image}"
@@ -2568,8 +2559,12 @@ mod tests {
         let list_at = html.find("data-options-list").expect("the list");
         let list_tag_start = html[..list_at].rfind("<ul").expect("its <ul>");
         let list_tag_end = html[list_tag_start..].find('>').expect("the tag's end");
+        // The `hidden` HTML boolean attribute, not a Tailwind class (`<ul>`'s
+        // `class` carries none): the list must render hidden until the field is
+        // used. Pinned as `hidden=""` so a class that merely contains the word
+        // cannot satisfy it.
         assert!(
-            html[list_tag_start..list_tag_start + list_tag_end].contains("hidden"),
+            html[list_tag_start..list_tag_start + list_tag_end].contains("hidden=\"\""),
             "the list must render hidden until the field is used, got {html}"
         );
     }
@@ -2591,18 +2586,26 @@ mod tests {
             .await
             .unwrap()
             .render(&cx);
+        // GH #216: the primitive's *chrome* is paint; what it composes is
+        // structural — the native `<select>` now sits inside the primitive's
+        // wrapper `<span>`, which carries the checkmark style hook and the
+        // chevron icon. The hand-rolled control was a bare `<select>`.
+        let select_start = html.find("<select").expect("native select element");
+        let wrapper_start = html[..select_start]
+            .rfind("<span")
+            .expect("the primitive's wrapper span");
+        let wrapper_tag = opening_tag_at(&html, wrapper_start);
         assert!(
-            html.contains("has-[:disabled]:opacity-50") && html.contains("focus-visible:ring-2"),
-            "select must compose the primitive's chrome, got {html}"
+            wrapper_tag.contains("--select-checkmark"),
+            "select must compose the select primitive's wrapper, got {wrapper_tag}"
         );
         assert!(
-            !html.contains("bg-background px-3 py-1"),
-            "the hand-rolled select chrome must be gone, got {html}"
+            html[select_start..].contains("<svg"),
+            "the primitive's chevron must render, got {html}"
         );
         // `Attributes` renders in no guaranteed order (topcoat#122), so slice
         // the whole opening tag; quoting is honoured, so a `>` inside the
         // picker's Tailwind selectors does not end it early.
-        let select_start = html.find("<select").expect("native select element");
         let tag = opening_tag_at(&html, select_start);
         assert!(
             tag.contains("name=\"name\"")

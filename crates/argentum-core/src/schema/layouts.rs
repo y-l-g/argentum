@@ -426,17 +426,17 @@ mod tests {
             .await
             .unwrap()
             .render(&cx);
-        // Section now renders as card with Token classes
-        assert!(
-            html.contains("border-border"),
-            "missing card border in {html}"
+        // GH #216: no Tailwind-class assertions. What the layout has to prove
+        // is structural: the section's title, then the field it wraps, once.
+        assert!(html.contains("Account"), "missing section title in {html}");
+        assert_eq!(
+            html.matches("data-slot=\"field\"").count(),
+            2,
+            "the grid inside the section must render both fields, got {html}"
         );
-        assert!(html.contains("bg-card"), "missing card bg in {html}");
-        assert!(html.contains("shadow-sm"), "missing card shadow in {html}");
-        assert!(html.contains("grid grid-cols-2"), "missing grid in {html}");
         assert!(
-            html.contains("data-slot=\"field\""),
-            "missing field in {html}"
+            html.find("Account").expect("the title") < html.find("data-slot=\"field\"").unwrap(),
+            "the field must sit inside the section's card, got {html}"
         );
     }
 
@@ -459,19 +459,6 @@ mod tests {
             html.contains("name=\"name\""),
             "missing child field in {html}"
         );
-        // Section now renders as card
-        assert!(
-            html.contains("rounded-xl") && html.contains("border-border"),
-            "missing card chrome in {html}"
-        );
-        assert!(
-            html.contains("px-6"),
-            "missing card header/content padding in {html}"
-        );
-        assert!(
-            html.contains("font-semibold"),
-            "missing card title in {html}"
-        );
     }
 
     #[tokio::test]
@@ -488,21 +475,32 @@ mod tests {
             .await
             .unwrap()
             .render(&cx);
+        // GH #216: the `field_group` wrapper's only observable is its utility
+        // class, and that is the showcase's business (#136). What the layout
+        // owes is the child it holds — once.
         assert!(html.contains("Inside group"), "missing child in {html}");
-        assert!(
-            html.contains("@container/field-group"),
-            "missing field_group markup in {html}"
+        assert_eq!(
+            html.matches("data-slot=\"field\"").count(),
+            1,
+            "the group must render its one child, got {html}"
         );
     }
 
     #[tokio::test]
     async fn grid_renders_with_cols_and_children() {
+        // The declared column count is the caller's value, and production emits
+        // one static literal per count (Tailwind only sees literal substrings —
+        // see `Grid::render_source`), so the class is its *only* transport. It
+        // is asserted as a derived `grid-cols-{cols}` over the whole table
+        // rather than as one pinned literal per caller (GH #216): the mapping
+        // stays covered, and the other fourteen class literals this test used
+        // to pin are gone.
         let cx = cx();
-        let schema = Schema::new(Grid::new(2).schema((
-            TextInput::r#for(DummyUser::fields().name()),
-            TextInput::r#for(DummyUser::fields().email()),
-        )));
-        let html = schema
+        for cols in 1..=12u8 {
+            let html = Schema::new(Grid::new(cols).schema((
+                TextInput::r#for(DummyUser::fields().name()),
+                TextInput::r#for(DummyUser::fields().email()),
+            )))
             .render(&cx)
             .await
             .unwrap()
@@ -510,20 +508,15 @@ mod tests {
             .await
             .unwrap()
             .render(&cx);
-        assert!(html.contains("grid"), "missing grid class in {html}");
-        assert!(
-            html.contains("grid-cols-2"),
-            "missing cols class grid-cols-2 in {html}"
-        );
-        assert!(html.contains("gap-4"), "missing gap-4 in {html}");
-        assert!(
-            html.contains("name=\"name\""),
-            "missing first child in {html}"
-        );
-        assert!(
-            html.contains("name=\"email\""),
-            "missing second child in {html}"
-        );
+            assert!(
+                html.contains(&format!("grid-cols-{cols}")),
+                "Grid::new({cols}) must lay out {cols} columns, got {html}"
+            );
+            assert!(
+                html.contains("name=\"name\"") && html.contains("name=\"email\""),
+                "Grid::new({cols}) must render both children, got {html}"
+            );
+        }
     }
 
     #[tokio::test]
@@ -541,10 +534,28 @@ mod tests {
             .unwrap()
             .render(&cx);
         assert!(html.contains("Tabbed"), "missing child in {html}");
+        // "One shared container" without naming its classes (GH #216): the
+        // rendering is a single root `<div>`. The bug this guards is a second
+        // wrapper around the same children, which would open a second root.
+        let opens = |tag: &str| {
+            tag.strip_prefix("div")
+                .is_some_and(|rest| rest.starts_with([' ', '>']))
+        };
+        let mut depth = 0usize;
+        let mut roots = 0usize;
+        for tag in html.split('<').skip(1) {
+            if opens(tag) {
+                if depth == 0 {
+                    roots += 1;
+                }
+                depth += 1;
+            } else if tag.starts_with("/div") {
+                depth = depth.saturating_sub(1);
+            }
+        }
         assert_eq!(
-            html.matches("border border-border rounded-md p-4").count(),
-            1,
-            "expected one shared container wrapper in {html}"
+            roots, 1,
+            "the tabs container must be the only root wrapper, got {html}"
         );
     }
 
@@ -599,11 +610,6 @@ mod tests {
         assert!(html.contains("Outer"), "missing outer title in {html}");
         assert!(html.contains("Left"), "missing left in {html}");
         assert!(html.contains("Right"), "missing right in {html}");
-        assert!(
-            html.contains("rounded-xl") && html.contains("border-border"),
-            "missing section card in {html}"
-        );
-        assert!(html.contains("grid-cols-2"), "missing grid in {html}");
     }
 
     #[tokio::test]
@@ -636,8 +642,8 @@ mod tests {
         );
         // Same inline error contract as TextInput, wired to the group: the
         // fieldset carries the invalid state and describes itself with the
-        // error node's id, and the legend is colored (`field_legend`, unlike
-        // `field_label`, has no invalid state of its own).
+        // error node's id. The legend's colour is paint, not state (GH #216):
+        // these three state hooks are what a regression would break.
         assert!(
             html.contains("data-invalid=\"true\"")
                 && html.contains("aria-invalid=\"true\"")
@@ -651,15 +657,6 @@ mod tests {
         assert!(
             html.contains("aria-live=\"polite\""),
             "missing aria-live in {html}"
-        );
-        let legend = html
-            .split("<legend")
-            .nth(1)
-            .and_then(|rest| rest.split('>').next())
-            .unwrap_or_default();
-        assert!(
-            legend.contains("text-destructive"),
-            "invalid repeater must color its legend, got {legend}"
         );
         // Non-empty inner value clears the error.
         let mut filled = HashMap::new();

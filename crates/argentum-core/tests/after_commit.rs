@@ -571,5 +571,7 @@ async fn a_resource_without_the_hook_writes_exactly_as_before() {
     );
 
     assert_eq!(notes(&db).await.len(), 1);
-    assert!(audits(&db).await.is_empty());
+    // No `audits` assertion here: this resource declares no hook, so nothing in
+    // the framework could write that table and the check could never fail
+    // (GH #216). The hook-bearing tests above own it.
 }

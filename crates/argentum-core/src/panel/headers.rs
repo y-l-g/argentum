@@ -74,12 +74,6 @@ fn insert_frame_ancestors(response: &mut Response, directive: &str) {
     }
 }
 
-/// The header value as it appears on the wire, for tests.
-#[cfg(test)]
-pub(crate) fn frame_ancestors_value(directive: &str) -> String {
-    format!("frame-ancestors {directive}")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -90,11 +84,14 @@ mod tests {
 
     #[test]
     fn default_directive_is_self() {
+        // The exact literal the browser receives. Comparing against a
+        // `#[cfg(test)]` re-implementation of the same `format!` cannot fail
+        // (GH #216): both sides would change together.
         let mut response = response();
         insert_frame_ancestors(&mut response, &FrameAncestors::same_origin().directive);
         assert_eq!(
             response.headers().get(&CSP).unwrap(),
-            frame_ancestors_value("'self'").as_str()
+            "frame-ancestors 'self'"
         );
     }
 

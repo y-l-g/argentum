@@ -421,7 +421,7 @@ mod tests {
             "expected 2 fields (data-slot=field) in {html}"
         );
         assert_eq!(
-            html.matches("text-sm text-destructive").count(),
+            html.matches("role=\"alert\"").count(),
             0,
             "valid fields render no error slot in {html}"
         );
@@ -442,13 +442,24 @@ mod tests {
             .await
             .unwrap()
             .render(&cx);
-        assert!(
-            html.contains("rounded-xl") && html.contains("border-border"),
-            "missing section card in {html}"
+        // GH #216: the section's card chrome and the group's container class
+        // were the old assertions; both are paint. What "composes multiple
+        // blocks" means structurally is that each block renders its own child,
+        // exactly once, and the section's title still frames its field.
+        assert!(html.contains("A"), "missing section title in {html}");
+        assert_eq!(
+            html.matches("data-slot=\"field\"").count(),
+            2,
+            "each block must render its own field, got {html}"
         );
         assert!(
-            html.contains("@container/field-group"),
-            "missing group in {html}"
+            html.contains("name=\"name\"") && html.contains("name=\"email\""),
+            "both block children must render, got {html}"
+        );
+        assert!(
+            html.find("A").expect("the section title")
+                < html.find("name=\"name\"").expect("its field"),
+            "the section must frame the field it holds, got {html}"
         );
     }
 
