@@ -7,7 +7,6 @@
 
 #[doc(hidden)]
 pub mod __macro {
-    pub use crate::resource::IncludeNeeds;
     pub use toasty::stmt;
     pub use topcoat::context::Cx;
 }

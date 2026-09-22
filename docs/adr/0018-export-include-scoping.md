@@ -1,6 +1,6 @@
 # Export query scoping: columns declare their includes, the resource narrows
 
-Date: 2026-09-22 — Status: accepted — Supersedes: none
+Date: 2026-09-22 — Status: accepted — Supersedes: none — Amends: ADR-0012 (the export's reuse of `Resource::query`)
 
 ## Context
 
@@ -74,14 +74,27 @@ what makes that loud rather than silent.
   include added for `view_relations`, for instance — and the core test
   `export_query_narrows_to_the_declared_column_includes` pins that narrowing
   with a real relation (fails if the export goes back to `R::query`).
+- **No in-tree resource is in that position yet**, so the motivating example in
+  GH #177 ("the CSV needs only title/status") is not reproduced by this change:
+  `csv_row` writes every declared column, and the showcase's posts table
+  renders author and comments. Trimming further would need an export column
+  subset, which is the last bullet here — this ADR delivers the include
+  contract, not a column subset.
 - The name vocabulary is a string seam between two halves in the same crate
   tree. An unknown name is not an error, it just never matches; a *missing*
   name is caught at render by the column's guard, not at compile time. Widening
   to a typed declaration would mean moving `Include` construction into the
   column, which cannot be done without naming `M`'s relation types there.
-- `#[derive(Resource)]` gains `export_query = path` so a derived resource can
-  narrow without hand-writing the whole impl; `query` and `export_query` are
-  independent keys.
+- The declaration was put on the column rather than on the table: the closure
+  that reads a relation is the thing that declares it, so the declaration
+  travels with the projection when a column is moved or copied, and
+  `Table::include_needs` is the mechanical union. A table-level list would be
+  equally checkable — a column could still omit a declaration under either
+  shape, and the guard is what catches that — so this buys cohesion, not
+  safety.
+- The `#[derive(Resource)]` path is deliberately untouched: the derive cannot
+  declare a `table`, so a derived resource is never mounted and never serves an
+  export. An `export_query = path` key would be unreachable API.
 - Rows-per-chunk memory is unchanged (that was GH #172); what changes is the
   per-row join work the database does for an include nothing renders.
 - Column subsets for export (exporting fewer columns than the table renders)

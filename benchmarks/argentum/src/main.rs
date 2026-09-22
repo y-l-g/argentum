@@ -135,14 +135,16 @@ impl Resource for PostResource {
                     } else {
                         p.author.get().name.clone()
                     }
-                }),
+                })
+                .needs(["author"]),
                 TextColumn::computed("Comments", |p: &Post| {
                     if p.comments.is_unloaded() {
                         "0".to_string()
                     } else {
                         p.comments.get().len().to_string()
                     }
-                }),
+                })
+                .needs(["comments"]),
             ))
             .paginate(50)
     }

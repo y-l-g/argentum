@@ -1315,7 +1315,7 @@ mod tests {
 
         /// The narrowed base query the export asks for: the parent comes along
         /// only when a rendered column declared it.
-        fn export_query(_cx: &Cx, needs: &IncludeNeeds) -> Query<List<Child>> {
+        fn narrowed(_cx: &Cx, needs: &IncludeNeeds) -> Query<List<Child>> {
             if needs.wants("parent") {
                 with_parent()
             } else {
@@ -1341,7 +1341,7 @@ mod tests {
                 with_parent()
             }
             fn export_query(cx: &Cx, needs: &IncludeNeeds) -> Query<List<Child>> {
-                export_query(cx, needs)
+                narrowed(cx, needs)
             }
             fn table(cx: &Cx) -> crate::resource::Table<Child> {
                 let column = crate::resource::TextColumn::computed("Parent", |c: &Child| {
@@ -1410,6 +1410,12 @@ mod tests {
         assert!(
             declared.contains("Ada"),
             "a declared include must reach the export query, got {declared}"
+        );
+        // The discriminating half: the same cell would read `(unloaded)` had
+        // the export asked for the un-narrowed `query`.
+        assert!(
+            !declared.contains("(unloaded)"),
+            "a declared include must be loaded, got {declared}"
         );
 
         let resp = router

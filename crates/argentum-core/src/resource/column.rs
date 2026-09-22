@@ -25,18 +25,17 @@ use crate::schema::{FieldLens, lens_field, lens_label};
 /// declaring column and the resource that maps them onto `include(..)` calls —
 /// because includes are typed (`Include<Post, Author>`) and a type-erased
 /// column cannot name one. Nothing else reads them: an unknown name is not an
-/// error, it just never matches a branch.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+/// error, it just never matches a branch. The set is deliberately read-only
+/// once gathered: a resource's
+/// [`export_query`](super::Resource::export_query) answers `wants` per
+/// `include(..)`, and a relation it must load for its own reasons (`can_view`)
+/// is included unconditionally in its own branch.
+#[derive(Clone, Debug, Default)]
 pub struct IncludeNeeds {
     names: BTreeSet<&'static str>,
 }
 
 impl IncludeNeeds {
-    /// An empty set: a query that includes nothing.
-    pub fn new() -> Self {
-        Self::default()
-    }
-
     /// Whether `name` was declared by a rendered column.
     ///
     /// This is the one question a resource's
@@ -46,24 +45,10 @@ impl IncludeNeeds {
         self.names.contains(name)
     }
 
-    /// Add `name` — for a resource that must also load a relation its policy
-    /// path reads (`can_view`), which no column declares.
-    pub fn insert(&mut self, name: &'static str) {
-        self.names.insert(name);
-    }
-
+    /// Whether no column declared anything — the narrowed query needs no
+    /// relation at all.
     pub fn is_empty(&self) -> bool {
         self.names.is_empty()
-    }
-
-    pub fn len(&self) -> usize {
-        self.names.len()
-    }
-
-    /// The names, in sorted order (deterministic, so a test or a log line
-    /// reads the same on every run).
-    pub fn iter(&self) -> impl Iterator<Item = &'static str> + '_ {
-        self.names.iter().copied()
     }
 }
 
@@ -81,15 +66,6 @@ impl FromIterator<&'static str> for IncludeNeeds {
 impl<const N: usize> From<[&'static str; N]> for IncludeNeeds {
     fn from(names: [&'static str; N]) -> Self {
         names.into_iter().collect()
-    }
-}
-
-impl<'a> IntoIterator for &'a IncludeNeeds {
-    type Item = &'a &'static str;
-    type IntoIter = std::collections::btree_set::Iter<'a, &'static str>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.names.iter()
     }
 }
 
@@ -225,8 +201,10 @@ where
         self
     }
 
-    /// The relations this column declared, in declaration order.
-    pub fn include_names(&self) -> &[&'static str] {
+    /// The relations this column declared, in declaration order. Internal: the
+    /// public read is [`Table::include_needs`](super::Table::include_needs),
+    /// the union the export hands its resource.
+    pub(crate) fn include_names(&self) -> &[&'static str] {
         &self.needs
     }
 
@@ -568,28 +546,19 @@ mod tests {
     }
 
     /// GH #177: the gathered set is what a resource's `export_query` asks, so
-    /// membership, insertion, and iteration are the whole contract.
+    /// membership and the empty case are the whole contract.
     #[test]
     fn include_needs_gathers_declarations() {
-        let mut needs: IncludeNeeds = ["author", "comments"].into_iter().collect();
+        let needs: IncludeNeeds = ["author", "comments"].into_iter().collect();
         assert!(needs.wants("author") && needs.wants("comments"));
         assert!(!needs.wants("post"));
-
-        needs.insert("post");
-        assert!(needs.wants("post"));
-        assert_eq!(needs.len(), 3);
-
-        // Sorted iteration: deterministic for tests and logs.
-        assert_eq!(
-            needs.iter().collect::<Vec<_>>(),
-            ["author", "comments", "post"]
-        );
-        assert_eq!(
-            (&needs).into_iter().copied().collect::<Vec<_>>(),
-            ["author", "comments", "post"]
-        );
-
-        assert!(IncludeNeeds::new().is_empty());
         assert!(!needs.is_empty());
+
+        // The whole set up front, as a resource's `query` declares it.
+        let declared = IncludeNeeds::from(["author", "comments"]);
+        assert!(declared.wants("author") && declared.wants("comments"));
+
+        assert!(IncludeNeeds::default().is_empty());
+        assert!(!IncludeNeeds::default().wants("author"));
     }
 }

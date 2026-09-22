@@ -10,14 +10,12 @@ use syn::{
 struct ResourceArgs {
     model: syn::Type,
     query: Option<syn::Path>,
-    export_query: Option<syn::Path>,
 }
 
 impl Parse for ResourceArgs {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let mut model: Option<syn::Type> = None;
         let mut query: Option<syn::Path> = None;
-        let mut export_query: Option<syn::Path> = None;
         while !input.is_empty() {
             let ident: syn::Ident = input.parse()?;
             input.parse::<Token![=]>()?;
@@ -41,23 +39,10 @@ impl Parse for ResourceArgs {
                     syn::Error::new(e.span(), "expected `query = path_to_function`")
                 })?;
                 query = Some(path);
-            } else if ident == "export_query" {
-                if export_query.is_some() {
-                    return Err(syn::Error::new_spanned(
-                        &ident,
-                        "duplicate `export_query` key in #[resource(...)]",
-                    ));
-                }
-                let path = input.parse::<syn::Path>().map_err(|e| {
-                    syn::Error::new(e.span(), "expected `export_query = path_to_function`")
-                })?;
-                export_query = Some(path);
             } else {
                 return Err(syn::Error::new_spanned(
                     &ident,
-                    format!(
-                        "unknown key `{ident}`, expected one of `model`, `query`, `export_query`"
-                    ),
+                    format!("unknown key `{ident}`, expected `model` or `query`"),
                 ));
             }
             if input.peek(Token![,]) {
@@ -68,11 +53,7 @@ impl Parse for ResourceArgs {
             syn::Error::new(input.span(), "missing `model = Type` in #[resource(...)]")
         })?;
 
-        Ok(Self {
-            model,
-            query,
-            export_query,
-        })
+        Ok(Self { model, query })
     }
 }
 
@@ -93,10 +74,6 @@ fn check_unit_struct(input: &DeriveInput) -> syn::Result<()> {
 /// Expects `#[resource(model = Type)]` where `Type` is the Toasty `Model`.
 /// Optionally `query = path` scopes the base query, where `path` is a
 /// function `fn(&Cx) -> toasty::stmt::Query<toasty::stmt::List<Model>>`.
-/// Optionally `export_query = path` narrows the CSV export's base query
-/// (GH #177) to the relations the table's columns declared, where `path` is a
-/// function
-/// `fn(&Cx, &IncludeNeeds) -> toasty::stmt::Query<toasty::stmt::List<Model>>`.
 ///
 /// ```ignore
 /// #[derive(Resource)]
@@ -110,19 +87,6 @@ fn check_unit_struct(input: &DeriveInput) -> syn::Result<()> {
 /// fn my_scope(cx: &Cx) -> toasty::stmt::Query<toasty::stmt::List<User>> {
 ///     toasty::stmt::Query::<toasty::stmt::List<User>>::all()
 ///         .filter(User::fields().name().eq("Ada"))
-/// }
-///
-/// #[derive(Resource)]
-/// #[resource(model = Post, query = all_posts, export_query = export_posts)]
-/// struct PostResource;
-///
-/// fn export_posts(cx: &Cx, needs: &IncludeNeeds)
-///     -> toasty::stmt::Query<toasty::stmt::List<Post>>
-/// {
-///     match needs.wants("author") {
-///         true => all_posts(cx).include(/* author */),
-///         false => all_posts(cx),
-///     }
 /// }
 /// ```
 #[proc_macro_derive(Resource, attributes(resource))]
@@ -177,36 +141,23 @@ pub fn resource(input: TokenStream) -> TokenStream {
         }
     };
 
-    let query_impl = match &args.query {
+    let expanded = match &args.query {
         Some(path) => quote! {
-            fn query(cx: &#krate::__macro::Cx)
-                -> #krate::__macro::stmt::Query<
-                    #krate::__macro::stmt::List<Self::Model>>
-            {
-                #path(cx)
+            impl #impl_generics #krate::Resource for #ident #ty_generics #where_clause {
+                type Model = #model_ty;
+                fn query(cx: &#krate::__macro::Cx)
+                    -> #krate::__macro::stmt::Query<
+                        #krate::__macro::stmt::List<Self::Model>>
+                {
+                    #path(cx)
+                }
             }
         },
-        None => quote! {},
-    };
-    let export_query_impl = match &args.export_query {
-        Some(path) => quote! {
-            fn export_query(
-                cx: &#krate::__macro::Cx,
-                needs: &#krate::__macro::IncludeNeeds,
-            ) -> #krate::__macro::stmt::Query<
-                    #krate::__macro::stmt::List<Self::Model>>
-            {
-                #path(cx, needs)
+        None => quote! {
+            impl #impl_generics #krate::Resource for #ident #ty_generics #where_clause {
+                type Model = #model_ty;
             }
         },
-        None => quote! {},
-    };
-    let expanded = quote! {
-        impl #impl_generics #krate::Resource for #ident #ty_generics #where_clause {
-            type Model = #model_ty;
-            #query_impl
-            #export_query_impl
-        }
     };
     TokenStream::from(expanded)
 }
