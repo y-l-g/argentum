@@ -31,3 +31,7 @@ New seams introduced sit on highest existing seams (`Resource::table/form`, `Sch
 ## Amendment (2026-09-10)
 
 The stable-state notes have moved on: `HasId`/`GetField` string dispatch was replaced by typed row-key closures (`Table::id`) and typed column projections; the PK tie-breaker now lives inside Toasty (GH #76) and `schema::pk_tie_breakers` is gone; `TextColumn::for_lens` is the current entry point. The invariant this ADR recorded — typed lenses and one seam per surface — still holds.
+
+## Amendment (2026-09-22, GH #204)
+
+The "`Column::Text` single variant (S5)" listed above under *Ignored by design* is gone, not deferred: the single-variant `Column<M>` enum was removed, and `Table::columns` / `IntoColumns` now carry `TextColumn<M>` directly.

@@ -1,9 +1,9 @@
 //! Unified Schema primitive — layout blocks that compose via `view!`.
 //!
-//! `Schema` is a container for `Section`, `Group`, `Grid` and `Repeater`
-//! nodes. Each node renders through Topcoat's `view!` macro; `Schema::render`
-//! combines them. The API mirrors Filament's `Schema::new(( ... ))` tuple
-//! form via the `IntoSchema` trait.
+//! `Schema` is a container for `Section`, `Group`, `Grid`, `Tabs` and
+//! `Repeater` nodes. Each node renders through Topcoat's `view!` macro;
+//! `Schema::render` combines them. The API mirrors Filament's
+//! `Schema::new(( ... ))` tuple form via the `IntoSchema` trait.
 //!
 //! Bridge note: `lens_field` is the one walk reaching into `toasty_core`
 //! (upstream issue #114), alongside the `pk_*` bridge helpers and `cursor.rs`

@@ -178,14 +178,14 @@ pub(crate) fn resource_list<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
             return Ok(resource_list_live::<R>(cx, table, state, title, list_path));
         }
 
-        // First content: the skeleton grid (same markup the eager
-        // `defer(true)` path renders), while the rows load below. The load
-        // catches its own errors: post-stream the status line is fixed,
-        // so a failed load must render the branded ErrorState
-        // inside the region instead of truncating the body. Pre-stream
-        // failures (e.g. the skeleton itself) still propagate and map onto
-        // the response status. (For children that partially stream before
-        // failing, topcoat's `error_boundary` is the replace-in-place seam.)
+        // First content: the skeleton grid (`Table::render_skeleton`), while
+        // the rows load below. The load catches its own errors: post-stream
+        // the status line is fixed, so a failed load must render the branded
+        // ErrorState inside the region instead of truncating the body.
+        // Pre-stream failures (e.g. the skeleton itself) still propagate and
+        // map onto the response status. (For children that partially stream
+        // before failing, topcoat's `error_boundary` is the replace-in-place
+        // seam.)
         let skeleton = table.render_skeleton(cx).await?;
         // Normalize once for the closure (GH #153): the retry link must not
         // echo an unknown `?group_by=`. The render re-normalizes internally.

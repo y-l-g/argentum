@@ -140,3 +140,5 @@ not there.
 - A derived form's labels default to the humanized Rust field name, which is a
   small improvement over the flattened column name (`Seo Title` → `Title`) and
   is overridable per field.
+
+**Status 2026-09-22 (GH #204):** the "form-reactivity seam the panel does not have" named above lost its one live binding — `Schema::render_live_with`, `RenderSource::Live`, `TextInput::render_live_with` and `argentum_ui::bound_input` were removed as zero-caller API. The variant **control** gap is therefore wider, not narrower: choosing a variant in the UI needs that seam built, not merely wired to an existing one. The rest of this ADR is unaffected.

@@ -326,7 +326,7 @@ async fn users_create_static_selects_set_role_and_active() {
 
     let resp = client.get("/admin/users/create").await;
     let html = body_string(resp).await;
-    assert!(html.contains("Profile"), "missing wizard section: {html}");
+    assert!(html.contains("Profile"), "missing profile section: {html}");
     assert!(
         html.contains("name=\"role\""),
         "missing role select: {html}"

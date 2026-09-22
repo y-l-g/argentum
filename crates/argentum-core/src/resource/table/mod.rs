@@ -1060,12 +1060,14 @@ mod tests {
             .await
             .unwrap()
             .render(&cx);
+        let boundary_at = html.find("data-boundary=\"table\"").unwrap_or_else(|| {
+            panic!("the grid must render inside the morph boundary, got {html}")
+        });
+        let root_at = html
+            .find("data-table-root=\"\"")
+            .unwrap_or_else(|| panic!("the grid must carry its table root, got {html}"));
         assert!(
-            html.contains("data-boundary=\"table\""),
-            "the grid must render inside the morph boundary, got {html}"
-        );
-        assert!(
-            html.contains("data-table-root=\"\""),
+            boundary_at < root_at && !html[boundary_at..root_at].contains("</div>"),
             "the boundary must wrap the table root, got {html}"
         );
     }
