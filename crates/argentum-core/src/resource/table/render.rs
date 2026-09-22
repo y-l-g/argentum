@@ -207,7 +207,7 @@ impl<M> Table<M> {
                     data-bulk-form=""
                     id=(bulk_form_id.clone())
                 >
-                    <input type="hidden" name="csrf_token" value=(csrf)>
+                    (crate::csrf::field(cx, &csrf))
                     <input (transport_attrs)>
                     button(
                         variant: ButtonVariant::Destructive,
@@ -610,7 +610,7 @@ impl<M> Table<M> {
                                     "Cancel"
                                 </a>
                                 <input type="hidden" name="confirm" value="1">
-                                <input type="hidden" name="csrf_token" value=(csrf)>
+                                (crate::csrf::field(cx, &csrf))
                                 button(
                                     variant: ButtonVariant::Destructive,
                                     size: ButtonSize::Md,

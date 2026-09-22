@@ -146,9 +146,18 @@ omission has to fail loudly instead of quietly:
   them once at boot, so they must not need request-scoped context.
 - **At request time, loudly**: the record fns default to an error naming the type ("delete not
   implemented for …"), so a missing implementation never looks like a successful no-op.
-- **`deletable()` / `editable()` default to `true`** and both register the routes and render the
-  chrome. A read-only resource overrides them to `false` — that is its declaration that there is
-  nothing to implement.
+- **Chrome is opt-in**: `deletable()` and `editable()` default to `false`, so a resource that never
+  mentions them renders no Edit or Delete affordance — the routes still exist, and the default-deny
+  `can_*` predicates answer them. A resource that wants the chrome declares the flag **and** the
+  policy predicate it promises: `can_delete()` for `deletable()`, `can_view()` + `can_update()` for
+  `editable()`. What that buys is precise: a defaulted flag with a defaulted predicate can never
+  advertise an action that answers 403 (GH #226). It is **not** a per-record guarantee — chrome is
+  one whole-resource flag while `can_update`/`can_delete` take a record, so a resource that opts in
+  with a row-level rule still renders a link for a row the route refuses (the showcase's SSO-guarded
+  user is the worked example: its row keeps the Edit link and the edit page answers 403 by design).
+  That gap is inherent to the seam, not a defect. The `View` link needs no flag at all — it is
+  derived from whether the resource declares a `view()` schema, so there the route and the row link
+  genuinely cannot disagree.
 - **Default-deny stands**: every `can_*` defaults to `false`, so an unconfigured resource exposes
   no data and no mutation.
 
@@ -264,7 +273,7 @@ Table::r#for(cx).live_search(true)
 
 Search, sort, filter, and pager controls then refresh the grid in place without a full page load. The plain links and forms stay as the no-JS fallback.
 
-Panel wires the bulk checkbox column automatically (`deletable()` defaults to `true`; override to `false` for read-only resources). Bulk delete asks first: the bulk bar's button opens an alert dialog that names how many rows are selected, and its confirm control is the only thing carrying the `confirm=1` the handler requires — a POST without that marker is a 400, so the safeguard does not depend on the script that opens the dialog (GH #184).
+Panel wires the bulk checkbox column when the resource opts in with `deletable() -> true` (GH #226: chrome is opt-in, and the flag pairs with `can_delete`). Bulk delete asks first: the bulk bar's button opens an alert dialog that names how many rows are selected, and its confirm control is the only thing carrying the `confirm=1` the handler requires — a POST without that marker is a 400, so the safeguard does not depend on the script that opens the dialog (GH #184).
 
 ---
 

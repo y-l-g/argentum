@@ -673,7 +673,7 @@ async fn render_login_page<'a>(
                     <h1 class="text-lg font-semibold text-foreground">"Sign in"</h1>
                 </div>
                 <form method="post" action=(action) class="flex flex-col gap-4">
-                    <input type="hidden" name=(crate::csrf::FIELD_NAME) value=(csrf)>
+                    (crate::csrf::field(cx, &csrf))
                     <input type="hidden" name=(NEXT_FIELD) value=(next)>
                     if let Some(error) = error {
                         argentum_ui::alert(

@@ -70,6 +70,25 @@ pub fn current_token(cx: &Cx) -> String {
         .unwrap_or_default()
 }
 
+/// The hidden field every state-changing form embeds.
+///
+/// The token is passed in, never resolved here: whether a site calls
+/// [`ensure_token`] (which sets the cookie and must run before response headers
+/// are sent) or [`current_token`] (the only one safe inside a streamed
+/// `suspense` child) is the site's decision, and a helper that guessed would
+/// either panic after header send or silently embed nothing. What the helper
+/// owns is the spelling — [`FIELD_NAME`] is what [`verify`] reads, so a rename
+/// that missed a form would be a silent 403 on every POST (GH #212).
+pub fn field<'a>(cx: &'a Cx, token: &str) -> topcoat::view::BoxView<'a> {
+    use topcoat::view::ViewExt;
+
+    // Own the token before the `view!` block: the emitted view must borrow the
+    // request context and nothing else, or a caller's local `String` would have
+    // to outlive the page.
+    let token = token.to_string();
+    topcoat::view::view! { cx => <input type="hidden" name=(FIELD_NAME) value=(token)> }.boxed()
+}
+
 /// Verify the submitted form token matches the cookie (GH #99).
 ///
 /// Fails closed: missing cookie, missing field, or mismatch all yield 403.

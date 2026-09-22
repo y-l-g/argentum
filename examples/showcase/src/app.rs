@@ -62,6 +62,16 @@ impl Resource for UserResource {
         record.name != "Ken Thompson"
     }
 
+    // GH #226: chrome is opt-in. The flags are declared next to the predicates
+    // above that honour them — `can_view` + `can_update` for the Edit link,
+    // `can_delete` for the row and bulk Delete.
+    fn editable() -> bool {
+        true
+    }
+    fn deletable() -> bool {
+        true
+    }
+
     fn table(cx: &Cx) -> Table<User> {
         Table::r#for(cx)
             .id(|u: &User| u.id.to_string())
@@ -293,6 +303,14 @@ impl Resource for AuthorResource {
     }
     fn can_delete(cx: &Cx, _record: &Author) -> bool {
         Self::can_view_any(cx)
+    }
+
+    // GH #226: chrome is opt-in, declared beside the predicates above.
+    fn editable() -> bool {
+        true
+    }
+    fn deletable() -> bool {
+        true
     }
 
     // Tenant-scoped model (GH #87): every handler fails closed without a
@@ -585,6 +603,14 @@ impl Resource for PostResource {
     }
     fn can_delete(cx: &Cx, _record: &Post) -> bool {
         Self::can_view_any(cx)
+    }
+
+    // GH #226: chrome is opt-in, declared beside the predicates above.
+    fn editable() -> bool {
+        true
+    }
+    fn deletable() -> bool {
+        true
     }
 
     // Tenant-scoped model (GH #87): every handler fails closed without a
@@ -1080,6 +1106,15 @@ impl Resource for CommentResource {
         true
     }
     fn can_delete(_cx: &Cx, _record: &Comment) -> bool {
+        true
+    }
+
+    // GH #226: chrome is opt-in. The moderation queue wants both, and the
+    // predicates above answer for every row (GH #184).
+    fn editable() -> bool {
+        true
+    }
+    fn deletable() -> bool {
         true
     }
 

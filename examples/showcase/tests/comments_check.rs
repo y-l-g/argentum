@@ -33,9 +33,10 @@ async fn comments_list_shows_body_and_post_title() {
 
 #[tokio::test]
 async fn comments_list_offers_row_and_bulk_delete() {
-    // GH #184: the queue moderates. `deletable()` is no longer overridden, so
-    // the row Delete control and the bulk bar render — and `can_delete`,
-    // `delete_record` and `bulk_delete_records` stop being unreachable.
+    // GH #184: the queue moderates. GH #226 then made chrome opt-in, so
+    // `CommentResource` declares `deletable()`/`editable()` — the row Delete
+    // control and the bulk bar render, and `can_delete`, `delete_record` and
+    // `bulk_delete_records` stop being unreachable.
     let db = full_db().await;
     let router = router(db);
     let client = demo_client(&router).await;

@@ -103,7 +103,7 @@ pub fn decode(token: &str) -> Result<Value> {
 fn decode_inner(token: &str) -> Result<Value> {
     let payload = hex_decode(token)?;
     let mut buf = &payload[..];
-    let version = take(&mut buf, 1)?[0];
+    let version = take::<1>(&mut buf)?[0];
     if version != VERSION {
         return Err(std::io::Error::other(format!("cursor: unsupported version {version}")).into());
     }
@@ -166,7 +166,7 @@ fn write_value(value: &Value, out: &mut Vec<u8>) -> Result<()> {
         }
         Value::String(v) => {
             out.push(TAG_STRING);
-            write_len_prefixed(v.as_bytes(), out);
+            write_len_prefixed(v.as_bytes(), out)?;
         }
         Value::Uuid(v) => {
             out.push(TAG_UUID);
@@ -174,27 +174,27 @@ fn write_value(value: &Value, out: &mut Vec<u8>) -> Result<()> {
         }
         Value::Bytes(v) => {
             out.push(TAG_BYTES);
-            write_len_prefixed(v, out);
+            write_len_prefixed(v, out)?;
         }
         Value::Timestamp(v) => {
             out.push(TAG_TIMESTAMP);
-            write_len_prefixed(v.to_string().as_bytes(), out);
+            write_len_prefixed(v.to_string().as_bytes(), out)?;
         }
         Value::Date(v) => {
             out.push(TAG_DATE);
-            write_len_prefixed(v.to_string().as_bytes(), out);
+            write_len_prefixed(v.to_string().as_bytes(), out)?;
         }
         Value::DateTime(v) => {
             out.push(TAG_DATETIME);
-            write_len_prefixed(v.to_string().as_bytes(), out);
+            write_len_prefixed(v.to_string().as_bytes(), out)?;
         }
         Value::Time(v) => {
             out.push(TAG_TIME);
-            write_len_prefixed(v.to_string().as_bytes(), out);
+            write_len_prefixed(v.to_string().as_bytes(), out)?;
         }
         Value::Zoned(v) => {
             out.push(TAG_ZONED);
-            write_len_prefixed(v.to_string().as_bytes(), out);
+            write_len_prefixed(v.to_string().as_bytes(), out)?;
         }
         Value::Record(record) => {
             out.push(TAG_RECORD);
@@ -222,54 +222,27 @@ fn read_value_with_depth(buf: &[u8], depth: usize) -> Result<(Value, &[u8])> {
         return Err(std::io::Error::other("cursor: record nesting too deep").into());
     }
     let mut buf = buf;
-    let tag = take(&mut buf, 1)?[0];
+    let tag = take::<1>(&mut buf)?[0];
     match tag {
         TAG_NULL => Ok((Value::Null, buf)),
         TAG_BOOL => {
-            let b = take(&mut buf, 1)?[0];
+            let b = take::<1>(&mut buf)?[0];
             match b {
                 0 => Ok((Value::Bool(false), buf)),
                 1 => Ok((Value::Bool(true), buf)),
                 _ => Err(std::io::Error::other("cursor: invalid bool byte").into()),
             }
         }
-        TAG_I8 => {
-            let bytes = take(&mut buf, 1)?;
-            Ok((Value::I8(i8::from_le_bytes(bytes.try_into().unwrap())), buf))
-        }
-        TAG_I16 => Ok((
-            Value::I16(i16::from_le_bytes(take(&mut buf, 2)?.try_into().unwrap())),
-            buf,
-        )),
-        TAG_I32 => Ok((
-            Value::I32(i32::from_le_bytes(take(&mut buf, 4)?.try_into().unwrap())),
-            buf,
-        )),
-        TAG_I64 => Ok((
-            Value::I64(i64::from_le_bytes(take(&mut buf, 8)?.try_into().unwrap())),
-            buf,
-        )),
-        TAG_U8 => Ok((Value::U8(take(&mut buf, 1)?[0]), buf)),
-        TAG_U16 => Ok((
-            Value::U16(u16::from_le_bytes(take(&mut buf, 2)?.try_into().unwrap())),
-            buf,
-        )),
-        TAG_U32 => Ok((
-            Value::U32(u32::from_le_bytes(take(&mut buf, 4)?.try_into().unwrap())),
-            buf,
-        )),
-        TAG_U64 => Ok((
-            Value::U64(u64::from_le_bytes(take(&mut buf, 8)?.try_into().unwrap())),
-            buf,
-        )),
-        TAG_F32 => Ok((
-            Value::F32(f32::from_le_bytes(take(&mut buf, 4)?.try_into().unwrap())),
-            buf,
-        )),
-        TAG_F64 => Ok((
-            Value::F64(f64::from_le_bytes(take(&mut buf, 8)?.try_into().unwrap())),
-            buf,
-        )),
+        TAG_I8 => Ok((Value::I8(i8::from_le_bytes(take::<1>(&mut buf)?)), buf)),
+        TAG_I16 => Ok((Value::I16(i16::from_le_bytes(take::<2>(&mut buf)?)), buf)),
+        TAG_I32 => Ok((Value::I32(i32::from_le_bytes(take::<4>(&mut buf)?)), buf)),
+        TAG_I64 => Ok((Value::I64(i64::from_le_bytes(take::<8>(&mut buf)?)), buf)),
+        TAG_U8 => Ok((Value::U8(take::<1>(&mut buf)?[0]), buf)),
+        TAG_U16 => Ok((Value::U16(u16::from_le_bytes(take::<2>(&mut buf)?)), buf)),
+        TAG_U32 => Ok((Value::U32(u32::from_le_bytes(take::<4>(&mut buf)?)), buf)),
+        TAG_U64 => Ok((Value::U64(u64::from_le_bytes(take::<8>(&mut buf)?)), buf)),
+        TAG_F32 => Ok((Value::F32(f32::from_le_bytes(take::<4>(&mut buf)?)), buf)),
+        TAG_F64 => Ok((Value::F64(f64::from_le_bytes(take::<8>(&mut buf)?)), buf)),
         TAG_STRING => {
             let s = read_len_prefixed(&mut buf)?;
             Ok((
@@ -280,10 +253,10 @@ fn read_value_with_depth(buf: &[u8], depth: usize) -> Result<(Value, &[u8])> {
             ))
         }
         TAG_UUID => {
-            let bytes = take(&mut buf, 16)?;
+            let bytes = take::<16>(&mut buf)?;
             Ok((
                 Value::Uuid(
-                    uuid::Uuid::from_slice(bytes)
+                    uuid::Uuid::from_slice(&bytes)
                         .map_err(|e| std::io::Error::other(format!("cursor: invalid uuid: {e}")))?,
                 ),
                 buf,
@@ -353,7 +326,7 @@ fn read_value_with_depth(buf: &[u8], depth: usize) -> Result<(Value, &[u8])> {
             ))
         }
         TAG_RECORD => {
-            let count = u32::from_le_bytes(take(&mut buf, 4)?.try_into().unwrap()) as usize;
+            let count = u32::from_le_bytes(take::<4>(&mut buf)?) as usize;
             let mut fields = Vec::with_capacity(count.min(64));
             for _ in 0..count {
                 let (field, rest) = read_value_with_depth(buf, depth + 1)?;
@@ -369,17 +342,42 @@ fn read_value_with_depth(buf: &[u8], depth: usize) -> Result<(Value, &[u8])> {
     }
 }
 
-fn write_len_prefixed(bytes: &[u8], out: &mut Vec<u8>) {
-    out.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+/// Write a `u32` length prefix followed by `bytes`.
+///
+/// The length is the frame's own count, so a value longer than `u32::MAX`
+/// cannot be represented: it errors instead of writing a truncated prefix that
+/// would decode as a different, shorter frame (GH #212).
+fn write_len_prefixed(bytes: &[u8], out: &mut Vec<u8>) -> Result<()> {
+    let len = u32::try_from(bytes.len())
+        .map_err(|e| std::io::Error::other(format!("cursor: value too long: {e}")))?;
+    out.extend_from_slice(&len.to_le_bytes());
     out.extend_from_slice(bytes);
+    Ok(())
 }
 
 fn read_len_prefixed(buf: &mut &[u8]) -> Result<Vec<u8>> {
-    let len = u32::from_le_bytes(take(buf, 4)?.try_into().unwrap()) as usize;
-    Ok(take(buf, len)?.to_vec())
+    let len = u32::from_le_bytes(take::<4>(buf)?) as usize;
+    Ok(take_slice(buf, len)?.to_vec())
 }
 
-fn take<'a>(buf: &mut &'a [u8], n: usize) -> Result<&'a [u8]> {
+/// Take exactly `N` bytes off the front, or fail closed.
+///
+/// `N` is a const parameter so a fixed-width decode's length is settled by the
+/// type rather than by a reader checking that the preceding `take` asked for
+/// the right count: `split_first_chunk` hands back the array, and the
+/// `from_le_bytes` conversions at the call sites need no fallible step
+/// (GH #212).
+fn take<const N: usize>(buf: &mut &[u8]) -> Result<[u8; N]> {
+    let Some((head, rest)) = buf.split_first_chunk::<N>() else {
+        return Err(std::io::Error::other("cursor: unexpected end of payload").into());
+    };
+    *buf = rest;
+    Ok(*head)
+}
+
+/// Take `n` bytes off the front, or fail closed — the length-prefixed payload's
+/// runtime length, which has no const to pin it.
+fn take_slice<'a>(buf: &mut &'a [u8], n: usize) -> Result<&'a [u8]> {
     if buf.len() < n {
         return Err(std::io::Error::other("cursor: unexpected end of payload").into());
     }

@@ -276,11 +276,7 @@ impl Panel {
                             (user.display_name)
                         </span>
                         <form method="post" action=(logout)>
-                            <input
-                                type="hidden"
-                                name=(crate::csrf::FIELD_NAME)
-                                value=(csrf)
-                            >
+                            (crate::csrf::field(cx, &csrf))
                             <button
                                 type="submit"
                                 class="text-sm text-muted-foreground underline"

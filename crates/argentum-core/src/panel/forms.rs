@@ -389,7 +389,7 @@ async fn render_form_page<'a, R: Resource>(
                     enctype=(enctype)
                     class="flex flex-col gap-4"
                 >
-                    <input type="hidden" name="csrf_token" value=(csrf)>
+                    (crate::csrf::field(cx, &csrf))
                     (form_html)
                     <div class="flex gap-2">
                         argentum_ui::button(

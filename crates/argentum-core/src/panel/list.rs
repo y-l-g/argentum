@@ -43,8 +43,13 @@ pub(crate) fn retry_url_for_error(
 /// live-search shard (GH #134): the delete form posts to `{list url}/{id}/delete`
 /// and the bulk bar to `{list url}/bulk-delete`, both derived from the panel
 /// declaration (not the request path) so the URLs are right wherever the table
-/// renders. Read-only resources opt out via `Resource::deletable` (GH #96)
-/// instead of rendering buttons that always 403.
+/// renders.
+///
+/// Chrome is opt-in (GH #226) and each affordance is gated by the flag that
+/// promises it — `deletable()` for row + bulk delete, `editable()` for the
+/// per-row Edit link — because the alternative ships Edit/Delete controls whose
+/// actions always answer 403. A resource that wants them declares the flag and
+/// the matching policy predicate together; see [`Resource::deletable`].
 ///
 /// `live` selects the shard variant: the swapped region is everything except
 /// the toolbar the page owns eagerly (the live host owns those slots, so swaps
@@ -431,6 +436,14 @@ mod tests {
                 true
             }
             fn can_view(_cx: &Cx, _record: &Dummy) -> bool {
+                true
+            }
+            // GH #226: the bulk transport this test pins is opt-in chrome, so
+            // the flag and the predicate it promises are declared together.
+            fn can_delete(_cx: &Cx, _record: &Dummy) -> bool {
+                true
+            }
+            fn deletable() -> bool {
                 true
             }
             fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
@@ -837,12 +850,22 @@ mod tests {
         let body = resp.into_body().collect().await.unwrap().to_bytes();
         let html = String::from_utf8_lossy(&body);
         assert!(
+            html.contains("Ada"),
+            "the grid must render the seeded row, or the negative assertions below are vacuous, got {html}"
+        );
+        assert!(
             !html.contains("data-bulk-form") && !html.contains("Bulk Delete"),
             "read-only list must not render bulk chrome, got {html}"
         );
         assert!(
             !html.contains("/delete"),
             "read-only list must not render delete actions, got {html}"
+        );
+        // GH #226: the read-only example must not emit an Edit link it cannot
+        // honour — it declares neither chrome flag, so both are absent.
+        assert!(
+            !html.contains("/edit") && !html.contains(">Edit<"),
+            "read-only list must not render edit actions, got {html}"
         );
     }
 
@@ -1102,6 +1125,11 @@ mod tests {
             fn deletable() -> bool {
                 false
             }
+            // GH #226: chrome is opt-in, so the writable half of this test
+            // declares the flag as well as the predicates that honour it.
+            fn editable() -> bool {
+                true
+            }
             fn can_view_any(_cx: &Cx) -> bool {
                 true
             }
@@ -1189,6 +1217,122 @@ mod tests {
         assert!(
             !html.contains("/edit") && !html.contains(">Edit<"),
             "non-editable list must not render edit links, got {html}"
+        );
+    }
+
+    /// GH #226: chrome is opt-in, so a list whose rows the policy denies renders
+    /// no Edit link — the acceptance test for the flipped `editable()` default.
+    ///
+    /// Before the flip this resource (which never mentions `editable()` or
+    /// `deletable()`) shipped an `/edit` link per row while `can_update`
+    /// answered the untouched default-deny: told they may act, then told they
+    /// may not. The row assertion comes first so the negative assertions below
+    /// cannot pass vacuously; the route assertion then records the one agreeing
+    /// instance this seam can give — a whole-resource flag beside a
+    /// whole-resource default-deny predicate. It is not a general guarantee: a
+    /// per-record predicate still leaves a link the route refuses.
+    #[tokio::test]
+    async fn denied_rows_render_no_edit_chrome() {
+        use crate::resource::Resource;
+        use http_body_util::BodyExt;
+        use std::collections::HashMap;
+
+        #[derive(Debug, toasty::Model, Clone)]
+        struct Dummy {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            name: String,
+        }
+
+        /// The minimum a resource can declare: `can_view_any` so the list
+        /// renders, a grid and a form so there is something to link to, and
+        /// every `can_*` and chrome flag left at its default.
+        struct DeniedResource;
+        impl Resource for DeniedResource {
+            type Model = Dummy;
+            fn slug() -> String {
+                "dummies".to_string()
+            }
+            fn can_view_any(_cx: &Cx) -> bool {
+                true
+            }
+            fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
+                crate::resource::Table::r#for(cx)
+                    .id(|d: &Dummy| d.id.to_string())
+                    .pk(|d: &Dummy| d.id.to_string())
+                    .columns(crate::resource::TextColumn::r#for(
+                        Dummy::fields().name(),
+                        |d: &Dummy| d.name.clone(),
+                    ))
+                    .paginate(25)
+            }
+            fn hydrate_form_values(_cx: &Cx, _record: &Dummy) -> HashMap<String, String> {
+                HashMap::new()
+            }
+            fn form(_cx: &Cx) -> crate::schema::Schema {
+                crate::schema::Schema::new(crate::schema::TextInput::r#for(Dummy::fields().name()))
+            }
+        }
+
+        let mut db = Db::builder()
+            .models(toasty::models!(Dummy))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        let row = toasty::create!(Dummy {
+            name: "Ada".to_string(),
+        })
+        .exec(&mut db)
+        .await
+        .unwrap();
+        let router = Panel::new("admin")
+            .app_context(db)
+            .resource::<DeniedResource>()
+            .auth(crate::Auth::disabled())
+            .build()
+            .expect("panel builds");
+
+        let resp = router
+            .handle(
+                http::Request::builder()
+                    .uri("/admin/dummies")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await;
+        assert!(resp.status().is_success());
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let html = String::from_utf8_lossy(&body);
+        assert!(
+            html.contains("Ada"),
+            "the grid must render the seeded row, or the negative assertions below are vacuous, got {html}"
+        );
+        assert!(
+            !html.contains("/edit") && !html.contains(">Edit<"),
+            "a resource that never opts into edit chrome must render no Edit link, got {html}"
+        );
+        assert!(
+            !html.contains("Bulk Delete")
+                && !html.contains("data-bulk-form")
+                && !html.contains("/delete"),
+            "a resource that never opts into delete chrome must render no delete affordance, got {html}"
+        );
+
+        // The route's own answer for the row the list no longer links.
+        let resp = router
+            .handle(
+                http::Request::builder()
+                    .uri(format!("/admin/dummies/{}/edit", row.id))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await;
+        assert_eq!(
+            resp.status(),
+            http::StatusCode::FORBIDDEN,
+            "the edit route must deny the row the list no longer links"
         );
     }
 

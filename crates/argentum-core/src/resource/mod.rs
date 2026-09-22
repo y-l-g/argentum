@@ -62,10 +62,17 @@ use naming::{kebab_case, pluralize, type_short_name};
 ///   [`bulk_delete_records`](Self::bulk_delete_records)) default to an error
 ///   naming the type, so a resource that never implemented delete answers
 ///   "delete not implemented for …" instead of writing nothing quietly.
-/// - **Claimed by the flags**: [`deletable`](Self::deletable) and
-///   [`editable`](Self::editable) default to `true`, which both registers the
-///   routes and renders the chrome. A read-only resource overrides them to
-///   `false`; that is the declaration that it has nothing to implement.
+/// - **Opt-in chrome**: [`deletable`](Self::deletable) and
+///   [`editable`](Self::editable) default to `false`, so a resource that never
+///   mentions them renders no Edit or Delete affordance and cannot advertise an
+///   action its default-deny predicate refuses. A resource that wants the chrome
+///   declares the flag *and* the matching policy predicate (`can_delete` for
+///   `deletable`, `can_view` + `can_update` for `editable`) — but the flag is
+///   whole-resource while those predicates take a record, so a row-level rule
+///   still leaves a rendered link the route answers 403 (GH #226). That gap is
+///   inherent to the seam. Only [`viewed`](Self::viewed) is per-record exact,
+///   because it is derived from the declared [`view`](Self::view) schema rather
+///   than declared beside it.
 /// - **Default-deny is untouched**: every `can_*` still defaults to `false`, so
 ///   an unconfigured resource exposes no data and no mutation.
 pub trait Resource: Sized + Send + Sync + 'static {
@@ -126,22 +133,37 @@ pub trait Resource: Sized + Send + Sync + 'static {
 
     /// Whether this resource exposes row and bulk delete chrome (GH #96).
     ///
-    /// The default renders Delete buttons and the bulk bar; server policy
-    /// (`can_delete`) still denies regardless. Read-only resources should
-    /// override to `false` so users never reach a 403 after a confirmation
-    /// round-trip.
+    /// Chrome is opt-in (GH #226): the default renders no Delete button, no
+    /// bulk bar and no confirmation dialog, because server policy
+    /// ([`can_delete`](Self::can_delete), default-deny) would answer 403 to
+    /// every one of them. Override to `true` alongside `can_delete` so the
+    /// affordance and the route agree wherever the predicate is
+    /// whole-resource.
+    ///
+    /// Where `can_delete` is per-record the two cannot agree in general: this
+    /// flag has no record to consult, so a row the caller may not delete still
+    /// renders the control and the POST answers 403. That is the seam, not a
+    /// bug, and nothing can enforce the pairing —
+    /// [`Panel::build`](crate::panel::Panel::build) has no record to call
+    /// `can_delete` with, and Rust cannot distinguish an overridden method from
+    /// a defaulted one.
     fn deletable() -> bool {
-        true
+        false
     }
 
     /// Whether this resource exposes row edit chrome (GH #162).
     ///
-    /// The default renders an `Edit` link per row (Filament's `recordActions`
-    /// `EditAction`); server policy (`can_view` + `can_update`) still denies
-    /// in the edit GET/POST regardless. Read-only resources should override
-    /// to `false` alongside [`Self::deletable`].
+    /// Chrome is opt-in (GH #226): the default renders no `Edit` link per row,
+    /// because server policy ([`can_view`](Self::can_view) +
+    /// [`can_update`](Self::can_update), both default-deny) would answer 403 to
+    /// the edit GET. Override to `true` alongside those predicates so the
+    /// affordance and the route agree wherever they are whole-resource.
+    ///
+    /// The same per-record gap as [`Self::deletable`] applies: with a row-level
+    /// `can_update`, a row the caller may not edit still renders the link and
+    /// the edit GET answers 403.
     fn editable() -> bool {
-        true
+        false
     }
 
     /// How one record is displayed on the detail page (GH #187), read-only.

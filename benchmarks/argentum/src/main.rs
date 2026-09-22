@@ -108,6 +108,22 @@ impl Resource for PostResource {
     fn can_view(_cx: &Cx, _record: &Post) -> bool {
         true
     }
+    // GH #226: `editable()`/`deletable()` are opt-in, so the predicates they
+    // promise are declared beside them. `bench_list_path` reads only the two
+    // flags below — these predicates keep the fixture honest about the pairing,
+    // they do not change what is measured.
+    fn can_update(_cx: &Cx, _record: &Post) -> bool {
+        true
+    }
+    fn can_delete(_cx: &Cx, _record: &Post) -> bool {
+        true
+    }
+    fn editable() -> bool {
+        true
+    }
+    fn deletable() -> bool {
+        true
+    }
     fn requires_tenant() -> bool {
         true
     }
