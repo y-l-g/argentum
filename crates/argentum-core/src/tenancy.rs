@@ -15,8 +15,10 @@
 //! Discovery is deliberately narrow and fails closed: the model must declare a
 //! field whose application name is `tenant_id` and whose type is a UUID.
 //! Anything else — no such field, or a same-named field of another type — reads
-//! as "no tenant column", and a gated resource that hits that answers an error
-//! naming itself instead of querying unscoped.
+//! as "no tenant column", and a gated resource that hits that is refused by
+//! `Panel::build` at boot (GH #231), because the declaration is checkable
+//! without a request. A predicate that is only `None` for some tenants still
+//! answers an error naming the resource rather than querying unscoped.
 //!
 //! The authenticated user's tenant is the production source: the auth layer
 //! (ADR-0013) injects `Tenant` into the request `Cx` when the logged-in user

@@ -659,12 +659,12 @@ type ResourceCheck = fn(&Cx) -> Result<(), String>;
 /// it (GH #138).
 ///
 /// The trait ships every method with a default, so a resource that overrides
-/// nothing compiles and only fails when a user reaches a page. The two
-/// essentials that are *declarations* — a renderable table and a form for the
-/// create page — are checked here, at build, and reported with the resource's
-/// type name. Runtime essentials (the record fns) keep their existing loud
-/// failure: a default stub answers "not implemented for <type>", never
-/// silently.
+/// nothing compiles and only fails when a user reaches a page. The essentials
+/// that are *declarations* — a tenant predicate for a gated resource, a
+/// renderable table, a form for the create page, a backed `unique()` marker —
+/// are checked here, at build, and reported with the resource's type name.
+/// Runtime essentials (the record fns) keep their existing loud failure: a
+/// default stub answers "not implemented for <type>", never silently.
 ///
 /// A declaration that panics is a boot failure too (GH #207): `Resource::table`
 /// and `Resource::form` run code that panics on a mis-declaration (a duplicate
@@ -711,6 +711,29 @@ fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
 /// The body of [`check_resource`], unwound through `catch_unwind` so a
 /// mis-declared resource is a registration error rather than a boot panic.
 fn check_resource_inner<R: Resource>(cx: &Cx) -> Result<(), String> {
+    // A gated resource that supplies no tenant predicate is misdeclared, and
+    // the declaration is checkable without a request (GH #231):
+    // `R::tenant_scope` is pure, and the default derivation answers by the
+    // model's *shape* — a `tenant_id` UUID field, found by name and type — not
+    // by the tenant value, so the nil UUID is enough to ask whether a predicate
+    // exists at all. Refusing here is what `build`'s contract promises a
+    // declaration error gets; the request-time error in `apply_tenant_scope`
+    // stays as the backstop for a resource whose predicate is only `None` for
+    // some tenants, and for app code that calls `scoped_query` outside a panel.
+    //
+    // Checked before the page essentials below because the gate and the scope
+    // govern every handler this resource registers, not just the list and
+    // create pages those checks are about.
+    if R::requires_tenant() && R::tenant_scope(uuid::Uuid::nil()).is_none() {
+        return Err(format!(
+            "resource `{}` requires a tenant, but the framework cannot scope it: `{}` declares no \
+             `tenant_id` UUID column to derive the filter from, and the resource does not override \
+             `tenant_scope` — declare the column, override `tenant_scope`, or drop \
+             `requires_tenant` and scope in `query` (GH #231)",
+            std::any::type_name::<R>(),
+            std::any::type_name::<R::Model>(),
+        ));
+    }
     // Chrome is attached by `wire_table_actions`, not by `R::table(cx)`
     // (GH #207): the record-key requirement is only knowable from the same
     // derivation the wiring reads.
@@ -1868,5 +1891,98 @@ mod tests {
             error.contains("panicked while declaring") && error.contains("single-field lens"),
             "the panic's own message must survive into the registration error, got {error}"
         );
+    }
+
+    /// GH #231: a gated resource that supplies no tenant predicate is a
+    /// declaration error, and #223's `tenant_scope` probe is pure — so `build`
+    /// refuses it with an error naming the resource instead of waiting for the
+    /// first request to answer its logged 500. The override half builds, so the
+    /// check rejects a *missing* predicate rather than the hook itself.
+    #[tokio::test]
+    async fn panel_build_rejects_a_gated_resource_with_no_tenant_predicate() {
+        use crate::resource::{Resource, Table, TextColumn};
+
+        /// No `tenant_id` column to derive from, so only an override can scope
+        /// this model.
+        #[derive(Debug, toasty::Model, Clone)]
+        struct Dummy {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            name: String,
+        }
+
+        /// A renderable table, so tenancy is the *only* thing either resource
+        /// below could be refused for: the rejection is the tenant probe's, not
+        /// a page essential's.
+        fn dummy_table(cx: &Cx) -> Table<Dummy> {
+            Table::r#for(cx)
+                .id(|d: &Dummy| d.id.to_string())
+                .columns(TextColumn::r#for(Dummy::fields().name(), |d: &Dummy| {
+                    d.name.clone()
+                }))
+        }
+
+        struct UndiscoverableResource;
+        impl Resource for UndiscoverableResource {
+            type Model = Dummy;
+            fn slug() -> String {
+                "dummies".to_string()
+            }
+            fn requires_tenant() -> bool {
+                true
+            }
+            fn table(cx: &Cx) -> Table<Dummy> {
+                dummy_table(cx)
+            }
+        }
+
+        /// The same undiscoverable model, scoped by the resource itself — the
+        /// shape a row that inherits its tenant uses. `name` stands in for the
+        /// relation path; the point is that the probe accepts a declared
+        /// predicate.
+        struct DeclaredScopeResource;
+        impl Resource for DeclaredScopeResource {
+            type Model = Dummy;
+            fn slug() -> String {
+                "declared".to_string()
+            }
+            fn requires_tenant() -> bool {
+                true
+            }
+            fn tenant_scope(tenant: uuid::Uuid) -> Option<toasty::stmt::Expr<bool>> {
+                Some(Dummy::fields().name().eq(tenant.to_string()))
+            }
+            fn table(cx: &Cx) -> Table<Dummy> {
+                dummy_table(cx)
+            }
+        }
+
+        let db = Db::builder()
+            .models(toasty::models!(Dummy))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        let panel = || {
+            Panel::new("admin")
+                .app_context(db.clone())
+                .auth(crate::Auth::disabled())
+        };
+
+        let Err(error) = panel().resource::<UndiscoverableResource>().build() else {
+            panic!("a gated resource with no tenant predicate must not build");
+        };
+        let error = format!("{error}");
+        assert!(
+            error.contains("UndiscoverableResource")
+                && error.contains("tenant_id")
+                && error.contains("tenant_scope"),
+            "the error must name the resource and both ways to scope it, got {error}"
+        );
+
+        panel()
+            .resource::<DeclaredScopeResource>()
+            .build()
+            .expect("a declared tenant_scope scopes a gated resource");
     }
 }

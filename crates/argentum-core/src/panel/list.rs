@@ -1358,6 +1358,15 @@ mod tests {
             #[key]
             #[auto]
             id: uuid::Uuid,
+            // The conventional column, present so this gated resource has a
+            // scoping predicate the framework can derive (GH #231): a gated
+            // resource without one is a `build` error now, and the gate this
+            // fixture tests is only isolable on a resource that builds. Nothing
+            // here exercises the filter — every asserted request is tenantless
+            // and must 403 at the gate, or tenant-bearing and must pass it —
+            // which is the point: a valid declaration leaves the gate as the
+            // only thing that can deny.
+            tenant_id: uuid::Uuid,
             name: String,
         }
         struct GatedResource;

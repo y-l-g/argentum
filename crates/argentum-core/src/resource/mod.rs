@@ -399,8 +399,10 @@ pub trait Resource: Sized + Send + Sync + 'static {
     ///    re-state the filter, and it is never unscoped because the derivation
     ///    failed either: the model must declare a `tenant_id` UUID column, or
     ///    the resource must declare its own predicate in
-    ///    [`Self::tenant_scope`], and a gated resource that does neither
-    ///    answers an error naming itself rather than serving rows unscoped.
+    ///    [`Self::tenant_scope`], and a gated resource that does neither is
+    ///    refused by [`Panel::build`](crate::Panel::build) at boot (GH #231) —
+    ///    the declaration is checkable without a request — rather than serving
+    ///    rows unscoped or failing per request.
     ///
     /// A resource that must genuinely serve more than the request tenant — a
     /// deliberate cross-tenant view — declares `false` and scopes in
@@ -422,8 +424,10 @@ pub trait Resource: Sized + Send + Sync + 'static {
     ///
     /// Only consulted when [`requires_tenant`](Self::requires_tenant) is
     /// `true`. `None` from a gated resource is a **misdeclaration**, not a way
-    /// to be unscoped: every loader answers an error naming the resource
-    /// instead of running its query without a tenant predicate. There is
+    /// to be unscoped: [`Panel::build`](crate::Panel::build) refuses it at boot
+    /// (GH #231), and every loader keeps answering an error naming the resource
+    /// rather than running its query without a tenant predicate — the backstop
+    /// for a predicate that is only `None` for some tenants. There is
     /// deliberately no override that *removes* the scope — a resource that
     /// must serve more than one tenant declares `requires_tenant() = false`
     /// and owns the scope in [`Self::query`], visibly, with the gate given up.
@@ -663,7 +667,10 @@ pub trait Resource: Sized + Send + Sync + 'static {
 ///   the handler gate gives (GH #87).
 /// - A gated resource that supplies no tenant predicate — no discoverable
 ///   `tenant_id` UUID column, no [`Resource::tenant_scope`] override → an
-///   error naming the resource and the model. It is deliberately **not** a
+///   error naming the resource and the model. [`Panel::build`](crate::Panel::build)
+///   refuses that declaration at boot (GH #231), so this is the backstop for a
+///   predicate that exists but is `None` for the request's tenant, and for app
+///   code that calls this outside a panel. It is deliberately **not** a
 ///   fallback to the unscoped query: discovery is by name, and a silent miss
 ///   would be exactly the leak [`Resource::requires_tenant`] exists to
 ///   prevent.
@@ -701,7 +708,10 @@ pub(crate) fn apply_tenant_scope<R: Resource>(
         // Fail closed and loudly: the resource declared a gate whose scope the
         // framework cannot derive and the resource did not state, and running
         // the query unscoped is the one outcome that declaration exists to
-        // prevent.
+        // prevent. `Panel::build` already refused the resource if *no* tenant
+        // could scope it (GH #231); this is the backstop for a `tenant_scope`
+        // that answers `None` only for this tenant, and for callers outside a
+        // panel.
         tracing::error!(
             resource = R::slug(),
             model = std::any::type_name::<R::Model>(),

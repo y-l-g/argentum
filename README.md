@@ -265,8 +265,11 @@ Three shapes, one gate:
    explicit way out, and the gate goes with it.
 
 A gated resource that supplies no predicate at all — no `tenant_id` column and
-no `tenant_scope` override — answers an error naming itself rather than querying
-tenant-unscoped. There is no override that removes the scope.
+no `tenant_scope` override — fails `Panel::build` (GH #231), the same boot
+failure any other misdeclaration gets, and every loader keeps answering an error
+naming itself rather than querying tenant-unscoped — the backstop for a
+predicate that is only `None` for some tenants. There is no override that
+removes the scope.
 
 ---
 
