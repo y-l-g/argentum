@@ -32,7 +32,9 @@ pub(crate) use pk::{pk_eq_expr, pk_in_expr, pk_is_composite};
 pub use relationship::MAX_RELATIONSHIP_OPTIONS;
 pub(crate) use relationship::OptionLoadError;
 pub use tree::IntoSchema;
-pub(crate) use tree::{Mode, Node, RenderSource, for_each_field, walk_repeater_absence};
+pub(crate) use tree::{
+    Mode, Node, RenderSource, for_each_field, validate_leaf, walk_repeater_absence,
+};
 
 use std::collections::{HashMap, HashSet};
 
@@ -93,7 +95,7 @@ impl Schema {
     ) -> Result<BoxView<'a>> {
         self.render_source(
             cx,
-            &RenderSource::Static {
+            &RenderSource {
                 values,
                 errors: &HashMap::new(),
                 mode: Mode::View,
@@ -161,7 +163,7 @@ impl Schema {
     ) -> Result<BoxView<'a>> {
         self.render_source(
             cx,
-            &RenderSource::Static {
+            &RenderSource {
                 values,
                 errors,
                 mode: Mode::Form,
@@ -239,56 +241,51 @@ impl Schema {
         }
     }
 
-    /// Build a map of `field_name -> TextInput` for validation.
+    /// Every leaf `pick` selects, keyed by field name — the one walk behind the
+    /// per-kind accessors (GH #209). `pick` answers a node's `(field name,
+    /// leaf)`, or `None` when the node is not that kind.
+    fn leaves<T>(&self, pick: impl Fn(&Node) -> Option<(&str, T)>) -> HashMap<String, T> {
+        let mut map = HashMap::new();
+        for node in &self.nodes {
+            for_each_field(node, &mut |n| {
+                if let Some((name, leaf)) = pick(n) {
+                    map.insert(name.to_string(), leaf);
+                }
+            });
+        }
+        map
+    }
+
+    /// Every [`TextInput`] this schema declares, keyed by field name.
     pub fn text_inputs(&self) -> HashMap<String, TextInput> {
-        let mut map = HashMap::new();
-        for node in &self.nodes {
-            for_each_field(node, &mut |n| {
-                if let Node::TextInput(f) = n {
-                    map.insert(f.field_name().to_string(), (**f).clone());
-                }
-            });
-        }
-        map
+        self.leaves(|n| match n {
+            Node::TextInput(f) => Some((f.field_name(), (**f).clone())),
+            _ => None,
+        })
     }
 
-    /// Build a map of `field_name -> Textarea` for validation.
+    /// Every [`Textarea`] this schema declares, keyed by field name.
     pub fn textareas(&self) -> HashMap<String, Textarea> {
-        let mut map = HashMap::new();
-        for node in &self.nodes {
-            for_each_field(node, &mut |n| {
-                if let Node::Textarea(f) = n {
-                    map.insert(f.field_name().to_string(), (**f).clone());
-                }
-            });
-        }
-        map
+        self.leaves(|n| match n {
+            Node::Textarea(f) => Some((f.field_name(), (**f).clone())),
+            _ => None,
+        })
     }
 
-    /// Build a map of `field_name -> Select` for validation.
+    /// Every [`Select`] this schema declares, keyed by field name.
     pub fn select_inputs(&self) -> HashMap<String, Select> {
-        let mut map = HashMap::new();
-        for node in &self.nodes {
-            for_each_field(node, &mut |n| {
-                if let Node::Select(f) = n {
-                    map.insert(f.field_name().to_string(), (**f).clone());
-                }
-            });
-        }
-        map
+        self.leaves(|n| match n {
+            Node::Select(f) => Some((f.field_name(), (**f).clone())),
+            _ => None,
+        })
     }
 
-    /// Build a map of `field_name -> FileUpload` for validation.
+    /// Every [`FileUpload`] this schema declares, keyed by field name.
     pub fn file_uploads(&self) -> HashMap<String, FileUpload> {
-        let mut map = HashMap::new();
-        for node in &self.nodes {
-            for_each_field(node, &mut |n| {
-                if let Node::FileUpload(f) = n {
-                    map.insert(f.field_name().to_string(), (**f).clone());
-                }
-            });
-        }
-        map
+        self.leaves(|n| match n {
+            Node::FileUpload(f) => Some((f.field_name(), (**f).clone())),
+            _ => None,
+        })
     }
 
     /// Whether this schema (including nested Section/Group/Grid/Repeater/Tabs)
@@ -325,46 +322,17 @@ impl Schema {
         let mut errors: HashMap<String, Vec<String>> = HashMap::new();
         let mut skip: HashSet<String> = HashSet::new();
         walk_repeater_absence(&self.nodes, values, &mut skip, &mut errors, false);
-        let inputs = self.text_inputs();
-        for (name, input) in inputs {
-            if skip.contains(&name) {
-                continue;
-            }
-            let val = values.get(&name).map(|s| s.as_str()).unwrap_or("");
-            let errs = input.validate(val);
-            if !errs.is_empty() {
-                errors.insert(name, errs);
-            }
-        }
-        for (name, ta) in self.textareas() {
-            if skip.contains(&name) {
-                continue;
-            }
-            let val = values.get(&name).map(|s| s.as_str()).unwrap_or("");
-            let errs = ta.validate(val);
-            if !errs.is_empty() {
-                errors.insert(name, errs);
-            }
-        }
-        for (name, sel) in self.select_inputs() {
-            if skip.contains(&name) {
-                continue;
-            }
-            let val = values.get(&name).map(|s| s.as_str()).unwrap_or("");
-            let errs = sel.validate(val);
-            if !errs.is_empty() {
-                errors.insert(name, errs);
-            }
-        }
-        for (name, fu) in self.file_uploads() {
-            if skip.contains(&name) {
-                continue;
-            }
-            let val = values.get(&name).map(|s| s.as_str()).unwrap_or("");
-            let errs = fu.validate(val);
-            if !errs.is_empty() {
-                errors.insert(name, errs);
-            }
+        // One walk, one match per node (`validate_leaf`): the single place a
+        // field kind joins validation (GH #209).
+        for node in &self.nodes {
+            for_each_field(node, &mut |n| {
+                let Some((name, errs)) = validate_leaf(n, values) else {
+                    return;
+                };
+                if !skip.contains(name) && !errs.is_empty() {
+                    errors.insert(name.to_string(), errs);
+                }
+            });
         }
         errors
     }

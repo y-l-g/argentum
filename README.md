@@ -7,7 +7,7 @@ Repo layout:
 ```
 argentum/
   crates/argentum-core/    # Panel, Resource trait, Table and Schema types, auth, tenancy
-  crates/argentum-macros/  # derive(Resource) for model and query only
+  crates/argentum-macros/  # derive(EmbeddedForm) for embedded values (GH #191)
   crates/argentum-ui/      # Topcoat primitives plus owned composites (Page, Toast, Theme, ErrorState, CodeBlock, BoundInput)
   examples/showcase/       # runnable admin: /admin/users, /admin/authors, /admin/posts
   benchmarks/              # perf harness plus axum-maud and leptos baselines
@@ -167,16 +167,27 @@ What to know:
   override it to narrow the includes to what the exported columns declared with `TextColumn::needs(..)`
   — an include `query` carries for another page then stops riding along on every export (GH #177,
   ADR-0018). Keep the tenancy filter and whatever your `can_view` reads in the narrowed branch.
-- `table()` and `form()` are hand-written. The derive only fills in `Model` and an optional `query`:
+- `table()` and `form()` are hand-written, and so is the impl itself: a resource is `type Model` plus
+  whichever hooks it uses. There is no `Resource` derive — `derive(Resource)` was removed as dead
+  surface (GH #222); the macros crate ships `derive(EmbeddedForm)` only (GH #191).
 
 ```rust
-#[derive(Resource)]
-#[resource(model = User)]
 struct UserResource;
 
-#[derive(Resource)]
-#[resource(model = Post, query = all_posts)]
+impl Resource for UserResource {
+    type Model = User;
+}
+
 struct PostResource;
+
+impl Resource for PostResource {
+    type Model = Post;
+
+    // the scoping seam, spelled out where it is used
+    fn query(cx: &Cx) -> Query<List<Post>> {
+        // tenancy filter, see below
+    }
+}
 ```
 
 - Record fns (`create_record`, `update_record`, `delete_record`, `bulk_delete_records`) do the writes. Handlers load records, check policy, then call them in a transaction. `create_record` and `update_record` return the row they wrote — `toasty::create!` hands the created one back and a Toasty instance update reloads the model, so both are already in hand — because that is the only way the framework can name what a write committed (GH #112).

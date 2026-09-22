@@ -593,7 +593,7 @@ impl Panel {
     /// override spelled out stays exactly as written, and an override's `order`
     /// decides sidebar order (GH #102).
     pub(crate) fn nav_item<R: Resource>(&self) -> NavigationItem {
-        R::navigation().resolved(&self.prefix, Some(&R::slug()))
+        R::navigation().resolved(&self.prefix, &R::slug())
     }
 }
 

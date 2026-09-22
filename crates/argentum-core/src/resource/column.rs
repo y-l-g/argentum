@@ -299,6 +299,10 @@ impl<M> std::fmt::Debug for TextColumn<M> {
 
 /// Convert a single column or tuple of columns into `Vec<TextColumn<M>>`.
 ///
+/// Tuple members are `TextColumn<M>` themselves: the `Into` bounds these impls
+/// once carried existed for the removed `Column<M>` enum, and nothing else ever
+/// implemented `From<_> for TextColumn<M>` but the reflexive impl (GH #228).
+///
 /// 5-tuple limit: without variadic generics this is idiomatic Rust — matches
 /// `IntoSchema` in `schema.rs`. Tables wider than five columns are rare in
 /// admin UIs; extend (or macro-ify) when a real Resource needs it.
@@ -312,55 +316,35 @@ impl<M> IntoColumns<M> for TextColumn<M> {
     }
 }
 
-impl<M, A, B> IntoColumns<M> for (A, B)
-where
-    A: Into<TextColumn<M>>,
-    B: Into<TextColumn<M>>,
-{
+impl<M> IntoColumns<M> for (TextColumn<M>, TextColumn<M>) {
     fn into_columns(self) -> Vec<TextColumn<M>> {
-        vec![self.0.into(), self.1.into()]
+        vec![self.0, self.1]
     }
 }
 
-impl<M, A, B, C> IntoColumns<M> for (A, B, C)
-where
-    A: Into<TextColumn<M>>,
-    B: Into<TextColumn<M>>,
-    C: Into<TextColumn<M>>,
-{
+impl<M> IntoColumns<M> for (TextColumn<M>, TextColumn<M>, TextColumn<M>) {
     fn into_columns(self) -> Vec<TextColumn<M>> {
-        vec![self.0.into(), self.1.into(), self.2.into()]
+        vec![self.0, self.1, self.2]
     }
 }
 
-impl<M, A, B, C, D> IntoColumns<M> for (A, B, C, D)
-where
-    A: Into<TextColumn<M>>,
-    B: Into<TextColumn<M>>,
-    C: Into<TextColumn<M>>,
-    D: Into<TextColumn<M>>,
-{
+impl<M> IntoColumns<M> for (TextColumn<M>, TextColumn<M>, TextColumn<M>, TextColumn<M>) {
     fn into_columns(self) -> Vec<TextColumn<M>> {
-        vec![self.0.into(), self.1.into(), self.2.into(), self.3.into()]
+        vec![self.0, self.1, self.2, self.3]
     }
 }
 
-impl<M, A, B, C, D, E> IntoColumns<M> for (A, B, C, D, E)
-where
-    A: Into<TextColumn<M>>,
-    B: Into<TextColumn<M>>,
-    C: Into<TextColumn<M>>,
-    D: Into<TextColumn<M>>,
-    E: Into<TextColumn<M>>,
+impl<M> IntoColumns<M>
+    for (
+        TextColumn<M>,
+        TextColumn<M>,
+        TextColumn<M>,
+        TextColumn<M>,
+        TextColumn<M>,
+    )
 {
     fn into_columns(self) -> Vec<TextColumn<M>> {
-        vec![
-            self.0.into(),
-            self.1.into(),
-            self.2.into(),
-            self.3.into(),
-            self.4.into(),
-        ]
+        vec![self.0, self.1, self.2, self.3, self.4]
     }
 }
 

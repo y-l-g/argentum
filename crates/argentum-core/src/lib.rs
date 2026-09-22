@@ -27,7 +27,7 @@ pub mod schema;
 pub mod tenancy;
 pub mod upload;
 
-pub use argentum_macros::{EmbeddedForm, Resource};
+pub use argentum_macros::EmbeddedForm;
 #[cfg(feature = "auth")]
 pub use auth::{Auth, Authenticator, CurrentUser, PasswordAuth};
 pub use notification::{Notification, NotificationStatus};

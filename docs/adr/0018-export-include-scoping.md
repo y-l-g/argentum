@@ -100,3 +100,14 @@ what makes that loud rather than silent.
 - Column subsets for export (exporting fewer columns than the table renders)
   stay out of scope: this decides *which includes* the rendered columns need,
   not which columns are rendered.
+
+## Amendment (2026-09-22, GH #222)
+
+The `#[derive(Resource)]` bullet above is history: that derive is removed. Its
+only Rust call sites were two resource declarations in one test — the reference
+app hand-writes all five impls — so it was dead surface, and the macros crate
+now ships `derive(EmbeddedForm)` alone (GH #191). The bullet's reasoning survives
+in the same direction: with no derive, every resource declares its own `table`,
+so the "a derived resource is never mounted and never serves an export" case
+cannot arise, and `export_query` stays a hand-written override of
+`Resource::query`.

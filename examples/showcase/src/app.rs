@@ -31,10 +31,9 @@ const GEIST: Font = fontsource_font!(GEIST, host: Asset);
 
 /// Admin resource for `User`.
 ///
-/// Manual `Resource` impl — `#[derive(Resource)]` currently only supports
-/// `model`/`query`, not `table`. A custom `Table` is needed so we implement
-/// `Resource` by hand; a `#[resource(table=...)]` derive extension will
-/// replace this later.
+/// A hand-written `Resource` impl: this one declares a custom `Table`, and the
+/// hooks are the declaration, so there is nothing for a derive to fill in
+/// (`derive(Resource)` was removed as dead surface, GH #222).
 pub struct UserResource;
 
 impl Resource for UserResource {

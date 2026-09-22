@@ -1,10 +1,14 @@
+//! A `Resource::query` override scopes the rows the resource sees (GH #52,
+//! #222).
+//!
+//! Both resources are hand-written: the `derive(Resource)` this file used to
+//! exercise was removed as dead surface (GH #222), and the reference app
+//! hand-writes its impls anyway. The coverage is unchanged — the trait's
+//! default returns every row, and the override returns the scoped set.
+
 use argentum_core::Resource;
 use toasty::Db;
 use topcoat::context::{Cx, CxTestBuilder};
-
-fn scoped(_cx: &Cx) -> toasty::stmt::Query<toasty::stmt::List<User>> {
-    toasty::stmt::Query::<toasty::stmt::List<User>>::all().filter(User::fields().name().eq("Ada"))
-}
 
 #[derive(Debug, toasty::Model, Clone)]
 struct User {
@@ -14,16 +18,27 @@ struct User {
     name: String,
 }
 
-#[derive(Resource)]
-#[resource(model = User)]
+/// No `query` override: the trait default returns every row.
 struct Everyone;
 
-#[derive(Resource)]
-#[resource(model = User, query = scoped)]
+impl Resource for Everyone {
+    type Model = User;
+}
+
+/// Overrides `query`: every load through this resource sees only Ada.
 struct JustAda;
 
+impl Resource for JustAda {
+    type Model = User;
+
+    fn query(_cx: &Cx) -> toasty::stmt::Query<toasty::stmt::List<User>> {
+        toasty::stmt::Query::<toasty::stmt::List<User>>::all()
+            .filter(User::fields().name().eq("Ada"))
+    }
+}
+
 #[tokio::test]
-async fn derived_query_override_scopes_rows() {
+async fn query_override_scopes_rows() {
     let mut db = Db::builder()
         .models(toasty::models!(User))
         .connect("sqlite::memory:")

@@ -209,10 +209,7 @@ impl Repeater {
         // A view renders the group's label over its children's values (GH #187):
         // a required group is a statement about a submit that cannot happen
         // here, so no `*`, no `aria-invalid`, no error slot.
-        if let RenderSource::Static {
-            mode: Mode::View, ..
-        } = source
-        {
+        if source.mode == Mode::View {
             let child_view = match &self.children {
                 Some(schema) => Some(schema.render_source(cx, source).await?),
                 None => None,
@@ -237,17 +234,9 @@ impl Repeater {
         // Own error lives under the label key (see `walk_repeater_absence`).
         // Field errors key by field name; repeaters have no field name yet, so the
         // label is the only stable key until repeaters become field-bound (GH #78).
-        // `ignores_errors` is the one place "view mode has no errors" lives, so a
+        // `errors_for` is the one place "view mode has no errors" lives, so a
         // second layout that reads errors cannot forget it.
-        let own_errors: &[String] = if source.ignores_errors() {
-            &[]
-        } else {
-            match source {
-                RenderSource::Static { errors, .. } => {
-                    errors.get(&self.label).map(|v| v.as_slice()).unwrap_or(&[])
-                }
-            }
-        };
+        let own_errors: &[String] = source.errors_for(&self.label);
         let has_error = !own_errors.is_empty();
         let error_text = own_errors.first().cloned().unwrap_or_default();
         // The group's error is described by the fieldset, so it needs an id to
@@ -348,25 +337,28 @@ fn repeater_error_id(label: &str) -> String {
     format!("{}-error", slug.trim_matches('-'))
 }
 
-/// Shared no-JS chrome for the grouping container (GH #73): renders as a
-/// bordered column until the tab script lands, so the markup lives in one
-/// place and the public type stays the seam.
+/// Tabs — layout primitive for tabbed content (in-memory for v1, no JS).
+///
+/// Static `div` grouping for v1 (GH #73): looks like tabs, behaves as stacked
+/// sections until tab JS lands. Documented, not a placeholder bug. The no-JS
+/// chrome — a bordered column wrapping the children — lives here rather than in
+/// a separate container type, which `Tabs` was the only user of (GH #228).
 #[derive(Debug)]
-pub(crate) struct Container {
+pub struct Tabs {
     pub(crate) children: Option<Schema>,
 }
 
-impl Container {
-    fn new() -> Self {
+impl Tabs {
+    pub fn new() -> Self {
         Self { children: None }
     }
 
-    fn schema(mut self, children: impl IntoSchema) -> Self {
+    pub fn schema(mut self, children: impl IntoSchema) -> Self {
         self.children = Some(children.into_schema());
         self
     }
 
-    async fn render_source<'a>(
+    pub(crate) async fn render_source<'a>(
         &self,
         cx: &'a Cx,
         source: &RenderSource<'_>,
@@ -387,31 +379,6 @@ impl Container {
             }
             .boxed())
         }
-    }
-}
-
-/// Tabs — layout primitive for tabbed content (in-memory for v1, no JS).
-///
-/// Static `div` grouping for v1 (GH #73): looks like tabs, behaves as stacked
-/// sections until tab JS lands. Documented, not a placeholder bug.
-#[derive(Debug)]
-pub struct Tabs(pub(crate) Container);
-
-impl Tabs {
-    pub fn new() -> Self {
-        Self(Container::new())
-    }
-
-    pub fn schema(self, children: impl IntoSchema) -> Self {
-        Self(self.0.schema(children))
-    }
-
-    pub(crate) async fn render_source<'a>(
-        &self,
-        cx: &'a Cx,
-        source: &RenderSource<'_>,
-    ) -> Result<BoxView<'a>> {
-        self.0.render_source(cx, source).await
     }
 }
 

@@ -34,30 +34,30 @@ impl Node {
     ) -> Result<BoxView<'a>> {
         match self {
             Node::TextInput(f) => {
-                let val = static_value(source, f.field_name());
-                let errs = static_errors(source, f.field_name());
-                Ok(Box::pin(f.render_with(cx, val, errs, source.mode()))
+                let val = source.value(f.field_name());
+                let errs = source.errors_for(f.field_name());
+                Ok(Box::pin(f.render_with(cx, val, errs, source.mode))
                     .await?
                     .boxed())
             }
             Node::Textarea(f) => {
-                let val = static_value(source, f.field_name());
-                let errs = static_errors(source, f.field_name());
-                Ok(Box::pin(f.render_with(cx, val, errs, source.mode()))
+                let val = source.value(f.field_name());
+                let errs = source.errors_for(f.field_name());
+                Ok(Box::pin(f.render_with(cx, val, errs, source.mode))
                     .await?
                     .boxed())
             }
             Node::Select(f) => {
-                let val = static_value(source, f.field_name());
-                let errs = static_errors(source, f.field_name());
-                Ok(Box::pin(f.render_with(cx, val, errs, source.mode()))
+                let val = source.value(f.field_name());
+                let errs = source.errors_for(f.field_name());
+                Ok(Box::pin(f.render_with(cx, val, errs, source.mode))
                     .await?
                     .boxed())
             }
             Node::FileUpload(f) => {
-                let val = static_value(source, f.field_name());
-                let errs = static_errors(source, f.field_name());
-                Ok(Box::pin(f.render_with(cx, val, errs, source.mode()))
+                let val = source.value(f.field_name());
+                let errs = source.errors_for(f.field_name());
+                Ok(Box::pin(f.render_with(cx, val, errs, source.mode))
                     .await?
                     .boxed())
             }
@@ -73,16 +73,16 @@ impl Node {
 /// Where a schema render reads field values and errors from (GH #154 §4), and
 /// which side of the record the render is for (GH #187).
 ///
-/// `Static` is the create/edit path: plain maps, no bindings. `Mode::View`
-/// renders the detail page, where a field shows its stored value instead of a
-/// control — `Select` its option label, `FileUpload` its path — and layout
-/// keeps the structure it declares.
-pub(crate) enum RenderSource<'a> {
-    Static {
-        values: &'a HashMap<String, String>,
-        errors: &'a HashMap<String, Vec<String>>,
-        mode: Mode,
-    },
+/// Plain maps, no bindings: `Mode::Form` is the create/edit path, and
+/// `Mode::View` renders the detail page, where a field shows its stored value
+/// instead of a control — `Select` its option label, `FileUpload` its path —
+/// and layout keeps the structure it declares. A struct, not the enum #154
+/// introduced: the live variant went with the `Live` render axis (GH #204), so
+/// there is one source shape and no second case left to name (GH #228).
+pub(crate) struct RenderSource<'a> {
+    pub(crate) values: &'a HashMap<String, String>,
+    pub(crate) errors: &'a HashMap<String, Vec<String>>,
+    pub(crate) mode: Mode,
 }
 
 /// Which reading of a record a render is for (GH #187).
@@ -95,39 +95,45 @@ pub(crate) enum Mode {
 }
 
 impl RenderSource<'_> {
-    /// Which reading this render is for.
-    pub(crate) fn mode(&self) -> Mode {
-        match self {
-            RenderSource::Static { mode, .. } => *mode,
+    /// The submitted value for `name`, if this render has one.
+    pub(crate) fn value(&self, name: &str) -> Option<&str> {
+        self.values.get(name).map(String::as_str)
+    }
+
+    /// The errors for `name`, if this render has any.
+    ///
+    /// View mode never has any (GH #187): the detail page renders a stored
+    /// record, so a validation slot would describe a submit that cannot happen.
+    /// The one place that rule lives, so a layout reading errors cannot forget
+    /// it.
+    pub(crate) fn errors_for(&self, name: &str) -> &[String] {
+        if self.mode == Mode::View {
+            return &[];
         }
-    }
-
-    /// Whether this render ignores validation errors (view mode does: a stored
-    /// record has nothing to be invalid about).
-    pub(crate) fn ignores_errors(&self) -> bool {
-        self.mode() == Mode::View
+        self.errors.get(name).map(|v| v.as_slice()).unwrap_or(&[])
     }
 }
 
-/// The static value for `name`, if this render has one.
-fn static_value<'a>(source: &'a RenderSource<'_>, name: &str) -> Option<&'a str> {
-    match source {
-        RenderSource::Static { values, .. } => values.get(name).map(String::as_str),
-    }
+/// The submitted value for `name`; an absent key validates as `""` (GH #89).
+fn value_of<'a>(values: &'a HashMap<String, String>, name: &str) -> &'a str {
+    values.get(name).map(String::as_str).unwrap_or("")
 }
 
-/// The static errors for `name`, if this render has any.
+/// Validate the field leaf in `node` (GH #209): the field name and the errors
+/// for its submitted value, or `None` when `node` is a container or repeater.
 ///
-/// View mode never has any (GH #187): the detail page renders a stored record,
-/// so a validation slot would describe a submit that cannot happen.
-fn static_errors<'a>(source: &'a RenderSource<'_>, name: &str) -> &'a [String] {
-    if source.ignores_errors() {
-        return &[];
-    }
-    match source {
-        RenderSource::Static { errors, .. } => {
-            errors.get(name).map(|v| v.as_slice()).unwrap_or(&[])
-        }
+/// The one match over field kinds in the validation path — a new kind is one
+/// arm here, not another accessor copy and another loop.
+pub(crate) fn validate_leaf<'a>(
+    node: &'a Node,
+    values: &HashMap<String, String>,
+) -> Option<(&'a str, Vec<String>)> {
+    match node {
+        Node::TextInput(f) => Some((f.field_name(), f.validate(value_of(values, f.field_name())))),
+        Node::Textarea(f) => Some((f.field_name(), f.validate(value_of(values, f.field_name())))),
+        Node::Select(f) => Some((f.field_name(), f.validate(value_of(values, f.field_name())))),
+        Node::FileUpload(f) => Some((f.field_name(), f.validate(value_of(values, f.field_name())))),
+        _ => None,
     }
 }
 
@@ -185,7 +191,7 @@ impl Node {
             Node::Section(s) => s.children.as_ref(),
             Node::Group(g) => g.children.as_ref(),
             Node::Grid(g) => g.children.as_ref(),
-            Node::Tabs(t) => t.0.children.as_ref(),
+            Node::Tabs(t) => t.children.as_ref(),
             Node::TextInput(_) | Node::Textarea(_) | Node::Select(_) | Node::FileUpload(_) => None,
         }
     }
@@ -193,10 +199,11 @@ impl Node {
 
 /// The one field walk: visit `node`, then every node nested in containers.
 ///
-/// Container recursion lives here (with `Node::children`), so the
-/// `*_inputs` collectors and `Schema::field_names` share one traversal: a
-/// new field variant adds arms at their leaf matches, and a new container
-/// variant touches only `children` plus this walk.
+/// Container recursion lives here (with `Node::children`), so `Schema::leaves`
+/// (and so the `*_inputs` collectors), `Schema::field_names` and
+/// `Schema::validate` share one traversal: a new field variant adds an arm at
+/// the leaf matches ([`validate_leaf`], the accessors' `pick`), and a new
+/// container variant touches only `children` plus this walk.
 pub(crate) fn for_each_field(node: &Node, f: &mut impl FnMut(&Node)) {
     f(node);
     if let Some(children) = node.children() {

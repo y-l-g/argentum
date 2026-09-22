@@ -2,8 +2,6 @@
 //!
 //! Moved verbatim from `resource.rs` (GH #133): no behavior change.
 
-use topcoat::context::Cx;
-
 use super::Resource;
 
 /// Where a sidebar entry points (GH #165).
@@ -101,20 +99,16 @@ impl NavigationItem {
     ///
     /// [`Resource::navigation`] cannot know its panel — it takes no `Cx` and no
     /// prefix — so the entry it declares carries no URL. The Panel consumes it
-    /// through `Panel::resource`, which passes its own prefix and `Some(slug)`,
-    /// the resource's mount segment; `None` resolves to the panel root itself,
-    /// a case only tests exercise since GH #221.
+    /// through `Panel::resource`, which passes its own prefix and the
+    /// resource's mount slug; there is no panel-root case, since nothing
+    /// generates an entry without a resource behind it (GH #228).
     ///
     /// There is no guessing here: a URL an author wrote out — including one
     /// that happens to look like `/admin/{slug}` — is a different
     /// [`NavTarget`] variant and is never rewritten.
-    pub(crate) fn resolved(mut self, prefix: &str, slug: Option<&str>) -> Self {
+    pub(crate) fn resolved(mut self, prefix: &str, slug: &str) -> Self {
         if matches!(self.target, NavTarget::Derived) {
-            let mount = mount(prefix);
-            self.target = NavTarget::Url(match slug {
-                Some(slug) => format!("{mount}/{slug}"),
-                None => mount,
-            });
+            self.target = NavTarget::Url(format!("{}/{slug}", mount(prefix)));
         }
         self
     }
@@ -126,17 +120,6 @@ impl NavigationItem {
         self.target.url()
     }
 
-    /// Whether this item is current for the request in `cx`: an exact path
-    /// match, or a prefix match on a slash boundary — uniform for every item
-    /// (GH #39/#148: since resources mount at `{prefix}/{slug}`, no generated
-    /// item points at the bare panel prefix, so the old root-exact special case
-    /// is gone and the doc no longer promises one). An unresolved item is
-    /// current nowhere.
-    pub fn is_current(&self, cx: &Cx) -> bool {
-        let current = topcoat::router::request::uri(cx).path();
-        self.is_current_path(current)
-    }
-
     /// Whether this item is current for the given request path (without query):
     /// an exact match, or a prefix match on a slash boundary (so
     /// `/admin/users` is active on `/admin/users/create` but not on
@@ -144,9 +127,10 @@ impl NavigationItem {
     /// `{prefix}/{slug}` (GH #39), no generated item points at the bare panel
     /// prefix that needed the old root-exact special case.
     ///
-    /// Split from `is_current` so `Panel::render_shell`, which takes the request
-    /// path as a parameter, can judge an item without a `Cx` — and so the shell
-    /// stays testable without a full `http::request::Parts` in `Cx`.
+    /// This is the whole active-state contract: `Panel::render_shell` takes the
+    /// request path as a parameter, so it can judge an item without a `Cx` (and
+    /// the shell stays testable without a full `http::request::Parts` in `Cx`).
+    /// The `Cx`-taking wrapper went with its last caller (GH #228).
     pub fn is_current_path(&self, current_path: &str) -> bool {
         let Some(url) = self.url() else {
             // Unresolved: no URL to be current for.
@@ -176,7 +160,7 @@ fn mount(prefix: &str) -> String {
 mod tests {
     use super::*;
     use toasty::stmt::List;
-    use topcoat::context::CxTestBuilder;
+    use topcoat::context::Cx;
 
     #[derive(Debug, Clone, toasty::Model)]
     struct User {
@@ -219,7 +203,7 @@ mod tests {
         let derived = NavigationItem::for_resource::<UserResource>();
 
         // Non-`/admin` panel → this panel's mount, never `/admin/users`.
-        let resolved = derived.clone().resolved("/backoffice", Some("users"));
+        let resolved = derived.clone().resolved("/backoffice", "users");
         assert_eq!(resolved.url(), Some("/backoffice/users"));
         assert_eq!(resolved.label, "Users");
         assert_eq!(
@@ -227,37 +211,29 @@ mod tests {
                 order: -1,
                 ..derived.clone()
             }
-            .resolved("/backoffice", Some("users"))
+            .resolved("/backoffice", "users")
             .order,
             -1
         );
         // Already resolved: resolving again is a no-op, however the second
         // panel is mounted.
         assert_eq!(
-            resolved.clone().resolved("elsewhere", Some("users")).url(),
+            resolved.clone().resolved("elsewhere", "users").url(),
             Some("/backoffice/users")
         );
 
         // Mount normalisation follows `Panel::new`.
         assert_eq!(
-            derived.clone().resolved("/admin", Some("users")).url(),
+            derived.clone().resolved("/admin", "users").url(),
             Some("/admin/users")
         );
         assert_eq!(
-            derived
-                .clone()
-                .resolved("/backoffice/", Some("users"))
-                .url(),
+            derived.clone().resolved("/backoffice/", "users").url(),
             Some("/backoffice/users")
         );
         assert_eq!(
-            derived.clone().resolved("", Some("users")).url(),
+            derived.clone().resolved("", "users").url(),
             Some("/admin/users")
-        );
-        // A resource-less entry (`None`) lands on the panel root itself.
-        assert_eq!(
-            derived.clone().resolved("/backoffice", None).url(),
-            Some("/backoffice")
         );
 
         // Explicit URLs survive verbatim — including `/admin/users`, which the
@@ -270,7 +246,7 @@ mod tests {
         ] {
             let spelled_out = NavigationItem::at("Users", url);
             assert_eq!(
-                spelled_out.resolved("backoffice", Some("users")).url(),
+                spelled_out.resolved("backoffice", "users").url(),
                 Some(url),
                 "explicit URL must survive resolution"
             );
@@ -301,24 +277,5 @@ mod tests {
         // unrelated
         assert!(!users.is_current_path("/other"));
         assert!(!showcase.is_current_path("/admin/users"));
-    }
-
-    #[test]
-    fn navigation_item_is_current_via_cx() {
-        let item = NavigationItem::at("Showcase", "/admin/showcase");
-        let (parts, ()) = http::Request::builder()
-            .uri("/admin/showcase/table")
-            .body(())
-            .unwrap()
-            .into_parts();
-        let cx = CxTestBuilder::new().request_context(parts).build();
-        assert!(item.is_current(&cx));
-        let (parts2, ()) = http::Request::builder()
-            .uri("/admin/showcases")
-            .body(())
-            .unwrap()
-            .into_parts();
-        let cx2 = CxTestBuilder::new().request_context(parts2).build();
-        assert!(!item.is_current(&cx2));
     }
 }
