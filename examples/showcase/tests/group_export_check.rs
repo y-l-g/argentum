@@ -112,6 +112,15 @@ async fn posts_export_streams_csv_with_content_disposition() {
         "missing author name via include {}",
         csv
     );
+    // Every relation-reading column declares the include its projection reads
+    // (GH #177), so the export's narrowed query loads them all and no cell
+    // falls back to the unloaded marker (the columns' `debug_assert` is the
+    // other half of that contract — it panics first).
+    assert!(
+        !csv.contains("(unloaded)"),
+        "a declared include must reach the export query, got {}",
+        csv
+    );
     // Should respect filters if provided
     let resp = client
         .get("/admin/posts/export?filters=status:published")

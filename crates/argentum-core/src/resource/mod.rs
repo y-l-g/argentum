@@ -25,7 +25,7 @@ mod relation;
 mod state;
 mod table;
 
-pub use column::{Column, IntoColumns, TextColumn};
+pub use column::{Column, IncludeNeeds, IntoColumns, TextColumn};
 pub(crate) use commit::run_after_commit;
 pub use commit::{Committed, Mutation};
 pub use filter::{DateFilter, Filter, IntoFilters, SelectFilter, TernaryFilter, VariantFilter};
@@ -272,6 +272,65 @@ pub trait Resource: Sized + Send + Sync + 'static {
     /// make a mismatch safe rather than merely documented.
     fn query(_cx: &Cx) -> toasty::stmt::Query<List<Self::Model>> {
         toasty::stmt::Query::<List<Self::Model>>::all()
+    }
+
+    /// The CSV export's base query: [`Self::query`], narrowed to the relations
+    /// the rendered columns declared (GH #177).
+    ///
+    /// The export writes a cell per column, so it asks the table which
+    /// relations those columns' projections read ([`Table::include_needs`] —
+    /// each column declares them with [`TextColumn::needs`]) and hands the
+    /// answer here. Overriding this is how a resource stops paying for
+    /// includes it carries for other pages: a relation `query` loads for the
+    /// detail page or the live list rides along on an export only when a
+    /// rendered column declared it.
+    ///
+    /// **The default ignores `needs` and returns [`Self::query`] unchanged**,
+    /// so a resource that overrides nothing behaves exactly as before.
+    /// Over-fetching a relation nothing reads costs a join; dropping one a
+    /// column does read breaks the render — the default takes the safe side.
+    ///
+    /// A resource splits its base query in two, one branch per declared name:
+    ///
+    /// ```ignore
+    /// impl PostResource {
+    ///     fn base(cx: &Cx, needs: &IncludeNeeds) -> Query<List<Post>> {
+    ///         let mut q = /* tenancy filter, as in query() */;
+    ///         if needs.wants("author") { q = q.include(inc_author); }
+    ///         if needs.wants("comments") { q = q.include(inc_comments); }
+    ///         q
+    ///     }
+    /// }
+    ///
+    /// fn query(cx: &Cx) -> Query<List<Post>> {
+    ///     Self::base(cx, &IncludeNeeds::from(["author", "comments"]))
+    /// }
+    ///
+    /// fn export_query(cx: &Cx, needs: &IncludeNeeds) -> Query<List<Post>> {
+    ///     Self::base(cx, needs)
+    /// }
+    /// ```
+    ///
+    /// # What an override must keep
+    ///
+    /// - **The scope of [`Self::query`].** This is the same tenancy/soft-delete
+    ///   seam (ADR-0002), and the export is a reader like any other: an
+    ///   override that drops the filter exports other tenants' rows.
+    /// - **Whatever the policy path reads.** The export's visibility scan calls
+    ///   [`Self::can_view`] on every row of both passes, before any cell is
+    ///   written, so a `can_view` that reads a relation needs that relation
+    ///   included even though no column declared it. Reading an un-included
+    ///   relation panics in `Deferred::get`; add the name with
+    ///   [`IncludeNeeds::insert`].
+    /// - **Every name a column declared.** A declared name with no matching
+    ///   include renders an unloaded relation, which the column's `is_unloaded`
+    ///   guard (ADR-0011) reports in test builds instead of a silent `"-"`.
+    ///
+    /// The **list page does not use this**: it keeps inheriting [`Self::query`]
+    /// (the #172 grill's decision 10), so only the export's constant-factor
+    /// over-fetch is addressed here.
+    fn export_query(cx: &Cx, _needs: &IncludeNeeds) -> toasty::stmt::Query<List<Self::Model>> {
+        Self::query(cx)
     }
 
     /// Whether this resource requires a tenant in every handler (GH #87).

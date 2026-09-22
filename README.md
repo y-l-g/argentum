@@ -124,6 +124,8 @@ One resource maps one Toasty model to its admin UI:
 pub trait Resource: Sized + Send + Sync + 'static {
     type Model: toasty::schema::Model + Send + Sync + 'static;
     fn query(_cx: &Cx) -> Query<List<Self::Model>>; // default: Query::all()
+    fn export_query(_cx: &Cx, _needs: &IncludeNeeds)
+        -> Query<List<Self::Model>>;                // default: query(cx), unchanged
     fn table(_cx: &Cx) -> Table<Self::Model>;       // default: Table::new(), empty until columns + id
     fn form(_cx: &Cx) -> Schema;                    // default: Schema::empty()
     // plus can_* policy fns (default deny), slug/navigation/requires_tenant
@@ -158,13 +160,22 @@ What to know:
   the resource resolves it to `{prefix}/{slug}`, and a resource never links at `/admin` on a panel
   mounted elsewhere. A URL you spell out instead (`NavigationItem::at(..)`, `from_href`) is kept
   verbatim — use it to link somewhere other than the resource's list page.
-- `query()` is the scoping seam. All list, export, and relation loads use it. Put tenancy here.
-- `table()` and `form()` are hand-written. The derive only fills in `Model` and an optional `query`:
+- `query()` is the scoping seam. All list, export, and relation loads use it. Put tenancy here. The
+  export builds its base query from `export_query(cx, needs)`, which defaults to `query(cx)` unchanged;
+  override it to narrow the includes to what the exported columns declared with `TextColumn::needs(..)`
+  — an include `query` carries for another page then stops riding along on every export (GH #177,
+  ADR-0018). Keep the tenancy filter and whatever your `can_view` reads in the narrowed branch.
+- `table()` and `form()` are hand-written. The derive only fills in `Model` and the optional
+  `query` / `export_query`:
 
 ```rust
 #[derive(Resource)]
 #[resource(model = User)]
 struct UserResource;
+
+#[derive(Resource)]
+#[resource(model = Post, query = all_posts, export_query = export_posts)]
+struct PostResource;
 ```
 
 - Record fns (`create_record`, `update_record`, `delete_record`, `bulk_delete_records`) do the writes. Handlers load records, check policy, then call them in a transaction. `create_record` and `update_record` return the row they wrote — `toasty::create!` hands the created one back and a Toasty instance update reloads the model, so both are already in hand — because that is the only way the framework can name what a write committed (GH #112).
@@ -411,12 +422,13 @@ let posts = Post::all()
 // then `post.author.get()` with no extra query
 ```
 
-Guard computed cells against a missing preload so a query change fails loudly, not with blank data:
+Guard computed cells against a missing preload so a query change fails loudly, not with blank data — and declare the relation, which is what the CSV export's narrowed query is built from (GH #177):
 
 ```rust
 TextColumn::computed("Author", |p: &Post| {
     if p.author.is_unloaded() { "(unloaded)".into() } else { p.author.get().name.clone() }
 })
+.needs(["author"])
 ```
 
 Schema setup: `db.push_schema().await` for prototypes, `toasty-cli` migrations for prod.
