@@ -1,4 +1,4 @@
-//! Table columns: [`TextColumn`]/[`Column`] plus the [`IntoColumns`] seam.
+//! Table columns: [`TextColumn`] plus the [`IntoColumns`] seam.
 //!
 //! Moved verbatim from `resource.rs` (GH #133): no behavior change.
 
@@ -297,137 +297,63 @@ impl<M> std::fmt::Debug for TextColumn<M> {
     }
 }
 
-/// Column enum — Phase 1: only `Text`. Will generalize to `Number`, `Badge`, etc. later.
-#[derive(Clone)]
-pub enum Column<M> {
-    Text(TextColumn<M>),
-}
-
-impl<M> From<TextColumn<M>> for Column<M> {
-    fn from(v: TextColumn<M>) -> Self {
-        Column::Text(v)
-    }
-}
-
-impl<M> Column<M>
-where
-    M: toasty::schema::Model,
-{
-    pub fn label(&self) -> &str {
-        match self {
-            Column::Text(c) => c.label(),
-        }
-    }
-
-    /// App-level field name (from the lens); identifies the column in URLs.
-    pub fn name(&self) -> &str {
-        match self {
-            Column::Text(c) => c.name(),
-        }
-    }
-
-    /// The relations this column's projection declared (GH #177).
-    pub fn include_names(&self) -> &[&'static str] {
-        match self {
-            Column::Text(c) => c.include_names(),
-        }
-    }
-
-    pub fn is_searchable(&self) -> bool {
-        match self {
-            Column::Text(c) => c.is_searchable(),
-        }
-    }
-
-    pub fn is_sortable(&self) -> bool {
-        match self {
-            Column::Text(c) => c.is_sortable(),
-        }
-    }
-
-    /// Render the cell for one row via the column's typed projection.
-    pub fn render_cell(&self, row: &M) -> String {
-        match self {
-            Column::Text(c) => c.render_cell(row),
-        }
-    }
-
-    pub fn to_search_expr(&self, term: &str) -> Option<Expr<bool>> {
-        match self {
-            Column::Text(c) => c.to_search_expr(term),
-        }
-    }
-
-    pub fn to_order_by(&self, descending: bool) -> Option<OrderByExpr> {
-        match self {
-            Column::Text(c) => c.to_order_by(descending),
-        }
-    }
-}
-
-/// Convert a single column or tuple of columns into `Vec<Column<M>>`.
+/// Convert a single column or tuple of columns into `Vec<TextColumn<M>>`.
 ///
 /// 5-tuple limit: without variadic generics this is idiomatic Rust — matches
 /// `IntoSchema` in `schema.rs`. Tables wider than five columns are rare in
 /// admin UIs; extend (or macro-ify) when a real Resource needs it.
 pub trait IntoColumns<M> {
-    fn into_columns(self) -> Vec<Column<M>>;
+    fn into_columns(self) -> Vec<TextColumn<M>>;
 }
 
 impl<M> IntoColumns<M> for TextColumn<M> {
-    fn into_columns(self) -> Vec<Column<M>> {
-        vec![self.into()]
-    }
-}
-
-impl<M> IntoColumns<M> for Column<M> {
-    fn into_columns(self) -> Vec<Column<M>> {
+    fn into_columns(self) -> Vec<TextColumn<M>> {
         vec![self]
     }
 }
 
 impl<M, A, B> IntoColumns<M> for (A, B)
 where
-    A: Into<Column<M>>,
-    B: Into<Column<M>>,
+    A: Into<TextColumn<M>>,
+    B: Into<TextColumn<M>>,
 {
-    fn into_columns(self) -> Vec<Column<M>> {
+    fn into_columns(self) -> Vec<TextColumn<M>> {
         vec![self.0.into(), self.1.into()]
     }
 }
 
 impl<M, A, B, C> IntoColumns<M> for (A, B, C)
 where
-    A: Into<Column<M>>,
-    B: Into<Column<M>>,
-    C: Into<Column<M>>,
+    A: Into<TextColumn<M>>,
+    B: Into<TextColumn<M>>,
+    C: Into<TextColumn<M>>,
 {
-    fn into_columns(self) -> Vec<Column<M>> {
+    fn into_columns(self) -> Vec<TextColumn<M>> {
         vec![self.0.into(), self.1.into(), self.2.into()]
     }
 }
 
 impl<M, A, B, C, D> IntoColumns<M> for (A, B, C, D)
 where
-    A: Into<Column<M>>,
-    B: Into<Column<M>>,
-    C: Into<Column<M>>,
-    D: Into<Column<M>>,
+    A: Into<TextColumn<M>>,
+    B: Into<TextColumn<M>>,
+    C: Into<TextColumn<M>>,
+    D: Into<TextColumn<M>>,
 {
-    fn into_columns(self) -> Vec<Column<M>> {
+    fn into_columns(self) -> Vec<TextColumn<M>> {
         vec![self.0.into(), self.1.into(), self.2.into(), self.3.into()]
     }
 }
 
 impl<M, A, B, C, D, E> IntoColumns<M> for (A, B, C, D, E)
 where
-    A: Into<Column<M>>,
-    B: Into<Column<M>>,
-    C: Into<Column<M>>,
-    D: Into<Column<M>>,
-    E: Into<Column<M>>,
+    A: Into<TextColumn<M>>,
+    B: Into<TextColumn<M>>,
+    C: Into<TextColumn<M>>,
+    D: Into<TextColumn<M>>,
+    E: Into<TextColumn<M>>,
 {
-    fn into_columns(self) -> Vec<Column<M>> {
+    fn into_columns(self) -> Vec<TextColumn<M>> {
         vec![
             self.0.into(),
             self.1.into(),
@@ -435,14 +361,6 @@ where
             self.3.into(),
             self.4.into(),
         ]
-    }
-}
-
-impl<M> std::fmt::Debug for Column<M> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Column::Text(c) => std::fmt::Debug::fmt(c, f),
-        }
     }
 }
 

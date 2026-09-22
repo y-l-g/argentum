@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use argentum_core::{
     Brand, DateFilter, FileUpload, Grid, Group, IncludeNeeds, Panel, RelationColumn,
     RelationColumns, Repeater, Resource, Schema, Section, Select, SelectFilter, Table, Tabs,
-    TernaryFilter, TextColumn, TextInput, Textarea, Uploader, VariantFilter, Wizard, read_embedded,
+    TernaryFilter, TextColumn, TextInput, Textarea, Uploader, VariantFilter, read_embedded,
     render_relation, submitted, tenant_id, write_embedded,
 };
 use toasty::Db;
@@ -85,10 +85,11 @@ impl Resource for UserResource {
     }
 
     fn form(_cx: &Cx) -> Schema {
-        // Profile as a single-step wizard: the shipped Wizard seam grouping
-        // a real section, not a throwaway demo page.
+        // Profile grouped in the shipped Tabs container (GH #220: one layout
+        // seam, no twin), around a real section rather than a throwaway demo
+        // page.
         Schema::new(
-            Wizard::new().schema(
+            Tabs::new().schema(
                 Section::new("Profile").schema((
                     TextInput::r#for(User::fields().name()).placeholder("Ada Lovelace"),
                     TextInput::r#for(User::fields().email())

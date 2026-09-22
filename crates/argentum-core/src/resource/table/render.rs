@@ -129,9 +129,9 @@ impl<M> Table<M> {
             .into());
         };
         let row_key = row_key.clone();
-        let is_boundary = self.is_boundary;
-        // Eager skeleton demo path (Table::defer(true)): same markup the
-        // streamed path uses as its suspense fallback.
+        // Eager skeleton path (`without_skeleton` cleared the flag on the
+        // streamed swap): same markup the streamed path uses as its suspense
+        // fallback.
         if self.show_skeleton {
             return self.render_skeleton(cx).await;
         }
@@ -509,7 +509,8 @@ impl<M> Table<M> {
         };
 
         // One chrome wrapper for both branches: search bar, filter bar, bulk
-        // bar, warning, group headers, grid, pager, dialog (GH #133).
+        // bar, warning, group headers, grid, pager, dialog (GH #133), inside
+        // the `data-boundary` region the morph swaps (GH #160).
         let inner = view! {
             cx =>
             <div
@@ -538,11 +539,7 @@ impl<M> Table<M> {
                 }
             </div>
         };
-        Ok(if is_boundary {
-            view! { cx => <div data-boundary="table">(inner)</div> }.boxed()
-        } else {
-            inner.boxed()
-        })
+        Ok(view! { cx => <div data-boundary="table">(inner)</div> }.boxed())
     }
 
     /// The row-delete confirmation dialog (GH #151), rendered when the URL
@@ -637,9 +634,8 @@ impl<M> Table<M> {
 
     /// The skeleton placeholder grid — three pulsing rows under the real
     /// column header. This is the [`suspense`] fallback for tables whose rows
-    /// stream in ([`Table::render`] also uses it for the eager
-    /// `defer(true)` demo path). Wrapped in the same `data-boundary` region
-    /// as the real grid so the markup shape matches when the swap arrives.
+    /// stream in. Wrapped in the same `data-boundary` region as the real grid
+    /// so the markup shape matches when the swap arrives.
     /// Carries `aria-busy` while loading plus toolbar/pager pulse placeholders
     /// (GH #98) so the streamed chrome lands without a layout shift.
     pub async fn render_skeleton<'a>(&self, cx: &'a Cx) -> Result<BoxView<'a>>
@@ -712,13 +708,9 @@ impl<M> Table<M> {
                 </div>
             </div>
         };
-        Ok(if self.is_boundary {
-            // The busy state rides on the morph boundary (GH #160) so assistive
-            // tech sees the live region, not just the swapped root below it.
-            view! { cx => <div data-boundary="table" aria-busy="true">(inner)</div> }.boxed()
-        } else {
-            inner.boxed()
-        })
+        // The busy state rides on the morph boundary (GH #160) so assistive
+        // tech sees the live region, not just the swapped root below it.
+        Ok(view! { cx => <div data-boundary="table" aria-busy="true">(inner)</div> }.boxed())
     }
 
     /// The search toolbar (GET form); live tables instead render the host
@@ -2504,15 +2496,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn skeleton_shares_table_root_and_defer_clears_for_swap() {
+    async fn skeleton_shares_the_table_root_with_the_swapped_grid() {
         let cx = CxTestBuilder::new().build();
-        let deferred = Table::<User>::r#for(&cx)
+        let tbl = Table::<User>::r#for(&cx)
             .id(|u| u.id.to_string())
             .pk(|u| u.id.to_string())
-            .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()))
-            .defer(true);
-        assert!(deferred.is_defer());
-        let html = deferred
+            .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()));
+        let html = tbl
             .render_skeleton(&cx)
             .await
             .unwrap()
@@ -2537,14 +2527,12 @@ mod tests {
             html.contains("aria-hidden"),
             "skeleton must hold chrome placeholders, got {html}"
         );
-        // The streamed swap renders through a copy with the flag cleared.
-        let swapped = deferred.without_skeleton();
-        assert!(!swapped.is_defer());
+        // The swap payload is the grid itself, under the same boundary region.
         let rows = vec![User {
             id: uuid::Uuid::nil(),
             name: "Ada".to_string(),
         }];
-        let html = swapped
+        let html = tbl
             .render_with_state(&cx, rows.into(), &TableState::default(), "/admin/users")
             .await
             .unwrap()
@@ -2552,6 +2540,10 @@ mod tests {
             .await
             .unwrap()
             .render(&cx);
+        assert!(
+            html.contains("data-table-root") && html.contains("data-boundary=\"table\""),
+            "the swapped grid must land in the skeleton's region, got {html}"
+        );
         assert!(
             html.contains("Ada"),
             "swap payload must be rows, got {html}"

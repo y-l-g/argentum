@@ -165,7 +165,7 @@ impl<M: toasty::schema::Model> TablePage<M> {
 /// `?sort=<column>&dir=asc|desc`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Sort {
-    /// The app-level field name of the column (matches [`Column::name`]).
+    /// The app-level field name of the column (matches [`TextColumn::name`]).
     pub column: String,
     /// `true` for `dir=desc`.
     pub descending: bool,

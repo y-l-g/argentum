@@ -25,7 +25,7 @@ mod relation;
 mod state;
 mod table;
 
-pub use column::{Column, IncludeNeeds, IntoColumns, TextColumn};
+pub use column::{IncludeNeeds, IntoColumns, TextColumn};
 pub(crate) use commit::run_after_commit;
 pub use commit::{Committed, Mutation};
 pub use filter::{DateFilter, Filter, IntoFilters, SelectFilter, TernaryFilter, VariantFilter};

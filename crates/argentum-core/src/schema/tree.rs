@@ -6,55 +6,33 @@
 
 use std::collections::{HashMap, HashSet};
 
-use topcoat::runtime::Signal;
 use topcoat::{Result, context::Cx, view::*};
 
 use super::Schema;
-use super::fields::{FileUpload, Select, Text, TextInput, Textarea};
-use super::layouts::{Grid, Group, Repeater, Section, Tabs, Wizard};
+use super::fields::{FileUpload, Select, TextInput, Textarea};
+use super::layouts::{Grid, Group, Repeater, Section, Tabs};
 
 #[derive(Debug)]
 pub(crate) enum Node {
-    Text(Text),
     TextInput(Box<TextInput>),
     Textarea(Box<Textarea>),
     Select(Box<Select>),
     FileUpload(Box<FileUpload>),
     Repeater(Box<Repeater>),
     Tabs(Box<Tabs>),
-    Wizard(Box<Wizard>),
     Section(Box<Section>),
     Group(Box<Group>),
     Grid(Box<Grid>),
 }
 
 impl Node {
-    /// Render this node from `source` (internal; see
-    /// [`Schema::render_with`] / [`Schema::render_live_with`]).
+    /// Render this node from `source` (internal; see [`Schema::render_with`]).
     pub(crate) async fn render_source<'a>(
         &self,
         cx: &'a Cx,
         source: &RenderSource<'_>,
     ) -> Result<BoxView<'a>> {
-        // A live field renders with its signal when the caller supplied a
-        // value signal for it; the error list may be empty (a valid field).
-        // View mode has no signals and no controls (GH #187).
-        if let RenderSource::Live {
-            values,
-            errors,
-            mode: Mode::Form,
-        } = source
-            && let Node::TextInput(f) = self
-            && let Some(value) = values.get(f.field_name())
-        {
-            let errs = errors
-                .get(f.field_name())
-                .map(|v| v.as_slice())
-                .unwrap_or(&[]);
-            return Ok(Box::pin(f.render_live_with(cx, value, errs)).await?.boxed());
-        }
         match self {
-            Node::Text(t) => Ok(t.render(cx).await?.boxed()),
             Node::TextInput(f) => {
                 let val = static_value(source, f.field_name());
                 let errs = static_errors(source, f.field_name());
@@ -62,8 +40,6 @@ impl Node {
                     .await?
                     .boxed())
             }
-            // Not live-bindable: the live seam (GH #154 §4) is `TextInput`-only
-            // today, so a textarea always renders its static form.
             Node::Textarea(f) => {
                 let val = static_value(source, f.field_name());
                 let errs = static_errors(source, f.field_name());
@@ -87,7 +63,6 @@ impl Node {
             }
             Node::Repeater(r) => Ok(Box::pin(r.render_source(cx, source)).await?.boxed()),
             Node::Tabs(t) => Ok(Box::pin(t.render_source(cx, source)).await?.boxed()),
-            Node::Wizard(w) => Ok(Box::pin(w.render_source(cx, source)).await?.boxed()),
             Node::Section(s) => Ok(Box::pin(s.render_source(cx, source)).await?.boxed()),
             Node::Group(g) => Ok(Box::pin(g.render_source(cx, source)).await?.boxed()),
             Node::Grid(g) => Ok(Box::pin(g.render_source(cx, source)).await?.boxed()),
@@ -98,19 +73,13 @@ impl Node {
 /// Where a schema render reads field values and errors from (GH #154 §4), and
 /// which side of the record the render is for (GH #187).
 ///
-/// `Static` is the create/edit path: plain maps, no bindings. `Live` carries
-/// per-field value signals for form controls that must two-way bind. Both are
-/// `Mode::Form`; `Mode::View` renders the detail page, where a field shows its
-/// stored value instead of a control — `Select` its option label, `FileUpload`
-/// its path — and layout keeps the structure it declares.
+/// `Static` is the create/edit path: plain maps, no bindings. `Mode::View`
+/// renders the detail page, where a field shows its stored value instead of a
+/// control — `Select` its option label, `FileUpload` its path — and layout
+/// keeps the structure it declares.
 pub(crate) enum RenderSource<'a> {
     Static {
         values: &'a HashMap<String, String>,
-        errors: &'a HashMap<String, Vec<String>>,
-        mode: Mode,
-    },
-    Live {
-        values: &'a HashMap<String, Signal<String>>,
         errors: &'a HashMap<String, Vec<String>>,
         mode: Mode,
     },
@@ -129,7 +98,7 @@ impl RenderSource<'_> {
     /// Which reading this render is for.
     pub(crate) fn mode(&self) -> Mode {
         match self {
-            RenderSource::Static { mode, .. } | RenderSource::Live { mode, .. } => *mode,
+            RenderSource::Static { mode, .. } => *mode,
         }
     }
 
@@ -144,7 +113,6 @@ impl RenderSource<'_> {
 fn static_value<'a>(source: &'a RenderSource<'_>, name: &str) -> Option<&'a str> {
     match source {
         RenderSource::Static { values, .. } => values.get(name).map(String::as_str),
-        RenderSource::Live { .. } => None,
     }
 }
 
@@ -157,17 +125,12 @@ fn static_errors<'a>(source: &'a RenderSource<'_>, name: &str) -> &'a [String] {
         return &[];
     }
     match source {
-        RenderSource::Static { errors, .. } | RenderSource::Live { errors, .. } => {
+        RenderSource::Static { errors, .. } => {
             errors.get(name).map(|v| v.as_slice()).unwrap_or(&[])
         }
     }
 }
 
-impl From<Text> for Node {
-    fn from(v: Text) -> Self {
-        Node::Text(v)
-    }
-}
 impl From<TextInput> for Node {
     fn from(v: TextInput) -> Self {
         Node::TextInput(Box::new(v))
@@ -213,11 +176,6 @@ impl From<Tabs> for Node {
         Node::Tabs(Box::new(v))
     }
 }
-impl From<Wizard> for Node {
-    fn from(v: Wizard) -> Self {
-        Node::Wizard(Box::new(v))
-    }
-}
 
 impl Node {
     /// Nested schema for container nodes; `None` for leaf fields.
@@ -228,12 +186,7 @@ impl Node {
             Node::Group(g) => g.children.as_ref(),
             Node::Grid(g) => g.children.as_ref(),
             Node::Tabs(t) => t.0.children.as_ref(),
-            Node::Wizard(w) => w.0.children.as_ref(),
-            Node::TextInput(_)
-            | Node::Textarea(_)
-            | Node::Select(_)
-            | Node::FileUpload(_)
-            | Node::Text(_) => None,
+            Node::TextInput(_) | Node::Textarea(_) | Node::Select(_) | Node::FileUpload(_) => None,
         }
     }
 }
@@ -317,13 +270,6 @@ impl IntoSchema for Schema {
         self
     }
 }
-impl IntoSchema for Text {
-    fn into_schema(self) -> Schema {
-        Schema {
-            nodes: vec![self.into()],
-        }
-    }
-}
 impl IntoSchema for Section {
     fn into_schema(self) -> Schema {
         Schema {
@@ -387,13 +333,6 @@ impl IntoSchema for Tabs {
         }
     }
 }
-impl IntoSchema for Wizard {
-    fn into_schema(self) -> Schema {
-        Schema {
-            nodes: vec![self.into()],
-        }
-    }
-}
 
 impl<A, B> IntoSchema for (A, B)
 where
@@ -438,7 +377,7 @@ where
 mod tests {
     use topcoat::context::{Cx, CxTestBuilder};
 
-    use crate::schema::{Group, Schema, Section, Text, TextInput};
+    use crate::schema::{Group, Schema, Section, TextInput};
 
     use super::*;
 
@@ -485,8 +424,8 @@ mod tests {
     async fn schema_composes_multiple_blocks() {
         let cx = cx();
         let schema = Schema::new((
-            Section::new("A").schema(Text::new("a")),
-            Group::new().schema(Text::new("b")),
+            Section::new("A").schema(TextInput::r#for(DummyUser::fields().name())),
+            Group::new().schema(TextInput::r#for(DummyUser::fields().email())),
         ));
         let html = schema
             .render(&cx)

@@ -27,7 +27,9 @@ pub(crate) enum OptionLoadError {
     Overflow,
 }
 
-/// The boxed future a relationship loader returns.
+/// The boxed future a relationship loader returns — the bounded load and the
+/// server-side *search* (GH #150) hand back the same shape, so they share one
+/// alias (GH #204).
 pub(crate) type RelationshipLoadFuture = std::pin::Pin<
     Box<dyn std::future::Future<Output = Result<Vec<(String, String)>, OptionLoadError>> + Send>,
 >;
@@ -36,14 +38,9 @@ pub(crate) type RelationshipLoadFuture = std::pin::Pin<
 pub(crate) type RelationshipLoader =
     std::sync::Arc<dyn Fn(&Cx) -> RelationshipLoadFuture + Send + Sync>;
 
-/// The boxed future a relationship *search* loader returns (GH #150).
-pub(crate) type RelationshipSearchFuture = std::pin::Pin<
-    Box<dyn std::future::Future<Output = Result<Vec<(String, String)>, OptionLoadError>> + Send>,
->;
-
 #[allow(clippy::type_complexity)]
 pub(crate) type RelationshipSearchLoader =
-    std::sync::Arc<dyn Fn(&Cx, String) -> RelationshipSearchFuture + Send + Sync>;
+    std::sync::Arc<dyn Fn(&Cx, String) -> RelationshipLoadFuture + Send + Sync>;
 
 /// The boxed future a targeted existence check returns (GH #150 D4).
 pub(crate) type RelationshipCheckFuture = std::pin::Pin<

@@ -1,4 +1,4 @@
-//! Field leaves — `Text`, `TextInput`, `Textarea`, `Select`, `FileUpload`.
+//! Field leaves — `TextInput`, `Textarea`, `Select`, `FileUpload`.
 //!
 //! Typed inputs bound to Toasty field lenses; the lens is the single
 //! source of truth for the field name, label, and required default.
@@ -8,14 +8,13 @@ use argentum_ui::{
     field_error as ui_field_error, field_label as ui_field_label, field_title as ui_field_title,
     input as ui_input, label as ui_label, select as ui_select, textarea as ui_textarea,
 };
-use topcoat::runtime::Signal;
 use topcoat::{Result, context::Cx, view::*};
 
 use super::lenses::{FieldResolver, lens_field, lens_field_unique, lens_label};
 use super::relationship::{
     OptionLoadError, RelatedCheck, RelatedPrimaryKey, RelationshipCheckFuture, RelationshipChecker,
-    RelationshipLoadFuture, RelationshipLoader, RelationshipSearchFuture, RelationshipSearchLoader,
-    related_record_check, related_records, related_records_search,
+    RelationshipLoadFuture, RelationshipLoader, RelationshipSearchLoader, related_record_check,
+    related_records, related_records_search,
 };
 use super::tree::Mode;
 
@@ -93,24 +92,6 @@ fn render_hidden<'a>(
     // A raw element, not `ui_input`: a hidden control needs no styling, and
     // `ui_input` would dress it in the visible input's classes.
     Ok(view! { cx => <input type="hidden" name=(name.clone()) value=(value)> }.boxed())
-}
-
-/// Placeholder leaf — renders a text block. Used in T3 before typed fields land.
-#[derive(Debug, Clone)]
-pub(crate) struct Text(pub String);
-
-impl Text {
-    /// Test-only since GH #173: the placeholder leaf left the public surface
-    /// (`pub(crate)`), and only the layout/tree unit tests still build one.
-    #[cfg(test)]
-    pub(crate) fn new(content: impl Into<String>) -> Self {
-        Self(content.into())
-    }
-
-    pub(crate) async fn render<'a>(&self, cx: &'a Cx) -> Result<BoxView<'a>> {
-        let content = self.0.clone();
-        Ok(view! { cx => <div class="text-sm text-foreground">(content)</div> }.boxed())
-    }
 }
 
 /// A typed column's own spelling rules, for the typed constructors (GH #192).
@@ -647,82 +628,6 @@ impl TextInput {
         }
         .boxed())
     }
-
-    /// Render this field with its value bound to `value` and its inline
-    /// errors taken from the (server-rendered) `errors` (GH #154 §4).
-    ///
-    /// The control renders through [`bound_input`](argentum_ui::bound_input),
-    /// so typing writes the signal and a shard re-render reads the typed
-    /// value; the label, chrome, error slot, and `aria-invalid` state are the
-    /// same as [`Self::render_with`], so a re-render updates them in place.
-    pub(crate) async fn render_live_with<'a>(
-        &self,
-        cx: &'a Cx,
-        value: &Signal<String>,
-        errors: &[String],
-    ) -> Result<BoxView<'a>> {
-        if self.hidden {
-            // A hidden field is never typed into, so there is nothing to bind:
-            // the live path reads the signal the shard seeded from the same
-            // map and renders the same control.
-            return render_hidden(cx, &self.name, Some(value.read()), Mode::Form);
-        }
-        let label_text = self.label.clone();
-        let name = self.name.clone();
-        // As `render_with`: validation and the marker read one predicate.
-        let required = self.is_required();
-        let placeholder = self.placeholder.clone();
-        let input_type = if self.is_email { "email" } else { "text" };
-        let has_error = !errors.is_empty();
-        let error_text = errors.first().cloned().unwrap_or_default();
-        let field_class = if has_error {
-            "ac-field ac-field--error"
-        } else {
-            "ac-field"
-        };
-        let error_id = format!("{name}-error");
-        let value = value.clone();
-        Ok(view! {
-            cx =>
-            ui_field(
-                attrs: attributes! {
-                    class=(field_class)
-                    data-invalid=(has_error.then_some("true"))
-                },
-                ui_field_label(
-                    attrs: attributes! { for=(name.clone()) },
-                    (label_text.clone())
-                    if required {
-                        <span class="text-destructive" aria-hidden="true">"*"</span>
-                    }
-                )
-                argentum_ui::bound_input(
-                    value: value,
-                    attrs: attributes! {
-                        id=(name.clone())
-                        type=(input_type)
-                        name=(name.clone())
-                        placeholder=(placeholder.clone())
-                        required=(required)
-                        aria-required=(required.then_some("true"))
-                        aria-invalid=(if has_error { "true" } else { "false" })
-                        aria-describedby=(has_error.then_some(error_id.clone()))
-                    }
-                )
-                if has_error {
-                    ui_field_error(
-                        attrs: attributes! {
-                            id=(error_id.clone())
-                            class="ac-error"
-                            aria-live="polite"
-                        },
-                        (error_text)
-                    )
-                }
-            )
-        }
-        .boxed())
-    }
 }
 
 /// Select field bound to a lens (often a foreign key like `author_id`).
@@ -959,7 +864,7 @@ impl Select {
                     opts.push((value(rec).to_string(), label(rec)));
                 }
                 Ok(opts)
-            }) as RelationshipSearchFuture
+            }) as RelationshipLoadFuture
         }) as RelationshipSearchLoader;
         let check_loader = std::sync::Arc::new(move |cx: &Cx, v: String| {
             let cx = cx.clone();

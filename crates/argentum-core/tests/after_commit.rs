@@ -9,7 +9,9 @@
 
 use std::collections::HashMap;
 
-use argentum_core::{Auth, Committed, Panel, Resource, Schema, Table, TextColumn, TextInput};
+use argentum_core::{
+    Auth, Committed, Mutation, Panel, Resource, Schema, Table, TextColumn, TextInput,
+};
 use http::header::{CONTENT_TYPE, COOKIE, LOCATION};
 use toasty::Db;
 use topcoat::context::Cx;
@@ -40,15 +42,25 @@ struct Audit {
     rows: i64,
 }
 
+/// The audit row's spelling for a mutation — the app's own vocabulary, which
+/// is the point of the hook: `Mutation` names the kind, the app spells it.
+fn mutation_name(mutation: Mutation) -> &'static str {
+    match mutation {
+        Mutation::Create => "create",
+        Mutation::Update => "update",
+        Mutation::Delete => "delete",
+    }
+}
+
 /// The one line every hook in this file shares: record what it was handed.
 async fn audit(cx: &Cx, committed: &Committed<Note>) -> topcoat::Result<()> {
     let first = committed.records().first();
     let mut db = argentum_core::db::db(cx);
     toasty::create!(Audit {
-        mutation: committed.mutation().as_str().to_string(),
+        mutation: mutation_name(committed.mutation()).to_string(),
         row_key: first.map(|note| note.id.to_string()).unwrap_or_default(),
         title: first.map(|note| note.title.clone()).unwrap_or_default(),
-        rows: committed.len() as i64,
+        rows: committed.records().len() as i64,
     })
     .exec(&mut db)
     .await

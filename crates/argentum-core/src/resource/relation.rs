@@ -102,24 +102,6 @@ where
     }
 }
 
-// Three, where `IntoSchema` takes four and `IntoColumns` five: the same
-// variadic-generics gap, and a relation table that needs more headings than
-// this is showing a list rather than a record's related rows. Widen it the way
-// the others were widened — when a caller needs the fourth.
-impl<R, A, B, C> IntoRelationColumns<R> for (A, B, C)
-where
-    A: IntoRelationColumns<R>,
-    B: IntoRelationColumns<R>,
-    C: IntoRelationColumns<R>,
-{
-    fn into_relation_columns(self) -> RelationColumns<R> {
-        let mut columns = self.0.into_relation_columns().columns;
-        columns.extend(self.1.into_relation_columns().columns);
-        columns.extend(self.2.into_relation_columns().columns);
-        RelationColumns { columns }
-    }
-}
-
 /// Render `rows` as a titled, read-only table (GH #187).
 ///
 /// `rows` is the related records the record already carries — the caller passes

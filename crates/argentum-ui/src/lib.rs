@@ -49,7 +49,6 @@ pub use components::primitives::table::{
 pub use components::primitives::textarea::textarea;
 // Composites — owned Argentum components (ADR-0007). Re-exported here for
 // ergonomic `argentum_ui::page` etc.; they live in `components/composites/`.
-pub use components::composites::bound_input::bound_input;
 pub use components::composites::error_state::error_state;
 pub use components::composites::page::{
     page, page_content, page_description, page_header, page_title,

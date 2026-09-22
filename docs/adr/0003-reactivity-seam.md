@@ -6,4 +6,4 @@ Argentum commits to today's Topcoat runtime (`signal q = String::new();`, `$(...
 
 ## Amendment (2026-09-10)
 
-The migration happened on Topcoat main 0.8: `suspense` streams the resource list behind `Table::render_skeleton`, reruns morph in place (#392), shards take `Signal<T>` params (#393), and the keystroke-live `table_search` shard landed behind `Table::live_search` (#104) — without rewriting resources. `boundary(true)`/`defer(true)` remain as eager-render demo hooks; there is no `Boundary` component type anymore, and `live!`/`emit!` were not adopted.
+The migration happened on Topcoat main 0.8: `suspense` streams the resource list behind `Table::render_skeleton`, reruns morph in place (#392), shards take `Signal<T>` params (#393), and the keystroke-live `table_search` shard landed behind `Table::live_search` (#104) — without rewriting resources. The `boundary(true)`/`defer(true)` demo hooks were removed by GH #220 (no demo existed; the grid is always a boundary) and return with the demo that needs them; there is no `Boundary` component type anymore, and `live!`/`emit!` were not adopted.

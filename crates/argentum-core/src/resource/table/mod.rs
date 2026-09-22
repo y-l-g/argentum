@@ -10,7 +10,7 @@ use toasty::stmt::{Expr, List, OrderByExpr};
 use topcoat::Result;
 use topcoat::context::Cx;
 
-use super::column::{Column, IntoColumns};
+use super::column::{IntoColumns, TextColumn};
 use super::filter::{Filter, IntoFilters};
 use super::state::{TablePage, TableState};
 
@@ -40,7 +40,7 @@ pub struct GroupDef<M> {
 }
 
 pub struct Table<M> {
-    columns: Vec<Column<M>>,
+    columns: Vec<TextColumn<M>>,
     filters: Vec<Filter<M>>,
     group_by: Option<GroupDef<M>>,
     row_key: Option<RowKey<M>>,
@@ -49,7 +49,6 @@ pub struct Table<M> {
     search_ui: Option<bool>,
     filters_ui: Option<bool>,
     show_skeleton: bool,
-    is_boundary: bool,
     delete_prefix: Option<String>,
     edit_prefix: Option<String>,
     view_prefix: Option<String>,
@@ -70,7 +69,6 @@ impl<M> std::fmt::Debug for Table<M> {
             .field("search_ui", &self.search_ui)
             .field("filters_ui", &self.filters_ui)
             .field("show_skeleton", &self.show_skeleton)
-            .field("is_boundary", &self.is_boundary)
             .field("delete_prefix", &self.delete_prefix)
             .field("edit_prefix", &self.edit_prefix)
             .field("view_prefix", &self.view_prefix)
@@ -98,7 +96,6 @@ impl<M> Table<M> {
             search_ui: None,
             filters_ui: None,
             show_skeleton: false,
-            is_boundary: true,
             delete_prefix: None,
             edit_prefix: None,
             view_prefix: None,
@@ -148,7 +145,7 @@ impl<M> Table<M> {
 
     /// Declare columns. Accepts a single column or tuple of columns.
     ///
-    /// Panics on duplicate [`Column::name`] (GH #156): sort resolution is
+    /// Panics on duplicate [`TextColumn::name`] (GH #156): sort resolution is
     /// first-sortable-`name()`-match, so duplicate sortable names would
     /// silently misresolve `?sort=`. The guard covers computed names too
     /// (`TextColumn::computed("Status", ..)` derives `name = "status"`) for
@@ -377,43 +374,15 @@ impl<M> Table<M> {
         self
     }
 
-    /// Whether this table is a `Boundary` (default `true`).
-    /// When `true`, the rendered grid is wrapped in a `data-boundary` region
-    /// so future `defer`+`boundary` diffing can swap only the grid.
-    /// Use `boundary(false)` to opt-out.
-    pub fn boundary(mut self, enabled: bool) -> Self {
-        self.is_boundary = enabled;
-        self
-    }
-
-    /// Defer the initial load, showing skeleton rows until the data arrives.
-    /// When `true`, the table renders skeleton placeholders on first paint;
-    /// the streamed list renders the swap through [`Self::without_skeleton`]
-    /// so the loaded rows always arrive.
-    pub fn defer(mut self, enabled: bool) -> Self {
-        self.show_skeleton = enabled;
-        self
-    }
-
     /// Clear the eager-skeleton flag for the streamed swap payload (GH #98).
     ///
     /// The list page streams `skeleton` as the `suspense` fallback, then swaps
-    /// in `table.render(page)`. If the declared table has `.defer(true)`, the
-    /// swap would be a second skeleton; the streamed path renders through a
-    /// copy with the flag cleared so rows always arrive.
-    pub fn without_skeleton(mut self) -> Self {
+    /// in `table.render(page)`. A declared table that rendered a skeleton on
+    /// first paint would make the swap a second one; the streamed path renders
+    /// through a copy with the flag cleared so rows always arrive.
+    pub(crate) fn without_skeleton(mut self) -> Self {
         self.show_skeleton = false;
         self
-    }
-
-    /// Whether the table is a `Boundary`.
-    pub fn is_boundary(&self) -> bool {
-        self.is_boundary
-    }
-
-    /// Whether the table defers its initial load.
-    pub fn is_defer(&self) -> bool {
-        self.show_skeleton
     }
 
     /// Enable row-level `Delete` action. When set, each row renders a
@@ -1079,11 +1048,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn table_boundary_flags_and_render() {
+    async fn table_renders_inside_the_boundary_region() {
         // GH #136: relocated from the showcase (`table_boundary_and_memoize`)
         // — core owns the boundary contract; the showcase owns HTTP wiring.
         // The topcoat `#[memoize]` half stays upstream and is not re-pinned
-        // here.
+        // here. The region is unconditional since GH #220 dropped the
+        // `boundary(..)` opt-out (it had no caller), so the grid always lands
+        // where a morph can swap it.
         use topcoat::view::ViewExt;
 
         let cx = CxTestBuilder::new().build();
@@ -1093,39 +1064,9 @@ mod tests {
             .columns(TextColumn::r#for(User::fields().name(), |u: &User| {
                 u.name.clone()
             }));
-        assert!(table.is_boundary(), "Table is a Boundary by default");
-        assert!(!table.is_defer(), "Table does not defer by default");
-        let plain = Table::<User>::r#for(&cx)
-            .id(|u: &User| u.id.to_string())
-            .pk(|u: &User| u.id.to_string())
-            .columns(TextColumn::r#for(User::fields().name(), |u: &User| {
-                u.name.clone()
-            }))
-            .boundary(false);
-        assert!(!plain.is_boundary(), "boundary(false) disables");
-        let deferred = Table::<User>::r#for(&cx)
-            .id(|u: &User| u.id.to_string())
-            .pk(|u: &User| u.id.to_string())
-            .columns(TextColumn::r#for(User::fields().name(), |u: &User| {
-                u.name.clone()
-            }))
-            .defer(true);
-        assert!(deferred.is_defer(), "defer(true) enables");
 
         let page = crate::resource::TablePage::<User>::from(vec![]);
         let html = table
-            .render(&cx, page.clone())
-            .await
-            .unwrap()
-            .single()
-            .await
-            .unwrap()
-            .render(&cx);
-        assert!(
-            html.contains("data-boundary=\"table\""),
-            "boundary should be in HTML, got {html}"
-        );
-        let html = plain
             .render(&cx, page)
             .await
             .unwrap()
@@ -1134,8 +1075,12 @@ mod tests {
             .unwrap()
             .render(&cx);
         assert!(
-            !html.contains("data-boundary=\"table\""),
-            "boundary(false) must not render the wrapper"
+            html.contains("data-boundary=\"table\""),
+            "the grid must render inside the morph boundary, got {html}"
+        );
+        assert!(
+            html.contains("data-table-root=\"\""),
+            "the boundary must wrap the table root, got {html}"
         );
     }
 
@@ -1226,7 +1171,7 @@ mod tests {
     #[should_panic(expected = "duplicate column name")]
     fn duplicate_column_name_panics_on_field_computed_collision() {
         // GH #156: computed("Status") derives name "status", colliding with
-        // the field column's name — the Column::name namespace must stay
+        // the field column's name — the TextColumn::name namespace must stay
         // unique even though computeds are never sortable today (GH #101).
         let _ = Table::<Task>::new().columns((
             TextColumn::r#for(Task::fields().status(), |t: &Task| t.status.clone()).sortable(),

@@ -29,17 +29,6 @@ pub enum Mutation {
     Delete,
 }
 
-impl Mutation {
-    /// The mutation's spelling, for an audit row or a log line.
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Mutation::Create => "create",
-            Mutation::Update => "update",
-            Mutation::Delete => "delete",
-        }
-    }
-}
-
 /// What one committed mutation wrote, handed to
 /// [`Resource::after_commit`](super::Resource::after_commit).
 ///
@@ -90,21 +79,6 @@ impl<M> Committed<M> {
     pub fn records(&self) -> &[M] {
         &self.records
     }
-
-    /// How many rows the mutation wrote (one for create/update, the selection
-    /// size for a bulk delete).
-    pub fn len(&self) -> usize {
-        self.records.len()
-    }
-
-    /// Whether the mutation wrote no rows.
-    ///
-    /// Always `false` for the values the handlers build — a commit only happens
-    /// with something to write — so this is `len`'s required pair rather than a
-    /// question a caller asks.
-    pub fn is_empty(&self) -> bool {
-        self.records.is_empty()
-    }
 }
 
 /// Deliver a committed mutation to the app (GH #112).
@@ -145,8 +119,6 @@ mod tests {
         let created = Committed::created(Row { id: 1 });
         assert_eq!(created.mutation(), Mutation::Create);
         assert_eq!(created.records(), [Row { id: 1 }]);
-        assert_eq!(created.len(), 1);
-        assert!(!created.is_empty());
 
         let updated = Committed::updated(Row { id: 2 });
         assert_eq!(updated.mutation(), Mutation::Update);
@@ -154,18 +126,10 @@ mod tests {
         // A bulk delete is one value however many rows it took.
         let deleted = Committed::deleted(vec![Row { id: 3 }, Row { id: 4 }]);
         assert_eq!(deleted.mutation(), Mutation::Delete);
-        assert_eq!(deleted.len(), 2);
         assert_eq!(
             deleted.records(),
             [Row { id: 3 }, Row { id: 4 }],
             "the rows keep the order the handler had them"
         );
-    }
-
-    #[test]
-    fn mutation_spells_itself_for_an_audit_row() {
-        assert_eq!(Mutation::Create.as_str(), "create");
-        assert_eq!(Mutation::Update.as_str(), "update");
-        assert_eq!(Mutation::Delete.as_str(), "delete");
     }
 }

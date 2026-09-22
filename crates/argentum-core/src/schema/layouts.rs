@@ -1,4 +1,4 @@
-//! Layout containers — `Section`, `Group`, `Grid`, `Repeater`, `Tabs`, `Wizard`.
+//! Layout containers — `Section`, `Group`, `Grid`, `Repeater`, `Tabs`.
 //!
 //! The compositional seams for form layout; each holds an optional child
 //! `Schema` rendered through the tree walk.
@@ -243,7 +243,7 @@ impl Repeater {
             &[]
         } else {
             match source {
-                RenderSource::Static { errors, .. } | RenderSource::Live { errors, .. } => {
+                RenderSource::Static { errors, .. } => {
                     errors.get(&self.label).map(|v| v.as_slice()).unwrap_or(&[])
                 }
             }
@@ -348,9 +348,9 @@ fn repeater_error_id(label: &str) -> String {
     format!("{}-error", slug.trim_matches('-'))
 }
 
-/// Shared no-JS chrome for the `Tabs` / `Wizard` grouping containers (GH #73):
-/// both render as a bordered column until their step/tab scripts land, so the
-/// markup lives in one place and the public types stay distinct seams.
+/// Shared no-JS chrome for the grouping container (GH #73): renders as a
+/// bordered column until the tab script lands, so the markup lives in one
+/// place and the public type stays the seam.
 #[derive(Debug)]
 pub(crate) struct Container {
     pub(crate) children: Option<Schema>,
@@ -421,44 +421,13 @@ impl Default for Tabs {
     }
 }
 
-/// Wizard — step-based layout (in-memory for v1, no JS).
-///
-/// Static `div` grouping for v1 (GH #73): looks like steps, behaves as stacked
-/// sections until step JS lands. Documented, not a placeholder bug.
-#[derive(Debug)]
-pub struct Wizard(pub(crate) Container);
-
-impl Wizard {
-    pub fn new() -> Self {
-        Self(Container::new())
-    }
-
-    pub fn schema(self, children: impl IntoSchema) -> Self {
-        Self(self.0.schema(children))
-    }
-
-    pub(crate) async fn render_source<'a>(
-        &self,
-        cx: &'a Cx,
-        source: &RenderSource<'_>,
-    ) -> Result<BoxView<'a>> {
-        self.0.render_source(cx, source).await
-    }
-}
-
-impl Default for Wizard {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
 
     use topcoat::context::{Cx, CxTestBuilder};
 
-    use crate::schema::{Schema, Text, TextInput};
+    use crate::schema::{Schema, TextInput};
 
     use super::*;
 
@@ -507,7 +476,9 @@ mod tests {
     #[tokio::test]
     async fn section_renders_title_and_child() {
         let cx = cx();
-        let schema = Schema::new(Section::new("Account").schema(Text::new("hello")));
+        let schema = Schema::new(
+            Section::new("Account").schema(TextInput::r#for(DummyUser::fields().name())),
+        );
         let html = schema
             .render(&cx)
             .await
@@ -517,7 +488,10 @@ mod tests {
             .unwrap()
             .render(&cx);
         assert!(html.contains("Account"), "missing title in {html}");
-        assert!(html.contains("hello"), "missing child in {html}");
+        assert!(
+            html.contains("name=\"name\""),
+            "missing child field in {html}"
+        );
         // Section now renders as card
         assert!(
             html.contains("rounded-xl") && html.contains("border-border"),
@@ -536,7 +510,9 @@ mod tests {
     #[tokio::test]
     async fn group_renders_children() {
         let cx = cx();
-        let schema = Schema::new(Group::new().schema(Text::new("inside group")));
+        let schema = Schema::new(
+            Group::new().schema(TextInput::r#for(DummyUser::fields().name()).label("Inside group")),
+        );
         let html = schema
             .render(&cx)
             .await
@@ -545,7 +521,7 @@ mod tests {
             .await
             .unwrap()
             .render(&cx);
-        assert!(html.contains("inside group"), "missing child in {html}");
+        assert!(html.contains("Inside group"), "missing child in {html}");
         assert!(
             html.contains("@container/field-group"),
             "missing field_group markup in {html}"
@@ -555,7 +531,10 @@ mod tests {
     #[tokio::test]
     async fn grid_renders_with_cols_and_children() {
         let cx = cx();
-        let schema = Schema::new(Grid::new(2).schema((Text::new("a"), Text::new("b"))));
+        let schema = Schema::new(Grid::new(2).schema((
+            TextInput::r#for(DummyUser::fields().name()),
+            TextInput::r#for(DummyUser::fields().email()),
+        )));
         let html = schema
             .render(&cx)
             .await
@@ -571,88 +550,20 @@ mod tests {
         );
         assert!(html.contains("gap-4"), "missing gap-4 in {html}");
         assert!(
-            html.contains(">a<") || html.contains("text-foreground\">a"),
-            "missing a in {html}"
+            html.contains("name=\"name\""),
+            "missing first child in {html}"
         );
         assert!(
-            html.contains(">b<") || html.contains("text-foreground\">b"),
-            "missing b in {html}"
+            html.contains("name=\"email\""),
+            "missing second child in {html}"
         );
     }
 
     #[tokio::test]
-    async fn tabs_and_wizard_render_children_in_one_container() {
-        let cx = cx();
-        let cases = [
-            (
-                Schema::new(Tabs::new().schema(Text::new("tabbed"))),
-                "tabbed",
-            ),
-            (
-                Schema::new(Wizard::new().schema(Text::new("stepped"))),
-                "stepped",
-            ),
-        ];
-        for (schema, child) in cases {
-            let html = schema
-                .render(&cx)
-                .await
-                .unwrap()
-                .single()
-                .await
-                .unwrap()
-                .render(&cx);
-            assert!(html.contains(child), "missing {child} in {html}");
-            assert_eq!(
-                html.matches("border border-border rounded-md p-4").count(),
-                1,
-                "expected one shared container wrapper in {html}"
-            );
-        }
-    }
-
-    #[tokio::test]
-    async fn tabs_and_wizard_validate_and_render_fields_end_to_end() {
-        // GH #136 extension: Tabs/Wizard had no end-to-end coverage — the only
-        // tabs test was the UI demo `?tab=`, and the showcase wires neither
-        // as Schema containers. This pins that required inputs inside the
-        // containers validate and render with values.
-        let cx = cx();
-        for make in [
-            |input: TextInput| Schema::new(Tabs::new().schema(input)),
-            |input: TextInput| Schema::new(Wizard::new().schema(input)),
-        ] {
-            let schema = make(TextInput::r#for(DummyUser::fields().name()).required());
-            let errors = schema.validate(&HashMap::new());
-            assert!(
-                errors.contains_key("name"),
-                "empty submit must fail the inner required input, got {errors:?}"
-            );
-            let mut values = HashMap::new();
-            values.insert("name".to_string(), "Ada".to_string());
-            let errors = schema.validate(&values);
-            assert!(errors.is_empty(), "filled submit must pass, got {errors:?}");
-            let html = schema
-                .render_with(&cx, &values, &errors)
-                .await
-                .unwrap()
-                .single()
-                .await
-                .unwrap()
-                .render(&cx);
-            assert!(
-                html.contains("value=\"Ada\""),
-                "container must render the field value, got {html}"
-            );
-        }
-    }
-
-    #[tokio::test]
-    async fn nested_grid_inside_section() {
+    async fn tabs_render_children_in_one_container() {
         let cx = cx();
         let schema = Schema::new(
-            Section::new("Outer")
-                .schema(Grid::new(2).schema((Text::new("left"), Text::new("right")))),
+            Tabs::new().schema(TextInput::r#for(DummyUser::fields().name()).label("Tabbed")),
         );
         let html = schema
             .render(&cx)
@@ -662,9 +573,65 @@ mod tests {
             .await
             .unwrap()
             .render(&cx);
+        assert!(html.contains("Tabbed"), "missing child in {html}");
+        assert_eq!(
+            html.matches("border border-border rounded-md p-4").count(),
+            1,
+            "expected one shared container wrapper in {html}"
+        );
+    }
+
+    #[tokio::test]
+    async fn tabs_validate_and_render_fields_end_to_end() {
+        // GH #136 extension: the container had no end-to-end coverage — the
+        // only tabs test was the UI demo `?tab=`, and the showcase wires no
+        // layout block as a Schema container here. This pins that required
+        // inputs inside the container validate and render with values.
+        let cx = cx();
+        let schema = Schema::new(
+            Tabs::new().schema(TextInput::r#for(DummyUser::fields().name()).required()),
+        );
+        let errors = schema.validate(&HashMap::new());
+        assert!(
+            errors.contains_key("name"),
+            "empty submit must fail the inner required input, got {errors:?}"
+        );
+        let mut values = HashMap::new();
+        values.insert("name".to_string(), "Ada".to_string());
+        let errors = schema.validate(&values);
+        assert!(errors.is_empty(), "filled submit must pass, got {errors:?}");
+        let html = schema
+            .render_with(&cx, &values, &errors)
+            .await
+            .unwrap()
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
+        assert!(
+            html.contains("value=\"Ada\""),
+            "container must render the field value, got {html}"
+        );
+    }
+
+    #[tokio::test]
+    async fn nested_grid_inside_section() {
+        let cx = cx();
+        let schema = Schema::new(Section::new("Outer").schema(Grid::new(2).schema((
+            TextInput::r#for(DummyUser::fields().name()).label("Left"),
+            TextInput::r#for(DummyUser::fields().email()).label("Right"),
+        ))));
+        let html = schema
+            .render(&cx)
+            .await
+            .unwrap()
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
         assert!(html.contains("Outer"), "missing outer title in {html}");
-        assert!(html.contains("left"), "missing left in {html}");
-        assert!(html.contains("right"), "missing right in {html}");
+        assert!(html.contains("Left"), "missing left in {html}");
+        assert!(html.contains("Right"), "missing right in {html}");
         assert!(
             html.contains("rounded-xl") && html.contains("border-border"),
             "missing section card in {html}"

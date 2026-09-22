@@ -1,7 +1,7 @@
 //! Unified Schema primitive — layout blocks that compose via `view!`.
 //!
-//! `Schema` is a container for `Section`, `Group`, `Grid` and `Text` nodes.
-//! Each node renders through Topcoat's `view!` macro; `Schema::render`
+//! `Schema` is a container for `Section`, `Group`, `Grid` and `Repeater`
+//! nodes. Each node renders through Topcoat's `view!` macro; `Schema::render`
 //! combines them. The API mirrors Filament's `Schema::new(( ... ))` tuple
 //! form via the `IntoSchema` trait.
 //!
@@ -25,11 +25,7 @@ pub use embedded::{
     submitted, write_embedded,
 };
 pub use fields::{FileUpload, Select, TextInput, Textarea, TypedValue};
-// GH #173: the placeholder leaf stays reachable to the unit tests without
-// widening the public surface; the render arm (tree.rs) imports it directly.
-#[cfg(test)]
-pub(crate) use fields::Text;
-pub use layouts::{Grid, Group, Repeater, Section, Tabs, Wizard};
+pub use layouts::{Grid, Group, Repeater, Section, Tabs};
 pub use lenses::FieldLens;
 pub(crate) use lenses::{capitalize, lens_field, lens_field_unique, lens_label};
 pub(crate) use pk::{pk_eq_expr, pk_in_expr, pk_is_composite};
@@ -40,7 +36,6 @@ pub(crate) use tree::{Mode, Node, RenderSource, for_each_field, walk_repeater_ab
 
 use std::collections::{HashMap, HashSet};
 
-use topcoat::runtime::Signal;
 use topcoat::{Result, context::Cx, view::*};
 
 /// The container that composes layout blocks.
@@ -175,33 +170,7 @@ impl Schema {
         .await
     }
 
-    /// Render with signal-bound values (GH #154 §4).
-    ///
-    /// Like [`Self::render_with`], but every [`TextInput`] whose field name
-    /// appears in `values` renders its control against that signal:
-    /// `:value`/`@input` keep the field and the signal in step, so a shard
-    /// re-render reads what the user typed. `errors` render through the same
-    /// slots as `render_with`. A field with no signal — and every other node
-    /// kind — falls back to its static render.
-    pub async fn render_live_with<'a>(
-        &self,
-        cx: &'a Cx,
-        values: &HashMap<String, Signal<String>>,
-        errors: &HashMap<String, Vec<String>>,
-    ) -> Result<BoxView<'a>> {
-        self.render_source(
-            cx,
-            &RenderSource::Live {
-                values,
-                errors,
-                mode: Mode::Form,
-            },
-        )
-        .await
-    }
-
-    /// The one node walk: static values render as before, live values bind
-    /// the fields the caller supplied signals for.
+    /// The one node walk: every node renders its static form.
     pub(crate) async fn render_source<'a>(
         &self,
         cx: &'a Cx,
@@ -322,7 +291,7 @@ impl Schema {
         map
     }
 
-    /// Whether this schema (including nested Section/Group/Grid/Repeater/Tabs/Wizard)
+    /// Whether this schema (including nested Section/Group/Grid/Repeater/Tabs)
     /// contains a [`FileUpload`]. `Panel` uses it to emit
     /// `enctype="multipart/form-data"` only on forms that need it (GH #73).
     pub fn has_file_upload(&self) -> bool {

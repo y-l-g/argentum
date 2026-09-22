@@ -33,14 +33,14 @@ pub use auth::{Auth, Authenticator, CurrentUser, PasswordAuth};
 pub use notification::{Notification, NotificationStatus};
 pub use panel::{Brand, DarkMode, Panel};
 pub use resource::{
-    Column, Committed, DateFilter, Filter, IncludeNeeds, IntoFilters, IntoRelationColumns,
-    Mutation, NavTarget, NavigationItem, RelationColumn, RelationColumns, Resource, RowKey,
-    SelectFilter, Sort, Table, TablePage, TableSignals, TableState, TernaryFilter, TextColumn,
-    VariantFilter, render_relation,
+    Committed, DateFilter, Filter, IncludeNeeds, IntoFilters, IntoRelationColumns, Mutation,
+    NavTarget, NavigationItem, RelationColumn, RelationColumns, Resource, RowKey, SelectFilter,
+    Sort, Table, TablePage, TableSignals, TableState, TernaryFilter, TextColumn, VariantFilter,
+    render_relation,
 };
 pub use schema::{
     EmbeddedForm, EnumSpec, FieldLens, FileUpload, Grid, Group, IntoSchema, Repeater, Schema,
-    Section, Select, Tabs, TextInput, Textarea, TypedValue, Wizard, discriminant_input, enum_spec,
+    Section, Select, Tabs, TextInput, Textarea, TypedValue, discriminant_input, enum_spec,
     leaf_key, parse_leaf, read_embedded, submitted, write_embedded,
 };
 pub use tenancy::{Tenant, tenant_id};
