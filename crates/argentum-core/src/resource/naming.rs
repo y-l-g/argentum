@@ -1,7 +1,5 @@
 //! Naming helpers behind [`Resource::slug`](crate::resource::Resource::slug)
 //! and [`Resource::navigation_label`](crate::resource::Resource::navigation_label).
-//!
-//! Moved verbatim from `resource.rs` (GH #133): no behavior change.
 
 use crate::schema::capitalize;
 

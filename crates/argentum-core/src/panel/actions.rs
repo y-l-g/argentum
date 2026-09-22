@@ -72,17 +72,13 @@ pub(crate) async fn find_by_key<R: Resource>(
 
 /// Load the record the request names, scoped and policy-checked (GH #187).
 ///
-/// The record-page prologue — auth, tenant gate, `{id}` param, load through
-/// the tenant-scoped query, `can_view` — was written out at each page that
-/// needed it
-/// (`resource_view`, `resource_edit`). A page that forgets one of the two gates
-/// is a hole rather than a bug in what it renders, so the sequence lives here,
-/// in the order every handler already used: auth, the tenant gate, the load
-/// (which is what turns an unknown *or* out-of-scope id into one 404), then
-/// `can_view` on the loaded snapshot.
+/// Reads the `{id}` path param, loads through the tenant-scoped query
+/// (`find_by_key`, which turns an unknown *or* out-of-scope id into one 404),
+/// and returns 403 unless `can_view` accepts the loaded snapshot.
 ///
-/// Callers add their own policy on top (`can_update` for the edit page) and
-/// their own 404 for a page that is not declared at all.
+/// Callers run `enforce_auth` and `enforce_tenant::<R>` first, add their own
+/// policy on top (`can_update` for the edit page), and 404 a page the resource
+/// does not declare (`R::viewed` for the view page).
 pub(crate) async fn load_viewable<R: Resource>(
     cx: &Cx,
     ex: &mut dyn toasty::Executor,
@@ -376,7 +372,7 @@ fn parse_bulk_ids(raw: &str, max: usize) -> Vec<String> {
 /// header + rows. A concurrent mutation landing between the passes can only
 /// push the second past the cap — that aborts the stream loudly instead of
 /// truncating silently. Formula cells are defused per OWASP in
-/// [`Table::to_csv`], and `?bom=1` prepends a UTF-8 BOM for Excel interop
+/// [`Table::csv_row`], and `?bom=1` prepends a UTF-8 BOM for Excel interop
 /// (GH #94).
 pub(crate) fn resource_export<R: Resource>(cx: &Cx, _body: Body) -> RouteFuture<'_> {
     Box::pin(async move {
@@ -502,13 +498,13 @@ pub(crate) fn resource_export<R: Resource>(cx: &Cx, _body: Body) -> RouteFuture<
 /// (GH #223, [`crate::resource::scoped_query`]) — with the table's declaration
 /// applied through the one shared routine the list loader uses (GH #210).
 ///
-/// The seed query and the ordering mode are the only things the two loaders
-/// differ on: the list loads the tenant-scoped `Resource::query` with
-/// [`OrderMode::List`], the export loads the tenant-scoped narrowed
-/// `export_query` with [`OrderMode::Export`] — whose PK fallback applies whether
-/// or not the table paginates, because the chunked cursor walk needs a
-/// deterministic order either way. Both therefore pay the same scope, and a
-/// gated resource cannot export unscoped.
+/// The list and the export differ only in the seed query and the ordering mode:
+/// the list loads the tenant-scoped `Resource::query` with [`OrderMode::List`],
+/// the export the tenant-scoped narrowed `export_query` with
+/// [`OrderMode::Export`] — whose PK fallback applies whether or not the table
+/// paginates, because the chunked cursor walk needs a deterministic order
+/// either way. Both pay the same scope, so a gated resource cannot export
+/// unscoped.
 fn export_base_query<R: Resource>(
     cx: &Cx,
     table: &Table<R::Model>,
@@ -523,9 +519,10 @@ fn export_base_query<R: Resource>(
 ///
 /// Yields the raw `MAX_EXPORT_ROWS + 1` window (the bounded over-fetch the
 /// cap counts within, GH #145) a chunk at a time and stops at a short chunk,
-/// so callers hold one chunk instead of the window. Chaining reuses the
-/// engine's `next_cursor`, which is present exactly when a chunk comes back
-/// full.
+/// so callers hold one chunk instead of the window. Each chunk after the
+/// first resumes from the previous chunk's `next_cursor`; a chunk shorter
+/// than the requested size ends the walk, because chaining an absent cursor
+/// or re-fetching cursor-free would rescan from the start.
 struct ExportChunker<M> {
     query: toasty::stmt::Query<toasty::stmt::List<M>>,
     after: Option<toasty_core::stmt::Value>,

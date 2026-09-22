@@ -1,6 +1,4 @@
 //! Sidebar navigation: [`NavigationItem`] and the [`NavTarget`] it points with.
-//!
-//! Moved verbatim from `resource.rs` (GH #133): no behavior change.
 
 use super::Resource;
 

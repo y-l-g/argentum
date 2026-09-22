@@ -71,7 +71,7 @@ pub(crate) fn declared_chrome<R: Resource>(cx: &Cx) -> TableChrome {
 /// `live` selects the shard variant: the swapped region is everything except
 /// the toolbar the page owns eagerly (the live host owns those slots, so swaps
 /// must never nest invocations or duplicate inputs), hence the shard forces
-/// `.search(false).filters(false)` while the streamed page keeps the declared
+/// `.search(false).filter_bar(false)` while the streamed page keeps the declared
 /// table as-is. The filter bar joins the search toolbar there (GH #166): a
 /// control rebuilt by its own rerun loses focus.
 pub(crate) fn wire_table_actions<R: Resource>(cx: &Cx, live: bool) -> Table<R::Model> {
@@ -99,11 +99,11 @@ pub(crate) fn wire_table_actions<R: Resource>(cx: &Cx, live: bool) -> Table<R::M
 /// retry link ([`retry_url_for_error`]), and the `ErrorState` render are one
 /// copy so the three load sites cannot drift.
 ///
-/// On a live table (`signals`) the retry stays in place (GH #166): it writes
-/// the same reset its `href` spells out — dropping pagination for a cursor
-/// failure, the whole query for anything else — so recovering no longer throws
-/// away signal-held state with a full navigation. `href` stays as the no-JS
-/// fallback.
+/// On a live table (`signals`) the retry stays in place (GH #166) instead of
+/// navigating. A cursor failure writes the same reset its `href` spells out —
+/// dropping pagination, keeping the rest of the state. Any other failure
+/// clears the query signals as well: search, filters, sort, and pagination.
+/// `href` stays as the no-JS fallback, so it retries the URL as it stands.
 pub(crate) fn table_error_view<'a, R: Resource>(
     cx: &'a Cx,
     state: &TableState,

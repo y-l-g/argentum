@@ -190,7 +190,7 @@ impl Grid {
         source: &RenderSource<'_>,
     ) -> Result<BoxView<'a>> {
         // Static literals for Tailwind scanner — `format!("grid grid-cols-{}")` would be
-        // purged because Tailwind only sees literal substrings. See ADR-0007 / T2.
+        // purged because Tailwind only sees literal substrings. See ADR-0006.
         let class: &'static str = match self.cols {
             1 => "grid grid-cols-1 gap-4",
             2 => "grid grid-cols-2 gap-4",

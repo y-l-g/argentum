@@ -6,8 +6,9 @@
 //!
 //! Layout: [`Panel`] builder + route table live here; shell rendering in
 //! `shell`, list + live shard support in `list`, form decoding and
-//! create/edit in `forms`, delete/bulk/export in `actions`, and the
-//! live-search registry + shard dispatch in `search`.
+//! create/edit in `forms`, the record detail page in `detail`,
+//! delete/bulk/export in `actions`, the live-search registry + shard dispatch
+//! in `search`, and response hardening headers in `headers`.
 
 mod actions;
 mod detail;
@@ -60,7 +61,7 @@ use crate::resource::{
 /// Panel::new("admin")
 ///     .app_context(db)
 ///     .resource::<UserResource>()
-///     .build().expect("panel builds").expect("panel builds")
+///     .build().expect("panel builds")
 /// ```
 pub struct Panel {
     prefix: String,
@@ -588,8 +589,8 @@ impl Panel {
     /// [`Resource::navigation`] override reaches the sidebar instead of being
     /// dead API (GH #165). The override owns the **label, ordering and
     /// grouping**; the panel owns the **URL**, because it is the only party
-    /// that knows where the resource is mounted. Concretely: `R::navigation()`
-    /// is taken as returned (typed hrefs and explicit URLs included), and only
+    /// that knows where the resource is mounted. Concretely: an explicit
+    /// [`NavTarget::Url`] in `R::navigation()` is taken as returned, and only
     /// a [`NavTarget::Derived`] target — the default, which names no URL
     /// because [`Resource::navigation`] takes no prefix — is resolved to
     /// `{prefix}/{slug}`.
@@ -865,7 +866,8 @@ pub(crate) fn list_url(cx: &Cx, slug: &str) -> String {
 
 /// The panel root: a temporary redirect to the first declared resource's
 /// list, so the mount point is never a dead URL (custom pages remain future
-/// work, see README §10). Filament registers its home page here.
+/// work; see `docs/guide/src/panel-and-routing.md`). Filament registers its
+/// home page here.
 pub(crate) fn panel_root_redirect(cx: &Cx, _body: Body) -> RouteFuture<'_> {
     Box::pin(async move {
         // Defense in depth (GH #146): every panel handler re-checks the

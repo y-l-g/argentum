@@ -5,7 +5,7 @@
 //! [`scoped_query`](crate::resource::scoped_query) — the resource's own
 //! [`query`](crate::resource::Resource::query) with `tenant_id = <tenant>`
 //! ANDed onto it — and the column is discovered from the model's schema here
-//! ([`derived_tenant_filter`], the default body of `Resource::tenant_scope`),
+//! (`derived_tenant_filter`, the default body of `Resource::tenant_scope`),
 //! not named by hand in each resource. A gated resource
 //! therefore cannot serve unscoped rows by forgetting an override, and
 //! `Resource::query` is left as the app's *non-tenant* scoping seam (soft

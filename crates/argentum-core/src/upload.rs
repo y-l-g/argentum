@@ -35,7 +35,7 @@ pub trait Uploader: Send + Sync + 'static {
     /// Store `bytes` and return the value to store for this field.
     ///
     /// The `Err` string is rendered to the user inside the field's inline
-    /// error ("<Label> could not be uploaded: <reason>"), so it must be
+    /// error ("`<Label>` could not be uploaded: `<reason>`"), so it must be
     /// something they can act on — never a filesystem path, a driver message,
     /// or anything else the deployment would rather not print. A rejection is
     /// user input going wrong, not infrastructure: it re-renders the form with

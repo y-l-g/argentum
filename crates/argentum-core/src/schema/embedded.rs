@@ -8,7 +8,7 @@
 //! the flat map, and the enum's variant was recovered from *which payload
 //! columns happened to be non-empty*:
 //!
-//! ```ignore
+//! ```text
 //! let publication = if !field(values, "publication_canonical_url").is_empty() {
 //!     Publication::Published { published_at: timestamp, canonical_url: … }
 //! } else if … // and so on, per app, per type
@@ -143,7 +143,7 @@ pub trait EmbeddedForm: Sized {
 /// The form key one leaf occupies — its flattened storage column.
 ///
 /// Generated code calls this once per leaf; an app writing a codec by hand uses
-/// it the same way. It is the single-leaf half of [`FieldResolver::resolve`].
+/// it the same way. It is the single-leaf half of `FieldResolver::resolve`.
 pub fn leaf_key<M, T>(cx: &Cx, path: impl Into<Path<M, T>>) -> String
 where
     M: toasty::schema::Model,

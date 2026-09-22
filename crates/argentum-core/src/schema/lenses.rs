@@ -45,9 +45,10 @@ pub(crate) struct LeafField {
 /// The compiled schema for this request, or `None` when no `Db` is in context.
 ///
 /// `Db::schema()` is public and gives all three halves the walk needs: `.app`
-/// carries the embedded models the owned `Model::schema()` cannot see, and
-/// `.mapping` records which physical column each field resolves to. So the
-/// request path can bind an embedded lens without opening a connection.
+/// carries the embedded models the owned `Model::schema()` cannot see,
+/// `.mapping` records which physical column each field resolves to, and `.db`
+/// holds the physical table and column names. So the request path can bind an
+/// embedded lens without opening a connection.
 ///
 /// Borrowed, never cloned, and optional: a bare `CxTestBuilder` has no `Db`, and
 /// then the single-segment rule (GH #100) applies, so a schema-less test fails

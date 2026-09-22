@@ -1,6 +1,6 @@
 //! URL-safe encoding for Toasty pagination cursors.
 //!
-//! Toasty's cursor-based pagination hands back opaque [`stmt::Value`]s
+//! Toasty's cursor-based pagination hands back opaque `stmt::Value`s
 //! (`Page::next_cursor` / `Page::prev_cursor`) that `.after()` / `.before()`
 //! accept to resume the walk. Server-rendered pagination needs those cursors
 //! in a URL query parameter, and Toasty does not provide a string round-trip,
@@ -10,10 +10,12 @@
 //!
 //! The encoding preserves the exact [`Value`] variant (an `I64` decodes as an
 //! `I64`, a `Uuid` as a `Uuid`), which matters because the engine compares the
-//! cursor against the ordering column's typed value. Unsupported variants
-//! (records nested inside fields, lists, objects, decimals) return an error
-//! rather than silently degrading — an unsortable column has no business in a
-//! cursor anyway.
+//! cursor against the ordering column's typed value. Records round-trip: a
+//! multi-column cursor encodes and decodes recursively, with decode capped at
+//! `MAX_CURSOR_DEPTH` nesting levels so a tampered token cannot drive unbounded
+//! recursion. The variants with no tag — lists, objects, decimals — return an
+//! error rather than silently degrading, since an unsortable column has no
+//! business in a cursor anyway.
 
 use toasty_core::stmt::Value;
 use topcoat::Result;

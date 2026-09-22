@@ -18,13 +18,14 @@ use topcoat::{Result, context::Cx};
 /// The loaders ask seven things: the **tenant-scoped** seed query, the two
 /// policy predicates, the tenant declaration, a name for the log fields, and
 /// the related source's search and default-ordering expressions. It is a
-/// *source* surface rather than a second resource trait: for a `Resource`, five
-/// of the seven are one-for-one forwards (see the blanket impl in
-/// [`crate::resource`]), and [`requires_tenant`](Self::requires_tenant) and
-/// [`slug`](Self::slug) are read only for the tenant gate and the log fields.
-/// What it buys is that `schema` names no part of `Resource` — the dependency
-/// runs one way — and that a test fixture declares a model plus the one
-/// predicate it exercises instead of a whole resource with a table.
+/// *source* surface rather than a second resource trait: for a `Resource`, four
+/// of the seven forward straight to the matching method (`can_view_any`,
+/// `can_view`, `requires_tenant`, `slug`), `scoped_query` composes the
+/// framework's tenant-scoped query, and the last two read the declared table
+/// (see the blanket impl in [`crate::resource`]). What it buys is that `schema`
+/// names no part of `Resource` — the dependency runs one way — and that a test
+/// fixture declares a model plus the one predicate it exercises instead of a
+/// whole resource with a table.
 ///
 /// [`scoped_query`](Self::scoped_query) is **required**: a source states its
 /// own scope, so a gated source cannot end up unscoped by omission. The rest
@@ -75,7 +76,7 @@ pub trait OptionSource: Sized + Send + Sync + 'static {
     ///
     /// An `Err` is a **permanent** misdeclaration — a source that declared a
     /// tenant gate the framework cannot satisfy — reported as
-    /// [`OptionLoadError::Misdeclared`] rather than a retryable failure.
+    /// `OptionLoadError::Misdeclared` rather than a retryable failure.
     fn scoped_query(cx: &Cx) -> Result<Query<List<Self::Model>>>;
 
     /// Whether the current user may see the source's records at all: `false`

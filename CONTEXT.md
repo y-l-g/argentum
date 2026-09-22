@@ -232,7 +232,7 @@ _Avoid_: Link, Route, Target, SidebarUrl
 
 ### Filter
 
-A predicate contributed to a Table's query. A typed wrapper around a Toasty Expr<bool> produced
+A predicate contributed to a Table's query. A typed wrapper around a Toasty `Expr<bool>` produced
 from a UI control (SelectFilter, TernaryFilter, DateFilter, VariantFilter), composed with AND.
 
 _Avoid_: Scope, Constraint, Where

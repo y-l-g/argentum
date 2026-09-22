@@ -42,6 +42,22 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
+  docs:
+    name: docs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: rustup update stable && rustup default stable
+      - uses: Swatinem/rust-cache@v2
+      # Nothing else here builds the docs: `cargo test` and `cargo clippy` never
+      # run rustdoc, so 44 errors in argentum-core (broken intra-doc links to
+      # private items, unclosed HTML tags, an unparseable Rust code block)
+      # accumulated unnoticed and left the Pages workflow red on master.
+      # `-D warnings` promotes every rustdoc lint to a failure, so the next one
+      # breaks this job instead of printing a warning nobody reads. Workspace
+      # only: the detached benchmarks/* are separate workspaces.
+      - run: RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked
+
   msrv:
     name: msrv (1.98)
     runs-on: ubuntu-latest

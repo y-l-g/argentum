@@ -1,9 +1,8 @@
 //! The [`Table`] builder plus query planning (`filter_expr`/`search_expr`/`order_bys_for`).
 //!
 //! Rendering lives in [`render`](self::render), CSV export in [`export`](self::export).
-//! Moved from `resource.rs` (GH #133), and changed since: one routine applies
-//! the declaration for both loaders (GH #210) and the essentials check covers
-//! the action chrome the panel wires (GH #207).
+//! One routine applies the declaration for both loaders (GH #210) and the
+//! essentials check covers the action chrome the panel wires (GH #207).
 
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -25,13 +24,8 @@ mod render;
 /// (upstream gap #119).
 pub type RowKey<M> = Arc<dyn Fn(&M) -> String + Send + Sync>;
 
-/// Table description of a `Resource`'s list view. Declares columns and how they map to queries.
-///
-/// Row identity is mandatory and typed: [`Table::id`] declares the row-key
-/// projection and [`Table::render`] errors without it — the old stringly-typed
-/// `HasId`/`GetField` dispatch (GH #10) is gone, cells render via
-/// [`TextColumn`]'s lens-bound closure where typos fail at compile time
-/// instead of panicking at render.
+/// Group-label projection: reads a row's group off one model instance
+/// (typically `|u| u.status.clone()`).
 pub type GroupKey<M> = Arc<dyn Fn(&M) -> String + Send + Sync>;
 
 /// A named grouping a `Table` can render: `name` is the `?group_by=` value
@@ -118,6 +112,13 @@ impl OrderMode {
     }
 }
 
+/// Table description of a `Resource`'s list view. Declares columns and how they
+/// map to queries.
+///
+/// Row identity is mandatory and typed: [`Table::id`] declares the row-key
+/// projection and [`Table::render`] errors without it, and cells render via
+/// [`TextColumn`]'s lens-bound closure where typos fail at compile time instead
+/// of panicking at render.
 pub struct Table<M> {
     columns: Vec<TextColumn<M>>,
     filters: Vec<Filter<M>>,
@@ -208,12 +209,13 @@ impl<M> Table<M> {
     /// values (typically `|u| u.id.to_string()`), GH #168.
     ///
     /// Required before [`Self::render`] whenever action chrome is on
-    /// ([`Self::with_delete`], [`Self::with_edit`], [`Self::with_bulk_delete`]):
+    /// ([`Self::with_delete`], [`Self::with_edit`], [`Self::with_view`],
+    /// [`Self::with_bulk_delete`]):
     /// handlers resolve these strings as the model's typed PK (`pk_eq_expr` /
     /// `pk_in_expr` — an unparseable value 404s), so emitting a display key
-    /// here used to 404 every delete and bulk submit. Renders with chrome but
-    /// without it return an error rather than emitting keys the handlers
-    /// cannot resolve.
+    /// here 404s every delete and bulk submit. Renders with chrome but without
+    /// it return an error rather than emitting keys the handlers cannot
+    /// resolve.
     pub fn pk(mut self, key: impl Fn(&M) -> String + Send + Sync + 'static) -> Self {
         self.record_key = Some(Arc::new(key));
         self
@@ -302,9 +304,9 @@ impl<M> Table<M> {
     /// selects no predicate by contract, so it is never flagged.
     ///
     /// An oversized `?filters=` transport arrives here as
-    /// [`FILTERS_OVERFLOW_SEGMENT`](super::state::FILTERS_OVERFLOW_SEGMENT)
-    /// (GH #205), reported with its own reason so the warning says the
-    /// transport was refused rather than misdescribing it as malformed.
+    /// `FILTERS_OVERFLOW_SEGMENT` (GH #205), reported with its own reason so
+    /// the warning says the transport was refused rather than misdescribing it
+    /// as malformed.
     ///
     /// The list view renders these as a `role=alert` banner and keeps a 200;
     /// the export refuses the request with 400 instead of silently
@@ -446,7 +448,7 @@ impl<M> Table<M> {
     ///
     /// When enabled, the toolbar renders a signal-backed input that
     /// re-renders the table after a short keystroke-quiet delay (GH #172,
-    /// [`LIVE_SEARCH_DEBOUNCE_MS`]), morphing in place so focus
+    /// `LIVE_SEARCH_DEBOUNCE_MS`), morphing in place so focus
     /// and typing survive, instead of a GET submit. The `?q=` GET form stays
     /// inside `<noscript>` as the no-JS fallback. Opt-in per resource; the
     /// shard authorizes itself (`can_view_any` + the tenant-scoped query,
@@ -591,7 +593,7 @@ impl<M> Table<M> {
     ///
     /// Loaders that also need the search term parse the state once with
     /// [`TableState::from_cx`] and apply the declaration through
-    /// [`Self::apply_declaration`] (see `crate::panel::Panel`'s generic
+    /// `Self::apply_declaration` (see `crate::panel::Panel`'s generic
     /// resource list handler).
     pub fn order_bys_for(&self, state: &TableState, mode: OrderMode) -> Vec<OrderByExpr>
     where
@@ -796,8 +798,7 @@ impl<M> Table<M> {
     }
 
     /// Whether the search toolbar renders: the explicit `search(bool)` value,
-    /// or auto — at least one `searchable()` column. A non-interactive
-    /// preview never renders it (GH #151).
+    /// or auto — at least one `searchable()` column.
     pub(crate) fn search_enabled(&self) -> bool
     where
         M: toasty::schema::Model,

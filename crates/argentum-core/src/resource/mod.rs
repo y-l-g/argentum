@@ -175,7 +175,7 @@ pub trait Resource: Sized + Send + Sync + 'static {
 
     /// How one record is displayed on the detail page (GH #187), read-only.
     ///
-    /// The same [`Schema`](crate::schema::Schema) a form uses, rendered for
+    /// The same [`Schema`] a form uses, rendered for
     /// reading: a `TextInput` shows its stored value instead of an `<input>`,
     /// a `Select` shows the option label the form offered, and a layout block
     /// keeps the structure it declares (`Grid` stays a grid). Declaring a view
@@ -324,36 +324,16 @@ pub trait Resource: Sized + Send + Sync + 'static {
     /// The export writes a cell per column, so it asks the table which
     /// relations those columns' projections read ([`Table::include_needs`] —
     /// each column declares them with [`TextColumn::needs`]) and hands the
-    /// answer here. Overriding this is how a resource stops paying for
-    /// includes it carries for other pages: a relation `query` loads for the
-    /// detail page or the live list rides along on an export only when a
-    /// rendered column declared it.
+    /// answer here. `docs/guide/src/resources.md` states the override contract:
+    /// a resource splits its base query in two, one branch per declared name,
+    /// so an include `query` carries for the detail page or the live list rides
+    /// along on an export only when a rendered column declared it.
     ///
-    /// **The default ignores `needs` and returns [`Self::query`] unchanged**,
-    /// so a resource that overrides nothing behaves exactly as before.
+    /// **The default ignores `needs` and returns [`Self::query`] unchanged.**
     /// Over-fetching a relation nothing reads costs a join; dropping one a
     /// column does read breaks the render — the default takes the safe side.
-    ///
-    /// A resource splits its base query in two, one branch per declared name:
-    ///
-    /// ```ignore
-    /// impl PostResource {
-    ///     fn base(cx: &Cx, needs: &IncludeNeeds) -> Query<List<Post>> {
-    ///         let mut q = /* tenancy filter, as in query() */;
-    ///         if needs.wants("author") { q = q.include(inc_author); }
-    ///         if needs.wants("comments") { q = q.include(inc_comments); }
-    ///         q
-    ///     }
-    /// }
-    ///
-    /// fn query(cx: &Cx) -> Query<List<Post>> {
-    ///     Self::base(cx, &IncludeNeeds::from(["author", "comments"]))
-    /// }
-    ///
-    /// fn export_query(cx: &Cx, needs: &IncludeNeeds) -> Query<List<Post>> {
-    ///     Self::base(cx, needs)
-    /// }
-    /// ```
+    /// The **list page does not use this**: it keeps inheriting [`Self::query`],
+    /// so only the export's constant-factor over-fetch is addressed here.
     ///
     /// # What an override must keep
     ///
@@ -373,10 +353,6 @@ pub trait Resource: Sized + Send + Sync + 'static {
     /// - **Every name a column declared.** A declared name with no matching
     ///   include renders an unloaded relation, which the column's `is_unloaded`
     ///   guard (ADR-0011) reports in test builds instead of a silent `"-"`.
-    ///
-    /// The **list page does not use this**: it keeps inheriting [`Self::query`]
-    /// (the #172 grill's decision 10), so only the export's constant-factor
-    /// over-fetch is addressed here.
     fn export_query(cx: &Cx, _needs: &IncludeNeeds) -> toasty::stmt::Query<List<Self::Model>> {
         Self::query(cx)
     }
@@ -445,7 +421,10 @@ pub trait Resource: Sized + Send + Sync + 'static {
         Table::new()
     }
 
-    /// Description of the form/infolist. Phase 1: stub.
+    /// The schema the create and edit forms render, and the source of the
+    /// fields the panel validates and hydrates.
+    ///
+    /// The default is empty, so a resource with no form still lists.
     fn form(_cx: &Cx) -> Schema {
         Schema::empty()
     }
@@ -658,7 +637,7 @@ pub trait Resource: Sized + Send + Sync + 'static {
 /// overrides `query` for includes or soft deletes cannot drop the tenant scope
 /// by forgetting to re-state it.
 ///
-/// This is the entry point; [`apply_tenant_scope`] is the same composition for
+/// This is the entry point; `apply_tenant_scope` is the same composition for
 /// a seed that is not [`Resource::query`].
 ///
 /// # Errors
@@ -813,8 +792,8 @@ mod tests {
 
     #[tokio::test]
     async fn query_seam_is_cloneable_via_db_helper() {
-        // Proves the seam can be combined with the `db(cx)` helper from T2
-        // without taking ownership of the query.
+        // Proves the seam composes with the `db(cx)` helper without taking
+        // ownership of the query.
         let mut db = Db::builder()
             .models(toasty::models!(User))
             .connect("sqlite::memory:")

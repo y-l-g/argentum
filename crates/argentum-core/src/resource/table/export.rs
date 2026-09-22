@@ -1,6 +1,4 @@
 //! [`Table`] CSV export: `to_csv` plus RFC4180 escaping.
-//!
-//! Moved verbatim from `resource.rs` (GH #133): no behavior change.
 
 use super::super::state::TablePage;
 use super::Table;
@@ -43,9 +41,8 @@ impl<M> Table<M> {
     /// or `%`) so a stored value like `=1+1` — including CR/LF- or tab-led
     /// variants, which spreadsheets treat as formulas even when the payload
     /// does not start the raw cell (GH #145) — opens as text, not a live
-    /// spreadsheet formula. The page passed in is buffered as one `String`;
-    /// the export handler caps the filtered query (GH #94) so callers cannot
-    /// buffer an unbounded table.
+    /// spreadsheet formula. Buffers the whole page as one `String`; the export
+    /// handler streams [`Self::csv_header`] and [`Self::csv_row`] instead.
     pub fn to_csv(&self, page: &TablePage<M>) -> String
     where
         M: toasty::schema::Model,

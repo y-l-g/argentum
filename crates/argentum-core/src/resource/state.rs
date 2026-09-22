@@ -1,8 +1,7 @@
 //! Cursor/URL state: [`TablePage`], [`Sort`], [`TableState`], and the URL codec.
 //!
-//! Moved from `resource.rs` (GH #133), and changed since: both entry points
-//! share one parse contract (GH #206) and the `filters` transport is bounded
-//! where it is parsed (GH #205).
+//! Both entry points share one parse contract (GH #206) and the `filters`
+//! transport is bounded where it is parsed (GH #205).
 
 use std::collections::HashMap;
 
@@ -15,7 +14,7 @@ use crate::query_term::clamp_query_term;
 /// The live table's browser state (GH #151).
 ///
 /// The page owns these signals and hands their handles to the `table_search`
-/// shard through [`Table::render_live_with_state`]; each tracked read inside
+/// shard through `Table::render_live_with_state`; each tracked read inside
 /// the shard becomes a `dep` marker the browser watches, so writing any signal
 /// re-renders the table in place — no navigation, no scroll jump. Sort links,
 /// the pager, the filter transport, the bulk selection, and the clear links
@@ -46,8 +45,8 @@ pub struct TableSignals {
     /// `after`+`before` pair Toasty rejects unrepresentable in the browser — no
     /// cross-write interleaving can produce it — and lets every result-set
     /// transition clear pagination with a single write. Written through
-    /// [`cursor_after`] / [`cursor_before`] / [`cursor_none`], read through
-    /// [`split_cursor`].
+    /// `cursor_after` / `cursor_before` / `cursor_none`, read through
+    /// `split_cursor`.
     pub cursor: Signal<String>,
     /// `?group_by=` — the active grouping (`""` = ungrouped, GH #157).
     /// Seeded from the page-load state and changed via navigation
@@ -56,11 +55,13 @@ pub struct TableSignals {
     /// cursor like the other result-set dimensions.
     pub group_by: Signal<String>,
     /// The bulk selection: comma-separated record keys, `""` when nothing is
-    /// selected (GH #166). Row checkboxes render `checked` from it and
-    /// `bulk.js` writes it through the bound transport, so a live rerun
-    /// re-renders the boxes from the selection instead of dropping it. The
-    /// shard carries the handle without reading it: the table needs it to bind
-    /// the boxes, but a checkbox click must not reload rows.
+    /// selected (GH #166). Row checkboxes carry no `checked` attribute —
+    /// `bulk.js` sets `checked` from the transport after every swap and change
+    /// — and the script writes the transport, whose bound `change` handler
+    /// writes this signal, so a live rerun re-renders the boxes from the
+    /// selection instead of dropping it. The shard carries the handle without
+    /// reading it: the table needs it to bind the boxes, but a checkbox click
+    /// must not reload rows.
     pub bulk: Signal<String>,
 }
 
@@ -121,7 +122,7 @@ pub(crate) fn bulk_wire_contains(wire: &str, key: &str) -> bool {
     wire.split(',').any(|segment| segment == key)
 }
 
-/// One executed page of rows for [`Table::render`].
+/// One executed page of rows for `Table::render`.
 ///
 /// For paginated tables build it from toasty's `Page` via
 /// [`Self::from_toasty_page`] (which URL-encodes the engine cursors); for
@@ -175,7 +176,7 @@ impl<M: toasty::schema::Model> TablePage<M> {
 /// `?sort=<column>&dir=asc|desc`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Sort {
-    /// The app-level field name of the column (matches [`TextColumn::name`]).
+    /// The app-level field name of the column (matches `TextColumn::name`).
     pub column: String,
     /// `true` for `dir=desc`.
     pub descending: bool,
@@ -184,14 +185,13 @@ pub struct Sort {
 /// Request-scoped table state, parsed from the current URL query.
 ///
 /// The single parse point shared by loaders (the search term, ordering via
-/// [`Table::order_bys_for`]) and render (active sort, toolbar values,
+/// `Table::order_bys_for`) and render (active sort, toolbar values,
 /// pagination links), so the URL is the one truth for list state. The fixed parameter
 /// names assume one table per page — per-table prefixes are deferred until a
 /// real page needs two tables.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TableState {
-    /// `?q=` — trimmed and clamped to
-    /// [`MAX_QUERY_TERM`](crate::query_term::MAX_QUERY_TERM) chars; `None` when
+    /// `?q=` — trimmed and clamped to `MAX_QUERY_TERM` chars; `None` when
     /// absent or blank.
     pub search: Option<String>,
     /// `?sort=` + `?dir=` — `None` when absent or blank.
@@ -201,11 +201,11 @@ pub struct TableState {
     /// `?before=` — encoded backward cursor.
     pub before: Option<String>,
     /// `?filters=` — `key:value,key2:value2` (comma-separated, colon-delimited),
-    /// bounded at parse time by [`MAX_FILTERS_PARAM`]/[`MAX_FILTER_SEGMENTS`]
+    /// bounded at parse time by `MAX_FILTERS_PARAM`/`MAX_FILTER_SEGMENTS`
     /// (GH #205).
     pub filters: HashMap<String, String>,
     /// `?filters=` segments that carry no `key:value` pair (GH #148): kept so
-    /// [`Table::unapplied_filters`] can flag them (list banner, export 400)
+    /// `Table::unapplied_filters` can flag them (list banner, export 400)
     /// instead of silently dropping them, and so [`Self::filters_param`]
     /// round-trips them — a link built from this state keeps the warning
     /// until a valid `?filters=` replaces it.
@@ -313,7 +313,7 @@ impl TableState {
     /// This is the expensive half of a URL projection (a `format!` per pair,
     /// a sort, a join, and a percent-encode per byte), so a table render must
     /// encode it a bounded number of times — never once per row (GH #205).
-    /// [`TableState::row_url_base`] exists to make that structural.
+    /// `TableState::row_url_base` exists to make that structural.
     pub fn filters_param(&self) -> Option<String> {
         #[cfg(test)]
         FILTERS_PARAM_ENCODES.with(|count| count.set(count.get() + 1));
@@ -537,7 +537,7 @@ impl TableState {
     ///
     /// Every argument is client-owned by the time the shard reads it back, so
     /// this applies [`Self::from_cx`]'s bounds through the shared
-    /// [`Self::from_parts`] (GH #206) — the public constructor is not the
+    /// `Self::from_parts` (GH #206) — the public constructor is not the
     /// looser one.
     ///
     /// [`TableSignals::to_state`] is the shard's call site for this (GH #224):
@@ -577,7 +577,7 @@ impl TableState {
     ///
     /// Call it with the *parsed* state, before normalizing: an unknown
     /// `?group_by=` seeds the signal as written, and the shard's
-    /// [`TableSignals::to_state`] + [`Table::normalize_state`] drop it on the
+    /// [`TableSignals::to_state`] + `Table::normalize_state` drop it on the
     /// way back in, exactly as the GET path does (GH #153).
     ///
     /// Creates the signals, so it carries [`topcoat::runtime::signal`]'s
@@ -616,17 +616,13 @@ impl TableState {
 impl TableSignals {
     /// Rebuild request state from the live signals (GH #224).
     ///
-    /// The one signal→state conversion, and the live half of the parse
-    /// contract: every value is client-owned by the time the shard reads it
-    /// back, so it goes through [`TableState::from_live_args`] — the same
-    /// `q` clamp and `filters` bound the GET path applies (GH #148,
-    /// GH #205, GH #206) — and the one cursor wire is split into the
-    /// `(after, before)` pair the loader consumes (GH #166).
-    ///
-    /// Pagination and the delete dialog are always reset: a live rerun is a
-    /// new result set, and the panel renders the dialog outside the shard
-    /// region (GH #151). A token that does not decode still fails loudly at
-    /// load time (GH #158).
+    /// The one signal→state conversion: every value is client-owned by the time
+    /// the shard reads it back, so it goes through
+    /// [`TableState::from_live_args`] — the same `q` clamp and `filters` bound
+    /// the GET path applies (GH #148, GH #205, GH #206) — and the one cursor
+    /// wire is split into the `(after, before)` pair the loader consumes
+    /// (GH #166). Pagination and the delete dialog always reset (GH #151); a
+    /// token that does not decode fails loudly at load time (GH #158).
     pub fn to_state(&self) -> TableState {
         let mut state = TableState::from_live_args(
             &self.q.get(),
@@ -661,7 +657,7 @@ impl RowUrlBase {
     }
 }
 
-// --- Action URL shapes (GH #206) -------------------------------------------
+// Action URL shapes (GH #206).
 //
 // `TableState` owns every table link's parameter vocabulary; these own the
 // *path* shapes, so a route change has one edit site per shape instead of a
@@ -737,19 +733,13 @@ fn first_wins_query_params(query: &str) -> HashMap<String, String> {
 /// (GH #93); decoding restores them. Duplicate keys keep the first occurrence
 /// instead of silent last-wins.
 ///
-/// Segments that carry no `key:value` pair — colon-less (`foobar`), or an
-/// empty key/value after decoding — are returned separately (GH #148): they
-/// are flagged by [`Table::unapplied_filters`] (list banner, export 400)
-/// instead of being silently dropped, and round-trip through
-/// [`TableState::filters_param`] verbatim.
-///
-/// The transport is bounded here, where it is parsed (GH #205): the live shard
-/// hands this the client-owned `filters` signal, which the router will buffer
-/// up to megabytes of. An over-long or over-full transport is refused *whole*
-/// — never partially applied, which would silently drop filters the caller did
-/// send — and the refusal rides the GH #148 malformed channel as
-/// [`FILTERS_OVERFLOW_SEGMENT`], so the list warns and the export 400s instead
-/// of running unfiltered.
+/// An over-long or over-full transport is refused *whole* — never partially
+/// applied, which would silently drop filters the caller did send — and the
+/// refusal rides the GH #148 malformed channel as `FILTERS_OVERFLOW_SEGMENT`
+/// (GH #205), so the list warns and the export 400s instead of running
+/// unfiltered. The bound lives here, where the value is parsed: the live shard
+/// hands this the client-owned `filters` signal, which the router buffers up to
+/// megabytes of.
 fn parse_filters_param(raw: &str) -> (HashMap<String, String>, Vec<String>) {
     // The length test first: it is O(1) and short-circuits the segment scan
     // for the oversized input this bound exists for.

@@ -1,8 +1,7 @@
 //! [`Table`] HTML rendering: `render`/`render_with_state`/`render_skeleton` plus the chrome.
 //!
-//! Moved from `resource.rs` (GH #133), and changed since: grouping is
-//! page-local and interleaved (GH #219) and a page encodes the filter
-//! transport once (GH #205).
+//! Grouping is page-local and interleaved (GH #219) and a page encodes the
+//! filter transport once (GH #205).
 
 use argentum_ui::{
     ButtonSize, ButtonVariant, alert_dialog, button, button_variants, dialog_content,
@@ -69,9 +68,9 @@ impl<M> Table<M> {
     /// [`TableSignals::to_state`]) and the list URL explicitly.
     ///
     /// Normalizes the state it is handed (GH #153), so a page calling this
-    /// directly needs no knowledge of [`NormalizedState`]; a caller that
+    /// directly needs no knowledge of `NormalizedState`; a caller that
     /// already normalized once per request goes through
-    /// [`Self::render_normalized`] instead (GH #224).
+    /// `Self::render_normalized` instead (GH #224).
     pub async fn render_with_state<'a>(
         &self,
         cx: &'a Cx,
@@ -789,19 +788,17 @@ impl<M> Table<M> {
         let path = topcoat::context::try_request_context::<http::request::Parts>(cx)
             .map(|parts| parts.uri.path().to_string())
             .unwrap_or_default();
+        // The action column exists for any of the three row links, matching
+        // `render_inner` — a `with_view`-only table must not swap a
+        // narrower skeleton for a wider table.
+        let with_actions = self.delete_prefix.is_some()
+            || self.edit_prefix.is_some()
+            || self.view_prefix.is_some();
+        let with_bulk = self.bulk_enabled();
         let head = self
-            .render_thead(
-                cx,
-                state,
-                &path,
-                self.delete_prefix.is_some() || self.edit_prefix.is_some(),
-                self.bulk_enabled(),
-                None,
-            )
+            .render_thead(cx, state, &path, with_actions, with_bulk, None)
             .await?;
         let column_count = self.columns.len();
-        let with_actions = self.delete_prefix.is_some() || self.edit_prefix.is_some();
-        let with_bulk = self.bulk_enabled();
         let inner = view! {
             cx =>
             <div
@@ -929,11 +926,11 @@ impl<M> Table<M> {
     /// Eager live-search input for live tables (GH #104): the signal-backed
     /// input plus the GET form as `<noscript>` fallback. Rendered eagerly
     /// above the streamed region; the shard invocation that fills the table
-    /// lives in the streamed region ([`Self::render_live_invocation`]) so the
+    /// lives in the streamed region (`Self::render_live_invocation`) so the
     /// table can only ever render once per response.
     ///
     /// The visible input is deliberately unbound (GH #172): typing stays
-    /// local until it pauses for [`LIVE_SEARCH_DEBOUNCE_MS`], then
+    /// local until it pauses for `LIVE_SEARCH_DEBOUNCE_MS`, then
     /// `assets/live-search.js` forwards the value through the bound hidden
     /// transport, whose `@change` writes `q` and clears the cursors (a new
     /// term is a new result set). The shard re-renders in place (GH #151).
@@ -1049,7 +1046,7 @@ impl<M> Table<M> {
     /// Hoisting matters for focus: a `<select>` change writes the `filters`
     /// signal, and a bar rebuilt by that rerun would collapse the native popup
     /// and drop keyboard context. The table renders without the bar
-    /// (`Table::filters(false)`), so the control the user touched is never
+    /// (`Table::filter_bar(false)`), so the control the user touched is never
     /// replaced.
     pub async fn render_live_filter_bar<'a>(
         &self,
@@ -2881,6 +2878,48 @@ mod tests {
         assert!(
             html.contains("Ada"),
             "swap payload must be rows, got {html}"
+        );
+    }
+
+    #[tokio::test]
+    async fn skeleton_carries_the_action_column_for_view_only_chrome() {
+        // The skeleton's action column must count every row link `render_inner`
+        // renders, `with_view` included, or the swap changes the table width.
+        let cx = CxTestBuilder::new().build();
+        let tbl = Table::<User>::r#for(&cx)
+            .id(|u| u.id.to_string())
+            .pk(|u| u.id.to_string())
+            .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()))
+            .with_view("/admin/users".to_string());
+        let skeleton = tbl
+            .render_skeleton(&cx)
+            .await
+            .unwrap()
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
+        let rows = vec![User {
+            id: uuid::Uuid::nil(),
+            name: "Ada".to_string(),
+        }];
+        let rendered = tbl
+            .render_with_state(&cx, rows.into(), &TableState::default(), "/admin/users")
+            .await
+            .unwrap()
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
+        assert_eq!(
+            rendered.matches(">Actions</th>").count(),
+            1,
+            "the real table renders one action column, got {rendered}"
+        );
+        assert_eq!(
+            skeleton.matches(">Actions</th>").count(),
+            rendered.matches(">Actions</th>").count(),
+            "the skeleton must match the swapped table's column count, got {skeleton}"
         );
     }
 

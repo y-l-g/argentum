@@ -1,6 +1,4 @@
 //! Table filters: the four typed filter kinds plus the [`Filter`] seam.
-//!
-//! Moved verbatim from `resource.rs` (GH #133): no behavior change.
 
 use toasty::stmt::Expr;
 

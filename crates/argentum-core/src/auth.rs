@@ -1,7 +1,7 @@
 //! Authentication — credentials, server-side sessions, and the panel gate
 //! (ADR-0013, spec #127).
 //!
-//! A [`Panel`](crate::Panel) is gated by default. The shipped [`PasswordAuth`]
+//! A [`Panel`] is gated by default. The shipped [`PasswordAuth`]
 //! verifies Argon2id PHC hashes against the [`AdminUser`] model, a session
 //! cookie issued by Topcoat's token transport identifies one server-side
 //! [`AuthSession`] row, and the resolved [`CurrentUser`] travels in request
@@ -482,7 +482,7 @@ async fn delete_session_row(cx: &Cx, key: &str) -> topcoat::Result<()> {
 /// password reset/change and deactivation alike. Nothing in-core calls it
 /// (there is no password-change flow in the framework); sessions otherwise
 /// stay valid for their full fixed lifetime, so a reset that skips this
-/// leaves a stolen session usable. The showcase reset flow must call it,
+/// leaves a stolen session usable. A password-reset flow must call it,
 /// and custom `Authenticator` apps own the same obligation.
 pub async fn revoke_sessions_for_user(cx: &Cx, user_id: &str) -> topcoat::Result<()> {
     let mut db = crate::db::db(cx);

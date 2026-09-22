@@ -216,7 +216,7 @@ impl TextInput {
     /// Create a `TextInput` bound to a lens inside an embedded struct or a
     /// `#[document]` (GH #185).
     ///
-    /// The plain [`Self::r#for`] resolves a lens against the model alone, which
+    /// The plain `Self::r#for` resolves a lens against the model alone, which
     /// is why it can only bind a top-level field: the owned `app::Model` cannot
     /// see the embedded models, so a path like `Post::fields().seo().title()`
     /// is rejected as a traversal lens. This resolves through the request's app
@@ -228,7 +228,7 @@ impl TextInput {
     /// writes one. Opt in with [`.required()`](Self::required).
     ///
     /// Without a `Db` in context (a bare `CxTestBuilder`) this behaves exactly
-    /// like [`Self::r#for`] and rejects the traversal lens loudly, so a test
+    /// like `Self::r#for` and rejects the traversal lens loudly, so a test
     /// cannot silently bind the wrong column.
     pub fn r#for_context<M>(cx: &Cx, path: toasty::stmt::Path<M, String>) -> Self
     where
@@ -249,7 +249,7 @@ impl TextInput {
     /// Create a `TextInput` bound to a lens whose leaf is **not** a `String`
     /// (GH #192).
     ///
-    /// The untyped [`Self::r#for`] takes `Path<M, String>`, which is what makes
+    /// The untyped `Self::r#for` takes `Path<M, String>`, which is what makes
     /// a wrong lens a compile error rather than a runtime mismatch (GH #100,
     /// ADR-0001) — and also what made a typed column unbindable. This
     /// constructor keeps that guarantee for its own call sites: the lens must
@@ -270,9 +270,10 @@ impl TextInput {
     /// validation was bypassed.
     ///
     /// `TypedValue` is implemented for the types a panel binds — the integer
-    /// types, `f64`, `Uuid`, `jiff::Timestamp` — rather than as a blanket over
-    /// `FromStr`, because the error a user sees has to name what was expected.
-    /// A type that needs different words implements the trait itself.
+    /// types, `bool`, `f32`, `f64`, `Uuid`, `jiff::Timestamp` — rather than as
+    /// a blanket over `FromStr`, because the error a user sees has to name what
+    /// was expected. A type that needs different words implements the trait
+    /// itself.
     pub fn typed<M, T>(path: toasty::stmt::Path<M, T>) -> Self
     where
         M: toasty::schema::Model,
@@ -297,7 +298,7 @@ impl TextInput {
 
     /// [`Self::typed`] for a lens inside an embedded struct or a `#[document]`,
     /// resolving through the request's app schema exactly as
-    /// [`Self::r#for_context`] does (GH #185).
+    /// `Self::r#for_context` does (GH #185).
     ///
     /// A leaf under an embedded step is never required by default: every column
     /// below one is storage-nullable, since only the matching enum variant
@@ -347,7 +348,7 @@ impl TextInput {
     /// reasoning (and the rejected alternative) is recorded in the ADR-0010
     /// amendment of 2026-09-21.
     ///
-    /// Non-`TextInput` fields declare no uniqueness (see [`Textarea::r#for`]),
+    /// Non-`TextInput` fields declare no uniqueness (see `Textarea::r#for`),
     /// so nothing else changes.
     pub fn unique(mut self) -> Self {
         self.unique = true;
@@ -391,11 +392,12 @@ impl TextInput {
 
     /// Typed equality filter against the field this input is bound to.
     ///
-    /// Inputs only bind `String` lenses (enforced at `r#for`), so the
-    /// comparison is a string equality on that field's path. `M` must be the
-    /// model the lens came from. Built through the public facade
-    /// (`Model::field_name_to_id` + `Model::path_field` + `Path::eq`) — the
-    /// crate's generic handlers use it for the app-side unique check.
+    /// The comparison is a string equality on that field's path: the probe
+    /// binds the leaf as `String` (`Model::path_field::<String>`) whatever the
+    /// input's own lens type. `M` must be the model the lens came from. Built
+    /// through the public facade (`Model::field_name_to_id` +
+    /// `Model::path_field` + `Path::eq`) — the crate's generic handlers use it
+    /// for the app-side unique check.
     pub(crate) fn eq_filter<M>(&self, value: String) -> toasty::stmt::Expr<bool>
     where
         M: toasty::schema::Model,
@@ -690,25 +692,24 @@ impl Select {
     /// Option search over a visible list (GH #91, GH #184) plus server-side
     /// narrowing past the cap (GH #150): renders a filter input and a
     /// suggestion listbox above the select. Typing narrows the list by label
-    /// substring for bounded sets, and picks write the chosen option onto the
-    /// select, which stays the form control. Past the cap it instead fetches
+    /// substring for bounded sets, and a pick writes the chosen option onto the
+    /// select, which stays the form control. Past the cap it fetches
     /// `GET {parent_list_url}/options?field=&q=` (debounced, abort in-flight,
     /// selection preserved) and re-renders the list from the answer. Reuses the
     /// related `Table`'s declared `searchable()` columns; non-searchable
-    /// selects keep the cap error. No-JS keeps the plain select (relation
-    /// cannot be changed past the cap, other fields still submit).
+    /// selects keep the cap error. No-JS keeps the plain select.
     ///
     /// The list exists because the select cannot show filtering itself: the
     /// primitive opts into `appearance: base-select`, whose popup is browser
     /// chrome that ignores `option[hidden]`, so narrowing the select's own
     /// options is invisible (GH #184).
     ///
-    /// Behavior asset: the field needs `assets/selects.js`
-    /// (`argentum_ui::SELECTS_JS`, hooks `data-select-filterable` /
-    /// `data-options-filter` / `data-options-combobox` / `data-options-list`),
-    /// emitted by `Panel::render_document` on every document with shell assets
-    /// (see ADR-0014). Without the document scripts the input is inert and the
-    /// plain select keeps working.
+    /// Behavior asset: `assets/selects.js` (`argentum_ui::SELECTS_JS`, hooks
+    /// `data-select-filterable` / `data-options-filter` /
+    /// `data-options-combobox` / `data-options-list`), emitted by
+    /// `Panel::render_document` on every document with shell assets
+    /// (see ADR-0014). Without it the input is inert and the plain select
+    /// keeps working.
     pub fn searchable(mut self) -> Self {
         self.searchable = true;
         self
@@ -1212,7 +1213,7 @@ impl Textarea {
     /// Create a `Textarea` bound to the given field lens.
     ///
     /// Only `String` lenses compile, and `required` defaults from the field's
-    /// nullability exactly as [`TextInput::r#for`] documents (GH #100).
+    /// nullability exactly as `TextInput::r#for` documents (GH #100).
     ///
     /// There is deliberately no `.unique()`: the app-side unique check builds
     /// its probe from `TextInput::eq_filter`, so a uniqueness modifier here
@@ -1237,7 +1238,7 @@ impl Textarea {
     /// Create a `Textarea` bound to a lens inside an embedded struct or a
     /// `#[document]` (GH #185), resolving through the request's app schema so
     /// the leaf arrives as its flattened storage column. Same contract as
-    /// [`TextInput::r#for_context`], including the not-required default.
+    /// `TextInput::r#for_context`, including the not-required default.
     pub fn r#for_context<M>(cx: &Cx, path: toasty::stmt::Path<M, String>) -> Self
     where
         M: toasty::schema::Model,
@@ -1285,7 +1286,7 @@ impl Textarea {
     }
 
     /// Whether an empty submit fails validation (GH #88 semantics, as
-    /// [`TextInput::is_required`]).
+    /// `TextInput::is_required`).
     pub fn is_required(&self) -> bool {
         self.required
     }
@@ -1376,50 +1377,14 @@ impl Textarea {
 /// `enctype="multipart/form-data"` (see `Panel`) and the POST parser extracts
 /// the file part; where the bytes go is the app's decision, expressed by the
 /// [`Uploader`](crate::Uploader) installed with
-/// [`Panel::uploads`](crate::Panel::uploads):
+/// [`Panel::uploads`](crate::Panel::uploads). An installed uploader receives
+/// the part's sanitized filename and bytes and returns the value to store; with
+/// none, the sanitized basename is stored. The file input renders no `value`
+/// attribute, which browsers ignore for security.
 ///
-/// - **an uploader is installed** — it receives the part's sanitized filename
-///   and bytes and returns the value to store, so the column holds whatever the
-///   app's store names (a URL, a key, a directory-relative path). A failed store
-///   is an inline field error, never a 500;
-/// - **no uploader installed** — the sanitized basename is stored, which is the
-///   original GH #73/#90 contract; an app that never installs one is unaffected.
-///
-/// The stored path renders as the file it names (GH #188): a preview `<img>`
-/// when it ends in an image extension, a link to it otherwise. The framework
-/// invents no URL convention — it renders exactly what the app stored. The
-/// `<input type="file">` never renders a `value` attribute; browsers
-/// ignore/mask it for security.
-///
-/// On an edit, the stored path is surfaced as text and the control is left
-/// **optional** (GH #184): a file input cannot be pre-filled, so a `required`
-/// attribute on it made every edit blocking — the browser refuses to submit an
-/// empty required file input, and the server's untouched-value backfill (which
-/// exists for exactly this reason, see `panel/forms.rs`) never ran because the
-/// request was never sent. `required` therefore keeps its create-time meaning
-/// on the rendered control, and an empty submit on an edit means "keep what is
-/// stored".
-///
-/// A stored value also renders a `clear_<field>` checkbox (GH #188) — the one
-/// way to say "remove the file" rather than "leave it alone", which an empty
-/// file input cannot express. It is a framework transport key: the POST
-/// handlers strip it before any record fn (GH #148), and it follows the *value*
-/// on screen, so a create re-rendered after a successful upload offers it too
-/// (that flag has nothing to undo on a create, which stores what it was given).
-/// Clearing is not exempt from validation, so ticking it on a field that is
-/// still `required` leaves the value empty and the form answers
-/// `<Label> is required` — the ordinary meaning of a required field (Django's
-/// clearable file input behaves the same way). Declare `.optional()` when a
-/// record may lose its file.
-///
-/// Clearing empties the **stored value**, not the bytes: the framework cannot
-/// delete from a store it does not know, and the record fn sees the empty value
-/// — which is where an app that also wants the bytes gone does it.
-///
-/// There is deliberately no `.required()`/`.optional()` control over the
-/// *edit-time* behaviour: the two states are create and edit, which the field
-/// cannot know, so it is keyed off whether a stored value was hydrated rather
-/// than off a declaration.
+/// `render_with` and `validate` own the rest: the stored-value preview and its
+/// `clear_<field>` checkbox (GH #188), and the edit-time `required` rule
+/// (GH #184).
 #[derive(Debug, Clone)]
 pub struct FileUpload {
     name: String,
@@ -1824,6 +1789,39 @@ mod tests {
         assert!(html.contains(">Name"), "missing label in {html}");
     }
 
+    /// A typed field shows its stored value on a detail page (GH #192).
+    ///
+    /// `TextInput::typed` returns a `TextInput`, so the view path is the one
+    /// above: `render_readonly` sets `Mode::View` and the field renders its
+    /// value instead of a control. A `Uuid` column is therefore readable, not
+    /// only writable.
+    #[tokio::test]
+    async fn a_typed_field_renders_its_stored_value_read_only() {
+        const ID: &str = "0f8fad5b-d9cb-469f-a165-70867728950e";
+        let cx = cx();
+        let schema = Schema::new(TextInput::typed::<DummyUser, uuid::Uuid>(
+            DummyUser::fields().id(),
+        ));
+        let mut values = HashMap::new();
+        values.insert("id".to_string(), ID.to_string());
+        let html = schema
+            .render_readonly(&cx, &values)
+            .await
+            .unwrap()
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
+        assert!(
+            html.contains(ID),
+            "a detail page must show a typed field's stored value, got {html}"
+        );
+        assert!(
+            !html.contains("<input"),
+            "and must render no control, got {html}"
+        );
+    }
+
     #[tokio::test]
     async fn textarea_renders_a_multiline_control_with_the_stored_value() {
         // GH #184: prose columns get a `<textarea>`, not a one-line input. The
@@ -1958,8 +1956,7 @@ mod tests {
     #[test]
     fn required_default_follows_lens_nullability() {
         // GH #100: `required` defaults from the DB column, with an explicit
-        // `.optional()` escape hatch. Pinned through the public constructor
-        // (the standalone nullability helper was removed as dead code, GH #137).
+        // `.optional()` escape hatch. Pinned through the public constructor.
         #[derive(Debug, toasty::Model)]
         struct NullableDoc {
             #[key]
@@ -2062,10 +2059,9 @@ mod tests {
             input.validate("a@b.com").is_empty(),
             "email should accept valid"
         );
-        // optional email: empty is ok, whitespace trimmed — on a field without
-        // a unique constraint. `DummyUser.email` is `#[unique]`, so it is
-        // required whatever else is declared (GH #189); `NullableRef.parent_id`
-        // is the non-unique nullable column that pins the old behaviour.
+        // `.optional()` still accepts an empty submit on a non-unique,
+        // nullable column (GH #100). `DummyUser.email` is `#[unique]`, so
+        // there `.optional()` cannot lift the required rule (GH #189).
         assert!(
             Select::r#for(NullableRef::fields().parent_id())
                 .optional()
@@ -2083,8 +2079,7 @@ mod tests {
     }
 
     /// GH #189: the unique marker is presence, so `.optional()` cannot lift it
-    /// — in the builder or from the lens. The email regex still applies to what
-    /// is submitted.
+    /// — in the builder or from the lens.
     #[test]
     fn unique_implies_required_in_either_declaration_order() {
         let mut declarations = vec![
@@ -2426,8 +2421,6 @@ mod tests {
         );
     }
 
-    /// GH #188: the clear control belongs to a stored value — it is the only
-    /// way to say "remove the file" rather than "leave it alone".
     /// GH #188: a *read* of the stored value previews it too — the same
     /// question ("is what is stored right?") reaches a reader, and only the
     /// control is a form's business.
@@ -2469,6 +2462,8 @@ mod tests {
         );
     }
 
+    /// GH #188: the clear control belongs to a stored value — it is the only
+    /// way to say "remove the file" rather than "leave it alone".
     #[tokio::test]
     async fn file_upload_offers_the_clear_control_only_for_a_stored_value() {
         let (cx, schema) = cx_and_doc_schema();

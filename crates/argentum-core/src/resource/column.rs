@@ -1,6 +1,4 @@
 //! Table columns: [`TextColumn`] plus the [`IntoColumns`] seam.
-//!
-//! Moved verbatim from `resource.rs` (GH #133): no behavior change.
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -18,18 +16,14 @@ use crate::schema::{FieldLens, lens_field, lens_label};
 /// touches. Each column therefore **declares** the includes its closure reads
 /// ([`TextColumn::needs`]), a [`Table`](super::Table) gathers the declarations
 /// of the columns it renders into one `IncludeNeeds`, and
-/// [`Resource::export_query`](super::Resource::export_query) turns that set
-/// into a narrowed query.
+/// [`Resource::export_query`](super::Resource::export_query) answers `wants`
+/// per `include(..)` call.
 ///
-/// The names are an opaque vocabulary shared between the two halves — the
-/// declaring column and the resource that maps them onto `include(..)` calls —
-/// because includes are typed (`Include<Post, Author>`) and a type-erased
-/// column cannot name one. Nothing else reads them: an unknown name is not an
-/// error, it just never matches a branch. The set is deliberately read-only
-/// once gathered: a resource's
-/// [`export_query`](super::Resource::export_query) answers `wants` per
-/// `include(..)`, and a relation it must load for its own reasons (`can_view`)
-/// is included unconditionally in its own branch.
+/// The names are an opaque vocabulary shared between the declaring column and
+/// the resource that maps them onto `include(..)` calls, because includes are
+/// typed (`Include<Post, Author>`) and a type-erased column cannot name one.
+/// Nothing else reads them: an unknown name is not an error, it just never
+/// matches a branch.
 #[derive(Clone, Debug, Default)]
 pub struct IncludeNeeds {
     names: BTreeSet<&'static str>,
@@ -180,20 +174,12 @@ where
     /// [`export_query`](super::Resource::export_query) matches on:
     /// `.needs(["author"])` for `|p| p.author.get().name.clone()`.
     ///
-    /// The declaration exists because the closure is opaque: the framework
-    /// cannot see which relations a projection touches, so the export cannot
-    /// know which `include(..)` calls are still needed. Declaring them lets
-    /// the export ask its resource for a query narrowed to what the rendered
-    /// columns actually read — an include the resource carries for some other
-    /// page no longer rides along.
-    ///
     /// **Declare every relation the closure reads.** A missing name is not a
     /// compile error: the export's query arrives without that relation, and
     /// the closure's `is_unloaded` guard — the unloaded-relation contract of
     /// ADR-0011, `"(unloaded)"` plus a `debug_assert!` — is what turns it
-    /// into a loud failure instead of a silent `"-"`. Declaring a name
-    /// nothing reads is harmless: the resource simply includes a relation the
-    /// export then never touches.
+    /// into a loud failure instead of a silent `"-"`. Declaring a name nothing
+    /// reads is harmless.
     ///
     /// Repeat calls accumulate: `.needs(["author"]).needs(["comments"])`.
     pub fn needs(mut self, names: impl IntoIterator<Item = &'static str>) -> Self {
@@ -256,7 +242,7 @@ where
     ///
     /// `like_with_escape` keeps the pattern parameterised and lowers to the
     /// same `LIKE … ESCAPE '\\'` on every driver, and
-    /// [`escape_like_pattern`] makes the term literal — a `%` or `_` the user
+    /// `escape_like_pattern` makes the term literal — a `%` or `_` the user
     /// typed matches that character, it does not act as a wildcard. Note the
     /// driver difference `LIKE` brings: SQLite compares ASCII
     /// case-insensitively, PostgreSQL case-sensitively.
@@ -303,9 +289,10 @@ impl<M> std::fmt::Debug for TextColumn<M> {
 /// once carried existed for the removed `Column<M>` enum, and nothing else ever
 /// implemented `From<_> for TextColumn<M>` but the reflexive impl (GH #228).
 ///
-/// 5-tuple limit: without variadic generics this is idiomatic Rust — matches
-/// `IntoSchema` in `schema.rs`. Tables wider than five columns are rare in
-/// admin UIs; extend (or macro-ify) when a real Resource needs it.
+/// 5-tuple limit: without variadic generics this is idiomatic Rust — one arity
+/// past `IntoSchema` in `schema/tree.rs`, which stops at four. Tables wider
+/// than five columns are rare in admin UIs; extend (or macro-ify) when a real
+/// Resource needs it.
 pub trait IntoColumns<M> {
     fn into_columns(self) -> Vec<TextColumn<M>>;
 }

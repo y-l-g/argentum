@@ -353,7 +353,7 @@ where
     }
 }
 // 4-tuple limit is intentional: without variadic generics this is idiomatic
-// — see `IntoColumns` in `resource.rs`. Macro deferred until 5+ columns are needed.
+// — see `IntoColumns` in `resource/column.rs`. Macro deferred until 5+ columns are needed.
 impl<A, B, C> IntoSchema for (A, B, C)
 where
     A: Into<Node>,

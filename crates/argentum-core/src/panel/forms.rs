@@ -42,21 +42,18 @@ pub(crate) struct FormParts {
 /// buffered, plus `multipart/form-data` streamed when a `FileUpload` is present
 /// (GH #73).
 ///
-/// Decoding for urlencoded is delegated to `form_urlencoded` (already in the
-/// tree via topcoat): it splits pairs, decodes `+` as space, assembles
-/// multi-byte UTF-8 from `%XX` sequences (`%C3%A9` → `é`, not `Ã©`), and keeps
-/// encoded separators (`%26` → `&`) intact — the hand-rolled `percent_decode`
-/// it replaced pushed each decoded byte through `byte as char`, corrupting
-/// every non-ASCII value (GH #75 item 6). Invalid UTF-8 degrades per-value
-/// (lossy) instead of discarding the whole form.
+/// urlencoded decoding is delegated to `form_urlencoded` (already in the tree
+/// via topcoat): it splits pairs, decodes `+` as space, assembles multi-byte
+/// UTF-8 from `%XX` sequences (`%C3%A9` → `é`, not `Ã©`), and keeps encoded
+/// separators (`%26` → `&`) intact. Invalid UTF-8 degrades per-value (lossy)
+/// instead of discarding the whole form.
 ///
 /// Multipart (file) parts stream through Topcoat's multer-based extractor
-/// (GH #90). With no installed uploader, file bytes are drained in chunks and
-/// discarded — the pre-#188 contract still stores the sanitized filename as the
-/// `String` value — so a 2 GB "upload" never materializes. With one installed
-/// they are buffered up to the same body cap and handed to it (GH #188).
-/// Text parts store their content. Unknown content types fall back to
-/// urlencoded so existing tests/clients keep working.
+/// (GH #90). With no installed uploader the bytes are drained in chunks and
+/// discarded while the sanitized filename becomes the `String` value; with one
+/// installed they are buffered up to the same body cap and handed to it
+/// (GH #188). Text parts store their content, and unknown content types fall
+/// back to urlencoded.
 pub(crate) async fn parse_form_body(cx: &Cx, body: Body) -> Result<FormParts, topcoat::Error> {
     let content_type =
         topcoat::context::try_request_context::<http::request::Parts>(cx).and_then(|parts| {
@@ -239,16 +236,15 @@ fn filename_star_from_headers(
 /// missing boundary is a 400 and an over-limit body a 413 (both classified
 /// by the extractor).
 ///
-/// Kept as a second layer on purpose (GH #134, defense in depth): through the
-/// router this branch is unreachable — `Bytes::from_request` buffers via
-/// `to_bytes(body, body_limit(cx))`, which enforces the
-/// `BodyLimit::max(MAX_FORM_BYTES)` layer [`Panel::build`](crate::panel::Panel::build)
-/// installs before these bytes can exist — but the explicit check is the
-/// urlencoded symmetric backstop to the multipart [`count_form_bytes`]
-/// counter (GH #149), and the only pin of the 10 MiB urlencoded contract at
-/// unit level (a bare `CxTestBuilder` carries no `BodyLimitKind`, so
-/// `body_limit(cx)` falls back to Topcoat's 2 MiB default and cannot pin this
-/// cap). One length comparison; do not collapse into [`form_values_from_bytes`]
+/// The length check is a deliberate second layer (GH #134): through the router
+/// `Bytes::from_request` buffers via `to_bytes(body, body_limit(cx))`, which
+/// enforces the `BodyLimit::max(MAX_FORM_BYTES)` layer
+/// [`Panel::build`](crate::panel::Panel::build) installs, so this branch is
+/// unreachable there. It is the urlencoded symmetric backstop to the multipart
+/// [`count_form_bytes`] counter (GH #149), and the only pin of the 10 MiB
+/// urlencoded contract at unit level — a bare `CxTestBuilder` carries no
+/// `BodyLimitKind`, so `body_limit(cx)` falls back to Topcoat's 2 MiB default
+/// and cannot pin this cap. Do not collapse into [`form_values_from_bytes`]
 /// without restoring both properties.
 fn form_values_from_request_parts(
     content_type: Option<&str>,
@@ -496,7 +492,6 @@ fn strip_transport_keys(schema: &crate::schema::Schema, values: &mut HashMap<Str
     });
 }
 
-/// Create page POST.
 /// App-side uniqueness check over the form's `unique()`-marked text inputs.
 ///
 /// Generic over every marked field — the previous version was hard-coded to
@@ -576,7 +571,6 @@ async fn check_unique<R: Resource>(
 /// rendering (GH #84) — the re-rendered form reloads relationship options on
 /// its own handle, which would block on the pool while the tx holds it —
 /// so the drop is enforced here rather than trusted at each call site.
-/// Rendered output is identical to the two inlined copies this replaces.
 async fn rerender_invalid_form<'a, R: Resource>(
     cx: &'a Cx,
     tx: toasty::Transaction<'_>,
@@ -2059,10 +2053,7 @@ mod tests {
     }
 
     /// The multipart drain's byte accounting 413s one byte past the cap
-    /// (GH #149 tripwire). Unit-tested at the boundary because through the
-    /// router the extractor's `BodyLimit` classifies the same body first —
-    /// the counter is the backstop for the day that limit stops wrapping the
-    /// stream, not a competing cap.
+    /// (GH #149 tripwire).
     #[test]
     fn multipart_drain_counts_bytes_and_413s_one_past_the_cap() {
         let mut seen = 0usize;

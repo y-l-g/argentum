@@ -160,7 +160,7 @@ pub fn take_notification(cx: &Cx) -> Option<Notification> {
             Some(notification)
         }
         // Unreadable garbage (a corrupted or foreign value): expire it, no
-        // toast — same fail-open-to-none as the old decode.
+        // toast.
         Err(_) => {
             cookie_store::<Notification, _>(hardened(cookies(cx)), COOKIE_NAME).remove();
             None
@@ -260,7 +260,7 @@ pub fn live_toast(cx: &Cx) -> LiveToast {
 /// fresh toast node (with `data-mounted="false"`) that `notifications.js`
 /// arms, instead of rewriting the already-mounted one.
 ///
-/// The body lives in [`render_live_toaster`]: the shard macro's generated
+/// The body lives in `render_live_toaster`: the shard macro's generated
 /// handler cannot name the request lifetime its `impl View` would capture, so
 /// the helper resolves the boxed view and the shard only forwards it.
 #[shard]

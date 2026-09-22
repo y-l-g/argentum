@@ -1,7 +1,8 @@
 //! Panel shell: document, sidebar, brand, theme, and notification view.
 //!
-//! Renders the Filament-grade shell framing every admin page. Depends only
-//! on `argentum-ui` + context — never on [`Resource`].
+//! Renders the Filament-grade shell framing every admin page. Depends on
+//! `argentum-ui`, Topcoat's view and runtime, and the notification and
+//! [`NavigationItem`] types — never on the [`Resource`] trait.
 
 use super::{Panel, PanelPrefix};
 
@@ -207,10 +208,10 @@ impl Panel {
     /// the open state lives in runtime signals — `open` seeds from the
     /// `sidebar_state` cookie for the first paint, the triggers carry
     /// `@click` handlers, and `assets/sidebar.js` persists changes back to
-    /// the cookie. Includes dark-mode toggle (Ghost button, persists via
-    /// cookie/session) and the toast stack (shadcn/Sonner surface, fixed
-    /// bottom-right). Additive `class` is allowed on the outer container only
-    /// (narrow seam).
+    /// the cookie. Includes dark-mode toggle (Ghost button, persisted by
+    /// `theme.js` to `localStorage` + the `theme` cookie) and the toast stack
+    /// (shadcn/Sonner surface, fixed bottom-right). Additive `class` is
+    /// allowed on the outer container only (narrow seam).
     ///
     /// Asset note: desktop persistence needs `assets/sidebar.js`
     /// (`argentum_ui::SIDEBAR_JS`), which [`Self::layout_shell`]'s document —
