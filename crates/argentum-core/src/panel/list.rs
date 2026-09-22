@@ -456,7 +456,7 @@ mod tests {
                     .paginate(1)
                     .live_search(true)
             }
-            fn hydrate_form_values(_record: &Dummy) -> HashMap<String, String> {
+            fn hydrate_form_values(_cx: &Cx, _record: &Dummy) -> HashMap<String, String> {
                 HashMap::new()
             }
         }
@@ -713,7 +713,7 @@ mod tests {
                     .paginate(25)
                     .live_search(true)
             }
-            fn hydrate_form_values(_record: &Dummy) -> HashMap<String, String> {
+            fn hydrate_form_values(_cx: &Cx, _record: &Dummy) -> HashMap<String, String> {
                 HashMap::new()
             }
         }
@@ -808,7 +808,7 @@ mod tests {
                     ))
                     .paginate(25)
             }
-            fn hydrate_form_values(_record: &Dummy) -> HashMap<String, String> {
+            fn hydrate_form_values(_cx: &Cx, _record: &Dummy) -> HashMap<String, String> {
                 HashMap::new()
             }
         }
@@ -889,7 +889,7 @@ mod tests {
                         |d: &Dummy| d.name.clone(),
                     ))
             }
-            fn hydrate_form_values(_record: &Dummy) -> HashMap<String, String> {
+            fn hydrate_form_values(_cx: &Cx, _record: &Dummy) -> HashMap<String, String> {
                 HashMap::new()
             }
         }
@@ -1021,7 +1021,7 @@ mod tests {
                     ))
                     .paginate(25)
             }
-            fn hydrate_form_values(_record: &Dummy) -> HashMap<String, String> {
+            fn hydrate_form_values(_cx: &Cx, _record: &Dummy) -> HashMap<String, String> {
                 HashMap::new()
             }
             fn form(_cx: &Cx) -> crate::schema::Schema {
@@ -1040,7 +1040,7 @@ mod tests {
             fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
                 CreatableResource::table(cx)
             }
-            fn hydrate_form_values(_record: &Dummy) -> HashMap<String, String> {
+            fn hydrate_form_values(_cx: &Cx, _record: &Dummy) -> HashMap<String, String> {
                 HashMap::new()
             }
         }
@@ -1124,7 +1124,7 @@ mod tests {
                     ))
                     .paginate(25)
             }
-            fn hydrate_form_values(_record: &Dummy) -> HashMap<String, String> {
+            fn hydrate_form_values(_cx: &Cx, _record: &Dummy) -> HashMap<String, String> {
                 HashMap::new()
             }
             fn form(_cx: &Cx) -> crate::schema::Schema {
@@ -1149,7 +1149,7 @@ mod tests {
             fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
                 WritableResource::table(cx)
             }
-            fn hydrate_form_values(_record: &Dummy) -> HashMap<String, String> {
+            fn hydrate_form_values(_cx: &Cx, _record: &Dummy) -> HashMap<String, String> {
                 HashMap::new()
             }
         }
@@ -1275,7 +1275,7 @@ mod tests {
                     ))
                     .paginate(25)
             }
-            fn hydrate_form_values(_record: &Dummy) -> HashMap<String, String> {
+            fn hydrate_form_values(_cx: &Cx, _record: &Dummy) -> HashMap<String, String> {
                 HashMap::new()
             }
             fn form(_cx: &Cx) -> crate::schema::Schema {

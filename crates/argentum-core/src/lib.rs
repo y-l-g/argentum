@@ -7,7 +7,10 @@
 
 #[doc(hidden)]
 pub mod __macro {
+    pub use toasty::schema::{Embed, Model};
     pub use toasty::stmt;
+    pub use toasty::stmt::Path;
+    pub use toasty_core::schema::app::VariantId;
     pub use topcoat::context::Cx;
 }
 // The toolkit surface: Panel, Resource, Table, Schema, Notification,
@@ -24,7 +27,7 @@ pub mod schema;
 pub mod tenancy;
 pub mod upload;
 
-pub use argentum_macros::Resource;
+pub use argentum_macros::{EmbeddedForm, Resource};
 #[cfg(feature = "auth")]
 pub use auth::{Auth, Authenticator, CurrentUser, PasswordAuth};
 pub use notification::{Notification, NotificationStatus};
@@ -36,8 +39,9 @@ pub use resource::{
     VariantFilter, render_relation,
 };
 pub use schema::{
-    FieldLens, FileUpload, Grid, Group, IntoSchema, Repeater, Schema, Section, Select, Tabs,
-    TextInput, Textarea, TypedValue, Wizard,
+    EmbeddedForm, EnumSpec, FieldLens, FileUpload, Grid, Group, IntoSchema, Repeater, Schema,
+    Section, Select, Tabs, TextInput, Textarea, TypedValue, Wizard, discriminant_input, enum_spec,
+    form_keys, leaf_key, read_embedded, submitted, write_embedded,
 };
 pub use tenancy::{Tenant, tenant_id};
 pub use upload::Uploader;

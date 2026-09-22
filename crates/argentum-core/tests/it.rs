@@ -14,5 +14,6 @@ mod typed_leaves;
 mod uploads;
 
 mod embedded_lens;
+mod embedded_value;
 mod readonly_render;
 mod relation_render;

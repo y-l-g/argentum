@@ -196,7 +196,10 @@ async fn edit_policy_deny() {
         fn form(_cx: &topcoat::context::Cx) -> Schema {
             Schema::new(TextInput::r#for(DummyUser::fields().name()).required())
         }
-        fn hydrate_form_values(_r: &DummyUser) -> std::collections::HashMap<String, String> {
+        fn hydrate_form_values(
+            _cx: &topcoat::context::Cx,
+            _r: &DummyUser,
+        ) -> std::collections::HashMap<String, String> {
             std::collections::HashMap::new()
         }
     }
@@ -470,8 +473,104 @@ async fn post_edit_binds_and_saves_embedded_fields() {
             assert_eq!(url, "/uploads/new.jpg", "the variant payload must persist");
             assert_eq!(alt, "Alt");
         }
-        other => panic!("emptying the video payload must select Image, got {other:?}"),
+        // The submit carries no `media` discriminant (it predates GH #191), so
+        // the codec falls back to the first variant — Image. Emptiness is not
+        // consulted; a discriminant would decide.
+        other => panic!("a submit with no discriminant reads as the first variant, got {other:?}"),
     }
+}
+
+/// GH #191: the edit form carries the **stored variant**, and a submit that
+/// names a different one switches the value — even while the old variant's
+/// payload is still filled in.
+///
+/// That is the case the hand-written reassembly got wrong: it picked the
+/// variant from which payload columns happened to be non-empty, so a stale
+/// `publication_canonical_url` silently outvoted the variant the user meant.
+#[tokio::test]
+async fn post_edit_switches_the_publication_variant_explicitly() {
+    use showcase::models::{Media, Post, Publication};
+
+    let db = crate::common::full_db().await;
+    let router = router(db.clone());
+    let client = demo_client(&router).await;
+
+    let mut db_q = db.clone();
+    let post = Post::filter(Post::fields().title().eq("Hello Toasty".to_string()))
+        .first()
+        .exec(&mut db_q)
+        .await
+        .unwrap()
+        .expect("the seeded post");
+    assert!(
+        matches!(post.publication, Publication::Published { .. }),
+        "the fixture must start Published"
+    );
+
+    // Hydration: the stored variant reaches the form as its discriminant.
+    let html = body_string(client.get(&format!("/admin/posts/{}/edit", post.id)).await).await;
+    assert!(
+        html.contains("name=\"publication\"") && html.contains("type=\"hidden\""),
+        "the discriminant must ride the edit form, got {html}"
+    );
+    assert!(
+        html.contains("value=\"2\""),
+        "the stored Published variant must hydrate into the discriminant, got {html}"
+    );
+
+    // Submit Archived while leaving the Published payload filled in: the
+    // discriminant decides, so the post is Archived and the stale canonical URL
+    // is not what the row carries.
+    let csrf = uuid::Uuid::new_v4().to_string();
+    let resp = client
+        .csrf(&csrf)
+        .post_form(
+            &format!("/admin/posts/{}/edit", post.id),
+            format!(
+                "title=Hello+Toasty&author_id={}&image_path={}&tags=rust&body=Body&\
+                 status=published&featured=true&seo_title=Edited+SEO&seo_description=Desc&\
+                 media=2&media_url=&media_alt=&media_video_url=hello-toasty.mp4&\
+                 media_poster_url=p.jpg&media_poster_credit_author=Ada&\
+                 media_poster_credit_licence=CC-BY&\
+                 post_stats_word_count=10&post_stats_read_minutes=1&\
+                 publication=3&publication_timestamp=2026-01-01T00:00:00Z&\
+                 publication_canonical_url=https%3A%2F%2Fexample.com%2Fstale&\
+                 publication_reason=superseded&csrf_token={csrf}",
+                post.author_id, post.image_path
+            ),
+        )
+        .await;
+    assert!(
+        resp.status().is_redirection(),
+        "a valid edit must redirect, got {}",
+        resp.status()
+    );
+
+    let mut db_check = db.clone();
+    let saved = Post::filter(Post::fields().id().eq(post.id))
+        .first()
+        .exec(&mut db_check)
+        .await
+        .unwrap()
+        .expect("the post");
+    match saved.publication {
+        Publication::Archived {
+            archived_at,
+            reason,
+        } => {
+            assert_eq!(archived_at, "2026-01-01T00:00:00Z");
+            assert_eq!(reason, "superseded");
+        }
+        other => panic!(
+            "the submitted discriminant must decide the variant, got {other:?} \
+             (a filled canonical_url is not a vote)"
+        ),
+    }
+    // The media discriminant round-trips unchanged: still the stored Video.
+    assert!(
+        matches!(saved.media, Media::Video { .. }),
+        "an unchanged variant stays put"
+    );
 }
 
 /// The typed leaves round-trip and refuse a bad number inline (GH #192).

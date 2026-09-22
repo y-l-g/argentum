@@ -526,7 +526,7 @@ pub async fn body_string(response: http::Response<Body>) -> String {
 /// unique unchanged-skip.
 pub fn assert_hydrate_keys_are_form_fields<R: Resource>(cx: &Cx, record: &R::Model) {
     let fields = R::form(cx).field_names();
-    for key in R::hydrate_form_values(record).keys() {
+    for key in R::hydrate_form_values(cx, record).keys() {
         assert!(
             fields.contains(key),
             "hydrate key {key} is not a {} form field (GH #89)",

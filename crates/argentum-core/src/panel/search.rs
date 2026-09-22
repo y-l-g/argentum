@@ -317,7 +317,7 @@ mod tests {
                     .paginate(1)
                     .live_search(true)
             }
-            fn hydrate_form_values(_record: &Dummy) -> HashMap<String, String> {
+            fn hydrate_form_values(_cx: &Cx, _record: &Dummy) -> HashMap<String, String> {
                 HashMap::new()
             }
         }
@@ -490,7 +490,7 @@ mod tests {
                     .paginate(25)
                     .live_search(true)
             }
-            fn hydrate_form_values(_record: &Dummy) -> HashMap<String, String> {
+            fn hydrate_form_values(_cx: &Cx, _record: &Dummy) -> HashMap<String, String> {
                 HashMap::new()
             }
         }

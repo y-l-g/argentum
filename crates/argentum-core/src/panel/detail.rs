@@ -42,7 +42,7 @@ pub(crate) fn resource_view<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
         let record = load_viewable::<R>(cx, &mut db).await?;
         // Values come from the same hydration the edit form uses, so the page
         // and the form cannot disagree about what a field holds.
-        let values = R::hydrate_form_values(&record);
+        let values = R::hydrate_form_values(cx, &record);
         let body = R::view(cx).render_readonly(cx, &values).await?;
         // Relations render from the record itself (GH #187): the `Schema`
         // above carries only its string projection, and the related rows are

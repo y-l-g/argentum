@@ -693,7 +693,7 @@ pub(crate) fn resource_edit<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
             return Err(forbidden().into());
         }
         crate::csrf::ensure_token(cx);
-        let values = R::hydrate_form_values(&record);
+        let values = R::hydrate_form_values(cx, &record);
         let html = render_form_page::<R>(
             cx,
             format!("Edit {}", R::navigation_label()),
@@ -736,7 +736,7 @@ pub(crate) fn resource_edit_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_
         reject_unknown_form_keys(&schema, &parts.values)?;
         let FormParts { mut values, files } = parts;
         // Unique check excludes this record's own unchanged values.
-        let current = R::hydrate_form_values(&advisory);
+        let current = R::hydrate_form_values(cx, &advisory);
         // Store the chosen files first (GH #188): a stored path is the submit's
         // answer for that field, and a *rejected* store drops the submitted
         // name so the backfill below restores what is actually on disk —
@@ -849,7 +849,7 @@ mod tests {
             fn can_update(_cx: &Cx, _record: &Dummy) -> bool {
                 true
             }
-            fn hydrate_form_values(_record: &Dummy) -> HashMap<String, String> {
+            fn hydrate_form_values(_cx: &Cx, _record: &Dummy) -> HashMap<String, String> {
                 HashMap::new()
             }
             async fn update_record(
@@ -1119,7 +1119,7 @@ mod tests {
                 .await
                 .map_err(|error| -> topcoat::Error { error.into() })
             }
-            fn hydrate_form_values(_record: &Dummy) -> HashMap<String, String> {
+            fn hydrate_form_values(_cx: &Cx, _record: &Dummy) -> HashMap<String, String> {
                 HashMap::new()
             }
             fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
