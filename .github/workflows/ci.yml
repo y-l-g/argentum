@@ -57,6 +57,14 @@ jobs:
       # breaks this job instead of printing a warning nobody reads. Workspace
       # only: the detached benchmarks/* are separate workspaces.
       - run: RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked
+      - name: Install mdBook and mdbook-linkcheck2
+        uses: taiki-e/install-action@v2
+        with:
+          tool: mdbook@0.5.2,mdbook-linkcheck2
+      # docs.yml publishes the guide, but it only runs on master, so a broken
+      # relative link would reach the site before anything caught it. Build the
+      # book here too: it is seconds, and linkcheck fails the build on a bad link.
+      - run: mdbook build docs/guide
 
   msrv:
     name: msrv (1.98)

@@ -7,7 +7,7 @@ name: Docs
 #   /nightly/api/     cargo doc --workspace --no-deps
 #
 # `master` is the only deploy branch: there are no releases yet, so every
-# build is "nightly". modelled on tokio-rs/toasty's docs workflow.
+# build is "nightly". Modeled on tokio-rs/toasty's docs workflow.
 
 on:
   push:
