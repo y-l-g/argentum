@@ -1,0 +1,57 @@
+name: Bug report
+description: Report a defect in the framework, the showcase, or the docs.
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Report what happened, not what you think the fix is. For a missing or
+        broken Toasty/Topcoat API, use the **Upstream gap** form instead.
+
+  - type: textarea
+    id: did
+    attributes:
+      label: What you did
+      description: The command or request, and the state it ran against.
+      placeholder: |
+        cargo run -p showcase
+        # then: GET /admin/posts?sort=title
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+      placeholder: Rows sort by title ascending.
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: What actually happened
+      description: Quote the exact message — the panic, the compiler error, or the response body. Do not paraphrase it.
+      placeholder: |
+        thread 'main' panicked at crates/argentum-core/src/...:
+        ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal reproduction
+      description: The smallest resource or test that triggers it. A failing test under `examples/showcase/tests/` is ideal.
+    validations:
+      required: true
+
+  - type: input
+    id: area
+    attributes:
+      label: Affected area
+      description: Crate or subsystem — `argentum-core`, `argentum-macros`, `argentum-ui`, `showcase`, `xtask`, benchmarks, or docs.
+      placeholder: argentum-core (table)
+    validations:
+      required: true

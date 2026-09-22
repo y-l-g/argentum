@@ -1,0 +1,81 @@
+name: Upstream gap
+description: A Toasty or Topcoat API Argentum needs is missing or unstable. Track the gap here until it exists upstream.
+title: "[upstream] "
+labels: ["upstream"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        An upstream gap is a missing or unstable API in Toasty or Topcoat that
+        forces Argentum to carry a workaround. File one gap per issue, titled
+        `<project>: <capability>`.
+
+        Rules for the body:
+
+        - Keep it under ~30 lines.
+        - Exactly two code fences: the workaround and the upstream API that deletes it.
+        - No "why fragile" essay, no Alternatives section, no tables.
+        - The body is the status. Edit it when the upstream state changes; never discuss status in comments.
+
+  - type: textarea
+    id: upstream
+    attributes:
+      label: Upstream
+      description: The project (Toasty or Topcoat), the rev pinned in `Cargo.lock`, and the upstream issue or PR number with its live state — open / closed unmerged / merged / none filed.
+      placeholder: |
+        Toasty — rev 5e6b21e6 (Cargo.lock) — toasty#1188, open.
+    validations:
+      required: true
+
+  - type: textarea
+    id: need
+    attributes:
+      label: Need
+      description: The missing capability in one or two sentences, phrased as an API need.
+      placeholder: |
+        A predicate that classifies a unique-constraint violation, so a duplicate
+        insert is reported inline instead of as an unclassified driver error.
+    validations:
+      required: true
+
+  - type: textarea
+    id: today
+    attributes:
+      label: Today in Argentum
+      description: Fenced code block of the real workaround, copied from the source, with the `file:line` on the first line of the fence.
+      placeholder: |
+        ```rust
+        // crates/argentum-core/src/panel/forms.rs:523
+        async fn check_unique<R: Resource>(
+            cx: &Cx,
+            schema: &crate::schema::Schema,
+            values: &HashMap<String, String>,
+            current: &HashMap<String, String>,
+            ex: &mut dyn toasty::Executor,
+        ) -> Result<HashMap<String, Vec<String>>, topcoat::Error> {
+        ```
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed
+    attributes:
+      label: Proposed upstream API
+      description: Fenced code block of the smallest upstream API that deletes the code above. Not a design document — the smallest signature that removes the workaround.
+      placeholder: |
+        ```rust
+        impl toasty::Error {
+            fn is_unique_violation(&self) -> bool;
+        }
+        ```
+    validations:
+      required: true
+
+  - type: input
+    id: retire
+    attributes:
+      label: Retire when
+      description: One line naming the exact Argentum code that gets deleted.
+      placeholder: "`panel/forms.rs:523 check_unique` and its call sites at `panel/forms.rs:642` and `:790` are deleted."
+    validations:
+      required: true

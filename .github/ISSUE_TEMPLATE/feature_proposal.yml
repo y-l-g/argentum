@@ -1,0 +1,53 @@
+name: Feature proposal
+description: Propose a new feature or a change to the public API.
+title: "[feature] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Propose the problem and the shape of the solution. A feature that changes
+        the public API needs this issue before an implementation PR.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What is hard or impossible today, and who hits it. Concrete examples.
+      placeholder: |
+        Declaring a global filter on a Table means repeating it on every
+        Resource; there is no way to declare it once on the Panel.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: A concrete API sketch — the types, methods, or attributes that would exist, and how they behave.
+      placeholder: |
+        ```rust
+        Panel::new().global_filter(SelectFilter::r#for(User::fields().role()))
+        ```
+        The filter renders on every table and merges into the table's query.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other approaches you weighed and why you discarded them.
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope estimate
+      description: Best guess at the work, named by subsystem.
+      placeholder: |
+        One Panel method, one Table merge point, showcase route plus tests.
+        Probably a breaking change to `Panel::build`.
+    validations:
+      required: true
