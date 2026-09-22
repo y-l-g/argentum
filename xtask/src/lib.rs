@@ -353,6 +353,7 @@ pub const ASSET_FILES: &[(&str, &str)] = &[
     ("dialog.js", "DIALOG_JS"),
     ("bulk.js", "BULK_JS"),
     ("filters.js", "FILTERS_JS"),
+    ("live-search.js", "LIVE_SEARCH_JS"),
     ("selects.js", "SELECTS_JS"),
     ("notifications.js", "NOTIFICATION_JS"),
 ];
@@ -475,6 +476,29 @@ pub const ASSET_HOOKS: &[AssetHook] = &[
         asset: "filters.js",
         js: "data-filters-live",
         rust: "data-filters-live",
+    },
+    // The live-search debounce (GH #172). The boundary rule carries weight
+    // here: `data-live-search` must be found as the host attribute itself, and
+    // `data-live-search-input`'s prefix must not stand in for it.
+    AssetHook {
+        asset: "live-search.js",
+        js: "data-live-search",
+        rust: "data-live-search",
+    },
+    AssetHook {
+        asset: "live-search.js",
+        js: "data-live-search-input",
+        rust: "data-live-search-input",
+    },
+    AssetHook {
+        asset: "live-search.js",
+        js: "data-live-search-transport",
+        rust: "data-live-search-transport",
+    },
+    AssetHook {
+        asset: "live-search.js",
+        js: "data-debounce-ms",
+        rust: "data-debounce-ms",
     },
     AssetHook {
         asset: "selects.js",

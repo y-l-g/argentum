@@ -5,7 +5,7 @@ Date: 2026-09-18 — Status: accepted — Supersedes: none
 ## Context
 
 `crates/argentum-ui/assets/` holds eight hand-written JS assets (`sidebar.js`,
-`theme.js`, `dialog.js`, `code_block.js`, `bulk.js`, `filters.js`,
+`theme.js`, `dialog.js`, `bulk.js`, `filters.js`, `live-search.js`,
 `selects.js`, `notifications.js`; ~14 KB unminified, ~4.7 KB gzipped, no
 build/minify step). They are declared as `Asset` constants in
 `crates/argentum-ui/src/lib.rs` (`SIDEBAR_JS` … `NOTIFICATION_JS`) and emitted
@@ -59,9 +59,9 @@ in the list as they land (the live-filter `data-filters-live` direction from
 | `sidebar.js` | `data-sidebar` / `data-state` (sidebar primitive), `sidebar_state` cookie (shell) | State no longer persists; `Ctrl+B` dies |
 | `theme.js` | `data-theme-toggle` (shell) | Toggle inert; init script still paints the stored theme |
 | `dialog.js` | `data-dialog-close`, `data-dialog-open-param` (delete dialog) | Cancel still navigates, Delete still POSTs; no Escape/backdrop dismissal |
-| `code_block.js` | `data-copy-button` (`code_block`) | Button inert; snippet stays readable |
 | `bulk.js` | `data-bulk-form` / `data-table-root` / `data-bulk-submit` / `data-row-select` / `data-bulk-select-all` / `ids` transport (table) | Bulk delete unusable (submit ships disabled) |
 | `filters.js` | `data-filter-name` / `data-filters-form` / `data-filters-transport` / `data-filters-live` (filter bar) | Typed controls inert; `<noscript>` free-text + Apply keeps working |
+| `live-search.js` | `data-live-search` / `data-live-search-input` / `data-live-search-transport` / `data-debounce-ms` (live table toolbar) | Typing no longer debounces into a reload; the `<noscript>` GET form is the search path |
 | `selects.js` | `data-select-filterable` / `data-options-filter` (searchable `Select`) | Filter input inert; plain select keeps working |
 | `notifications.js` | `data-sonner-toast` / `data-close-button` / `data-mounted` (toaster) | Toasts stay visible via `<noscript>` until next navigation |
 
@@ -78,7 +78,7 @@ swapped content with no script-lifecycle handling, so document-level listeners
 behavior alive after post-load shard swaps.
 
 **Where the requirement is documented.** Composites carry it in rustdoc
-(`toaster`, `code_block`); `dialog`/`sheet` are vendored primitives, so the
+(`toaster`); `dialog`/`sheet` are vendored primitives, so the
 note lives at the core render sites (the delete dialog, the `render_shell`
 mobile sheet) and on searchable `Select` in `schema.rs` (GH #152).
 
@@ -90,4 +90,6 @@ lines (two-asset claim, `render_shell` emitting scripts) are corrected and
 `README.md`'s brand/dark-mode seam is restated. `cargo xtask` still never
 touches `assets/` (ADR-0007 covers primitives only).
 
-**Status 2026-09-19 (GH #173):** `code_block.js` and its `data-copy-button` hook left the registry with the `code_block` composite — zero callers, and a per-page script for a snippet renderer nothing rendered. The shell ships seven assets; the copy-button row above is retired, so re-adding a snippet view means re-adding both sides together, as the contract requires.
+**Status 2026-09-19 (GH #173):** `code_block.js` and its `data-copy-button` hook left the registry with the `code_block` composite — zero callers, and a per-page script for a snippet renderer nothing rendered. Re-adding a snippet view means re-adding both sides together, as the contract requires.
+
+**Status 2026-09-22 (GH #213):** `live-search.js` (GH #172) shipped with no `ASSET_FILES`/`ASSET_HOOKS` entry, so the guard covered seven assets while the shell emitted eight: a deleted, emptied or unwired `live-search.js` — or a rename on either side of any of its four hooks — passed `cargo test -p xtask` unnoticed. The asset and all four hooks are covered now, and the table above lists exactly what `Panel::render_document` emits.
