@@ -16,7 +16,17 @@ Single-context: one `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agent
 
 ## Git
 
-Land branches fast-forward when `master` hasn't diverged (no empty merge commits); use `--no-ff` only for true merges.
+**Squash-merge every branch into `master`** — one commit per branch, so no empty merge commits. A branch's individual commits are working notes; they do not belong in the history.
+
+Write the squashed commit as a **Conventional Commit**, keeping the issue reference in the subject (that is what links the history back to the tracker):
+
+```
+<type>(<scope>): <description> (#123)
+```
+
+Types: `feat`, `fix`, `docs`, `refactor`, `test`, `perf`, `chore`, `build`, `ci`. Mark a breaking change with `!` after the type or scope and explain it in a `BREAKING CHANGE:` footer. Prefer the subsystem as the scope (`table`, `panel`, `schema`, `core`, `ui`, `xtask`, `showcase`).
+
+A branch addressing several issues lists them all: `fix(table): bound the filters signal (#205, #219)`.
 
 ## Renovate PRs
 
