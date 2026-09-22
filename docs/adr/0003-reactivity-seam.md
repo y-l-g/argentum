@@ -1,13 +1,28 @@
-# Reactivity behind a boundary seam, migrating with Topcoat
+# Reactivity: suspense, morphing reruns, and the live-search shard
 
-Date: 2026-08-19 — Status: accepted — Supersedes: none
+Date: 2026-08-19 — Status: accepted — Amended: 2026-09-10, 2026-09-22
 
-Argentum commits to today's Topcoat runtime (`signal q = String::new();`, `$(...)`, `#[shard]` POST endpoints) for Phase 1, hidden behind an owned seam: every Table is a Boundary and all page state (query/sort/page) is owned by the page; *how* a change triggers a server render is an internal detail of ArgentumTable. When Signals v2 + streaming (`signal(|| ...)`, `X-Topcoat-State`, `boundary` diff, `defer`) land on main, the seam migrates the whole toolkit without rewriting resources. Resources never hand-roll `#[shard]`; shard endpoints stay an optimization, not the API surface.
+## Decision
 
-## Amendment (2026-09-10)
+Argentum's reactivity is committed behind owned APIs: page state (query/sort/page) is owned by the
+page, and resources never hand-roll `#[shard]` — a shard endpoint stays an optimization, not the API
+surface. The migration to the current Topcoat runtime is done: `suspense` streams the resource list
+behind `Table::render_skeleton`, and later reruns (page or shard) morph in place (topcoat #392) so
+focus, scroll, and typing survive; reorderable rows need stable `id`s. Shards take `Signal<T>`
+params (#393), and the keystroke-live, slug-dispatched `table_search` shard sits behind
+`Table::live_search`, written by search, sort, filters, and pagination. The table always renders
+inside a `data-boundary` region.
 
-The migration happened on Topcoat main 0.8: `suspense` streams the resource list behind `Table::render_skeleton`, reruns morph in place (#392), shards take `Signal<T>` params (#393), and the keystroke-live `table_search` shard landed behind `Table::live_search` (#104) — without rewriting resources. `boundary(true)`/`defer(true)` remain as eager-render demo hooks; there is no `Boundary` component type anymore, and `live!`/`emit!` were not adopted.
-
-**Status 2026-09-22 (GH #220):** the `boundary(true)`/`defer(true)` demo hooks named in the amendment above are removed. No demo ever called either setter — `true` was already the default for the first, and nothing called the second — so they were dead surface, and the grid and the skeleton now always render inside the `data-boundary` region. They return with the demo that needs them.
-
-**Status 2026-09-22 (GH #224):** the `table_search` shard's wire arguments stay **scalar** — one named parameter per interaction dimension (`path`, then `q`, `filters`, `sort`, `dir`, `cursor`, `group_by`, `bulk`) — and the `allow(too_many_arguments)` on the shard module stays with it. This is a decision, not a limitation of the runtime, and it was re-derived once already: a **struct** cannot travel as a shard argument at all (topcoat requires the `expr!` vocabulary, and a struct has no `Surrogated` surrogate the browser's `cx.hydrate` tag set can rebuild), but a **list** can — `Vec<Signal<String>>` and `[Signal<String>; N]` are vocabulary types that round-trip through `hydrate`/`dehydrate` unchanged. Packing the dimensions into one list argument is refused because it would couple the browser to this server's ordering: adding or reordering a dimension silently mismatches the two halves, where a named parameter fails to compile instead. Everything *below* the shard takes one `TableSearchArgs` value, so a new dimension never changes a signature there. The seam's state↔signal conversions are likewise one method each way (`TableState::to_signals`, `TableSignals::to_state`), and a request normalizes the parsed state exactly once (`NormalizedState`, built by `Table::normalize_state`).
+The `table_search` shard's wire arguments stay **scalar** — one named parameter per interaction
+dimension (`path`, then `q`, `filters`, `sort`, `dir`, `cursor`, `group_by`, `bulk`) — and the
+`allow(too_many_arguments)` on the shard module stays with it. This is a decision, not a limitation
+of the runtime, and it was re-derived once already: a **struct** cannot travel as a shard argument
+at all (topcoat requires the `expr!` vocabulary, and a struct has no `Surrogated` surrogate the
+browser's `cx.hydrate` tag set can rebuild), but a **list** can — `Vec<Signal<String>>` and
+`[Signal<String>; N]` are vocabulary types that round-trip through `hydrate`/`dehydrate` unchanged.
+Packing the dimensions into one list argument is refused because it would couple the browser to this
+server's ordering: adding or reordering a dimension silently mismatches the two halves, where a
+named parameter fails to compile instead. Everything *below* the shard takes one `TableSearchArgs`
+value, so a new dimension never changes a signature there. The seam's state↔signal conversions are
+likewise one method each way (`TableState::to_signals`, `TableSignals::to_state`), and a request
+normalizes the parsed state exactly once (`NormalizedState`, built by `Table::normalize_state`).

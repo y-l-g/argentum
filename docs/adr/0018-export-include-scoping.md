@@ -1,127 +1,50 @@
 # Export query scoping: columns declare their includes, the resource narrows
 
-Date: 2026-09-22 — Status: accepted — Supersedes: none — Amends: ADR-0012 (the export's reuse of `Resource::query`)
-
-## Context
-
-The CSV export reuses `Resource::query` wholesale (ADR-0012), so it loads every
-relation that query includes — including relations only another page reads.
-The list's live table and the export render the same columns, but a resource's
-`query` is shared by the list, the export, the detail page and the edit form's
-relationship loads, so an include added for any one of them rides along on all
-of them. The #172 grill deferred trimming it (decision 10: keep inheriting
-`R::query`) because the contract it needs did not exist: a column's cell
-projection is a closure, and Toasty exposes no instance→field reflection
-(upstream #119), so the framework cannot see which relations a column touches.
-The streaming half of #172 landed, leaving this constant-factor over-fetch
-(GH #177).
-
-The alternatives were: leave it (an include nothing reads costs a join per
-chunk of every export), infer includes from the lens (the lens names a column,
-not a relation), or declare them.
+Date: 2026-09-22 — Status: accepted — Amended: 2026-09-22
 
 ## Decision
 
-**1. The declaration lives on the column.** `TextColumn::needs(["author"])`
-names the relations the projection closure reads, in whatever vocabulary the
-resource uses for them. It is a declaration, not a mechanism: names are
-`&'static str`, opaque to the framework, meaningful only to the resource that
-maps them onto typed `include(..)` calls (a type-erased column cannot name an
-`Include<Post, Author>`). A column that reads no relation declares nothing, and
-`.needs(..)` accumulates across calls.
+**1. The declaration lives on the column.** `TextColumn::needs(["author"])` names the relations the
+projection closure reads, in whatever vocabulary the resource uses for them. It is a declaration, not a
+mechanism: names are `&'static str`, opaque to the framework, meaningful only to the resource that maps
+them onto typed `include(..)` calls (a type-erased column cannot name an `Include<Post, Author>`). A
+column that reads no relation declares nothing, and `.needs(..)` accumulates across calls.
 
-**2. The table gathers, the resource narrows.** `Table::include_needs()` unions
-its columns' declarations; the export hands that set to a new
-`Resource::export_query(cx, needs)`. The resource is the only layer that knows
-the tenancy filter and the typed includes, so it owns the mapping:
+**2. The table gathers, the resource narrows.** `Table::include_needs()` unions its columns'
+declarations; the export hands that set to `Resource::export_query(cx, needs)`. The resource is the only
+layer that knows the typed includes, so it owns the mapping — and the framework owns the tenant half,
+wrapping the result exactly as it wraps `query`, so an export cannot be unscoped (GH #223, ADR-0002).
 
-```rust
-fn query(cx: &Cx) -> Query<List<Post>> {
-    PostResource::base(cx, &IncludeNeeds::from(["author", "comments"]))
-}
-
-fn export_query(cx: &Cx, needs: &IncludeNeeds) -> Query<List<Post>> {
-    PostResource::base(cx, needs)
-}
-```
-
-**3. The default inherits `query`, unchanged.** A resource that overrides
-nothing exports exactly as before. Erring towards over-fetching costs a join;
-dropping an include a rendered column reads breaks the render, so the safe
-default is the one that keeps the old behaviour. Narrowing is opt-in per
+**3. The default inherits `query`, unchanged.** A resource that overrides nothing exports exactly as
+before. Erring towards over-fetching costs a join; dropping an include a rendered column reads breaks
+the render, so the safe default is the one that keeps the old behavior, and narrowing is opt-in per
 resource.
 
-**4. Only the export narrows.** The list page keeps inheriting `query` (the
-#172 grill's decision 10). The export is a different reader with a different
-render — it writes every column once, walks the query in cursor chunks, and has
-no live re-render — so it is where the constant factor is visible; the list's
-sharper budget is about keystroke latency, not include count.
+**4. Only the export narrows.** The list page keeps inheriting `query`: the export is a different reader
+with a different render — it writes every column once, walks the query in cursor chunks, and has no live
+re-render — so it is where the constant factor is visible.
 
-**5. The unloaded-relation contract is the guard, not a new check.** A column
-that reads a relation it did not declare renders against an unloaded
-`Deferred`; its `is_unloaded` guard (ADR-0011: `"(unloaded)"` plus a
-`debug_assert!`) fails loudly in test builds. A resource that narrows must keep
-what its `can_view` reads — the export's visibility scan runs before any cell
-is written, and an un-included relation panics there — and the same guard is
-what makes that loud rather than silent.
+**5. The unloaded-relation guard is the check, not a new one.** A column that reads a relation it did
+not declare renders against an unloaded `Deferred`, and its `is_unloaded` guard (ADR-0011:
+`"(unloaded)"` plus a `debug_assert!`) fails loudly in test builds. A resource that narrows must keep
+what its `can_view` reads, since the export's visibility scan runs before any cell is written.
 
 ## Consequences
 
-- The showcase's posts and comments tables declare their relation columns
-  (`author`, `comments`, `post`), so their exports are byte-identical to
-  before: both were already needed by a rendered column. The payoff accrues to
-  a resource whose `query` carries an include its table does not render — an
-  include added for `view_relations`, for instance — and the core test
-  `export_query_narrows_to_the_declared_column_includes` pins that narrowing
-  with a real relation (fails if the export goes back to `R::query`).
-- **No in-tree resource is in that position yet**, so the motivating example in
-  GH #177 ("the CSV needs only title/status") is not reproduced by this change:
-  `csv_row` writes every declared column, and the showcase's posts table
-  renders author and comments. Trimming further would need an export column
-  subset, which is the last bullet here — this ADR delivers the include
-  contract, not a column subset.
-- The name vocabulary is a string seam between two halves in the same crate
-  tree. An unknown name is not an error, it just never matches; a *missing*
-  name is caught at render by the column's guard, not at compile time. Widening
-  to a typed declaration would mean moving `Include` construction into the
+- The showcase's posts and comments tables declare their relation columns (`author`, `comments`,
+  `post`), so their exports are byte-identical to before; both were already needed by a rendered column.
+  The payoff accrues to a resource whose `query` carries an include its table does not render, and
+  `export_query_narrows_to_the_declared_column_includes` pins that narrowing with a real relation.
+- **No in-tree resource is in that position yet**, so the motivating example ("the CSV needs only
+  title/status") is not reproduced: `csv_row` writes every declared column. An export column subset
+  stays out of scope — this decides which includes the rendered columns need, not which columns are
+  rendered.
+- The name vocabulary is a string seam between two halves in the same crate tree: an unknown name is not
+  an error, it just never matches, and a missing name is caught at render by the column's guard, not at
+  compile time. Widening to a typed declaration would mean moving `Include` construction into the
   column, which cannot be done without naming `M`'s relation types there.
-- The declaration was put on the column rather than on the table: the closure
-  that reads a relation is the thing that declares it, so the declaration
-  travels with the projection when a column is moved or copied, and
-  `Table::include_needs` is the mechanical union. A table-level list would be
-  equally checkable — a column could still omit a declaration under either
-  shape, and the guard is what catches that — so this buys cohesion, not
-  safety.
-- The `#[derive(Resource)]` path is deliberately untouched: the derive cannot
-  declare a `table`, so a derived resource is never mounted and never serves an
-  export. An `export_query = path` key would be unreachable API.
-- Rows-per-chunk memory is unchanged (that was GH #172); what changes is the
-  per-row join work the database does for an include nothing renders.
-- Column subsets for export (exporting fewer columns than the table renders)
-  stay out of scope: this decides *which includes* the rendered columns need,
-  not which columns are rendered.
-
-## Amendment (2026-09-22, GH #222)
-
-The `#[derive(Resource)]` bullet above is history: that derive is removed. Its
-only Rust call sites were two resource declarations in one test — the reference
-app hand-writes all five impls — so it was dead surface, and the macros crate
-now ships `derive(EmbeddedForm)` alone (GH #191). The bullet's reasoning survives
-in the same direction: with no derive, every resource declares its own `table`,
-so the "a derived resource is never mounted and never serves an export" case
-cannot arise, and `export_query` stays a hand-written override of
-`Resource::query`.
-
-## Amendment (2026-09-22, the tenant half of the seed moved — GH #223)
-
-Decision 2 above says "the resource is the only layer that knows the tenancy
-filter", and the sample has `base(cx, ..)` return the tenant filter by hand.
-Neither is true now. The framework owns the tenant filter (ADR-0002's 2026-09-22
-amendment): a gated resource's `export_query` returns *includes only*, and the
-export loader wraps it — `apply_tenant_scope(cx, R::export_query(cx, needs))` —
-exactly
-as the list loader wraps `query`, so the tenant scope is applied once, after the
-override, for both seeds, and an export cannot be unscoped. Nothing else here
-changes: the declaration still lives on the column, the default still inherits
-`query`, only the export still narrows, and the unloaded-relation guard is still
-the check.
+- The declaration sits on the column because the closure that reads a relation is the thing that
+  declares it, so it travels with the projection when a column is moved or copied, and
+  `Table::include_needs` is the mechanical union. A table-level list would be equally checkable.
+- Rows-per-chunk memory is unchanged (GH #172); what changes is the per-row join work the database does
+  for an include nothing renders.

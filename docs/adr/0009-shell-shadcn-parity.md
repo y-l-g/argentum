@@ -1,15 +1,22 @@
 # Shell parity with shadcn sidebar
 
-Date: 2026-08-28 — Status: accepted — Supersedes: none
+Date: 2026-08-28 — Status: accepted — Amended: 2026-09-16
 
-Argentum's Shell (`render_shell` in `panel.rs` + `SIDEBAR=class!(...)` in `sidebar.rs`) flowed with the page (`flex min-h-screen`), not fixed; header `h-16` was not sticky; `sidebar_trigger` and `data-theme-toggle` buttons were inert (no JS, no cookie, no `Sheet` mobile drawer). The spec demands shadcn-grade shell: sticky/fixed, collapsible to icon rail, persisted, dark-mode toggle working.
+## Decision
 
-We adopt the shadcn `sidebar.tsx` pattern verbatim but via Topcoat conventions: `SidebarProvider` sets CSS vars `--sidebar-width:16rem / --sidebar-width-icon:3rem / --sidebar-width-mobile:18rem`, gap div `w-(--sidebar-width)` with `transition-[width]`, container `fixed inset-y-0 z-10 hidden h-svh w-(--sidebar-width)` + `SidebarContent flex-1 overflow-auto`, header/footer `shrink-0` with `sticky top-0`, collapsible `data-state=expanded|collapsed` + `group-data-[collapsible=icon]` rules, cookie `sidebar_state` (604800s, `topcoat::cookie`) read server-side for SSR, keyboard `Ctrl+B`, mobile branch `if isMobile return <Sheet>` via existing `sheet` component, and `theme.js` toggling `document.documentElement.classList` (`dark`) + `localStorage` (fallback cookie) for `NextThemes` parity. JS is eight minimal assets (`assets/sidebar.js`, `assets/theme.js`, `assets/dialog.js`, `assets/bulk.js`, `assets/filters.js`, `assets/live-search.js`, `assets/selects.js`, `assets/notifications.js`; see ADR-0014) included via `asset!` and `topcoat::runtime::script()`, no `topcoat_core` internals needed.
+The Shell is sticky/fixed and collapsible, following the shadcn `sidebar.tsx` pattern through Topcoat
+conventions and the upstream `sidebar` primitive (topcoat#419, ADR-0007). It uses the shadcn CSS
+variables (`--sidebar-width:16rem`, `--sidebar-width-icon:3rem`, `--sidebar-width-mobile:18rem`), a
+fixed container with `SidebarContent` scrolling inside it, a `shrink-0` sticky header/footer, and
+`data-state=expanded|collapsed`; below `md` the component renders its own sheet drawer. The icon rail
+stays intentionally unrendered.
 
-Considered: flow sidebar only (rejected: scrolls away, fails spec), `topcoat_core::ViewBuffer` hack for state (rejected: internal, not needed).
-
-Consequences: `argentum-ui/src/components/composites/sidebar.rs` gains `SidebarProvider` + `SidebarInset`; `crates/argentum-core/src/panel.rs:98` `render_shell` injects provider and reads cookie, while `render_document` emits the (deferred) scripts (GH #152, ADR-0014). `styles.css` gains `--sidebar-*` vars (tokens). No new external gap; only public `cookie`/`asset`/`view` APIs are used.
-
-## Amendment (2026-09-16)
-
-Topcoat shipped its own `sidebar` component (#419), so the shell now composes the **primitive** instead of the owned composite (ADR-0007 status note). Its open state is runtime state: `render_shell` wraps the shell in a hoisting body, creates `Signal<bool>`s for the desktop panel (`open`, seeded by `sidebar_state` so the first paint matches the last choice) and the mobile sheet (`mobile_open`), and the trigger pair carries `@click` handlers; the component renders the sheet itself, so the duplicated desktop/mobile navigation trees collapse into one shared rendering. Breakpoints follow upstream (`md` instead of `lg`), the rail stays intentionally unrendered, and `assets/sidebar.js` shrank to persistence (`data-state` → cookie) and the `Ctrl+B` shortcut; `theme.js` is unchanged.
+Open state is runtime state. `Panel::render_shell` wraps the shell in a hoisting body and creates
+`Signal<bool>`s for the desktop panel (`open`, seeded from the `sidebar_state` cookie so the first
+paint matches the last choice) and the mobile sheet (`mobile_open`); the trigger pair carries
+`@click` handlers, and the component renders the desktop and mobile navigation as one tree.
+`assets/sidebar.js` persists `data-state` back to the cookie (604800s) and binds `Ctrl+B`;
+`theme.js` toggles `document.documentElement.classList` (`dark`) with `localStorage` (fallback
+cookie) for `NextThemes` parity, and the blocking `theme_init_script` reconciles the class before
+first paint. Both scripts are emitted with `asset!` + `topcoat::runtime::script()`, and the full
+asset list and hook contract are ADR-0014.

@@ -1,157 +1,80 @@
 # Embedded values: a derived codec, and the discriminant column as the variant rule
 
-Date: 2026-09-22 — Status: accepted — Supersedes: none
-
-## Context
-
-Embedded **leaves** bind one column at a time (GH #185): a lens through an
-embedded struct, an enum variant, or a `#[document]` resolves to its flattened
-storage column, and a `TextInput` posts that column. The **value** those leaves
-belong to had no seam at all. Every app reassembled it from the flat map by
-hand, and the showcase's `embedded_from_values` showed what that cost:
-
-- the same function had to be written per app, per type;
-- an enum's variant was recovered from **which payload columns happened to be
-  non-empty** — `if !canonical_url.is_empty() { Published } else if
-  !reason.is_empty() { Archived } else { Scheduled }` — so renaming a payload
-  silently changed the meaning, a stale payload outvoted the variant the user
-  meant, and only one variant's fields could realistically be shown at a time;
-- hydration was a second hand-written projection
-  (`hydrate_form_values`), spelling the same flattened names from the other
-  direction.
-
-The framework could not infer any of it. Toasty exposes no instance→field
-reflection (upstream #119), so the framework cannot read a model's fields
-generically; and the *names* belong to the compiled mapping, which GH #185
-already established as the only authority (name accumulation was removed on
-purpose).
-
-Two facts from the compiled schema make a real seam possible, and neither was
-being used:
-
-- `app::EmbeddedStruct` / `app::EmbeddedEnum` describe the whole value — its
-  fields, its variants, each variant's payload range;
-- `mapping::FieldEnum` carries a **discriminant column**
-  (`publication` for `Post.publication`), and `app::EnumVariant` carries the
-  value each variant stores there. The variant is *stored*, not implied.
+Date: 2026-09-22 — Status: accepted — Amended: 2026-09-22
 
 ## Decision
 
-**1. The codec is derived from the type's shape, the keys come from the
-schema.** `#[derive(EmbeddedForm)]` (in `argentum-macros`) generates the
-flat-map ↔ typed conversion, the presence question, and a `form(cx, parent)`
-returning the value's controls. The app declares the value **per type** — one
-derive, no field bindings — and calls `write_embedded` / `read_embedded` /
-`submitted` where it hydrates and writes, which is a hybrid of the issue's two
-options rather than "the app declares nothing". It never spells a column: each leaf is addressed by a typed path
-(`<T as Embed>::path_field::<FieldTy>(index)`, variant-rooted for payloads) and
-resolved by the framework (`leaf_key`, `enum_spec`). The derive supplies the
-Rust shape, the schema supplies the storage, and neither re-derives the other.
+**1. The codec is derived from the type's shape; the keys come from the schema.**
+`#[derive(EmbeddedForm)]` (in `argentum-macros`) generates the flat-map ↔ typed conversion, the
+presence question, and a `form(cx, parent)` returning the value's controls. The app declares the value
+per type — one derive, no field bindings — and calls `write_embedded` / `read_embedded` / `submitted`
+where it hydrates and writes. It never spells a column: each leaf is addressed by a typed path
+(`path_field`, variant-rooted for payloads) and resolved by the framework (`leaf_key`, `enum_spec`).
+The derive supplies the Rust shape, the schema supplies the storage, and neither re-derives the other.
 
-**2. A field is a leaf or a value, decided at macro time.** A type the panel can
-spell — `String`, plus every type with a `TypedValue` impl (`i8`…`i128`,
-`isize`, `u8`…`u128`, `usize`, `f32`, `f64`, `bool`, `Uuid`,
-`jiff::Timestamp`) — is one column; anything else is another embedded value,
-delegated to that type's own impl, so nesting composes. That widening of
-`TypedValue` (GH #192 shipped three integer types) is what makes the
-classification honest rather than aspirational. The only UI choices a type
-cannot make are per-field attributes: `#[form(label = "…")]`,
-`#[form(textarea)]`, `#[form(textarea, rows = N)]`. An unknown `#[form(..)]` key
-is a compile error.
+**2. A field is a leaf or a value, decided at macro time.** A type the panel can spell — `String`, plus
+every type with a `TypedValue` impl (`i8`…`i128`, `isize`, `u8`…`u128`, `usize`, `f32`, `f64`, `bool`,
+`Uuid`, `jiff::Timestamp`) — is one column; anything else (a relation, an `Option<T>`, a `#[document]`)
+fails at that bound rather than binding quietly. Per-field overrides are `#[form(label = "…")]`,
+`#[form(textarea)]` and `#[form(textarea, rows = N)]`; an unknown `#[form(..)]` key is a compile error.
 
-**3. The variant is the discriminant column.** An enum's `write_form` writes the
-discriminant and the active variant's leaves; its `read_form` reads the variant
-from the submitted discriminant, in this order:
+**3. The variant is the discriminant column.** An enum's `write_form` writes the discriminant and the
+active variant's leaves; its `read_form` reads the variant from the submitted discriminant in this
+order:
 
-1. **A discriminant the submission names always wins** — and one the enum does
-   not declare is refused loudly (`read_form` panics) rather than read as some
-   other variant, which would store a value the caller never asked for. This is
-   the correction the issue asked for: a stale `canonical_url` is not a vote.
-2. **Only when no discriminant is named at all** — the create form, which has no
-   stored variant to hydrate, or a hand-written POST — the pre-#191 rule
-   applies: the first variant, in declaration order, with a payload **of its
-   own** submitted. A `#[shared(..)]` column belongs to several variants, so it
-   never selects one. The rule is reimplemented through the keys the schema
-   resolves (`leaf_key`, and the nested value's own `any_present`) instead of
-   remembered column names, so renaming a payload cannot change its meaning.
+1. A discriminant the submission names always wins, and one the enum does not declare is refused
+   loudly (`read_form` panics) rather than read as some other variant, which would store a value the
+   caller never asked for — a stale payload is not a vote.
+2. Only when no discriminant is named at all — the create form, which has no stored variant to
+   hydrate, or a hand-written POST — the first variant, in declaration order, with a payload **of its
+   own** submitted. A `#[shared(..)]` column belongs to several variants, so it never selects one. The
+   rule is reimplemented through the keys the schema resolves (`leaf_key`, and the nested value's own
+   `any_present`) instead of remembered column names, so renaming a payload cannot change its meaning.
 3. Otherwise the first variant.
 
-The create path is why rule 2 exists at all: without it, filling the Published
-payload on a create form silently produced `Scheduled` and dropped what the
-author typed. The variant `Select` (the deferred half of GH #191) is what makes
-rule 2 unnecessary, and it is expected to retire it.
+**4. The variant control rides the form as a `Select` over the discriminant column.**
+`discriminant_select` renders one option per variant the schema declares — each submitting the stored
+value and reading as the variant's name (`value_of_index` / `name_of_index`) — and the derive wraps
+each variant's payload in `Group::variant(discriminant, value)`, which renders `data-variant-select`
+on the control and `data-variant` / `data-variant-of` on the groups. `assets/variant.js` (registered
+in `xtask`'s `ASSET_FILES` / `ASSET_HOOKS`) hides the groups whose marker is not the control's value,
+scoped to the form so two enums never toggle each other. It is markup-only, so with JavaScript off
+every group renders and nothing the server parses is lost; a create form opens on the empty choice
+(`-- Select --`), and the control is deliberately not `required`, so an empty submit still reaches
+rule 2's payload fallback. A `#[shared(..)]` column renders once, outside every group, because it
+belongs to several variants and must stay editable whichever one is chosen; only a variant's own
+payload goes inside its group. A unit variant gets its group too, so the marker set is the schema's
+variant list and a variant added later cannot silently lose its group
+(`the_variant_groups_are_exactly_the_schemas_variants`).
 
-**4. The discriminant rides the form as a hidden control.** `TextInput::hidden`
-renders a bare `<input type="hidden">` (nothing in view mode) so the stored
-variant hydrates into the edit form, the browser posts it back, and the update
-writes the variant the record already had — through the ordinary value map, with
-no new field kind, no validation, and no read-only row. *(Superseded by the
-GH #191 status note below: the control is a visible `Select`. "Nothing in view
-mode" is unchanged.)*
+**5. Hydration takes the request context.** `Resource::hydrate_form_values(cx, record)` — its keys come
+from the compiled mapping, which lives on the request's app schema; the alternative, the app spelling
+flattened names, is what the derived codec exists to remove. This is a breaking signature change for
+every resource, mechanical (`_cx` where unused) and documented as the upgrade cost.
 
-**5. Hydration takes the request context.** `Resource::hydrate_form_values`
-becomes `hydrate_form_values(cx, record)`. Its keys come from the compiled
-mapping, which lives on the request's app schema; the alternative — the app
-spelling flattened names — is exactly what GH #185 removed. This is a breaking
-signature change for every resource, mechanical (`_cx` where unused) and
-documented as the upgrade cost.
-
-**6. The list of what is *not* covered is part of the decision.** A
-`#[document]` inside an embedded value (its fields share one column: the walk
-**refuses** rather than hand one column back for several fields), a relation
-inside one, an embedded enum nested inside an enum *variant* (value resolution
-starts at a model root; nesting inside structs works at any depth), a tuple or
-unit struct, and a variant **control** — every variant's payload still renders,
-and choosing one in the UI needs a form-reactivity seam the panel does not have
-(the live binding is `TextInput`-only, GH #154 §4). The last is the outstanding
-half of GH #191. *(The variant control is no longer outstanding — see the
-GH #191 status note below.)* A first slice documents its edges; it does not
-pretend they are not there.
+**6. What is not covered is part of the decision.** A `#[document]` inside an embedded value (its
+fields share one column: the walk refuses rather than hand one column back for several fields), a
+relation inside one, an `Option<T>`, an embedded enum nested inside an enum *variant* (value resolution
+starts at a model root; nesting inside structs works at any depth), and a tuple or unit struct. A
+derived form's labels default to the humanized Rust field name (`Seo Title` → `Title`) and are
+overridable per field, and `Schema::extend` exists because `IntoSchema`'s tuple form stops at four
+nodes.
 
 ## Consequences
 
-- `embedded_from_values` is deleted from the showcase, and
-  `post_edit_binds_and_saves_embedded_fields` — the GH #185 round-trip test —
-  passes **unchanged**: the flattened columns still reach the record fn, they
-  are simply named by the framework now.
-- The showcase's embedded form sections collapse from ~80 hand-written bindings
-  to four declarations (`Seo::form(..)`, `Publication::form(..)`,
-  `Media::form(..)`, `PostStats::form(..)`), and its update path stops spelling
-  `seo_title` / `publication_timestamp` / `media_` / `post_stats` to decide
-  whether a value was submitted (`submitted(cx, parent, values)`).
-- **Editing keeps the stored variant until the variant control lands**: a
-  browser edit carries the discriminant back, so it no longer switches
-  `Publication`'s variant by filling a different variant's payload. A
-  hand-written POST that names one switches it (pinned by
-  `post_edit_switches_the_publication_variant_explicitly`), and the follow-up
-  `Select` is what gives a browser user the same power.
-- **Creating still works the way it did**: the create form has no stored variant
-  to carry, so rule 2 above selects the variant its payload names
-  (`post_create_keeps_the_variant_its_payload_names`), which is why the
-  fallback exists rather than "the first variant" alone.
-- **Derived controls are not required**, because every column under an embedded
-  step is storage-nullable — what the hand-written forms spelled `.optional()`.
-  That is a declaration change, not a validation change: the flags resolve
-  identically. A `Textarea` keeps its height through `#[form(textarea, rows =
-  3)]` rather than silently dropping the old `.rows(3)`.
-- `TextInput::hidden` is public and general, but has one caller: the
-  discriminant. It exists as a `TextInput` rather than a new node so it rides
-  `field_names()`, hydration, validation and re-render without widening the
-  render tree. *(Removed with `discriminant_input` and replaced by the variant
-  `Select` — see the GH #191 status note below.)*
-- `Schema::extend` is added because `IntoSchema`'s tuple form stops at four
-  nodes and a derived form has one control per leaf.
-- A derived form's labels default to the humanized Rust field name, which is a
-  small improvement over the flattened column name (`Seo Title` → `Title`) and
-  is overridable per field.
-
-**Status 2026-09-22 (GH #204):** the "form-reactivity seam the panel does not have" named above lost its one live binding — `Schema::render_live_with`, `RenderSource::Live`, `TextInput::render_live_with` and `argentum_ui::bound_input` were removed as zero-caller API. The variant **control** gap is therefore wider, not narrower: choosing a variant in the UI needs that seam built, not merely wired to an existing one. The rest of this ADR is unaffected.
-
-**Status 2026-09-22 (GH #191):** the variant control landed, and decision 4 is superseded. The panel never needed the reactivity seam: the feature is the one Django admin and Rails ship — the declaration carries the dependency as markup, and a small script toggles visibility. `discriminant_select` renders a `Select` over the discriminant column, one option per variant the schema declares — submitting the stored value, reading as the variant's name (`value_of_index` / `name_of_index`) — and the derive wraps each variant's payload in `Group::variant(discriminant, value)` — `data-variant` plus `data-variant-of`, the same `data-` hook precedent as `data-slot` / `data-filter-name`. `assets/variant.js` (registered in `xtask`'s `ASSET_FILES` / `ASSET_HOOKS`, so GH #213's guard covers both sides) hides the groups whose marker is not the control's value, scoped to the form so two enums never toggle each other. Consequences worth recording:
-
-- **It is markup-only, so no-JS loses nothing**: every group still renders, which is exactly the pre-#191 behaviour. A create form therefore opens on the empty choice (`-- Select --`) and shows no variant's group until one is picked; the driver is deliberately not `required`, so an empty submit still reaches rule 2's payload fallback.
-- **A `#[shared(..)]` column renders once, outside every group**, because it belongs to several variants and must stay editable whichever one is chosen. Only a variant's own payload goes inside its group.
-- **An option submits the variant's value and reads as its name**: `app::EnumVariant` carries both, so `EnumSpec` keeps them together (`value_of_index` / `name_of_index`, where the name is humanized into sentence case as a derived field label is) and `discriminant_select` labels each option with the name while submitting the discriminant the column stores. A chooser reading `1` / `2` / `3` would be the hidden input made clickable. The name is a label, never a handle — the normalization is lossy (`OK` reads `Ok`) — so code still addresses variants by declaration index.
-- **The read-only page names the stored variant** (`Publication` / `Archived`) instead of printing its discriminant, which is the one row that says which state the record is in: every variant's payload rows render beside it and on their own do not. A record with no stored variant renders no row at all, as the pre-#191 hidden control did (ADR-0016).
-- **A unit variant gets its group too**, so the marker set is the schema's variant list and a variant added later cannot silently lose its group (pinned by `the_variant_groups_are_exactly_the_schemas_variants`).
-- **It is a visible breaking change**: the discriminant is no longer a hidden input, so any app (or test) that read the form markup for it updates. The submitted value, `read_form`, the unknown-discriminant refusal and the fallback are unchanged.
+- The showcase's embedded form sections are four declarations (`Seo::form(..)`, `Publication::form(..)`,
+  `Media::form(..)`, `PostStats::form(..)`), and its update path stops spelling flattened column names
+  to decide whether a value was submitted.
+- **Editing keeps the stored variant** because the browser carries the discriminant back; a hand-written
+  POST that names one switches it (`post_edit_switches_the_publication_variant_explicitly`).
+  **Creating** works as it must: the create form has no stored variant, so rule 2 selects the variant
+  its payload names (`post_create_keeps_the_variant_its_payload_names`).
+- Derived controls are not required, because every column under an embedded step is storage-nullable —
+  a declaration change, not a validation change, since the flags resolve identically. A `Textarea`
+  keeps its height through `#[form(textarea, rows = 3)]`.
+- The read-only page names the stored variant (`Published` / `Archived`) instead of printing its
+  discriminant; that row says which state the record is in, and a record with no stored variant renders
+  no row at all (ADR-0016).
+- It is a visible breaking change: the discriminant is a visible `Select`, not a hidden input, so an app
+  or test reading the form markup for it updates. The submitted value, `read_form`, the
+  unknown-discriminant refusal and the fallback are unchanged.

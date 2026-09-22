@@ -1,23 +1,43 @@
-# Argentum owns beautiful primitives in argentum-ui, Tailwind seam via build helper, Sidebar as new upstream component
+# Beautiful primitives in argentum-ui, with the Tailwind seam per app
 
-Date: 2026-08-28 — Status: accepted — Supersedes: none
+Date: 2026-08-28 — Status: accepted — Amended: 2026-09-10, 2026-09-16, 2026-09-22
 
-Argentum must be beautiful out of the box — a new empty project that defines a Panel and a Resource gets a Filament-grade diceboard with no extra setup — yet Topcoat UI is copy-source (`topcoat ui init` + `topcoat ui add` drops owned files into the app). We put the beautiful primitives in a new crate `argentum-ui` that depends on `topcoat-ui-registry` as a library and re-exports styled `#[component]`s (table, card, input, label, button, badge, pagination, skeleton, dialog, separator, sheet, sidebar). `argentum-core`'s `Table`, `Schema` and `Panel` shell render those components directly; apps never run `topcoat ui add` and never own component source, so an upgrade cannot be broken by local edits.
+## Decision
 
-The Tailwind seam stays per-app and explicit: `styles.css` (importing `tailwindcss` + neutral tokens + `@source` for both the app's `src/**/*.rs` and `argentum-ui/src/**/*.rs`) and a 3-line `build.rs` (`argentum_ui::tailwind_build()` / `topcoat::tailwind::BuildConfig`) plus `tailwind::stylesheet!()` and Geist font in the layout. This is the same mechanism Topcoat documents, keeps tree-shaking per app, and makes token editing the single customization seam — change `--primary`, `--background`, etc. in `:root`/`.dark`, no Rust `Panel::theme` builder and no per-cell `attrs` in v1 except an additive `class` hook on `Panel::shell` and `Section`/card containers. Slice 1 is Shell + Table + Form fields only (table chrome, card-wrapped sections/grids, input/label/button/badge, pagination and dialog stubs, skeleton rows reserved for `defer`/`boundary`); full grouped/collapsible Sidebar, filters, and token-builder API are later slices.
+Argentum must be beautiful out of the box — a new project that defines a Panel and a Resource gets a
+Filament-grade dashboard with no extra setup — yet Topcoat UI is copy-source (`topcoat ui init` +
+`topcoat ui add` drops owned files into the app). The beautiful primitives live in the
+`argentum-ui` crate, which depends on `topcoat-ui-registry` as a library and re-exports styled
+`#[component]`s (table, card, input, label, button, pagination, skeleton, dialog, separator, sheet,
+sidebar and the rest). `argentum-core`'s `Table`, `Schema` and `Panel` shell render those components
+directly; apps never run `topcoat ui add` and never own component source, so an upgrade cannot be
+broken by local edits.
 
-The full Sidebar is a new Topcoat UI component, shadcn-inspired but written to Topcoat conventions (`#[component]` + `Attributes` passthrough + `class!` merging against tokens): `sidebar` / `sidebar_header` / `sidebar_content` / `sidebar_footer` / `sidebar_group` / `sidebar_group_label` / `sidebar_menu` / `sidebar_menu_button` (with `is_active`) / `sidebar_separator` / `sidebar_trigger`, responsive as persistent rail on `lg` and `sheet` drawer on mobile, collapsed state persisted via cookie/session. We ship it first in `argentum-ui/src/components/sidebar.rs` so slice 1 is unblocked, then PR it verbatim to `topcoat-ui-registry`; `argentum-ui` will switch to the upstream once merged.
+The Tailwind seam stays per-app and explicit: `styles.css` (importing `tailwindcss` + neutral tokens
++ `@source` for both the app's `src/**/*.rs` and `argentum-ui/src/**/*.rs`) and a 3-line `build.rs`
+(`argentum_ui::tailwind_build()` / `topcoat::tailwind::BuildConfig`) plus `tailwind::stylesheet!()`
+and the Geist font in the layout. That is the mechanism Topcoat documents, it keeps tree-shaking per
+app, and it makes token editing the single customization seam: change `--primary`, `--background`,
+etc. in `:root`/`.dark`. There is no Rust `Panel::theme` builder and no per-cell `attrs`; the narrow
+class seam is `Section::class`, merged via `class!` against the token classes rather than replacing
+them. `argentum-ui` is the one `@source` an app's stylesheet must add, and that stays an ADR-visible
+contract until Topcoat documents dependency scanning natively.
 
-## Amendment (2026-09-10)
+The Sidebar is an upstream `topcoat-ui-registry` component (topcoat#419), vendored into
+`primitives/` by `cargo xtask sync-topcoat-ui`. Its `sidebar_menu_button` takes `active` (not
+`is_active`) plus `href`/`tooltip` props, the trigger pair and rail carry `@click` handlers, and
+`open`/`mobile_open` are runtime expressions (`Signal<bool>`) with the mobile sheet owned by the
+component. `Panel::render_shell` binds the signals, seeds `open` from the `sidebar_state` cookie, and
+`assets/sidebar.js` keeps the cookie and `Ctrl+B`.
 
-The sidebar still lives in `argentum-ui/components/composites/sidebar.rs` and has not been PR'd upstream. `argentum-core` does depend on `argentum-ui` (README §3 corrected), and the primitives sync is version+sha256-guarded by `xtask/tests/registry_sync.rs`.
+## Consequences
 
-## Amendment (2026-09-16)
-
-The Sidebar landed upstream as the `topcoat-ui-registry` `sidebar` component (topcoat#419) and `cargo xtask sync-topcoat-ui` now vendors it into `primitives/`; the owned `composites/sidebar.rs` is retired. Upstream reshaped the API while adopting it: `sidebar_menu_button` takes `active` (not `is_active`) plus `href`/`tooltip` props, the trigger pair and rail carry `@click` handlers, and `open`/`mobile_open` are runtime expressions (`Signal<bool>`) with the mobile sheet owned by the component. `Panel::render_shell` binds the signals, seeds `open` from the `sidebar_state` cookie, and `assets/sidebar.js` keeps the cookie and `Ctrl+B`. See ADR-0007's status note and ADR-0009's amendment.
-
-Considered Options: (A) Publish `argentum-ui-registry` and require `topcoat ui add --registry argentum` — rejected: reintroduces copy-source steps and the breakage fear that motivated owning components. (B) Embed a prebuilt CSS asset in `argentum-ui` and auto-inject via `asset!` so empty `cargo new` projects need zero `build.rs`/`styles.css` — deferred: hides Tailwind's build, loses per-app tree-shaking, and relies on build-script artifact sharing; may return as an opt-in `embedded-styles` feature for demos. (C) Keep today's raw `ac-*` classes and document `topcoat ui init` in README — rejected: violates "clean start" to Filament parity.
-
-Consequences: `examples/showcase` becomes the reference for the stylesheet + build setup, not a template to copy; empty projects follow the docs (one `styles.css`, one `build.rs`) until a future `argentum new` scaffold automates them. `Panel::layout_shell` owns the document links, while the app passes its generated stylesheet and font handles through `Panel::shell_assets`; `Panel::assets` owns the loaded bundle. `argentum-ui` is the single `@source` that must be added to `styles.css`; Tailwind scanning of dependency sources is now an ADR-visible contract that stays on `argentum-ui` until Topcoat documents dependency scanning natively.
-
-**Status 2026-09-22 (GH #173):** `badge` is no longer in that re-export list. The primitive is still vendored (`primitives/badge.rs`, synced like the rest) and `sidebar_menu_badge` renders its own markup rather than calling it, but nothing outside `badge.rs` named `argentum_ui::badge`, so the crate-root re-export was removed with the other zero-caller API in the same batch — `badge_variants`/`BadgeVariant` are not re-exported either. The rest of the list above still holds; re-add the re-export on demand.
+`examples/showcase` is the reference for the stylesheet and build setup, not a template to copy;
+empty projects follow the docs (one `styles.css`, one `build.rs`) until a scaffold automates them.
+`Panel::layout_shell` owns the document links, the app passes its generated stylesheet and font
+handles through `Panel::shell_assets`, and `Panel::assets` owns the loaded bundle. The primitives
+sync is version + sha256-guarded by `xtask/tests/registry_sync.rs`. Publishing an
+`argentum-ui-registry` for `topcoat ui add --registry argentum` is rejected: it reintroduces the
+copy-source steps and the upgrade breakage. Embedding a prebuilt stylesheet in `argentum-ui` and
+injecting it automatically stays deferred: it hides Tailwind's build, loses per-app tree-shaking,
+and may return as an opt-in feature for demos.

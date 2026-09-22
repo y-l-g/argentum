@@ -1,15 +1,31 @@
 # Panel declares Resources, Shell is implicit
 
-Date: 2026-08-28 — Status: accepted — Supersedes: none
+Date: 2026-08-28 — Status: accepted — Amended: 2026-09-19, 2026-09-22
 
-`examples/showcase/src/app.rs` now has a one-line `admin_layout` delegating to `Panel::layout_shell`; resource routes and navigation are declared on the Panel rather than hand-written in the application router. This keeps the shell escape hatch explicit without forcing every app to copy-paste document HTML or an `AssetConfig` fallback. Filament provides `Panel::resources([UserResource])` out of the box.
+## Decision
 
-We make `Panel` declarative as the primary seam: `Panel::new("admin").resource::<UserResource>().navigation(NavigationItem::from_href(...)).build().expect("panel builds")` discovers `#[page]`/`#[layout]` via `Router::builder().discover()`, registers the list route at `/admin/users`, and redirects `/admin` to the first resource. `Panel::layout_shell` owns the complete document, while `shell_assets(tailwind::stylesheet!(), font)` supplies the call-site assets required by the app's Tailwind scan. `Panel::render_shell` stays as the low-level primitive for custom layouts. `NavigationItem` uses typed `Href::is_current` where a custom page supplies an href and slash-boundary matching for resource paths.
+`Panel` is the declarative seam:
+`Panel::new("admin").resource::<UserResource>().build().expect("panel builds")` discovers
+`#[page]`/`#[layout]` via `Router::builder().discover()`, registers each resource's routes (the list
+page at `{prefix}/{slug}`), and redirects the panel root to the first resource. An app's layout
+delegates to `Panel::layout_shell`, which owns the complete document, so applications carry no
+document HTML or `AssetConfig` fallback; `shell_assets(tailwind::stylesheet!(), font)` supplies the
+call-site assets the app's Tailwind scan needs, and `Panel::render_shell` stays the low-level
+primitive for custom layouts.
 
-Considered: (A) keep only manual layout (rejected: boilerplate, diverges from Filament DX), (B) proc-macro `#[panel]` (deferred).
+`Panel::nav_item` is the one panel-aware navigation seam, and it consumes the resource's
+`Resource::navigation()`: the resource owns label, order and grouping, the Panel owns the URL. The
+default entry names no URL at all — `NavTarget::Derived` — and the Panel that owns the item resolves
+that target from its own mount prefix plus the resource's slug (`{prefix}/{slug}`). An explicit
+target (`NavTarget::Url`, which `NavigationItem::at` builds) is kept verbatim, so resolution can
+never rewrite a link its author wrote, not even one shaped like `/admin/{slug}`.
+`NavigationItem::for_resource` is the derived constructor and `at` the explicit one, so no public
+constructor can emit a wrong mount; `is_current_path` matches exact paths or slash-boundary
+prefixes, and an override that wants a different order sets the `order` field.
 
-Consequences: an app with one `Resource` gets a Filament-grade shell by delegating its layout to `Panel::layout_shell`, with zero document or sidebar HTML in application code. `examples/showcase` is the reference for the asset-loading contract and custom typed navigation. `Panel` remains the single owner of Router/Db/Shell per `CONTEXT.md`.
+## Consequences
 
-**Status 2026-09-19 (GH #165):** `Panel::nav_item` is the one panel-aware navigation seam, and it now consumes the resource's `Resource::navigation()` instead of ignoring it — the override was dead API, so a per-resource `.sorted(..)` never reached the sidebar. The split is: the resource owns label/order/grouping, the Panel owns the URL. `Resource::navigation()` takes no prefix, so its default entry names no URL at all — `NavTarget::Derived` — and the Panel that owns the item resolves that target from its own prefix (`{prefix}/{slug}`, or the panel root for an item added through `Panel::navigation`, which has no resource to derive from). An explicit target — a URL, a typed `from_href`, or a URL with its own active-state predicate — is kept verbatim, so resolution can never rewrite a link its author wrote, not even one shaped like `/admin/{slug}`. The hard-coded-`/admin` constructors (`NavigationItem::from_resource`, `from_resource_with_prefix`) are removed; `for_resource` (derived), `at` and `from_href` (explicit) are the constructors, so no public constructor can emit a wrong mount.
-
-**Status 2026-09-22 (GH #221):** the custom-navigation seam is removed for having no production call site since GH #184 — `Panel::navigation`, `NavigationItem::from_href`, `NavigationItem::sorted`, `NavTarget::Href` and the `HrefCheck` alias. `from_href` was the only constructor of `NavTarget::Href`, so the shell's variant branch and `is_current`'s delegation arm dispatched a variant nothing built, and `pub` kept rustc from saying so. The panel-aware seam the panel actually uses stays: `NavTarget::Derived`/`Url`, `NavigationItem::for_resource`, `at`, `resolved`, `is_current_path` and `Resource::navigation()`; an override that wants a different order sets the `order` field instead of calling `.sorted(..)`. The constructs come back with a real saved-view consumer — the resolution GH #109 (`Policy`) and GH #106 (`Pages`) got.
+An app with one `Resource` gets a Filament-grade shell by delegating its layout to
+`Panel::layout_shell`, with zero document or sidebar HTML in application code. `examples/showcase` is
+the reference for the asset-loading contract and for typed navigation. `Panel` remains the single
+owner of Router/Db/Shell per `CONTEXT.md`.

@@ -1,27 +1,44 @@
-# Resource::query(cx) is the single row-scoping seam
+# Resource::query is the resource's own row-scoping seam
 
-Date: 2026-08-19 — Status: accepted — Supersedes: none
+Date: 2026-08-19 — Status: accepted — Amended: 2026-09-22
 
-Tenancy, soft-deletes, and any row-level restriction flow through one overridable method: `Resource::query(cx) -> Query<List<Model>>`. Every Table, Form, Action, and shard loader starts from it. Tenancy enters as `cx.with(Tenant(id))` on the way in, not as a global scope appended elsewhere; there is no `withoutGlobalScope` footgun to forget. Day-1 single-panel/single-tenant, but the seam is what makes multi-tenant later without touching resource bodies.
+## Decision
 
-## Amendment (2026-09-22, the tenant filter is derived by the framework — GH #223)
+`Resource::query(cx) -> Query<List<Model>>` is the one overridable seam for a resource's **own** row
+scoping: soft deletes, row-level visibility, and the includes a page loads. Every list, form, record
+and shard loader reaches its rows through it, and tenancy enters as `cx.with(Tenant(id))` on the way
+in, not as a global scope appended elsewhere — there is no `withoutGlobalScope` footgun to forget. The
+tenant filter itself is not stated there: the framework owns that half.
 
-The seam splits in two, because #87's `requires_tenant()` was only half a gate: it made a tenantless request a 403, while the tenant **filter** stayed a hand-written `query` override that nothing tied to the declaration. `requires_tenant() == true` with a forgotten override therefore answered 403 without a tenant and served every tenant's rows with one, and no tenancy test covered that pairing — they all used a resource that did override `query`.
+For a resource whose `requires_tenant()` is `true`, every loader — list, edit/delete load, bulk
+fetch, unique pre-check, export, and the three relationship option loaders — runs
+`scoped_query::<R>(cx)`, which ANDs the tenant predicate onto whatever `query` (or `export_query`)
+returned. The predicate comes from `Resource::tenant_scope(tenant)`, whose default derives
+`tenant_id = <request tenant>` from the model's own schema: a field named `tenant_id` whose type is
+a UUID. A resource whose rows inherit their tenant — the showcase's comments, which belong to a post
+that carries one — overrides `tenant_scope` with the relation path instead, so the derived default
+is a convenience, not the only shape. `scoped_query` is a free function applied *after* the
+resource's own override on purpose: no override can drop the tenant half by accident, and there is
+deliberately no override that removes the predicate.
 
-`Resource::query` remains the overridable seam for a resource's **own** scoping — soft deletes, row-level visibility, the includes a page loads — and is no longer where tenancy is stated. The framework applies the tenant half itself: for a resource whose `requires_tenant()` is `true`, every loader — list, edit/delete load, bulk fetch, unique pre-check, export, and the three relationship option loaders — runs `scoped_query::<R>(cx)`, which ANDs the tenant predicate onto whatever `query` (or `export_query`) returned. The predicate comes from `Resource::tenant_scope(tenant)`, whose default derives `tenant_id = <request tenant>` from the model's own schema: a field named `tenant_id` whose type is a UUID. A resource whose rows inherit their tenant — the showcase's comments, which belong to a post that carries one — overrides `tenant_scope` with the relation path instead, so the derived default is a convenience, not the only shape.
+The gate is inseparable from the scope. A gated resource that supplies no predicate at all — no
+derivable column and no `tenant_scope` override — is a **boot** failure: `Panel::build` probes
+`R::tenant_scope(uuid::Uuid::nil())` through `check_resource` and returns an `Err` naming the
+resource before the router exists (the probe answers by the model's shape, not the tenant value).
+The request-time error in `apply_tenant_scope` stays as well: a `tenant_scope` that answers `Some`
+for the probe and `None` for a particular tenant is only invalid under that context, and app code
+that calls `scoped_query` outside a panel never passes `build` at all.
 
-The gate is inseparable from the scope: a gated resource that supplies no predicate at all — no derivable column and no `tenant_scope` override — is an error naming the resource and the model, never a silent fallback to the unscoped query, and there is deliberately no override that *removes* the predicate. A resource that must serve more than one tenant keeps `requires_tenant() = false` and scopes in `query` by hand — the one explicit, visible way to be tenant-unscoped, stated in the resource body where a reviewer sees it, and it gives up the 403 gate with the derived filter. App code that loads rows outside the framework's loaders must call `scoped_query` too: `Resource::query` on a gated resource is the tenant-unscoped base by design, so the tenant-unscoped case is visible at the call site rather than implied by an omission.
+A resource that must serve more than one tenant keeps `requires_tenant() = false` and scopes in
+`query` by hand — the one explicit, visible way to be tenant-unscoped, stated in the resource body
+where a reviewer sees it, and it gives up the 403 gate with the derived filter. App code that loads
+rows outside the framework's loaders must call `scoped_query` too: `query` on a gated resource is
+the tenant-unscoped base by design, so the tenant-unscoped case is visible at the call site rather
+than implied by an omission.
 
-`scoped_query` is a free function rather than a trait method on purpose: the filter is applied *after* the resource's own override, so no override can drop it by accident — which is exactly how the old design failed.
-
-## Amendment (2026-09-22, the option loaders read a source trait — GH #208)
-
-`schema` no longer depends on `resource`: the relationship option loaders are generic over `schema::OptionSource`, whose `scoped_query` is a **required** method, and `resource` supplies the blanket impl every `Resource` gets. The paragraph above still holds where it was written — for a `Resource`, `scoped_query::<R>(cx)` remains the framework's free function, applied after `query`, and no `query` override can drop the tenant half.
-
-For a **direct** `OptionSource` implementor — the trait is public, and an app may implement it for a source that is not a resource — the rule is convention rather than structure. The trait has no default for `scoped_query`, so an implementor cannot be unscoped *by omission*: the method must be stated. But nothing stops that body writing `Ok(Query::all())` beside `requires_tenant() == true`, and the compiler will not notice. `Resource` remains the only shape whose scope the framework applies for you; an app that wants that guarantee implements `Resource`, not `OptionSource`.
-
-## Amendment (2026-09-22, a misdeclared tenancy is a boot failure — GH #231)
-
-The first amendment's misdeclaration error is now a **boot** failure first. `Panel::build` already promises that a declaration error is a registration error the caller can log or exit on, and #207 made that true for declarations that panic; `check_resource` now probes `R::tenant_scope(uuid::Uuid::nil())` for every declared resource, so a gated resource with no derivable column and no override is an `Err` naming the resource before the router exists. The probe needs no request context, and the nil UUID is sufficient because the default derivation answers by the model's *shape* — a `tenant_id` UUID field, found by name and type — not by the tenant value.
-
-The request-time error in `apply_tenant_scope` stays, deliberately: a `tenant_scope` that answers `Some` for the probe and `None` for a particular tenant is only invalid under that context, and app code that calls `scoped_query` outside a panel never passes `build` at all. What changes is which failure a misdeclared *panel* sees first — an error at startup instead of a logged 500 on the first request that reaches a loader.
+`schema` does not depend on `resource`: the option loaders are generic over `schema::OptionSource`,
+whose `scoped_query` is a **required** method, and `resource` supplies the blanket impl every
+`Resource` gets. For a direct `OptionSource` implementor the rule is convention rather than
+structure — nothing stops that body writing `Ok(Query::all())` beside `requires_tenant() == true`,
+and the compiler will not notice. `Resource` remains the only shape whose scope the framework
+applies for you; an app that wants that guarantee implements `Resource`, not `OptionSource`.
