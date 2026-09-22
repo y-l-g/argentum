@@ -155,8 +155,8 @@ omission has to fail loudly instead of quietly:
 What to know:
 
 - `slug()` and `navigation_label()` have working defaults. Override only to rename.
-- `navigation()` curates this resource's sidebar entry: override it to change the label or the
-  `order` (lower renders first, ties keep declaration order), e.g.
+- `navigation()` curates this resource's sidebar entry: override it to change the label, the `order`
+  (lower renders first, ties keep declaration order) or the URL, e.g.
   `NavigationItem { order: -1, ..NavigationItem::for_resource::<Self>() }`. The URL is the Panel's
   call: `for_resource` names none, so the panel that mounts the resource resolves it to
   `{prefix}/{slug}`, and a resource never links at `/admin` on a panel mounted elsewhere. Spell a

@@ -14,7 +14,7 @@ use super::Resource;
 /// owns the item resolves it from its own mount prefix plus the resource's
 /// [`slug`](Resource::slug). [`NavTarget::Url`] is a URL its author wrote out,
 /// and a Panel passes it through untouched.
-#[derive(Clone, Default)]
+#[derive(Clone, Default, PartialEq, Eq)]
 pub enum NavTarget {
     /// No URL yet: the owning Panel resolves it to `{prefix}/{slug}` of the
     /// resource whose `navigation()` declared this item. What
@@ -48,7 +48,7 @@ impl std::fmt::Debug for NavTarget {
 }
 
 /// Sidebar entry derived from a `Resource` (see `CONTEXT.md`).
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct NavigationItem {
     pub label: String,
     /// Where this entry points. [`NavTarget::Derived`] until the owning Panel
@@ -64,13 +64,6 @@ pub struct NavigationItem {
     /// pins above the resources.
     pub order: i32,
 }
-
-impl PartialEq for NavigationItem {
-    fn eq(&self, other: &Self) -> bool {
-        self.label == other.label && self.url() == other.url()
-    }
-}
-impl Eq for NavigationItem {}
 
 impl NavigationItem {
     /// The default sidebar entry for `R`: its
@@ -108,8 +101,9 @@ impl NavigationItem {
     ///
     /// [`Resource::navigation`] cannot know its panel — it takes no `Cx` and no
     /// prefix — so the entry it declares carries no URL. The Panel consumes it
-    /// through `Panel::resource`, which calls this with its own prefix and the
-    /// resource's mount segment; `None` resolves to the panel root.
+    /// through `Panel::resource`, which passes its own prefix and `Some(slug)`,
+    /// the resource's mount segment; `None` resolves to the panel root itself,
+    /// a case only tests exercise since GH #221.
     ///
     /// There is no guessing here: a URL an author wrote out — including one
     /// that happens to look like `/admin/{slug}` — is a different
@@ -150,8 +144,9 @@ impl NavigationItem {
     /// `{prefix}/{slug}` (GH #39), no generated item points at the bare panel
     /// prefix that needed the old root-exact special case.
     ///
-    /// Split from `is_current` so `Panel::render_shell` can stay testable
-    /// without constructing a full `http::request::Parts` in `Cx`.
+    /// Split from `is_current` so `Panel::render_shell`, which takes the request
+    /// path as a parameter, can judge an item without a `Cx` — and so the shell
+    /// stays testable without a full `http::request::Parts` in `Cx`.
     pub fn is_current_path(&self, current_path: &str) -> bool {
         let Some(url) = self.url() else {
             // Unresolved: no URL to be current for.
@@ -259,7 +254,7 @@ mod tests {
             derived.clone().resolved("", Some("users")).url(),
             Some("/admin/users")
         );
-        // A resource-less item added straight to a Panel lands on its root.
+        // A resource-less entry (`None`) lands on the panel root itself.
         assert_eq!(
             derived.clone().resolved("/backoffice", None).url(),
             Some("/backoffice")
