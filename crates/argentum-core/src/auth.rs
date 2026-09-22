@@ -48,6 +48,16 @@ pub const NEXT_FIELD: &str = "next";
 /// enumerated and panel membership stays private (ADR-0013).
 const GENERIC_ERROR: &str = "Invalid email or password.";
 
+/// What a failed login attempt renders when the database behind it could not
+/// answer (GH #230).
+///
+/// [`GENERIC_ERROR`] is deliberately non-specific about *why* credentials were
+/// refused, so reusing it for an outage would tell a user their password was
+/// wrong while the database was down — the one place they would retry
+/// uselessly. This copy names the machinery that is down instead, and like the
+/// generic one it never carries driver text: that goes to the log.
+const UNAVAILABLE_ERROR: &str = "Sign-in is unavailable right now. Try again shortly.";
+
 /// A dummy Argon2id PHC string verified against when the account does not
 /// exist, so unknown emails pay the same work as known ones (ADR-0013).
 /// Generated with `Argon2::default()` parameters (`m=19456,t=2,p=1`).
@@ -124,8 +134,13 @@ pub type AuthFuture<'a, T> = Pin<Box<dyn Future<Output = topcoat::Result<T>> + S
 /// [`Auth::custom`]. Sessions are the framework's, so a custom implementation
 /// only maps credentials to a [`CurrentUser`] and back.
 ///
-/// Every failure must return `Ok(None)`, never a distinguishable error: the
-/// login response is one generic message for all of them.
+/// Every *credential* failure must return `Ok(None)`, never a distinguishable
+/// error: the login response is one generic message for all of them. An
+/// infrastructure failure is not a credential verdict, so an implementation
+/// that cannot reach its store may return the driver's error instead — the
+/// login handler maps it to the opaque outage page (GH #230), which is what
+/// keeps a database outage from rendering as a rejected password. An
+/// implementation's own error keeps its own mapping.
 pub trait Authenticator: Send + Sync + 'static {
     /// Verify `login`/`password`, returning the user on success.
     ///
@@ -145,6 +160,44 @@ pub trait Authenticator: Send + Sync + 'static {
     /// take effect immediately; return `None` for a user that no longer
     /// authenticates.
     fn find_by_id<'a>(&'a self, cx: &'a Cx, id: &'a str) -> AuthFuture<'a, Option<CurrentUser>>;
+}
+
+/// The opaque error an infrastructure failure on an auth or session path
+/// carries (GH #230).
+///
+/// Its `Display` is [`UNAVAILABLE_ERROR`], so nothing driver-shaped can travel
+/// inside it, and its concrete type is what lets the login handler recognise
+/// the one case it answers with the outage page rather than a 500.
+#[derive(Debug)]
+struct Unavailable;
+
+impl std::fmt::Display for Unavailable {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(UNAVAILABLE_ERROR)
+    }
+}
+
+impl std::error::Error for Unavailable {}
+
+/// Map a failed auth or session operation to the error the response carries
+/// (GH #230) — the counterpart of [`crate::db::hook_failure`] for this module.
+///
+/// An error that is the driver's is an infrastructure failure: it becomes
+/// [`Unavailable`], and the driver's own text goes to the log under this
+/// event, never to the page. Anything else is app-authored (a custom
+/// [`Authenticator`]'s own error) and keeps its mapping, so the seam does not
+/// swallow it. Every auth and session path maps through here, which is what
+/// keeps a database outage from reading as a rejected password — and what
+/// makes the two distinguishable in the logs: a rejection is `Ok(None)`, the
+/// generic 403 and no error line, while an outage logs the driver's text.
+fn infrastructure_failure(error: impl Into<topcoat::Error>) -> topcoat::Error {
+    let error = error.into();
+    if error.is::<toasty::Error>() {
+        tracing::error!(error = %error, "auth infrastructure failure");
+        Unavailable.into()
+    } else {
+        error
+    }
 }
 
 /// The shipped default authenticator: Argon2id verification against
@@ -173,7 +226,7 @@ impl Authenticator for PasswordAuth {
                 .first()
                 .exec(&mut db)
                 .await
-                .map_err(topcoat::Error::from)?;
+                .map_err(infrastructure_failure)?;
             let Some(user) = found else {
                 // Unknown account: pay a verification anyway (ADR-0013).
                 let _ = verify_password(password, DUMMY_PASSWORD_HASH);
@@ -196,7 +249,7 @@ impl Authenticator for PasswordAuth {
                 .first()
                 .exec(&mut db)
                 .await
-                .map_err(topcoat::Error::from)?;
+                .map_err(infrastructure_failure)?;
             // A deactivated account stops resolving: its live sessions are
             // purged and the next request redirects to login (spec #127 US11).
             Ok(user
@@ -419,7 +472,7 @@ async fn delete_session_row(cx: &Cx, key: &str) -> topcoat::Result<()> {
         .delete()
         .exec(&mut db)
         .await
-        .map_err(topcoat::Error::from)?;
+        .map_err(infrastructure_failure)?;
     Ok(())
 }
 
@@ -437,7 +490,7 @@ pub async fn revoke_sessions_for_user(cx: &Cx, user_id: &str) -> topcoat::Result
         .delete()
         .exec(&mut db)
         .await
-        .map_err(topcoat::Error::from)?;
+        .map_err(infrastructure_failure)?;
     Ok(())
 }
 
@@ -456,7 +509,7 @@ pub(crate) async fn resolve(
         .first()
         .exec(&mut db)
         .await
-        .map_err(topcoat::Error::from)?;
+        .map_err(infrastructure_failure)?;
     let Some(row) = row else {
         return Ok(None);
     };
@@ -465,7 +518,11 @@ pub(crate) async fn resolve(
         delete_session_row(cx, &row.token_hash).await?;
         return Ok(None);
     }
-    match authenticator.find_by_id(cx, &row.user_id).await? {
+    match authenticator
+        .find_by_id(cx, &row.user_id)
+        .await
+        .map_err(infrastructure_failure)?
+    {
         Some(user) => Ok(Some(user)),
         None => {
             // The session names a user who no longer authenticates (deleted
@@ -550,14 +607,49 @@ pub(crate) fn install(
         .layer(AuthGate::new(RUNTIME_PREFIX))
 }
 
-/// The status and route a login attempt renders: either the generic failure
-/// (403, same body for every cause) or a redirect back to `next`.
+/// What a failed login attempt renders: the generic credential rejection, or
+/// the sign-in outage (GH #230).
+///
+/// Two variants and no more, each with its own copy and status, so a failed
+/// attempt is always a deliberate answer: a driver failure is never rendered
+/// as a credential verdict, and a credential verdict never borrows the outage
+/// copy. Neither variant carries driver text.
+#[derive(Debug, Clone, Copy)]
+enum LoginError {
+    /// Wrong password, unknown account, empty fields, or valid credentials
+    /// without panel access: one 403 with one message (ADR-0013).
+    Credentials,
+    /// The database behind sign-in could not answer: a 503 that says so,
+    /// because the user must not read an outage as a rejected password.
+    Unavailable,
+}
+
+impl LoginError {
+    /// The message the login page's alert carries.
+    fn message(self) -> &'static str {
+        match self {
+            Self::Credentials => GENERIC_ERROR,
+            Self::Unavailable => UNAVAILABLE_ERROR,
+        }
+    }
+
+    /// The status a failed attempt answers with.
+    fn status(self) -> http::StatusCode {
+        match self {
+            Self::Credentials => http::StatusCode::FORBIDDEN,
+            Self::Unavailable => http::StatusCode::SERVICE_UNAVAILABLE,
+        }
+    }
+}
+
+/// The status and route a login attempt renders: a [`LoginError`] page or a
+/// redirect back to `next`.
 ///
 /// The login page is a settled view, so [`ViewExt::single`] resolves it into
 /// an owned handle before the response is built — no borrowed view escapes.
 async fn login_response(
     cx: &Cx,
-    error: Option<String>,
+    error: Option<LoginError>,
     next: String,
 ) -> topcoat::Result<topcoat::router::response::Response> {
     let page = render_login_page(cx, error, next).await?;
@@ -591,14 +683,27 @@ pub(crate) fn login_post(cx: &Cx, body: Body) -> RouteFuture<'_> {
             (Some(authenticator), Some(email), Some(password))
                 if !email.is_empty() && !password.is_empty() =>
             {
-                authenticator.verify(cx, email, password).await?
+                match authenticator.verify(cx, email, password).await {
+                    Ok(user) => user,
+                    // A driver failure is not a credential verdict: the page
+                    // says sign-in is unavailable instead of rendering a
+                    // rejection (GH #230). The seam logs the driver's text and
+                    // hands back an app-authored error untouched.
+                    Err(error) => {
+                        let error = infrastructure_failure(error);
+                        if error.is::<Unavailable>() {
+                            return login_response(cx, Some(LoginError::Unavailable), next).await;
+                        }
+                        return Err(error);
+                    }
+                }
             }
             _ => None,
         };
         // One path for every failure: wrong password, unknown account, empty
         // fields, or valid credentials without panel access (ADR-0013).
         let Some(user) = verified.filter(|user| user.can_access_panel) else {
-            return login_response(cx, Some(GENERIC_ERROR.to_string()), next).await;
+            return login_response(cx, Some(LoginError::Credentials), next).await;
         };
         // Rotate on login: a token this request presented cannot be replayed.
         if let Some(hash) = session::token_hash(cx).await? {
@@ -606,15 +711,24 @@ pub(crate) fn login_post(cx: &Cx, body: Body) -> RouteFuture<'_> {
         }
         let session = session::start(cx).await?;
         let mut db = crate::db::db(cx);
-        toasty::create!(AuthSession {
+        let recorded = toasty::create!(AuthSession {
             token_hash: token_key(&session.token_hash),
             user_id: user.id.clone(),
             expires_at: Timestamp::try_from(session.expires_at).map_err(topcoat::Error::from)?,
             created_at: Timestamp::now(),
         })
         .exec(&mut db)
-        .await
-        .map_err(topcoat::Error::from)?;
+        .await;
+        if let Err(error) = recorded {
+            // The credentials were right; the session row could not be
+            // recorded. Same outage page as a failed verification — never the
+            // driver's text (GH #230).
+            let error = infrastructure_failure(error);
+            if error.is::<Unavailable>() {
+                return login_response(cx, Some(LoginError::Unavailable), next).await;
+            }
+            return Err(error);
+        }
         let target = if next.is_empty() {
             panel_root(cx)
         } else {
@@ -649,10 +763,11 @@ pub(crate) fn logout_post(cx: &Cx, body: Body) -> RouteFuture<'_> {
 }
 
 /// The standalone login document: brand and dark mode honored, CSRF hidden
-/// field, one generic error slot, no sidebar (ADR-0013).
+/// field, one error slot carrying a [`LoginError`]'s deliberate copy, no
+/// sidebar (ADR-0013).
 async fn render_login_page<'a>(
     cx: &'a Cx,
-    error: Option<String>,
+    error: Option<LoginError>,
     next: String,
 ) -> topcoat::Result<BoxView<'a>> {
     let csrf = crate::csrf::ensure_token(cx);
@@ -665,8 +780,8 @@ async fn render_login_page<'a>(
             <div
                 class="flex w-full max-w-sm flex-col gap-6 rounded-xl border border-border bg-card p-6 text-card-foreground shadow-sm"
             >
-                if error.is_some() {
-                    (http::StatusCode::FORBIDDEN)
+                if let Some(error) = error {
+                    (error.status())
                 }
                 <div class="flex flex-col items-center gap-2">
                     (brand)
@@ -679,7 +794,7 @@ async fn render_login_page<'a>(
                         argentum_ui::alert(
                             variant: argentum_ui::AlertVariant::Destructive,
                             attrs: topcoat::view::attributes! { role="alert" },
-                            argentum_ui::alert_title((error))
+                            argentum_ui::alert_title((error.message()))
                         )
                     }
                     argentum_ui::field(
@@ -801,5 +916,243 @@ mod tests {
         let key = token_key(&token.hash());
         assert_eq!(key.len(), 64);
         assert!(key.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    /// A `Db` that declares the shipped auth models but never pushed their
+    /// schema: the tables are missing, so the first statement fails at the
+    /// driver — the setup GH #229's write-path tests use.
+    async fn schema_less_db() -> Db {
+        Db::builder()
+            .models(toasty::models!(AdminUser, AuthSession))
+            .connect("sqlite::memory:")
+            .await
+            .expect("connect to in-memory sqlite")
+    }
+
+    /// GH #230: an auth or session operation that fails at the driver is an
+    /// infrastructure failure, so it carries the opaque sign-in copy — never
+    /// the driver's text, and never the login page's credential rejection.
+    #[test]
+    fn infrastructure_failure_maps_driver_errors_to_the_opaque_sign_in_copy() {
+        let err = super::infrastructure_failure(toasty::Error::from_args(format_args!(
+            "secret driver gunk: no such table"
+        )));
+        let rendered = err.to_string();
+        assert!(
+            rendered.contains(UNAVAILABLE_ERROR),
+            "the opaque message must survive, got {rendered}"
+        );
+        assert!(
+            !rendered.contains("gunk"),
+            "driver text must not leak, got {rendered}"
+        );
+        assert!(
+            !rendered.contains(GENERIC_ERROR),
+            "an outage must not read as a rejected password, got {rendered}"
+        );
+    }
+
+    /// GH #230 must not swallow an app-authored error: a custom
+    /// `Authenticator`'s own failure keeps its mapping, the way GH #229 keeps a
+    /// record hook's.
+    #[test]
+    fn infrastructure_failure_keeps_an_app_error_intact() {
+        let guard: topcoat::Error = topcoat::router::error::not_found().into();
+        assert!(
+            super::infrastructure_failure(guard).is::<topcoat::router::error::NotFoundError>(),
+            "an app-authored error must keep its own mapping"
+        );
+    }
+
+    /// A `Cx` for a login POST: the request parts the handler reads (method,
+    /// content type, CSRF cookie) plus the cookie jar, over the shipped
+    /// password authenticator. `token` is both the CSRF cookie and the form
+    /// value the caller submits.
+    fn login_cx(db: Db, token: &str) -> Cx {
+        use topcoat::context::CxTestBuilder;
+        use topcoat::cookie::CookieJarCell;
+
+        let parts = http::Request::builder()
+            .method(http::Method::POST)
+            .uri("/admin/login")
+            .header(
+                http::header::CONTENT_TYPE,
+                "application/x-www-form-urlencoded",
+            )
+            .header(
+                http::header::COOKIE,
+                format!("{}={token}", crate::csrf::COOKIE_NAME),
+            )
+            .body(())
+            .unwrap()
+            .into_parts()
+            .0;
+        CxTestBuilder::new()
+            .app_context(db)
+            .app_context(Auth::password())
+            .request_context(parts)
+            .request_context(CookieJarCell::new())
+            .build()
+    }
+
+    /// Runs the real login handler and renders the status and body a browser
+    /// would be handed.
+    async fn post_login(cx: &Cx, form: String) -> (http::StatusCode, String) {
+        let response = login_post(cx, Body::from(form))
+            .await
+            .expect("a failed sign-in is answered by the login page");
+        let status = response.status();
+        let body = String::from_utf8_lossy(
+            &http_body_util::BodyExt::collect(response.into_body())
+                .await
+                .unwrap()
+                .to_bytes(),
+        )
+        .to_string();
+        (status, body)
+    }
+
+    /// GH #230, login half: a database failure during credential verification
+    /// must not echo the driver's text — the property `db.rs` pins for
+    /// `unavailable`, reached through the real login handler — and must not
+    /// render the login page's credential copy either, or an outage would tell
+    /// the user their password was wrong.
+    ///
+    /// Positive-controlled like GH #229's write-path tests: the same query is
+    /// asserted to carry driver text outside the handler first, so the
+    /// assertions below cannot pass vacuously.
+    #[tokio::test]
+    async fn a_driver_login_failure_does_not_echo_driver_text() {
+        // Schema never pushed: the credential query cannot run, so the failure
+        // is the driver's own.
+        let db = schema_less_db().await;
+
+        // Positive control: the same query outside the handler really does
+        // carry driver text.
+        let mut raw = db.clone();
+        let driver = AdminUser::filter(
+            AdminUser::fields()
+                .email()
+                .eq("ada@example.com".to_string()),
+        )
+        .first()
+        .exec(&mut raw)
+        .await
+        .expect_err("the table is missing")
+        .to_string();
+        drop(raw);
+        assert!(
+            driver.contains("no such table"),
+            "the control must be a driver failure, got {driver:?}"
+        );
+
+        let token = Uuid::new_v4().to_string();
+        let cx = login_cx(db, &token);
+        let (status, rendered) = post_login(
+            &cx,
+            format!("email=ada@example.com&password=opensesame&csrf_token={token}"),
+        )
+        .await;
+
+        assert_eq!(
+            status,
+            http::StatusCode::SERVICE_UNAVAILABLE,
+            "an outage is not a credential rejection"
+        );
+        assert!(
+            rendered.contains(UNAVAILABLE_ERROR),
+            "the opaque outage copy must reach the page, got {rendered:?}"
+        );
+        assert!(
+            !rendered.contains(&driver) && !rendered.contains("no such table"),
+            "driver text must not reach the response: the driver said {driver:?}, the response said {rendered:?}"
+        );
+        assert!(
+            !rendered.contains(GENERIC_ERROR),
+            "an outage must not read as a rejected password, got {rendered:?}"
+        );
+    }
+
+    /// GH #230, the other half: a genuine credential rejection keeps the login
+    /// page's generic 403 — the same setup as the outage test with a working
+    /// store and a wrong password, so the two answers cannot be confused in
+    /// either direction.
+    #[tokio::test]
+    async fn a_rejected_password_still_renders_the_generic_error() {
+        let mut db = schema_less_db().await;
+        db.push_schema().await.expect("push schema");
+        toasty::create!(AdminUser {
+            email: "ada@example.com".to_string(),
+            password_hash: hash_password("opensesame").expect("hash"),
+            display_name: "Ada".to_string(),
+            active: true,
+            tenant_id: None,
+            created_at: Timestamp::now(),
+        })
+        .exec(&mut db)
+        .await
+        .expect("seed admin");
+
+        let token = Uuid::new_v4().to_string();
+        let cx = login_cx(db, &token);
+        let (status, rendered) = post_login(
+            &cx,
+            format!("email=ada@example.com&password=wrong&csrf_token={token}"),
+        )
+        .await;
+
+        assert_eq!(
+            status,
+            http::StatusCode::FORBIDDEN,
+            "a rejection is not an outage"
+        );
+        assert!(
+            rendered.contains(GENERIC_ERROR),
+            "the credential copy must survive, got {rendered:?}"
+        );
+        assert!(
+            !rendered.contains(UNAVAILABLE_ERROR),
+            "a rejected password must not read as an outage, got {rendered:?}"
+        );
+    }
+
+    /// GH #230, session half: the session-row paths map through the same seam,
+    /// so a delete that fails at the driver answers the opaque copy too —
+    /// driver text stays in the log there as well.
+    #[tokio::test]
+    async fn a_driver_session_delete_failure_does_not_echo_driver_text() {
+        use topcoat::context::CxTestBuilder;
+
+        let db = schema_less_db().await;
+
+        // Positive control: the same delete outside the handler really does
+        // carry driver text.
+        let mut raw = db.clone();
+        let driver = AuthSession::filter(AuthSession::fields().user_id().eq("ada".to_string()))
+            .delete()
+            .exec(&mut raw)
+            .await
+            .expect_err("the table is missing")
+            .to_string();
+        drop(raw);
+        assert!(
+            driver.contains("no such table"),
+            "the control must be a driver failure, got {driver:?}"
+        );
+
+        let cx = CxTestBuilder::new().app_context(db).build();
+        let error = revoke_sessions_for_user(&cx, "ada")
+            .await
+            .expect_err("the delete must fail");
+
+        let rendered = error.to_string();
+        assert!(
+            rendered.contains(UNAVAILABLE_ERROR),
+            "the opaque message must survive, got {rendered:?}"
+        );
+        assert!(
+            !rendered.contains(&driver) && !rendered.contains("no such table"),
+            "driver text must not reach the response: the driver said {driver:?}, the response said {rendered:?}"
+        );
     }
 }
