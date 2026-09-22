@@ -13,17 +13,20 @@ use proc_macro2::TokenStream as TokenStream2;
 use quote::quote;
 use syn::{Data, DeriveInput, Fields, Type};
 
-/// Field types this derive treats as a **leaf** without being told.
+/// Field types this derive binds as a **leaf** (one column, read and written as
+/// text).
 ///
-/// Everything else is treated as an embedded value and delegated to that
-/// type's own `EmbeddedForm` impl. The list is deliberately short and explicit:
-/// a newtype over a primitive needs `#[form(leaf)]`, and a type that is not a
-/// leaf but is missing its derive fails at the delegated bound by name.
+/// Everything else is another embedded value, delegated to that type's own
+/// `EmbeddedForm` impl, so a relation, an `Option<T>`, or a `#[document]` fails
+/// at that bound rather than binding quietly. The list is exactly the types the
+/// panel can *spell*: `String`, plus every type with a
+/// [`TypedValue`](argentum_core::TypedValue) impl — the integer family, `bool`,
+/// `f32`/`f64`, `Uuid`, `jiff::Timestamp`. A newtype over one of them is not a
+/// leaf: it needs its own `TypedValue` impl (then it is one) or is treated as an
+/// embedded value.
 const PRIMITIVES: &[&str] = &[
     "String",
-    "str",
     "bool",
-    "char",
     "i8",
     "i16",
     "i32",
@@ -51,6 +54,9 @@ enum Kind {
 }
 
 pub fn expand(input: DeriveInput) -> TokenStream {
+    if let Err(error) = validate_form_attrs(&input) {
+        return error.to_compile_error().into();
+    }
     let krate = match proc_macro_crate::crate_name("argentum-core") {
         Ok(found) => {
             let name = match found {
@@ -171,7 +177,6 @@ fn is_string(ty: &Type) -> bool {
 /// What `#[form(..)]` says about one field.
 #[derive(Default)]
 struct FormAttrs {
-    kind: Option<Kind>,
     label: Option<String>,
     /// Render a `Textarea` instead of a `TextInput` — for a multi-line `String`
     /// leaf, which is a UI choice the type cannot make.
@@ -180,8 +185,56 @@ struct FormAttrs {
     rows: Option<u32>,
 }
 
-/// `#[form(leaf)]` / `#[form(embedded)]` override the type-based guess;
-/// `#[form(label = "Canonical URL")]` overrides the humanized label.
+/// Every `#[form(..)]` attribute on the type, checked once up front.
+///
+/// An unknown key or a misplaced one is a compile error rather than a silent
+/// no-op: a typo'd `#[form(text_area)]` that quietly rendered a one-line input
+/// is the quiet failure this repo refuses elsewhere.
+fn validate_form_attrs(input: &DeriveInput) -> syn::Result<()> {
+    let fields: Vec<&syn::Field> = match &input.data {
+        Data::Struct(data) => data.fields.iter().collect(),
+        Data::Enum(data) => data
+            .variants
+            .iter()
+            .flat_map(|variant| variant.fields.iter())
+            .collect(),
+        Data::Union(_) => return Ok(()),
+    };
+    for field in fields {
+        for attr in &field.attrs {
+            if !attr.path().is_ident("form") {
+                continue;
+            }
+            attr.parse_nested_meta(|meta| {
+                if meta.path.is_ident("label") {
+                    let _: syn::LitStr = meta.value()?.parse()?;
+                } else if meta.path.is_ident("textarea") {
+                    // A flag: nothing to read.
+                } else if meta.path.is_ident("rows") {
+                    let _: syn::LitInt = meta.value()?.parse()?;
+                } else {
+                    return Err(meta.error(
+                        "unknown `#[form(..)]` key: expected `label = \"…\"`, `textarea`, or \
+                         `rows = N`",
+                    ));
+                }
+                Ok(())
+            })?;
+        }
+        let attrs = form_attrs(&field.attrs);
+        if attrs.rows.is_some() && !attrs.textarea {
+            return Err(syn::Error::new_spanned(
+                field,
+                "`#[form(rows = N)]` only means something with `#[form(textarea)]`",
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// `#[form(label = "Canonical URL")]` overrides the humanized label; the rest is
+/// read here. Unknown keys never reach this reader — [`validate_form_attrs`]
+/// rejects them first.
 fn form_attrs(attrs: &[syn::Attribute]) -> FormAttrs {
     let mut out = FormAttrs::default();
     for attr in attrs {
@@ -189,11 +242,7 @@ fn form_attrs(attrs: &[syn::Attribute]) -> FormAttrs {
             continue;
         }
         let _ = attr.parse_nested_meta(|meta| {
-            if meta.path.is_ident("leaf") {
-                out.kind = Some(Kind::Leaf);
-            } else if meta.path.is_ident("embedded") {
-                out.kind = Some(Kind::Embedded);
-            } else if meta.path.is_ident("label") {
+            if meta.path.is_ident("label") {
                 let value = meta.value()?;
                 let text: syn::LitStr = value.parse()?;
                 out.label = Some(text.value());
@@ -210,14 +259,34 @@ fn form_attrs(attrs: &[syn::Attribute]) -> FormAttrs {
     out
 }
 
+/// A field is a leaf when its type is one the panel can spell (see
+/// [`PRIMITIVES`]); everything else is another embedded value.
 fn kind_of(field: &syn::Field) -> Kind {
-    if let Some(kind) = form_attrs(&field.attrs).kind {
-        return kind;
-    }
     if is_primitive(&field.ty) {
         Kind::Leaf
     } else {
         Kind::Embedded
+    }
+}
+
+/// `values` carries a non-empty value for this leaf's column.
+fn leaf_present(krate: &TokenStream2, path: &TokenStream2) -> TokenStream2 {
+    quote! {
+        values
+            .get(&#krate::schema::leaf_key(cx, #path))
+            .is_some_and(|value| !value.trim().is_empty())
+    }
+}
+
+/// The nested value at `path` was mentioned at all.
+///
+/// Asked of the value itself rather than of a key list: inside an enum variant
+/// the path is variant-rooted, and the nested type resolves its own leaves from
+/// it (`leaf_key` follows variant roots; whole-value resolution starts at a
+/// model root).
+fn nested_present(krate: &TokenStream2, ty: &Type, path: &TokenStream2) -> TokenStream2 {
+    quote! {
+        <#ty as #krate::schema::EmbeddedForm>::any_present(cx, #path, values)
     }
 }
 
@@ -275,6 +344,7 @@ fn expand_struct(
     let mut writes = Vec::new();
     let mut reads = Vec::new();
     let mut controls = Vec::new();
+    let mut present_checks = Vec::new();
 
     for (index, field) in fields.named.iter().enumerate() {
         let name = field.ident.as_ref().expect("named field");
@@ -289,6 +359,7 @@ fn expand_struct(
                         ::std::string::ToString::to_string(&self.#name),
                     );
                 });
+                present_checks.push(leaf_present(krate, &path));
                 let path = chained(krate, &parent, &owner, ty, index, None);
                 reads.push(quote! {
                     #name: #krate::schema::parse_leaf(&#krate::schema::leaf_key(cx, #path), values)
@@ -301,6 +372,7 @@ fn expand_struct(
                 writes.push(quote! {
                     #krate::schema::EmbeddedForm::write_form(&self.#name, cx, #path, out);
                 });
+                present_checks.push(nested_present(krate, ty, &path));
                 let path = chained(krate, &parent, &owner, ty, index, None);
                 reads.push(quote! {
                     #name: <#ty as #krate::schema::EmbeddedForm>::read_form(cx, #path, values)
@@ -333,6 +405,17 @@ fn expand_struct(
                 M: #krate::__macro::Model,
             {
                 Self { #(#reads),* }
+            }
+
+            fn any_present<M>(
+                cx: &#krate::__macro::Cx,
+                parent: #krate::__macro::Path<M, Self>,
+                values: &::std::collections::HashMap<String, String>,
+            ) -> bool
+            where
+                M: #krate::__macro::Model,
+            {
+                false #(|| #present_checks)*
             }
         }
 
@@ -373,12 +456,20 @@ fn expand_enum(krate: &TokenStream2, input: &DeriveInput, data: &syn::DataEnum) 
     // column: its control renders once, from the first variant that declares
     // it. The codec still writes and reads each variant's own spelling.
     let mut seen_shared: Vec<String> = Vec::new();
+    // `(variant index, any of its own payloads submitted)` — the pre-#191
+    // variant rule, reimplemented through resolved keys. Only reached when a
+    // submission carries no discriminant at all.
+    let mut inferred: Vec<(usize, TokenStream2)> = Vec::new();
+    // `any_present`: any variant's payload, shared columns included.
+    let mut variant_presence: Vec<TokenStream2> = Vec::new();
 
     for (variant_index, variant) in data.variants.iter().enumerate() {
         let variant_name = &variant.ident;
-        let variant_literal = variant_name.to_string();
+        // The discriminant a variant stores is addressed by declaration index:
+        // that is the handle the schema itself uses, and a Rust ident is not
+        // recoverable from it (Toasty normalises names, so `OK` reads `Ok`).
         let discriminant_value = quote! {
-            spec.value_of(#variant_literal)
+            spec.value_of_index(#variant_index)
                 .expect("the app schema declares every variant this type has")
                 .to_string()
         };
@@ -389,10 +480,17 @@ fn expand_enum(krate: &TokenStream2, input: &DeriveInput, data: &syn::DataEnum) 
                     out.insert(spec.discriminant().to_string(), #discriminant_value);
                 }];
                 let mut reads = Vec::new();
+                // What the *fallback* may read: a variant's own, non-shared
+                // payloads.
+                let mut present_checks = Vec::new();
+                // What `any_present` reports for the whole enum: every payload,
+                // shared ones included.
+                let mut presence_checks = Vec::new();
                 for (index, field) in named.named.iter().enumerate() {
                     let name = field.ident.as_ref().expect("named field");
                     let ty = &field.ty;
                     let parent = quote! { parent.clone() };
+                    let shared = shared_id(&field.attrs);
                     match kind_of(field) {
                         Kind::Leaf => {
                             let path =
@@ -403,6 +501,15 @@ fn expand_enum(krate: &TokenStream2, input: &DeriveInput, data: &syn::DataEnum) 
                                     ::std::string::ToString::to_string(&#name),
                                 );
                             });
+                            // A shared column belongs to several variants, so
+                            // it cannot say *which* one was meant: it never
+                            // drives the fallback.
+                            if shared.is_none() {
+                                present_checks.push(leaf_present(krate, &path));
+                            } else {
+                                // Still part of the value's own presence.
+                                presence_checks.push(leaf_present(krate, &path));
+                            }
                             let path =
                                 chained(krate, &parent, &owner, ty, index, Some(variant_index));
                             reads.push(quote! {
@@ -411,7 +518,6 @@ fn expand_enum(krate: &TokenStream2, input: &DeriveInput, data: &syn::DataEnum) 
                                     values,
                                 )
                             });
-                            let shared = shared_id(&field.attrs);
                             let text = field_label(field, name);
                             let control = leaf_control(krate, &path, &text, ty, field);
                             match shared {
@@ -429,6 +535,11 @@ fn expand_enum(krate: &TokenStream2, input: &DeriveInput, data: &syn::DataEnum) 
                             writes.push(quote! {
                                 #name.write_form(cx, #path, out);
                             });
+                            // A nested value counts as submitted when any of
+                            // its own keys is — its discriminant included — and
+                            // it answers that itself.
+                            present_checks.push(nested_present(krate, ty, &path));
+                            presence_checks.push(nested_present(krate, ty, &path));
                             let path =
                                 chained(krate, &parent, &owner, ty, index, Some(variant_index));
                             reads.push(quote! {
@@ -440,6 +551,12 @@ fn expand_enum(krate: &TokenStream2, input: &DeriveInput, data: &syn::DataEnum) 
                         }
                     }
                 }
+                if !present_checks.is_empty() {
+                    inferred.push((variant_index, quote! { #(#present_checks)||* }));
+                }
+                if !presence_checks.is_empty() {
+                    variant_presence.push(quote! { #(#presence_checks)||* });
+                }
                 let bindings = named.named.iter().map(|f| f.ident.as_ref().unwrap());
                 write_arms.push(quote! {
                     Self::#variant_name { #(#bindings),* } => {
@@ -447,16 +564,18 @@ fn expand_enum(krate: &TokenStream2, input: &DeriveInput, data: &syn::DataEnum) 
                     }
                 });
                 read_arms.push(quote! {
-                    #variant_literal => Self::#variant_name { #(#reads),* },
+                    #variant_index => Self::#variant_name { #(#reads),* },
                 });
             }
             Fields::Unit => {
+                // A unit variant carries no payload, so nothing can infer it:
+                // only its discriminant names it.
                 write_arms.push(quote! {
                     Self::#variant_name => {
                         out.insert(spec.discriminant().to_string(), #discriminant_value);
                     }
                 });
-                read_arms.push(quote! { #variant_literal => Self::#variant_name, });
+                read_arms.push(quote! { #variant_index => Self::#variant_name, });
             }
             Fields::Unnamed(_) => {
                 return unsupported(input, "a struct or enum with named fields");
@@ -464,11 +583,14 @@ fn expand_enum(krate: &TokenStream2, input: &DeriveInput, data: &syn::DataEnum) 
         }
     }
 
-    let first_variant = data
-        .variants
-        .first()
-        .map(|v| v.ident.to_string())
-        .unwrap_or_default();
+    // The fallback chain, in declaration order: the first variant with a
+    // submitted payload of its own, else the first variant. This is what the
+    // panel did before the discriminant existed (GH #191), now driven by the
+    // keys the schema resolves instead of remembered column names.
+    let mut fallback = quote! { 0usize };
+    for (index, check) in inferred.iter().rev() {
+        fallback = quote! { if #check { #index } else { #fallback } };
+    }
 
     let expanded = quote! {
         impl #impl_generics #krate::schema::EmbeddedForm for #ident #ty_generics #where_clause {
@@ -501,24 +623,56 @@ fn expand_enum(krate: &TokenStream2, input: &DeriveInput, data: &syn::DataEnum) 
                     .get(spec.discriminant())
                     .map(|value| value.trim())
                     .unwrap_or_default();
-                // No discriminant → the first variant, exactly as the enum's
-                // own `Default`-less declaration order reads. Payload emptiness
-                // is never consulted (GH #191).
-                let variant = spec.variant_of(submitted).unwrap_or(#first_variant);
+                // A discriminant the submission **names** always wins. Only a
+                // submission that carries none at all falls back to the payload
+                // rule; one that names an unknown variant is refused loudly
+                // rather than silently read as some other variant.
+                let variant: usize = if submitted.is_empty() {
+                    #fallback
+                } else {
+                    spec.index_of(submitted).unwrap_or_else(|| {
+                        panic!(
+                            "submitted discriminant {submitted:?} does not name a variant of {}",
+                            stringify!(#ident),
+                        )
+                    })
+                };
                 match variant {
                     #(#read_arms)*
-                    other => panic!(
-                        "submitted discriminant {other:?} does not name a variant of {}",
+                    other => unreachable!(
+                        "variant index {other} is outside {}: the app schema and this type \
+                         disagree about the variants",
                         stringify!(#ident),
                     ),
                 }
             }
+
+            fn any_present<M>(
+                cx: &#krate::__macro::Cx,
+                parent: #krate::__macro::Path<M, Self>,
+                values: &::std::collections::HashMap<String, String>,
+            ) -> bool
+            where
+                M: #krate::__macro::Model,
+            {
+                let spec = #krate::schema::enum_spec(cx, parent.clone())
+                    .expect("an embedded enum has a discriminant column");
+                // The discriminant is the value's own key: a submission that
+                // names the variant has mentioned the value even with every
+                // payload empty.
+                !values
+                    .get(spec.discriminant())
+                    .map(|value| value.trim())
+                    .unwrap_or_default()
+                    .is_empty()
+                    #(|| #variant_presence)*
+            }
         }
 
         impl #impl_generics #ident #ty_generics #where_clause {
-            /// The form controls for this embedded value (GH #191): the
-            /// hidden discriminant plus one control per payload leaf, under
-            /// this value's parent path.
+            /// The form controls for this embedded value (GH #191): the hidden
+            /// discriminant plus one control per payload leaf, under this
+            /// value's parent path.
             ///
             /// **Every** variant's payload renders, which is what the panel has
             /// always done by hand; choosing one variant in the UI is the

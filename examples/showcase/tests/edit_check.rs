@@ -573,6 +573,75 @@ async fn post_edit_switches_the_publication_variant_explicitly() {
     );
 }
 
+/// GH #191: the **create** form carries no discriminant (there is no stored
+/// variant to hydrate), so a submission that fills a variant's payload creates
+/// that variant — the pre-#191 behaviour, now driven by the keys the app schema
+/// resolves rather than remembered column names.
+///
+/// Without this, every created post was `Scheduled` and the payload the author
+/// typed was silently dropped: the hidden discriminant renders empty on create.
+#[tokio::test]
+async fn post_create_keeps_the_variant_its_payload_names() {
+    use showcase::models::{Post, Publication};
+
+    let db = crate::common::full_db().await;
+    let router = router(db.clone());
+    let client = demo_client(&router).await;
+    let mut db_q = db.clone();
+    let author = showcase::models::Author::all()
+        .first()
+        .exec(&mut db_q)
+        .await
+        .unwrap()
+        .expect("a seeded author");
+
+    // The create page renders the discriminant empty — nothing to hydrate.
+    let html = body_string(client.get("/admin/posts/create").await).await;
+    assert!(
+        html.contains("name=\"publication\""),
+        "the create form must carry the discriminant, got {html}"
+    );
+
+    let csrf = uuid::Uuid::new_v4().to_string();
+    let resp = client
+        .csrf(&csrf)
+        .post_form(
+            "/admin/posts/create",
+            format!(
+                "title=Created+Published&author_id={}&image_path=created.jpg&tags=&body=Body&\
+                 status=published&featured=false&seo_title=S&seo_description=D&\
+                 media=1&media_url=/i.jpg&media_alt=alt&media_video_url=&\
+                 media_poster_url=&media_poster_credit_author=&media_poster_credit_licence=&\
+                 post_stats_word_count=1&post_stats_read_minutes=1&\
+                 publication=&publication_timestamp=2026-03-01T00:00:00Z&\
+                 publication_canonical_url=https%3A%2F%2Fexample.com%2Fnew&csrf_token={csrf}",
+                author.id
+            ),
+        )
+        .await;
+    assert!(
+        resp.status().is_redirection(),
+        "a valid create must redirect, got {}",
+        resp.status()
+    );
+
+    let mut db_check = db.clone();
+    let created = Post::filter(Post::fields().title().eq("Created Published".to_string()))
+        .first()
+        .exec(&mut db_check)
+        .await
+        .unwrap()
+        .expect("the created post");
+    assert_eq!(
+        created.publication,
+        Publication::Published {
+            published_at: "2026-03-01T00:00:00Z".to_string(),
+            canonical_url: "https://example.com/new".to_string(),
+        },
+        "the submitted payload names the variant when no discriminant is posted"
+    );
+}
+
 /// The typed leaves round-trip and refuse a bad number inline (GH #192).
 ///
 /// `post_stats_word_count` / `post_stats_read_minutes` are `i64` columns bound

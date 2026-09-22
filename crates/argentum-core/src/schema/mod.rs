@@ -21,8 +21,8 @@ mod relationship;
 mod tree;
 
 pub use embedded::{
-    EmbeddedForm, EnumSpec, discriminant_input, enum_spec, form_keys, leaf_key, parse_leaf,
-    read_embedded, submitted, write_embedded,
+    EmbeddedForm, EnumSpec, discriminant_input, enum_spec, leaf_key, parse_leaf, read_embedded,
+    submitted, write_embedded,
 };
 pub use fields::{FileUpload, Select, TextInput, Textarea, TypedValue};
 // GH #173: the placeholder leaf stays reachable to the unit tests without
@@ -151,6 +151,9 @@ impl Schema {
     /// nodes keep their order, so a form reads in declaration order either way.
     pub fn extend(mut self, other: Schema) -> Schema {
         self.nodes.extend(other.nodes);
+        // The same guard `Schema::new` runs: a derived form is built by
+        // appending, so this is the only check for the shapes `new` cannot see.
+        self.assert_unique_field_names();
         self
     }
 
@@ -505,5 +508,16 @@ mod tests {
         values.remove("role");
         values.remove("confirm");
         assert!(schema.unknown_keys(&values).is_empty());
+    }
+
+    /// GH #191: a derived form is built by appending, so `extend` carries the
+    /// same duplicate-name guard `Schema::new` does (GH #100).
+    #[test]
+    #[should_panic(expected = "duplicate field name 'name'")]
+    fn extend_keeps_the_duplicate_field_guard() {
+        let input = || TextInput::r#for(DummyUser::fields().name());
+        let _ = Schema::empty()
+            .extend(Schema::new(input()))
+            .extend(Schema::new(input()));
     }
 }
