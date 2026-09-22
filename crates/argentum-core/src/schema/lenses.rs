@@ -224,6 +224,168 @@ impl<'a> FieldResolver<'a> {
             }
         }
     }
+
+    /// Enumerate the bindable surface of the embedded **value** at `path`
+    /// (GH #191).
+    ///
+    /// [`Self::resolve`] answers "which column does this one leaf occupy"; this
+    /// answers "what does this whole value consist of" — every leaf column,
+    /// plus the discriminant for an enum — which is what a value codec and a
+    /// generated form need.
+    ///
+    /// `path` addresses the embedded field itself (`Post::fields().seo()`,
+    /// `Post::fields().publication()`), not one of its leaves: a variant-rooted
+    /// path names a *variant* of a value, not the value, and yields `None`.
+    pub(crate) fn resolve_embedded_value<M, T>(
+        &self,
+        path: FieldLens<M, T>,
+    ) -> Option<EmbeddedValueSpec>
+    where
+        M: toasty::schema::Model,
+    {
+        let schema = self.schema?;
+        let core_path: toasty_core::stmt::Path = path.into();
+        let PathRoot::Model(id) = core_path.root else {
+            return None;
+        };
+        let owner = M::schema();
+        let root = schema.app.get_model(id)?.as_root()?;
+        // The same identity check `walk_embedded` makes: an accessor's
+        // `ModelId` and the schema's can come from different `models!(..)`
+        // expansions, so verify the root by name before trusting any index.
+        if root.name.upper_camel_case() != owner.as_root()?.name.upper_camel_case() {
+            return None;
+        }
+        let mapping = schema.mapping.models.get(&root.id)?;
+        let steps = core_path.projection.as_slice();
+        let app_field = app_field_at(schema, &root.fields, steps)?;
+        let mapping_field = mapping_field_at(&mapping.fields, steps)?;
+        let mut columns = Vec::new();
+        let enum_spec = match (app_embedded(schema, app_field)?, mapping_field) {
+            (toasty::schema::app::Model::EmbeddedStruct(e), MappingField::Struct(ms)) => {
+                collect_columns(schema, &e.fields, &ms.fields, &mut columns)?;
+                None
+            }
+            (toasty::schema::app::Model::EmbeddedEnum(e), MappingField::Enum(me)) => {
+                collect_enum_columns(schema, e, me, &mut columns)?;
+                let discriminant =
+                    column_name(schema, &MappingField::Primitive(me.discriminant.clone()))?;
+                let variants = e
+                    .variants
+                    .iter()
+                    .map(|v| {
+                        Some((
+                            v.name.upper_camel_case(),
+                            discriminant_text(&v.discriminant)?,
+                        ))
+                    })
+                    .collect::<Option<Vec<_>>>()?;
+                Some(EnumSpec {
+                    discriminant,
+                    variants,
+                })
+            }
+            _ => return None,
+        };
+        Some(EmbeddedValueSpec { columns, enum_spec })
+    }
+}
+
+/// The column one mapping field occupies, by name.
+fn column_name(schema: &toasty_core::Schema, field: &MappingField) -> Option<String> {
+    column_of(schema, field).map(|leaf| leaf.name)
+}
+
+/// Collect every leaf column under one embedded level.
+///
+/// A relation inside an embedded value is not bindable and yields `None`: this
+/// walk exists for value binding (GH #191), the same boundary GH #100 draws for
+/// single lenses.
+fn collect_columns(
+    schema: &toasty_core::Schema,
+    app_fields: &[toasty::schema::app::Field],
+    mapping_fields: &[MappingField],
+    out: &mut Vec<String>,
+) -> Option<()> {
+    for (app_field, mapping_field) in app_fields.iter().zip(mapping_fields) {
+        if is_document(app_field) {
+            push_column(schema, mapping_field, out)?;
+            continue;
+        }
+        match &app_field.ty {
+            toasty::schema::app::FieldTy::Primitive(_) => {
+                push_column(schema, mapping_field, out)?;
+            }
+            toasty::schema::app::FieldTy::Embedded(embedded) => {
+                match schema.app.get_model(embedded.target)? {
+                    toasty::schema::app::Model::EmbeddedStruct(e) => {
+                        let MappingField::Struct(ms) = mapping_field else {
+                            return None;
+                        };
+                        collect_columns(schema, &e.fields, &ms.fields, out)?;
+                    }
+                    toasty::schema::app::Model::EmbeddedEnum(e) => {
+                        let MappingField::Enum(me) = mapping_field else {
+                            return None;
+                        };
+                        collect_enum_columns(schema, e, me, out)?;
+                    }
+                    toasty::schema::app::Model::Root(_) => return None,
+                }
+            }
+            _ => return None,
+        }
+    }
+    Some(())
+}
+
+/// Collect every variant's payload columns under one embedded enum.
+fn collect_enum_columns(
+    schema: &toasty_core::Schema,
+    e: &toasty::schema::app::EmbeddedEnum,
+    me: &toasty_core::schema::mapping::FieldEnum,
+    out: &mut Vec<String>,
+) -> Option<()> {
+    for (index, variant) in me.variants.iter().enumerate() {
+        collect_columns(schema, e.variant_fields(index), &variant.fields, out)?;
+    }
+    Some(())
+}
+
+/// Push a column name once: a `#[shared(..)]` column is declared by several
+/// variants and is still one column.
+fn push_column(
+    schema: &toasty_core::Schema,
+    field: &MappingField,
+    out: &mut Vec<String>,
+) -> Option<()> {
+    let name = column_name(schema, field)?;
+    if !out.contains(&name) {
+        out.push(name);
+    }
+    Some(())
+}
+
+/// The text an embedded enum's discriminant stores (GH #191).
+///
+/// Toasty's discriminants are integers or strings, and the form carries that
+/// same text — so what a submission posts is what a row stores. Anything else
+/// is reported rather than guessed.
+fn discriminant_text(value: &toasty_core::stmt::Value) -> Option<String> {
+    use toasty_core::stmt::Value;
+    match value {
+        Value::Bool(v) => Some(v.to_string()),
+        Value::I8(v) => Some(v.to_string()),
+        Value::I16(v) => Some(v.to_string()),
+        Value::I32(v) => Some(v.to_string()),
+        Value::I64(v) => Some(v.to_string()),
+        Value::U8(v) => Some(v.to_string()),
+        Value::U16(v) => Some(v.to_string()),
+        Value::U32(v) => Some(v.to_string()),
+        Value::U64(v) => Some(v.to_string()),
+        Value::String(v) => Some(v.clone()),
+        _ => None,
+    }
 }
 
 /// A `mapping::Field`, aliased so the traversal signatures stay readable.
@@ -304,6 +466,35 @@ fn is_document(field: &toasty::schema::app::Field) -> bool {
         toasty::schema::app::FieldTy::Primitive(p)
             if matches!(p.ty, toasty_core::stmt::Type::Model(_))
     )
+}
+
+/// The bindable surface of one embedded **value** (GH #191): every column its
+/// fields occupy, plus — for an enum — the discriminant column and each
+/// variant's stored value.
+///
+/// [`FieldResolver::resolve`] answers "which column does this one leaf occupy";
+/// this answers "what does this whole value consist of", which is what a value
+/// codec and a generated form need. Both read the same two authorities: the app
+/// schema decides the structure, the compiled mapping names every column.
+#[derive(Debug, Clone)]
+pub(crate) struct EmbeddedValueSpec {
+    /// The columns the value's leaves occupy, in declaration order and
+    /// deduplicated — a `#[shared(..)]` column declared by several variants
+    /// appears once, because it *is* one column.
+    pub(crate) columns: Vec<String>,
+    /// `Some` for an embedded enum: its discriminant column and, per variant,
+    /// the Rust variant name and the text stored in that column.
+    pub(crate) enum_spec: Option<EnumSpec>,
+}
+
+/// An embedded enum's discriminant column and variant values (GH #191).
+#[derive(Debug, Clone)]
+pub(crate) struct EnumSpec {
+    /// The discriminant column (`kind`), the one column that says which
+    /// variant a row carries.
+    pub(crate) discriminant: String,
+    /// `(Rust variant name, stored discriminant text)`, in declaration order.
+    pub(crate) variants: Vec<(String, String)>,
 }
 
 /// The embedded model an app field targets, if it is embedded.

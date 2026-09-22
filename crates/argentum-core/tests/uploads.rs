@@ -112,7 +112,7 @@ impl Resource for DocResource {
         ))
     }
 
-    fn hydrate_form_values(record: &Doc) -> HashMap<String, String> {
+    fn hydrate_form_values(_cx: &Cx, record: &Doc) -> HashMap<String, String> {
         HashMap::from([
             ("title".to_string(), record.title.clone()),
             ("cover".to_string(), record.cover.clone()),

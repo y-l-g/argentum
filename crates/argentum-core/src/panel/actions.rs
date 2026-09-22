@@ -731,7 +731,7 @@ mod tests {
                         |d: &Dummy| d.name.clone(),
                     ))
             }
-            fn hydrate_form_values(_record: &Dummy) -> HashMap<String, String> {
+            fn hydrate_form_values(_cx: &Cx, _record: &Dummy) -> HashMap<String, String> {
                 HashMap::new()
             }
         }
@@ -842,7 +842,7 @@ mod tests {
             ) -> Result<()> {
                 Ok(())
             }
-            fn hydrate_form_values(_record: &Dummy) -> HashMap<String, String> {
+            fn hydrate_form_values(_cx: &Cx, _record: &Dummy) -> HashMap<String, String> {
                 HashMap::new()
             }
         }
@@ -984,7 +984,7 @@ mod tests {
             ) -> Result<()> {
                 Ok(())
             }
-            fn hydrate_form_values(_record: &Dummy) -> HashMap<String, String> {
+            fn hydrate_form_values(_cx: &Cx, _record: &Dummy) -> HashMap<String, String> {
                 HashMap::new()
             }
         }
@@ -1124,7 +1124,7 @@ mod tests {
                     .map_err(topcoat::Error::from)?;
                 Err(std::io::Error::other("boom").into())
             }
-            fn hydrate_form_values(_record: &Dummy) -> HashMap<String, String> {
+            fn hydrate_form_values(_cx: &Cx, _record: &Dummy) -> HashMap<String, String> {
                 HashMap::new()
             }
         }
@@ -1225,7 +1225,7 @@ mod tests {
                         |d: &Dummy| d.name.clone(),
                     ))
             }
-            fn hydrate_form_values(_record: &Dummy) -> HashMap<String, String> {
+            fn hydrate_form_values(_cx: &Cx, _record: &Dummy) -> HashMap<String, String> {
                 HashMap::new()
             }
         }
@@ -1361,7 +1361,7 @@ mod tests {
                     .pk(|c: &Child| c.id.to_string())
                     .columns(column)
             }
-            fn hydrate_form_values(_record: &Child) -> HashMap<String, String> {
+            fn hydrate_form_values(_cx: &Cx, _record: &Child) -> HashMap<String, String> {
                 HashMap::new()
             }
         }
@@ -1505,7 +1505,7 @@ mod tests {
                         |d: &Dummy| d.name.clone(),
                     ))
             }
-            fn hydrate_form_values(_record: &Dummy) -> HashMap<String, String> {
+            fn hydrate_form_values(_cx: &Cx, _record: &Dummy) -> HashMap<String, String> {
                 HashMap::new()
             }
         }
@@ -1619,7 +1619,7 @@ mod tests {
                         |d: &Dummy| d.name.clone(),
                     ))
             }
-            fn hydrate_form_values(_record: &Dummy) -> HashMap<String, String> {
+            fn hydrate_form_values(_cx: &Cx, _record: &Dummy) -> HashMap<String, String> {
                 HashMap::new()
             }
         }
@@ -1694,7 +1694,7 @@ mod tests {
                         |d: &Dummy| d.name.clone(),
                     ))
             }
-            fn hydrate_form_values(_record: &Dummy) -> HashMap<String, String> {
+            fn hydrate_form_values(_cx: &Cx, _record: &Dummy) -> HashMap<String, String> {
                 HashMap::new()
             }
         }
@@ -1772,7 +1772,7 @@ mod tests {
                         |d: &Dummy| d.name.clone(),
                     ))
             }
-            fn hydrate_form_values(_record: &Dummy) -> HashMap<String, String> {
+            fn hydrate_form_values(_cx: &Cx, _record: &Dummy) -> HashMap<String, String> {
                 HashMap::new()
             }
         }
@@ -1945,7 +1945,7 @@ mod tests {
                         |p: &Pair| p.name.clone(),
                     ))
             }
-            fn hydrate_form_values(_record: &Pair) -> HashMap<String, String> {
+            fn hydrate_form_values(_cx: &Cx, _record: &Pair) -> HashMap<String, String> {
                 HashMap::new()
             }
         }

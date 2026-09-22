@@ -124,6 +124,8 @@ One resource maps one Toasty model to its admin UI:
 pub trait Resource: Sized + Send + Sync + 'static {
     type Model: toasty::schema::Model + Send + Sync + 'static;
     fn query(_cx: &Cx) -> Query<List<Self::Model>>; // default: Query::all()
+    fn hydrate_form_values(_cx: &Cx, _record: &Self::Model)
+        -> HashMap<String, String>;                 // default: empty
     fn export_query(_cx: &Cx, _needs: &IncludeNeeds)
         -> Query<List<Self::Model>>;                // default: query(cx), unchanged
     fn table(_cx: &Cx) -> Table<Self::Model>;       // default: Table::new(), empty until columns + id
@@ -180,7 +182,7 @@ struct PostResource;
 - Record fns (`create_record`, `update_record`, `delete_record`, `bulk_delete_records`) do the writes. Handlers load records, check policy, then call them in a transaction. `create_record` and `update_record` return the row they wrote — `toasty::create!` hands the created one back and a Toasty instance update reloads the model, so both are already in hand — because that is the only way the framework can name what a write committed (GH #112).
   Upgrading to this contract: a record fn returns its row (`Ok(rec)` at the end of an instance update is usually the whole change), and a model used by a `Resource` derives `Clone`.
 - `after_commit(cx, committed)` is the post-commit seam (GH #112): called once per committed write, after the transaction and before the response, with a `Committed` naming the mutation (`Mutation::Create/Update/Delete`) and the rows it wrote (a bulk delete is one call with all of them). It is where email, webhooks, audit rows and cache invalidation belong — running them in a record fn leaks the effect on a rollback, and the transaction's pool discipline forbids a second handle while it is open. The default is a no-op, a hook failure is logged without touching the committed write, and it never runs when nothing committed.
-- For edit forms, `hydrate_form_values` maps a record to initial field values.
+- For edit forms, `hydrate_form_values(cx, record)` maps a record to initial field values. `cx` is the request's: a scalar projection needs nothing from it, but an embedded value's keys come from the compiled mapping (GH #191).
 
 Tenancy pattern:
 
@@ -429,6 +431,28 @@ TextColumn::computed("Author", |p: &Post| {
 })
 .needs(["author"])
 ```
+
+Embedded values: derive the codec and declare nothing per field (GH #191, ADR-0019). The derive reads the type's shape, the framework names the columns:
+
+```rust
+#[derive(Debug, Clone, toasty::Embed, argentum_core::EmbeddedForm)]
+pub enum Publication {
+    #[column(variant = 1)]
+    Scheduled { #[shared(timestamp)] scheduled_at: String, scheduled_for: String },
+    #[column(variant = 2)]
+    Published { #[shared(timestamp)] published_at: String, canonical_url: String },
+}
+
+// form declaration: controls, flattened names, and the hidden discriminant
+Section::new("Publication").schema(Publication::form(cx, Post::fields().publication()))
+
+// hydration and the record fn: the typed value, keys resolved from the schema
+write_embedded(cx, Post::fields().publication(), &record.publication, &mut values);
+let publication = read_embedded(cx, Post::fields().publication(), &values);
+if submitted(cx, Post::fields().publication(), &values) { /* the submit mentioned it */ }
+```
+
+An enum's variant is its **discriminant column**, carried by the form: a stale payload never outvotes the variant the submission names, and a submission with no discriminant reads as the first variant. `#[form(label = "…")]`, `#[form(textarea)]` and `#[form(leaf | embedded)]` are the per-field overrides. A `#[document]` inside a value, a relation, and a tuple struct are not covered; every variant's payload renders until the variant-`Select` follow-up lands.
 
 Schema setup: `db.push_schema().await` for prototypes, `toasty-cli` migrations for prod.
 

@@ -71,6 +71,34 @@ fn render_value<'a>(
     .boxed())
 }
 
+/// The control a [hidden](TextInput::hidden) field renders (GH #191): a bare
+/// `<input type="hidden">` in form mode, and **nothing** in view mode.
+///
+/// Nothing is deliberate: a read-only page renders values a reader wants under
+/// the labels the form uses (ADR-0016), and a discriminant is neither — its
+/// stored text is an integer or an opaque variant value. Rendering no control
+/// is also what keeps the read-only promise testable (`readonly_render.rs`
+/// asserts no `<input>` in view mode).
+fn render_hidden<'a>(
+    cx: &'a Cx,
+    name: &str,
+    value: Option<&str>,
+    mode: Mode,
+) -> Result<BoxView<'a>> {
+    if mode == Mode::View {
+        return Ok(().boxed());
+    }
+    let name = name.to_string();
+    let value = value.unwrap_or_default().to_string();
+    // A raw element, not `ui_input`: a hidden control needs no styling, and
+    // `ui_input` would dress it in the visible input's classes.
+    Ok(view! {
+        cx =>
+        <input type="hidden" name=(name.clone()) value=(value)>
+    }
+    .boxed())
+}
+
 /// Placeholder leaf — renders a text block. Used in T3 before typed fields land.
 #[derive(Debug, Clone)]
 pub(crate) struct Text(pub String);
@@ -168,6 +196,11 @@ pub struct TextInput {
     /// How a submission becomes the stored value (GH #192): identity for a
     /// `String` column, the type's own parse-and-`Display` for a typed one.
     parser: ValueParser,
+    /// A transport-only control (GH #191): renders a bare
+    /// `<input type="hidden">` with no label, chrome, or read-only row. It
+    /// carries a value the form must post back — the discriminant of an
+    /// embedded enum — through the ordinary value map.
+    hidden: bool,
 }
 
 impl std::fmt::Debug for TextInput {
@@ -181,6 +214,7 @@ impl std::fmt::Debug for TextInput {
             .field("is_email", &self.is_email)
             .field("unique", &self.unique)
             .field("placeholder", &self.placeholder)
+            .field("hidden", &self.hidden)
             .field("typed", &(std::sync::Arc::strong_count(&self.parser) > 0))
             .finish()
     }
@@ -212,6 +246,7 @@ impl TextInput {
             // inline. Override with `.optional()` for nullable columns.
             required: !field.nullable(),
             is_email: false,
+            hidden: false,
             unique,
             placeholder: None,
             parser: identity_parser(),
@@ -245,6 +280,7 @@ impl TextInput {
             label: leaf.label,
             required: !leaf.nullable,
             is_email: false,
+            hidden: false,
             unique: false,
             placeholder: None,
             parser: identity_parser(),
@@ -294,9 +330,38 @@ impl TextInput {
             label: label_str,
             required: !field.nullable(),
             is_email: false,
+            hidden: false,
             unique: false,
             placeholder: None,
             parser: typed_parser::<T>(),
+        }
+    }
+
+    /// A transport-only control (GH #191): a bare
+    /// `<input type="hidden" name="…" value="…">` that carries a value the
+    /// form must post back without showing it.
+    ///
+    /// The one caller is the discriminant of an embedded enum
+    /// ([`discriminant_input`](crate::schema::discriminant_input)): an edit
+    /// hydrates the stored variant, the browser posts it back, and the value
+    /// codec reads the variant from it rather than inferring one from which
+    /// payload columns happen to be non-empty. It takes a **name**, not a lens,
+    /// because a discriminant column has no generated accessor.
+    ///
+    /// It renders no label, no chrome, no error slot, and no read-only row: it
+    /// is not something a user reads or corrects. Validation never refuses it
+    /// (there is nothing to validate), and it rides the ordinary value map, so
+    /// hydration, re-render, and `field_names()` treat it like any other field.
+    pub fn hidden(name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            label: String::new(),
+            required: false,
+            is_email: false,
+            hidden: true,
+            unique: false,
+            placeholder: None,
+            parser: identity_parser(),
         }
     }
 
@@ -318,6 +383,7 @@ impl TextInput {
             label: leaf.label,
             required: !leaf.nullable,
             is_email: false,
+            hidden: false,
             unique: false,
             placeholder: None,
             parser: typed_parser::<T>(),
@@ -502,6 +568,9 @@ impl TextInput {
         errors: &[String],
         mode: Mode,
     ) -> Result<BoxView<'a>> {
+        if self.hidden {
+            return render_hidden(cx, &self.name, value, mode);
+        }
         if mode == Mode::View {
             return render_value(cx, &self.label, value, ValueKind::Machine);
         }
@@ -582,6 +651,12 @@ impl TextInput {
         value: &Signal<String>,
         errors: &[String],
     ) -> Result<BoxView<'a>> {
+        if self.hidden {
+            // A hidden field is never typed into, so there is nothing to bind:
+            // the live path reads the signal the shard seeded from the same
+            // map and renders the same control.
+            return render_hidden(cx, &self.name, Some(value.read()), Mode::Form);
+        }
         let label_text = self.label.clone();
         let name = self.name.clone();
         // As `render_with`: validation and the marker read one predicate.

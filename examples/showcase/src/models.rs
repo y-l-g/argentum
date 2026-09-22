@@ -47,9 +47,12 @@ pub struct Author {
 ///
 /// Flattens into the parent table as `seo_title` / `seo_description`: the same
 /// row, no join, but two more columns the form binds like any other.
-#[derive(Debug, Clone, toasty::Embed)]
+#[derive(Debug, Clone, toasty::Embed, argentum_core::EmbeddedForm)]
 pub struct Seo {
     pub title: String,
+    /// A multi-line control: the derive renders one `TextInput` per leaf, and
+    /// this is the one leaf the panel wants as a `Textarea` (GH #191).
+    #[form(textarea)]
     pub description: String,
 }
 
@@ -66,11 +69,14 @@ pub struct Seo {
 /// field is a `String` lens: the Schema's text fields accept `Path<M, String>`,
 /// and a typed leaf (a timestamp, an integer) cannot bind as text yet. The
 /// shared column's *coalescing* is what this demonstrates.
-#[derive(Debug, Clone, PartialEq, toasty::Embed)]
+#[derive(Debug, Clone, PartialEq, toasty::Embed, argentum_core::EmbeddedForm)]
 pub enum Publication {
     #[column(variant = 1)]
     Scheduled {
+        /// The shared column's one control renders from the first variant that
+        /// declares it, so its label is written there (GH #191).
         #[shared(timestamp)]
+        #[form(label = "Publication timestamp")]
         scheduled_at: String,
         scheduled_for: String,
     },
@@ -78,12 +84,14 @@ pub enum Publication {
     Published {
         #[shared(timestamp)]
         published_at: String,
+        #[form(label = "Canonical URL")]
         canonical_url: String,
     },
     #[column(variant = 3)]
     Archived {
         #[shared(timestamp)]
         archived_at: String,
+        #[form(label = "Archive reason")]
         reason: String,
     },
 }
@@ -93,27 +101,35 @@ pub enum Publication {
 ///
 /// `Video` carries a `Poster`, which itself embeds a `Credit`, so the column is
 /// `media_poster_credit_author` — three levels deep, one flat column.
-#[derive(Debug, Clone, toasty::Embed)]
+#[derive(Debug, Clone, toasty::Embed, argentum_core::EmbeddedForm)]
 pub struct Credit {
+    #[form(label = "Poster credit")]
     pub author: String,
     pub licence: String,
 }
 
-#[derive(Debug, Clone, toasty::Embed)]
+#[derive(Debug, Clone, toasty::Embed, argentum_core::EmbeddedForm)]
 pub struct Poster {
+    #[form(label = "Poster URL")]
     pub url: String,
     pub credit: Credit,
 }
 
-#[derive(Debug, Clone, toasty::Embed)]
+#[derive(Debug, Clone, toasty::Embed, argentum_core::EmbeddedForm)]
 pub enum Media {
     #[column(variant = 1)]
-    Image { url: String, alt: String },
+    Image {
+        #[form(label = "Image URL")]
+        url: String,
+        #[form(label = "Image alt")]
+        alt: String,
+    },
     #[column(variant = 2)]
     Video {
         // Distinct from `Image::url` on purpose: two variant fields mapping to
         // one column is a schema error unless they declare `#[shared(..)]` —
         // which is the right answer only when they mean the same thing.
+        #[form(label = "Video URL")]
         video_url: String,
         poster: Poster,
     },
@@ -127,9 +143,11 @@ pub enum Media {
 /// mistyped number became a silent zero. Embedding flattens it into
 /// `post_stats_word_count` / `post_stats_read_minutes`, and those are integers
 /// the form binds through `TextInput::typed`.
-#[derive(Debug, Clone, toasty::Embed)]
+#[derive(Debug, Clone, toasty::Embed, argentum_core::EmbeddedForm)]
 pub struct PostStats {
+    #[form(label = "Word count")]
     pub word_count: i64,
+    #[form(label = "Read minutes")]
     pub read_minutes: i64,
 }
 

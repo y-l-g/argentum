@@ -12,6 +12,7 @@
 //! `lens_field_unique`, since Toasty keeps it on the model's index list rather
 //! than the field. Retire the walk when Toasty exposes it (upstream #183).
 
+mod embedded;
 mod fields;
 mod layouts;
 mod lenses;
@@ -19,6 +20,10 @@ mod pk;
 mod relationship;
 mod tree;
 
+pub use embedded::{
+    EmbeddedForm, EnumSpec, discriminant_input, enum_spec, form_keys, leaf_key, parse_leaf,
+    read_embedded, submitted, write_embedded,
+};
 pub use fields::{FileUpload, Select, TextInput, Textarea, TypedValue};
 // GH #173: the placeholder leaf stays reachable to the unit tests without
 // widening the public surface; the render arm (tree.rs) imports it directly.
@@ -136,6 +141,17 @@ impl Schema {
                 values.insert(name, normalized);
             }
         }
+    }
+
+    /// Append another schema's nodes after this one's (GH #191).
+    ///
+    /// [`Schema::new`] composes through `IntoSchema`, whose tuple form stops at
+    /// four nodes; a derived embedded form has one control per leaf column and
+    /// composes nested values, so it builds its schema by appending instead. The
+    /// nodes keep their order, so a form reads in declaration order either way.
+    pub fn extend(mut self, other: Schema) -> Schema {
+        self.nodes.extend(other.nodes);
+        self
     }
 
     /// Render with pre-filled values and inline errors.

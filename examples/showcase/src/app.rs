@@ -4,8 +4,8 @@ use std::path::PathBuf;
 use argentum_core::{
     Brand, DateFilter, FileUpload, Grid, Group, IncludeNeeds, Panel, RelationColumn,
     RelationColumns, Repeater, Resource, Schema, Section, Select, SelectFilter, Table, Tabs,
-    TernaryFilter, TextColumn, TextInput, Textarea, Uploader, VariantFilter, Wizard,
-    render_relation, tenant_id,
+    TernaryFilter, TextColumn, TextInput, Textarea, Uploader, VariantFilter, Wizard, read_embedded,
+    render_relation, submitted, tenant_id, write_embedded,
 };
 use toasty::Db;
 use topcoat::{
@@ -19,7 +19,7 @@ use topcoat::{
 };
 
 use crate::models::{
-    Author, BLOCKED_TENANT, Comment, Credit, Media, Post, PostStats, Poster, Publication, Seo, User,
+    Author, BLOCKED_TENANT, Comment, Media, Post, PostStats, Publication, Seo, User,
 };
 
 /// The theme's sans font, pulled from Fontsource and self-hosted as a Topcoat asset.
@@ -115,7 +115,7 @@ impl Resource for UserResource {
         )
     }
 
-    fn hydrate_form_values(record: &User) -> HashMap<String, String> {
+    fn hydrate_form_values(_cx: &Cx, record: &User) -> HashMap<String, String> {
         let mut map = HashMap::new();
         map.insert("name".to_string(), record.name.clone());
         map.insert("email".to_string(), record.email.clone());
@@ -323,7 +323,7 @@ impl Resource for AuthorResource {
         ))
     }
 
-    fn hydrate_form_values(record: &Author) -> HashMap<String, String> {
+    fn hydrate_form_values(_cx: &Cx, record: &Author) -> HashMap<String, String> {
         let mut m = HashMap::new();
         m.insert("name".to_string(), record.name.clone());
         m.insert("email".to_string(), record.email.clone());
@@ -697,100 +697,25 @@ impl Resource for PostResource {
                 FileUpload::r#for(Post::fields().image_path()),
                 Repeater::new("Tags").schema(TextInput::r#for(Post::fields().tags()).label("Tag")),
             )),
-            // Embedded shapes (GH #185). Each of these binds a *flattened*
-            // column through the app schema, which is why they use
-            // `r#for_context`: the model-only `r#for` cannot see inside an
-            // embedded type and would reject the traversal lens (GH #100).
+            // Embedded **values** (GH #191). One declaration per value: the
+            // controls, their flattened names, and the enum's discriminant all
+            // come from the app schema and the type's own shape — nothing here
+            // spells `seo_title`, and no variant is recovered from which
+            // payload columns happen to be filled in.
             Group::new().schema((
-                Section::new("SEO").schema((
-                    // Embedded struct: seo_title / seo_description.
-                    TextInput::r#for_context(cx, Post::fields().seo().title()),
-                    Textarea::r#for_context(cx, Post::fields().seo().description())
-                        .rows(3)
-                        .optional(),
-                    // Typed leaves (GH #192): `i64` columns, bound through their
-                    // own parse. The form used to leave them unbound and the
-                    // record fn parsed with `unwrap_or(0)`, so a typo became a
-                    // silent zero; now a bad number is refused inline.
-                    TextInput::typed_context(cx, Post::fields().post_stats().word_count())
-                        .label("Word count")
-                        .optional(),
-                    TextInput::typed_context(cx, Post::fields().post_stats().read_minutes())
-                        .label("Read minutes")
-                        .optional(),
-                )),
-                Section::new("Publication").schema((
-                    // Embedded enum with a **shared column** (GH #185): all three
-                    // variants declare a timestamp under the same identifier, so
-                    // they coalesce into one `publication_timestamp` column. The
-                    // form binds that one column through each variant's accessor —
-                    // which is also why these must stay `.optional()`: binding the
-                    // same column twice would trip the duplicate-field check, so
-                    // only one variant's spelling is rendered here and the column
-                    // is written once.
-                    TextInput::r#for_context(
-                        cx,
-                        Post::fields().publication().published().published_at(),
-                    )
-                    .label("Publication timestamp")
-                    .optional(),
-                    TextInput::r#for_context(
-                        cx,
-                        Post::fields().publication().published().canonical_url(),
-                    )
-                    .label("Canonical URL")
-                    .optional(),
-                    TextInput::r#for_context(cx, Post::fields().publication().archived().reason())
-                        .label("Archive reason")
-                        .optional(),
-                )),
-                Section::new("Media").schema(
-                    Group::new().schema((
-                        // Embedded struct nested in a variant: three levels flatten to
-                        // one column (`media_poster_credit_author`).
-                        Group::new().schema((
-                            TextInput::r#for_context(cx, Post::fields().media().image().url())
-                                .label("Image URL")
-                                .optional(),
-                            TextInput::r#for_context(cx, Post::fields().media().image().alt())
-                                .label("Image alt")
-                                .optional(),
-                            TextInput::r#for_context(
-                                cx,
-                                Post::fields().media().video().video_url(),
-                            )
-                            .label("Video URL")
-                            .optional(),
-                        )),
-                        Group::new().schema((
-                            TextInput::r#for_context(
-                                cx,
-                                Post::fields().media().video().poster().url(),
-                            )
-                            .label("Poster URL")
-                            .optional(),
-                            TextInput::r#for_context(
-                                cx,
-                                Post::fields().media().video().poster().credit().author(),
-                            )
-                            .label("Poster credit")
-                            .optional(),
-                        )),
-                    )),
+                Section::new("SEO").schema(
+                    Seo::form(cx, Post::fields().seo())
+                        .extend(PostStats::form(cx, Post::fields().post_stats())),
                 ),
+                Section::new("Publication")
+                    .schema(Publication::form(cx, Post::fields().publication())),
+                Section::new("Media").schema(Media::form(cx, Post::fields().media())),
             )),
         ))
     }
 
-    fn hydrate_form_values(record: &Post) -> HashMap<String, String> {
+    fn hydrate_form_values(cx: &Cx, record: &Post) -> HashMap<String, String> {
         let mut m = HashMap::new();
-        m.insert(
-            "media_video_url".to_string(),
-            match &record.media {
-                Media::Video { video_url, .. } => video_url.clone(),
-                Media::Image { .. } => String::new(),
-            },
-        );
         m.insert("title".to_string(), record.title.clone());
         m.insert("body".to_string(), record.body.clone());
         m.insert("status".to_string(), record.status.clone());
@@ -801,47 +726,22 @@ impl Resource for PostResource {
         m.insert("author_id".to_string(), record.author_id.to_string());
         m.insert("image_path".to_string(), record.image_path.clone());
         m.insert("tags".to_string(), record.tags.clone());
-        // Flattened embedded columns (GH #185). The keys are the storage names
-        // the schema-aware resolver produces, which is what the controls post.
-        m.insert("seo_title".to_string(), record.seo.title.clone());
-        m.insert(
-            "seo_description".to_string(),
-            record.seo.description.clone(),
+        // Embedded values (GH #191): each writes the columns the app schema
+        // resolves for it — the flattened leaves, the enum's discriminant, and
+        // the active variant's payload. No column name is spelled here, and no
+        // "which payload is non-empty" decision is made: the stored variant is
+        // what the form carries back.
+        write_embedded(cx, Post::fields().seo(), &record.seo, &mut m);
+        write_embedded(
+            cx,
+            Post::fields().publication(),
+            &record.publication,
+            &mut m,
         );
-        m.insert(
-            "media_url".to_string(),
-            match &record.media {
-                Media::Image { url, .. } => url.clone(),
-                Media::Video { .. } => String::new(),
-            },
-        );
-        m.insert(
-            "media_poster_url".to_string(),
-            match &record.media {
-                Media::Video { poster, .. } => poster.url.clone(),
-                Media::Image { .. } => String::new(),
-            },
-        );
-        m.insert(
-            "media_poster_credit_author".to_string(),
-            match &record.media {
-                Media::Video { poster, .. } => poster.credit.author.clone(),
-                Media::Image { .. } => String::new(),
-            },
-        );
-        // The typed integers (GH #192) hydrate through the type's `Display`, so
-        // an untouched edit writes back the same spelling it read.
-        m.insert(
-            "post_stats_word_count".to_string(),
-            record.post_stats.word_count.to_string(),
-        );
-        m.insert(
-            "post_stats_read_minutes".to_string(),
-            record.post_stats.read_minutes.to_string(),
-        );
+        write_embedded(cx, Post::fields().media(), &record.media, &mut m);
+        write_embedded(cx, Post::fields().post_stats(), &record.post_stats, &mut m);
         m
     }
-
     fn create_record(
         cx: &Cx,
         values: HashMap<String, String>,
@@ -910,7 +810,13 @@ impl Resource for PostResource {
             );
             let tid =
                 tenant_id(&cx).expect("requires_tenant handlers always set a tenant (GH #87)");
-            let (seo, publication, media, post_stats) = embedded_from_values(&values);
+            // Embedded values (GH #191): the codec reads each one back from the
+            // submission, choosing an enum's variant from the discriminant the
+            // form posted rather than from which payloads are non-empty.
+            let seo = read_embedded(&cx, Post::fields().seo(), &values);
+            let publication = read_embedded(&cx, Post::fields().publication(), &values);
+            let media = read_embedded(&cx, Post::fields().media(), &values);
+            let post_stats = read_embedded(&cx, Post::fields().post_stats(), &values);
             // The created row goes back to the framework (GH #112).
             toasty::create!(Post {
                 tenant_id: tid,
@@ -992,28 +898,27 @@ impl Resource for PostResource {
                 Some(v) if v.trim() == "false" => false,
                 _ => rec.featured,
             };
-            // Embedded shapes (GH #185): an absent key keeps the stored value,
+            // Embedded values (GH #191): an absent value keeps the stored one,
             // exactly like the scalar fields above (GH #89) — the submit may
-            // omit a section the form did not render.
-            let embedded = embedded_from_values(&values);
-            let seo = if values.contains_key("seo_title") || values.contains_key("seo_description")
-            {
-                embedded.0
+            // omit a section the form did not render. "Absent" is decided by
+            // the keys the app schema resolves, not by a name spelled here.
+            let seo = if submitted(&cx, Post::fields().seo(), &values) {
+                read_embedded(&cx, Post::fields().seo(), &values)
             } else {
                 rec.seo.clone()
             };
-            let publication = if values.contains_key("publication_timestamp") {
-                embedded.1
+            let publication = if submitted(&cx, Post::fields().publication(), &values) {
+                read_embedded(&cx, Post::fields().publication(), &values)
             } else {
                 rec.publication.clone()
             };
-            let media = if values.keys().any(|k| k.starts_with("media_")) {
-                embedded.2
+            let media = if submitted(&cx, Post::fields().media(), &values) {
+                read_embedded(&cx, Post::fields().media(), &values)
             } else {
                 rec.media.clone()
             };
-            let post_stats = if values.keys().any(|k| k.starts_with("post_stats")) {
-                embedded.3
+            let post_stats = if submitted(&cx, Post::fields().post_stats(), &values) {
+                read_embedded(&cx, Post::fields().post_stats(), &values)
             } else {
                 rec.post_stats.clone()
             };
@@ -1094,97 +999,6 @@ impl Resource for PostResource {
 /// written for. A resource that wants a read-only queue overrides
 /// [`Resource::deletable`] to `false` instead (GH #96).
 pub struct CommentResource;
-
-/// Read an optional typed value from the flat form map (GH #192).
-///
-/// `None` means "not submitted, or submitted empty" — the form edge's way of
-/// saying "leave this alone" — which is why a typed field that is not required
-/// keeps the record's value instead of being defaulted to a number the user
-/// never typed. A *present* value is guaranteed to parse: the field validated
-/// it, and the panel refuses the submit otherwise. That is the difference this
-/// makes against the old `unwrap_or(0)`, which turned `word_count=twelve` into
-/// a stored zero.
-fn parse_optional<T: std::str::FromStr>(values: &HashMap<String, String>, key: &str) -> Option<T> {
-    let raw = values.get(key)?;
-    let trimmed = raw.trim();
-    if trimmed.is_empty() {
-        return None;
-    }
-    trimmed.parse().ok()
-}
-
-/// Read a trimmed value from the flat form map, or `""` when absent.
-fn field(values: &HashMap<String, String>, key: &str) -> String {
-    values
-        .get(key)
-        .cloned()
-        .unwrap_or_default()
-        .trim()
-        .to_string()
-}
-
-/// The `Post` embedded shapes, built from their flattened form keys (GH #185).
-///
-/// Each embedded leaf arrives under its flattened storage column — the name the
-/// schema-aware resolver produced for the control — so `seo_title` is a normal
-/// map lookup and the enum/document values are assembled here rather than by the
-/// framework. That is the seam this feature makes reachable; a first-class
-/// embedded *value* binding (a nested form model) is still future work.
-fn embedded_from_values(values: &HashMap<String, String>) -> (Seo, Publication, Media, PostStats) {
-    let seo = Seo {
-        title: field(values, "seo_title"),
-        description: field(values, "seo_description"),
-    };
-    // The shared column carries whichever variant's timestamp was submitted;
-    // the payload columns decide the variant. Absent payloads fall back to
-    // `Scheduled`, which is the pre-publication state.
-    let timestamp = field(values, "publication_timestamp");
-    let publication = if !field(values, "publication_canonical_url").is_empty() {
-        Publication::Published {
-            published_at: timestamp,
-            canonical_url: field(values, "publication_canonical_url"),
-        }
-    } else if !field(values, "publication_reason").is_empty() {
-        Publication::Archived {
-            archived_at: timestamp,
-            reason: field(values, "publication_reason"),
-        }
-    } else {
-        Publication::Scheduled {
-            scheduled_at: timestamp,
-            scheduled_for: field(values, "publication_scheduled_for"),
-        }
-    };
-    let media = if !field(values, "media_poster_url").is_empty()
-        || !field(values, "media_poster_credit_author").is_empty()
-    {
-        Media::Video {
-            video_url: field(values, "media_video_url"),
-            poster: Poster {
-                url: field(values, "media_poster_url"),
-                credit: Credit {
-                    author: field(values, "media_poster_credit_author"),
-                    licence: field(values, "media_poster_credit_licence"),
-                },
-            },
-        }
-    } else {
-        Media::Image {
-            url: field(values, "media_url"),
-            alt: field(values, "media_alt"),
-        }
-    };
-    // Typed fields are validated before a record fn sees them (GH #192), so
-    // these parse — and an optional one left empty keeps its stored value
-    // rather than becoming a silent zero. `embedded_from_values` is shared by
-    // create and update, so "absent" has to mean "unchanged" here; the update
-    // path only calls it when a `post_stats` key was submitted at all.
-    let post_stats = PostStats {
-        word_count: parse_optional(values, "post_stats_word_count").unwrap_or(0),
-        read_minutes: parse_optional(values, "post_stats_read_minutes").unwrap_or(0),
-    };
-    (seo, publication, media, post_stats)
-}
 
 /// Re-resolve a comment's parent post through the tenant-scoped
 /// [`PostResource::query`] inside the caller's open transaction (GH #178).
@@ -1321,7 +1135,7 @@ impl Resource for CommentResource {
         ))
     }
 
-    fn hydrate_form_values(record: &Comment) -> HashMap<String, String> {
+    fn hydrate_form_values(_cx: &Cx, record: &Comment) -> HashMap<String, String> {
         let mut m = HashMap::new();
         m.insert("body".to_string(), record.body.clone());
         m.insert("post_id".to_string(), record.post_id.to_string());

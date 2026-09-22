@@ -539,10 +539,19 @@ pub trait Resource: Sized + Send + Sync + 'static {
         async move { Ok(()) }
     }
 
-    /// Hydrate form values from a record for the Edit page.
-    /// Default returns empty; resources should override to return field->value
-    /// mappings (e.g. `name -> user.name`).
-    fn hydrate_form_values(_record: &Self::Model) -> HashMap<String, String> {
+    /// Hydrate form values from a record for the Edit and View pages.
+    ///
+    /// The record's **string projection**: the flat map every field binds, keyed
+    /// by the name the control posts. Default returns empty; a resource
+    /// overrides it to map its record to those keys (`name -> record.name`).
+    ///
+    /// `cx` carries the app schema (GH #191). A scalar projection needs no
+    /// request context, but an embedded **value** does: its keys are the
+    /// columns the compiled mapping resolves
+    /// ([`write_embedded`](crate::schema::write_embedded)), and re-deriving
+    /// those names here is exactly what GH #185 removed. The context is the
+    /// request's, the same one `form(cx)` and the record fns receive.
+    fn hydrate_form_values(_cx: &Cx, _record: &Self::Model) -> HashMap<String, String> {
         HashMap::new()
     }
 }

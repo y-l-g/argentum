@@ -1,11 +1,66 @@
 //! Procedural macros for Argentum.
 
+mod embedded;
+
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{
     DeriveInput, Token,
     parse::{Parse, ParseStream},
 };
+
+/// Derive `EmbeddedForm` for an embedded struct or enum (GH #191).
+///
+/// The generated impl converts the value to and from the panel's flat form map,
+/// and generates a `form(cx, parent)` function returning the value's controls —
+/// both driven by the columns the app schema resolves for the parent path. The
+/// framework supplies the storage names, this derive supplies the Rust shape, so
+/// no flattened name is ever spelled by hand.
+///
+/// ```ignore
+/// #[derive(Debug, Clone, toasty::Embed, argentum_core::EmbeddedForm)]
+/// pub enum Publication {
+///     #[column(variant = 1)]
+///     Scheduled {
+///         #[shared(timestamp)]
+///         scheduled_at: String,
+///         scheduled_for: String,
+///     },
+///     #[column(variant = 2)]
+///     Published {
+///         #[shared(timestamp)]
+///         published_at: String,
+///         canonical_url: String,
+///     },
+/// }
+///
+/// // form declaration — no field bindings written by hand
+/// Section::new("Publication").schema(Publication::form(cx, Post::fields().publication()))
+///
+/// // hydration and the record fn
+/// write_embedded(cx, Post::fields().publication(), &record.publication, &mut values);
+/// let publication = read_embedded(cx, Post::fields().publication(), &values);
+/// ```
+///
+/// # How a field is classified
+///
+/// A field whose type is a Rust primitive (`String`, the integer and float
+/// types, `bool`, `char`, `Uuid`, `jiff::Timestamp`) is a **leaf**: one column,
+/// read and written as text. Any other type is another **embedded value**,
+/// delegated to that type's own `EmbeddedForm` impl, so nesting works by
+/// deriving on each type. `#[form(leaf)]` and `#[form(embedded)]` override the
+/// guess — for a newtype over a primitive, or a type this list misreads.
+///
+/// # Not covered
+///
+/// A `#[document]` field inside an embedded value, a relation, and a tuple or
+/// unit struct do not compile: the first two have no single typed column, and
+/// the third has no field names to bind.
+#[proc_macro_derive(EmbeddedForm, attributes(form))]
+pub fn embedded_form(input: TokenStream) -> TokenStream {
+    let input = syn::parse_macro_input!(input as DeriveInput);
+    embedded::expand(input)
+}
 
 struct ResourceArgs {
     model: syn::Type,
