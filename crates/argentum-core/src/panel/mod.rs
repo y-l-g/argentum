@@ -46,10 +46,13 @@ use self::detail::resource_view;
 use self::forms::{
     MAX_FORM_BYTES, resource_create, resource_create_post, resource_edit, resource_edit_post,
 };
-use self::list::resource_list;
+use self::list::{declared_chrome, resource_list};
 use self::search::{SearchFn, SearchRegistry, search_handler_for};
 use self::shell::ShellAssets;
-use crate::resource::{NavigationItem, Resource};
+use crate::resource::{
+    BULK_DELETE_ROUTE_SEGMENT, CREATE_ROUTE_SEGMENT, DELETE_ROUTE_SEGMENT, EDIT_ROUTE_SEGMENT,
+    NavigationItem, RECORD_ROUTE_PARAM, Resource,
+};
 
 /// The admin application.
 ///
@@ -255,7 +258,7 @@ impl Panel {
             resource_list::<R>,
         ));
         // Create page — GET renders form, POST handles submission.
-        let create_url = format!("{}/create", url);
+        let create_url = format!("{url}/{CREATE_ROUTE_SEGMENT}");
         self.pages.push(PageFn::new(
             http::Method::GET,
             route_path(&create_url),
@@ -272,18 +275,18 @@ impl Panel {
         // 404s a resource that declares no view, which is the same answer as an
         // unknown id and costs one comparison.
         //
-        // `{{id}}` shares its position with the literal `create` segment above:
-        // topcoat routes through `matchit`, which prefers a static segment over
-        // a parameter one, so `/{{slug}}/create` keeps reaching the create page
-        // regardless of registration order.
-        let detail_url = format!("{}/{{id}}", url);
+        // `RECORD_ROUTE_PARAM` shares its position with the literal `create`
+        // segment above: topcoat routes through `matchit`, which prefers a
+        // static segment over a parameter one, so the create page keeps being
+        // reached regardless of registration order.
+        let detail_url = format!("{url}/{RECORD_ROUTE_PARAM}");
         self.pages.push(PageFn::new(
             http::Method::GET,
             route_path(&detail_url),
             resource_view::<R>,
         ));
         // Edit page — GET renders hydrated form, POST handles update.
-        let edit_url = format!("{}/{{id}}/edit", url);
+        let edit_url = format!("{url}/{RECORD_ROUTE_PARAM}/{EDIT_ROUTE_SEGMENT}");
         self.pages.push(PageFn::new(
             http::Method::GET,
             route_path(&edit_url),
@@ -295,14 +298,14 @@ impl Panel {
             resource_edit_post::<R>,
         ));
         // Delete action — POST via row button (requires confirmation).
-        let delete_url = format!("{}/{{id}}/delete", url);
+        let delete_url = format!("{url}/{RECORD_ROUTE_PARAM}/{DELETE_ROUTE_SEGMENT}");
         self.pages.push(PageFn::new(
             http::Method::POST,
             route_path(&delete_url),
             resource_delete::<R>,
         ));
         // Bulk delete — POST with `ids` form field (comma-separated).
-        let bulk_delete_url = format!("{}/bulk-delete", url);
+        let bulk_delete_url = format!("{url}/{BULK_DELETE_ROUTE_SEGMENT}");
         self.pages.push(PageFn::new(
             http::Method::POST,
             route_path(&bulk_delete_url),
@@ -654,13 +657,62 @@ type ResourceCheck = fn(&Cx) -> Result<(), String>;
 ///
 /// The trait ships every method with a default, so a resource that overrides
 /// nothing compiles and only fails when a user reaches a page. The two
-/// essentials that are *declarations* — a renderable grid and a form for the
+/// essentials that are *declarations* — a renderable table and a form for the
 /// create page — are checked here, at build, and reported with the resource's
 /// type name. Runtime essentials (the record fns) keep their existing loud
 /// failure: a default stub answers "not implemented for <type>", never
 /// silently.
+///
+/// A declaration that panics is a boot failure too (GH #207): `Resource::table`
+/// and `Resource::form` run code that panics on a mis-declaration (a duplicate
+/// column name, a traversal lens), and this check's contract is a registration
+/// error the caller can log or exit on. The whole body is caught — not just
+/// those two calls — because `R::Model::schema()` and the policy predicates are
+/// part of the same declaration, and a panic from any of them would otherwise
+/// escape `build`; the check reports "declaring itself" rather than naming a
+/// call it cannot attribute the panic to. The panic's own message is carried
+/// into the error, so the cause survives a harness that installs its own hook.
+///
+/// `AssertUnwindSafe` is sound here because nothing observes the captured state
+/// after an unwind: `cx` is the build-time [`validation_cx`] — an app context
+/// holding the `Db` handle, owned by this call — and the panic fails the whole
+/// `build`, so no request is ever served from it.
 fn check_resource<R: Resource>(cx: &Cx) -> Result<(), String> {
-    if let Some(missing) = R::table(cx).missing_essentials() {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        check_resource_inner::<R>(cx)
+    })) {
+        Ok(result) => result,
+        Err(payload) => Err(format!(
+            "resource `{}` panicked while declaring itself: {}",
+            std::any::type_name::<R>(),
+            panic_message(payload.as_ref())
+        )),
+    }
+}
+
+/// The message out of a caught panic payload (GH #207).
+///
+/// The declaration panics this catches are `assert!`/`panic!("…")` with a
+/// formatted string, so `&str` and `String` cover every one of them; anything
+/// else is reported by shape rather than silently dropped.
+fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
+    if let Some(message) = payload.downcast_ref::<&str>() {
+        (*message).to_string()
+    } else if let Some(message) = payload.downcast_ref::<String>() {
+        message.clone()
+    } else {
+        "a non-string panic payload".to_string()
+    }
+}
+
+/// The body of [`check_resource`], unwound through `catch_unwind` so a
+/// mis-declared resource is a registration error rather than a boot panic.
+fn check_resource_inner<R: Resource>(cx: &Cx) -> Result<(), String> {
+    // Chrome is attached by `wire_table_actions`, not by `R::table(cx)`
+    // (GH #207): the record-key requirement is only knowable from the same
+    // derivation the wiring reads.
+    let chrome = declared_chrome::<R>(cx);
+    if let Some(missing) = R::table(cx).missing_essentials(chrome) {
         return Err(format!(
             "resource `{}` cannot serve its list: {missing}",
             std::any::type_name::<R>()
@@ -1619,5 +1671,199 @@ mod tests {
             .auth(crate::Auth::disabled())
             .build()
             .expect("a composite unique index backs the marker");
+    }
+
+    /// GH #207 part 1: `R::table(cx)` carries no action chrome —
+    /// `wire_table_actions` attaches it — so the record-key requirement is only
+    /// knowable from the same declaration the wiring reads. A resource with
+    /// action chrome and no `.pk(..)` used to pass `build` and then render an
+    /// error state on every list page.
+    #[tokio::test]
+    async fn panel_build_rejects_action_chrome_without_a_record_key() {
+        use crate::resource::{Resource, Table, TextColumn};
+        use crate::schema::{Schema, TextInput};
+
+        #[derive(Debug, toasty::Model, Clone)]
+        struct Subscriber {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            nickname: String,
+        }
+
+        fn keyless_table(cx: &Cx) -> Table<Subscriber> {
+            Table::r#for(cx)
+                .id(|s: &Subscriber| s.id.to_string())
+                .columns(TextColumn::r#for(
+                    Subscriber::fields().nickname(),
+                    |s: &Subscriber| s.nickname.clone(),
+                ))
+        }
+
+        /// Chrome opted into explicitly (GH #226): the default opts out of
+        /// both links, so a resource that wants them names them — and that is
+        /// what makes the record key required.
+        struct ChromeResource;
+        impl Resource for ChromeResource {
+            type Model = Subscriber;
+            fn slug() -> String {
+                "subscribers".to_string()
+            }
+            fn deletable() -> bool {
+                true
+            }
+            fn editable() -> bool {
+                true
+            }
+            fn table(cx: &Cx) -> Table<Subscriber> {
+                keyless_table(cx)
+            }
+        }
+
+        /// Chrome left at the opt-in default, so no record key is needed.
+        struct ChromeOffResource;
+        impl Resource for ChromeOffResource {
+            type Model = Subscriber;
+            fn slug() -> String {
+                "subscribers".to_string()
+            }
+            fn table(cx: &Cx) -> Table<Subscriber> {
+                keyless_table(cx)
+            }
+        }
+
+        /// Delete and edit left at the opt-in default, but the detail page is
+        /// declared (GH #187), so the View link is action chrome all the same.
+        struct ViewedResource;
+        impl Resource for ViewedResource {
+            type Model = Subscriber;
+            fn slug() -> String {
+                "subscribers".to_string()
+            }
+            fn table(cx: &Cx) -> Table<Subscriber> {
+                keyless_table(cx)
+            }
+            fn view(_cx: &Cx) -> Schema {
+                Schema::new(TextInput::r#for(Subscriber::fields().nickname()))
+            }
+        }
+
+        let db = Db::builder()
+            .models(toasty::models!(Subscriber))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        let panel = || {
+            Panel::new("admin")
+                .app_context(db.clone())
+                .auth(crate::Auth::disabled())
+        };
+
+        let Err(error) = panel().resource::<ChromeResource>().build() else {
+            panic!("action chrome without a record key must not build");
+        };
+        assert!(
+            format!("{error}").contains("action chrome needs a record key"),
+            "the error must name the missing record key, got {error}"
+        );
+
+        let Err(error) = panel().resource::<ViewedResource>().build() else {
+            panic!("a View link is action chrome too");
+        };
+        assert!(
+            format!("{error}").contains("action chrome needs a record key"),
+            "the error must name the missing record key, got {error}"
+        );
+
+        panel()
+            .resource::<ChromeOffResource>()
+            .build()
+            .expect("a resource with no action chrome needs no record key");
+    }
+
+    /// GH #207 part 2: `Resource::table` and `Resource::form` run code that
+    /// panics on a mis-declaration, but `build`'s contract is a registration
+    /// error the caller can log or exit on. Both classes below are caught at
+    /// the boundary instead of unwinding out of `build`.
+    #[tokio::test]
+    async fn panel_build_turns_declaration_panics_into_registration_errors() {
+        use crate::resource::{Resource, Table, TextColumn};
+
+        #[derive(Debug, Clone, toasty::Embed)]
+        struct Meta {
+            note: String,
+        }
+
+        #[derive(Debug, toasty::Model, Clone)]
+        struct Doc {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            title: String,
+            meta: Meta,
+        }
+
+        /// Two columns over one field: `Table::columns` asserts on the
+        /// duplicate name (GH #156).
+        struct DuplicateColumnResource;
+        impl Resource for DuplicateColumnResource {
+            type Model = Doc;
+            fn slug() -> String {
+                "docs".to_string()
+            }
+            fn table(cx: &Cx) -> Table<Doc> {
+                Table::r#for(cx).id(|d: &Doc| d.id.to_string()).columns((
+                    TextColumn::r#for(Doc::fields().title(), |d: &Doc| d.title.clone()),
+                    TextColumn::r#for(Doc::fields().title(), |d: &Doc| d.title.clone()),
+                ))
+            }
+        }
+
+        /// An embedded step is not a single-field lens: `lens_field` refuses
+        /// the traversal loudly (GH #100), which without the boundary catch is
+        /// a boot panic.
+        struct TraversalLensResource;
+        impl Resource for TraversalLensResource {
+            type Model = Doc;
+            fn slug() -> String {
+                "docs".to_string()
+            }
+            fn table(cx: &Cx) -> Table<Doc> {
+                Table::r#for(cx)
+                    .id(|d: &Doc| d.id.to_string())
+                    .columns(TextColumn::r#for(Doc::fields().meta().note(), |d: &Doc| {
+                        d.meta.note.clone()
+                    }))
+            }
+        }
+
+        let db = Db::builder()
+            .models(toasty::models!(Doc))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        let panel = || {
+            Panel::new("admin")
+                .app_context(db.clone())
+                .auth(crate::Auth::disabled())
+        };
+
+        let Err(error) = panel().resource::<DuplicateColumnResource>().build() else {
+            panic!("a duplicate column name must not build");
+        };
+        let error = format!("{error}");
+        assert!(
+            error.contains("panicked while declaring") && error.contains("duplicate column name"),
+            "the panic's own message must survive into the registration error, got {error}"
+        );
+
+        let Err(error) = panel().resource::<TraversalLensResource>().build() else {
+            panic!("a traversal lens must not build");
+        };
+        let error = format!("{error}");
+        assert!(
+            error.contains("panicked while declaring") && error.contains("single-field lens"),
+            "the panic's own message must survive into the registration error, got {error}"
+        );
     }
 }

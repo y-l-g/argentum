@@ -1,6 +1,8 @@
 //! [`Table`] HTML rendering: `render`/`render_with_state`/`render_skeleton` plus the chrome.
 //!
-//! Moved verbatim from `resource.rs` (GH #133): no behavior change.
+//! Moved from `resource.rs` (GH #133), and changed since: grouping is
+//! page-local and interleaved (GH #219) and a page encodes the filter
+//! transport once (GH #205).
 
 use argentum_ui::{
     ButtonSize, ButtonVariant, alert_dialog, button, button_variants, dialog_content,
@@ -14,7 +16,10 @@ use topcoat::runtime::Event;
 use topcoat::{Result, view::*};
 
 use super::super::filter::Filter;
-use super::super::state::{TablePage, TableSignals, TableState, encode_path_segment, row_dom_id};
+use super::super::state::{
+    TablePage, TableSignals, TableState, bulk_delete_url, delete_action_url, group_header_dom_id,
+    row_dom_id, row_edit_url, row_view_url,
+};
 use super::Table;
 
 /// Keystroke-quiet delay before a live search input reloads the grid
@@ -165,7 +170,7 @@ impl<M> Table<M> {
         };
         let bulk_bar_view: BoxView<'_> = if with_bulk {
             let prefix = self.delete_prefix.clone().unwrap();
-            let bulk_action = format!("{prefix}/bulk-delete");
+            let bulk_action = bulk_delete_url(&prefix);
             let csrf = crate::csrf::current_token(cx);
             // Stable ids so the dialog's confirm button can submit this form
             // from inside the dialog (GH #184).
@@ -334,7 +339,17 @@ impl<M> Table<M> {
         // display `key` stays on keyed diffs and DOM ids.
         // `record_id` can only be empty on chromeless tables (guarded above),
         // which render no URLs and no bulk column to read it.
-        let row_data: Vec<RowView> = page
+        //
+        // The delete URL's shared parameters are encoded once for the whole
+        // page (GH #205): the filter transport is the expensive half of the
+        // projection, and rebuilding it per row is work a client can inflate
+        // with one oversized `?filters=`.
+        let delete_url_base = delete_prefix.as_ref().map(|_| state.row_url_base(path));
+        // The declared grouping, when `?group_by=` names it (GH #92). Read
+        // before the row loop so each row can carry its group label, which the
+        // page-local shim orders by below (GH #219).
+        let group_key = self.effective_group_key(state);
+        let mut row_data: Vec<RowView> = page
             .rows
             .iter()
             .map(|row| {
@@ -347,13 +362,13 @@ impl<M> Table<M> {
                     .collect();
                 let edit_url = edit_prefix
                     .as_ref()
-                    .map(|prefix| format!("{}/{}/edit", prefix, encode_path_segment(&record_id)));
+                    .map(|prefix| row_edit_url(prefix, &record_id));
                 let view_url = view_prefix
                     .as_ref()
-                    .map(|prefix| format!("{}/{}", prefix, encode_path_segment(&record_id)));
-                let delete_url = delete_prefix
-                    .is_some()
-                    .then(|| state.with_delete_dialog(path, &record_id));
+                    .map(|prefix| row_view_url(prefix, &record_id));
+                let delete_url = delete_url_base
+                    .as_ref()
+                    .map(|base| base.delete_dialog(&record_id));
                 RowView {
                     key,
                     record_id,
@@ -361,9 +376,39 @@ impl<M> Table<M> {
                     view_url,
                     edit_url,
                     delete_url,
+                    group: group_key.as_ref().map(|group| group(row)),
+                    group_header: None,
                 }
             })
             .collect();
+        // Page-local grouping (GH #92/#219) is display-only: `group_by` is a
+        // bare key closure with no lens, so no `ORDER BY` is derivable and a
+        // group cannot span pages. The shim therefore reorders *this page's*
+        // rows by the group label — a stable sort, so rows keep the query's
+        // order inside their group — and hangs each group's header off its
+        // first row, which the table body renders immediately above it. The
+        // query, its cursors and the export keep the declared ordering.
+        if group_key.is_some() {
+            row_data.sort_by(|a, b| a.group.cmp(&b.group));
+            let mut start = 0;
+            while start < row_data.len() {
+                let label = row_data[start].group.clone().unwrap_or_default();
+                let mut end = start;
+                while end < row_data.len() && row_data[end].group.as_deref() == Some(label.as_str())
+                {
+                    end += 1;
+                }
+                // The count is page-local, and says so: a group split across
+                // pages must not read as a table total (GH #92). The header
+                // carries an id derived from its label — never from its
+                // position — so the in-place morph can follow it (GH #104).
+                row_data[start].group_header = Some(GroupHeader {
+                    dom_id: group_header_dom_id(&label),
+                    text: format!("{label} ({} on this page)", end - start),
+                });
+                start = end;
+            }
+        }
         // Row keys must be injective within a page (GH #96): duplicates corrupt
         // keyed diffs and bulk selection (two rows, one checkbox value).
         debug_assert!(
@@ -382,7 +427,6 @@ impl<M> Table<M> {
         // headers and the pager exist solely on rows pages: an empty page
         // renders the honest empty cell instead (its pager would be empty
         // anyway, and grouping an empty page yields no headers).
-        let mut group_views: Vec<BoxView<'_>> = Vec::new();
         let mut pager_views: Vec<BoxView<'_>> = Vec::new();
         let grid: BoxView<'_> = if page.rows.is_empty() {
             let empty_cell = self
@@ -397,34 +441,13 @@ impl<M> Table<M> {
             }
             .boxed()
         } else {
-            // Grouping (in-memory, count summarizer) — only when `?group_by=`
-            // names the declared group; unknown values render nothing (GH #92).
-            // Rendered after skeleton/empty so defer shows skeleton and empty shows
-            // the honest empty state even when `?group_by=` is set (GH #75).
-            // Counts are page-local (GH #92): label them as such so page 1 never
-            // reads as a table total.
-            if let Some(group_fn) = self.effective_group_key(state) {
-                use std::collections::BTreeMap;
-                let mut groups: BTreeMap<String, usize> = BTreeMap::new();
-                for row in &page.rows {
-                    *groups.entry(group_fn(row)).or_insert(0) += 1;
-                }
-                for (key, count) in groups {
-                    let text = format!("{} ({} on this page)", key, count);
-                    group_views.push(
-                        view! {
-                            cx =>
-                            <div class="px-4 py-2 bg-muted text-sm font-medium">
-                                (text)
-                            </div>
-                        }
-                        .boxed(),
-                    );
-                }
-            }
             pager_views = pager;
-            // One grid body for grouped and ungrouped pages: `group_views` is
-            // empty unless `?group_by=` named the declared group.
+            // One table body for grouped and ungrouped pages: each grouped
+            // row carries the header its group's first row owns (GH #219), so
+            // the header lands inside the table immediately above its own
+            // rows instead of a count legend stacked over an ungrouped table.
+            let header_colspan =
+                self.columns.len() + usize::from(with_bulk) + usize::from(with_actions);
             view! {
                 cx =>
                 table(
@@ -438,6 +461,18 @@ impl<M> Table<M> {
                             let edit_for_row = row.edit_url.clone();
                             let open_for_row = row.delete_url.clone();
                             let row_dom_id = row_dom_id(&key_for_row);
+                            if let Some(header) = row.group_header.clone() {
+                                table_row(
+                                    attrs: attributes! { id=(header.dom_id) },
+                                    table_cell(
+                                        attrs: attributes! {
+                                            colspan=(header_colspan)
+                                            class="px-4 py-2 bg-muted text-sm font-medium"
+                                        },
+                                        (header.text)
+                                    )
+                                )
+                            }
                             table_row(
                                 attrs: attributes! { id=(row_dom_id) },
                                 if with_bulk {
@@ -503,8 +538,8 @@ impl<M> Table<M> {
         };
 
         // One chrome wrapper for both branches: search bar, filter bar, bulk
-        // bar, warning, group headers, grid, pager, dialog (GH #133), inside
-        // the `data-boundary` region the morph swaps (GH #160).
+        // bar, warning, table body, pager, dialog (GH #133), inside the
+        // `data-boundary` region the morph swaps (GH #160).
         let inner = view! {
             cx =>
             <div
@@ -520,9 +555,6 @@ impl<M> Table<M> {
                 (bulk_bar_view)
                 if let Some(warning) = filter_warning {
                     (warning)
-                }
-                for gv in group_views {
-                    (gv)
                 }
                 (grid)
                 for p in pager_views {
@@ -573,7 +605,7 @@ impl<M> Table<M> {
         if state.open == Some(false) {
             return Ok(None);
         }
-        let action = format!("{}/{}/delete", prefix, encode_path_segment(key));
+        let action = delete_action_url(prefix, key);
         let csrf = crate::csrf::current_token(cx);
         let cancel_url = state.list_url(path);
         Ok(Some(
@@ -1556,6 +1588,23 @@ struct RowView {
     view_url: Option<String>,
     edit_url: Option<String>,
     delete_url: Option<String>,
+    /// The row's group label, when `?group_by=` named the declared group
+    /// (GH #219). Carried on every row so the page-local shim can order by it.
+    group: Option<String>,
+    /// The header this row renders above itself, `Some` only on the first row
+    /// of its group (GH #219).
+    group_header: Option<GroupHeader>,
+}
+
+/// One page-local group header (GH #219): the label with its page-local count,
+/// and the stable DOM id the injected header row carries so the in-place morph
+/// can follow it (`row_dom_id`'s contract, GH #104).
+#[derive(Clone)]
+struct GroupHeader {
+    /// `"{label} ({n} on this page)"`.
+    text: String,
+    /// [`group_header_dom_id`] of the label.
+    dom_id: String,
 }
 
 #[cfg(test)]
@@ -2429,6 +2478,135 @@ mod tests {
         assert!(
             !html.contains("group_by"),
             "unknown group_by must drop from links, got {html}"
+        );
+    }
+
+    #[tokio::test]
+    async fn group_by_orders_each_row_under_its_own_header() {
+        // GH #219: the page-local shim must actually group. The seed is
+        // deliberately interleaved in query order (draft, published, draft,
+        // published), so a legend-only shim — every header, then an ungrouped
+        // table — cannot satisfy the ordering assertions below.
+        let cx = CxTestBuilder::new().build();
+        let grouped = Table::<Task>::r#for(&cx)
+            .id(|t| t.id.to_string())
+            .columns(TextColumn::r#for(Task::fields().title(), |t| {
+                t.title.clone()
+            }))
+            .group_by("status", |t| t.status.clone());
+        let state = TableState {
+            group_by: Some("status".to_string()),
+            ..TableState::default()
+        };
+        let task = |title: &str, status: &str| Task {
+            id: uuid::Uuid::new_v4(),
+            title: title.to_string(),
+            status: status.to_string(),
+            featured: false,
+            created_at: jiff::Timestamp::now(),
+        };
+        let page = TablePage::from(vec![
+            task("alpha", "draft"),
+            task("bravo", "published"),
+            task("charlie", "draft"),
+            task("delta", "published"),
+        ]);
+        let html = grouped
+            .render_with_state(&cx, page, &state, "/admin/tasks")
+            .await
+            .unwrap()
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
+        let at = |needle: &str| {
+            html.find(needle)
+                .unwrap_or_else(|| panic!("missing {needle:?} in {html}"))
+        };
+        // Rows are ordered by the group key (draft before published) and each
+        // header sits immediately above its own rows — the stable sort keeps
+        // the query's order inside a group.
+        let draft_header = at("draft (2 on this page)");
+        let alpha = at("alpha");
+        let charlie = at("charlie");
+        let published_header = at("published (2 on this page)");
+        let bravo = at("bravo");
+        let delta = at("delta");
+        assert!(
+            draft_header < alpha && alpha < charlie,
+            "both draft rows must sit under the draft header, got {html}"
+        );
+        assert!(
+            charlie < published_header,
+            "the published header must follow the draft group, got {html}"
+        );
+        assert!(
+            published_header < bravo && bravo < delta,
+            "both published rows must sit under the published header, got {html}"
+        );
+        // The injected header carries an id derived from its group label, not
+        // from its position, so the in-place morph can follow it (GH #104):
+        // the same contract the row ids have.
+        for label in ["draft", "published"] {
+            let expected = format!("id=\"{}\"", group_header_dom_id(label));
+            assert!(
+                html.contains(&expected),
+                "the {label} header needs the stable id {expected:?}, got {html}"
+            );
+        }
+    }
+
+    /// GH #205: a table render encodes the filter transport a bounded number of
+    /// times. The counter is per-thread and `#[tokio::test]` drives a
+    /// current-thread runtime, so this measures one render in isolation.
+    #[tokio::test]
+    async fn table_render_encodes_the_filter_transport_once_per_page_not_per_row() {
+        use crate::resource::{filters_param_encodes, reset_filters_param_encodes};
+
+        let cx = CxTestBuilder::new().build();
+        let state = filters_state(&[("status", "published"), ("featured", "true")]);
+        let tbl = Table::<User>::r#for(&cx)
+            .id(|u: &User| u.id.to_string())
+            // Every row renders a delete-dialog link, so the table needs the
+            // record key those URLs carry (GH #168).
+            .pk(|u: &User| u.id.to_string())
+            .with_delete("/admin/users".to_string())
+            .columns(TextColumn::r#for(User::fields().name(), |u: &User| {
+                u.name.clone()
+            }));
+        let rows = |n: usize| -> Vec<User> {
+            (0..n)
+                .map(|i| User {
+                    id: uuid::Uuid::from_u128(i as u128),
+                    name: format!("user-{i}"),
+                })
+                .collect()
+        };
+        let encodes_for = async |page: TablePage<User>| {
+            reset_filters_param_encodes();
+            let html = tbl
+                .render_with_state(&cx, page, &state, "/admin/users")
+                .await
+                .unwrap()
+                .single()
+                .await
+                .unwrap()
+                .render(&cx);
+            assert!(
+                html.contains("status%3Apublished"),
+                "each row's delete link must carry the filter transport, got {html}"
+            );
+            filters_param_encodes()
+        };
+
+        let one_row = encodes_for(TablePage::from(rows(1))).await;
+        let eight_rows = encodes_for(TablePage::from(rows(8))).await;
+        assert!(one_row > 0, "the state's filters must project at all");
+        assert_eq!(
+            one_row, eight_rows,
+            "the filter transport must be encoded a bounded number of times, \
+             independent of row count: one row encoded it {one_row} times, \
+             eight rows {eight_rows}"
         );
     }
 

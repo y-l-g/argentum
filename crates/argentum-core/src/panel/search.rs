@@ -150,14 +150,14 @@ mod shard_body {
             group_by,
             bulk,
         };
-        // One shared bound (GH #148): the GET `?q=` path and the shard clamp
-        // through the same helper, so a term too long for the URL is too long
+        // One shared bound (GH #148, GH #206): `TableState::from_live_args`
+        // applies the same `q` clamp and `filters` bound the GET path applies
+        // (GH #205), so a term or transport too large for the URL is too large
         // here. The cursor travels as one signal (GH #166), so the pair the
         // loader rejects (GH #155) can no longer be written from the browser at
         // all; a token that does not decode still fails loudly (GH #158).
-        let q = crate::resource::clamp_query_term(&signals.q.get());
         let mut state = TableState::from_live_args(
-            &q,
+            &signals.q.get(),
             &signals.filters.get(),
             &signals.sort.get(),
             &signals.dir.get(),

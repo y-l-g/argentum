@@ -23,7 +23,7 @@ use crate::resource::Committed;
 /// Failure-toast wording for the delete handlers (GH #174).
 const WRITE_DELETE: &str = "delete the record";
 const WRITE_BULK_DELETE: &str = "delete the selected rows";
-use crate::resource::{Resource, Table, TableState, clamp_query_term};
+use crate::resource::{OrderMode, Resource, Table, TableState, clamp_query_term};
 use crate::schema::OptionLoadError;
 
 /// Fetch one record by its URL `id` through the tenancy-scoped query seam.
@@ -481,27 +481,24 @@ pub(crate) fn resource_export<R: Resource>(cx: &Cx, _body: Body) -> RouteFuture<
 /// The export's filtered + ordered base query (GH #172): the resource's
 /// [`export_query`](crate::resource::Resource::export_query) — the tenancy seam
 /// (ADR-0002) narrowed to the relations the rendered columns declared
-/// (GH #177) — plus the table's search/filters and the export ordering
-/// (PK-pinned when no sortable column is declared, so the chunked cursor walk
-/// is deterministic).
+/// (GH #177) — with the table's declaration applied through the one shared
+/// routine the list loader uses (GH #210).
+///
+/// The seed query and the ordering mode are the only things the two loaders
+/// differ on: the list loads `Resource::query` with [`OrderMode::List`], the
+/// export loads the narrowed `export_query` with [`OrderMode::Export`] — whose
+/// PK fallback applies whether or not the table paginates, because the chunked
+/// cursor walk needs a deterministic order either way.
 fn export_base_query<R: Resource>(
     cx: &Cx,
     table: &Table<R::Model>,
     state: &TableState,
 ) -> toasty::stmt::Query<toasty::stmt::List<R::Model>> {
-    let mut query = R::export_query(cx, &table.include_needs());
-    if let Some(term) = &state.search
-        && let Some(expr) = table.search_expr(term)
-    {
-        query = query.filter(expr);
-    }
-    if let Some(expr) = table.filter_expr(state) {
-        query = query.filter(expr);
-    }
-    for ord in table.order_bys_for_export(state) {
-        query = query.order_by(ord);
-    }
-    query
+    table.apply_declaration(
+        R::export_query(cx, &table.include_needs()),
+        state,
+        OrderMode::Export,
+    )
 }
 
 /// One cursor-chunked pass over an export base query (GH #172).
@@ -1733,6 +1730,137 @@ mod tests {
         assert!(
             chunker.next_chunk(&mut db).await.unwrap().is_none(),
             "exhausted walk stays exhausted"
+        );
+    }
+
+    #[tokio::test]
+    async fn export_and_list_agree_on_rows_and_order() {
+        // GH #210: both loaders apply the table declaration through one shared
+        // routine, so a search term, a filter and a sort cannot reach the list
+        // and miss the CSV. This drives the same state through both — the list
+        // through `Table::load`, the export through `export_base_query` — and
+        // compares the rows and their order.
+        use crate::resource::{OrderMode, Resource, SelectFilter, Sort, TableState, TextColumn};
+        use std::collections::HashMap;
+
+        #[derive(Debug, Clone, toasty::Model)]
+        struct Task {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            title: String,
+            status: String,
+        }
+        struct TaskResource;
+        impl Resource for TaskResource {
+            type Model = Task;
+            fn slug() -> String {
+                "tasks".to_string()
+            }
+            fn can_view_any(_cx: &Cx) -> bool {
+                true
+            }
+            fn can_view(_cx: &Cx, _record: &Task) -> bool {
+                true
+            }
+            fn table(cx: &Cx) -> crate::resource::Table<Task> {
+                crate::resource::Table::r#for(cx)
+                    .id(|t: &Task| t.id.to_string())
+                    .columns(
+                        TextColumn::r#for(Task::fields().title(), |t: &Task| t.title.clone())
+                            .searchable()
+                            .sortable(),
+                    )
+                    .filters(SelectFilter::r#for(
+                        Task::fields().status(),
+                        vec!["published".to_string(), "draft".to_string()],
+                    ))
+            }
+            fn hydrate_form_values(_cx: &Cx, _record: &Task) -> HashMap<String, String> {
+                HashMap::new()
+            }
+        }
+
+        let mut db = Db::builder()
+            .models(toasty::models!(Task))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        for (title, status) in [
+            ("alpha", "draft"),
+            ("bravo", "published"),
+            ("charlie", "published"),
+            ("delta", "draft"),
+            ("echo", "published"),
+        ] {
+            toasty::create!(Task {
+                title: title.to_string(),
+                status: status.to_string(),
+            })
+            .exec(&mut db)
+            .await
+            .unwrap();
+        }
+        let cx = topcoat::context::CxTestBuilder::new()
+            .app_context(db.clone())
+            .build();
+
+        // All three declaration steps at once: a search term, a filter and a
+        // sort. `?sort=` names the declared sortable column, so both loaders
+        // resolve the same ordering without the PK fallback.
+        let state = TableState {
+            search: Some("a".to_string()),
+            filters: HashMap::from([("status".to_string(), "published".to_string())]),
+            sort: Some(Sort {
+                column: "title".to_string(),
+                descending: true,
+            }),
+            ..TableState::default()
+        };
+
+        let table = TaskResource::table(&cx);
+        let listed: Vec<String> = table
+            .load(&cx, TaskResource::query(&cx), &state)
+            .await
+            .unwrap()
+            .rows
+            .iter()
+            .map(|t| t.title.clone())
+            .collect();
+        assert_eq!(
+            listed,
+            ["charlie".to_string(), "bravo".to_string()],
+            "the seed must exercise search + filter + sort"
+        );
+
+        let mut chunker =
+            ExportChunker::new(export_base_query::<TaskResource>(&cx, &table, &state));
+        let mut exported: Vec<String> = Vec::new();
+        while let Some(rows) = chunker.next_chunk(&mut db).await.unwrap() {
+            exported.extend(rows.iter().map(|t| t.title.clone()));
+        }
+        assert_eq!(
+            listed, exported,
+            "the export must agree with the list on rows and order"
+        );
+
+        // The two modes differ only where they must: an unordered table pins
+        // the export to the PK, while the list keeps the query unordered.
+        let unsorted = crate::resource::Table::<Task>::r#for(&cx)
+            .id(|t: &Task| t.id.to_string())
+            .columns(TextColumn::r#for(Task::fields().title(), |t: &Task| {
+                t.title.clone()
+            }));
+        let neutral = TableState::default();
+        assert!(
+            unsorted.order_bys_for(&neutral, OrderMode::List).is_empty(),
+            "an unpaginated list keeps its query unordered"
+        );
+        assert_eq!(
+            unsorted.order_bys_for(&neutral, OrderMode::Export).len(),
+            1,
+            "the chunked export walk needs a deterministic order"
         );
     }
 

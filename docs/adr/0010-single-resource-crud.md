@@ -45,3 +45,7 @@ Topcoat now flushes pending `Set-Cookie`s on error responses (topcoat#408), so t
 ## Amendment (2026-09-22, boundary/defer demo hooks removed — GH #220)
 
 `Table::boundary`/`is_boundary`/`defer`/`is_defer` are removed. The Decision bullet above describes the table as "a `Boundary` by default (`Table::boundary(true)`, `defer(true)` shows `skeleton` rows)" with "`defer`+`boundary` diff" as the future migration path; in practice `true` was already the default and no demo ever called either setter, so both flags were dead surface. The grid and the skeleton now always render inside the `data-boundary` region — which is what "a `Boundary` by default" amounts to — and the diff path returns with the demo that needs it. `Table::render_skeleton` is unchanged and still the `suspense` fallback.
+
+## Amendment (2026-09-22, GH #210)
+
+`Table::order_bys_for_state` is now `Table::order_bys_for(state, OrderMode)`. The `?sort=` resolution and the declared default are unchanged; the PK fallback — never a "tie-breaker", since the engine appends PK columns to ambiguous cursor orderings internally (GH #76) — is selected by the mode, so the CSV export can pin its chunked cursor walk (GH #172) without the list loader paying for an order it does not need. The same landing extracted `Table::apply_declaration`, the one routine that turns search, filters and ordering into a query for both loaders.

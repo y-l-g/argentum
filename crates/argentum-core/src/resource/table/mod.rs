@@ -1,7 +1,9 @@
-//! The [`Table`] builder plus query planning (`filter_expr`/`search_expr`/`order_bys`).
+//! The [`Table`] builder plus query planning (`filter_expr`/`search_expr`/`order_bys_for`).
 //!
 //! Rendering lives in [`render`](self::render), CSV export in [`export`](self::export).
-//! Moved verbatim from `resource.rs` (GH #133): no behavior change.
+//! Moved from `resource.rs` (GH #133), and changed since: one routine applies
+//! the declaration for both loaders (GH #210) and the essentials check covers
+//! the action chrome the panel wires (GH #207).
 
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -37,6 +39,60 @@ pub type GroupKey<M> = Arc<dyn Fn(&M) -> String + Send + Sync>;
 pub struct GroupDef<M> {
     name: String,
     key: GroupKey<M>,
+}
+
+/// The action chrome a caller attaches to a [`Table`] after
+/// [`Resource::table`](crate::resource::Resource::table) returned (GH #207).
+///
+/// `R::table(cx)` declares columns, filters, grouping and the row keys, but the
+/// row actions are wired later — [`Table`] carries no delete/edit/view prefix
+/// until `panel::wire_table_actions` attaches one. The record-key requirement
+/// depends on that wiring, so the build-time declaration check has to be told
+/// what the wiring will attach; `wire_table_actions` and the check derive it
+/// from the same place, so the two cannot disagree.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct TableChrome {
+    /// Whether the row renders a Delete action (which also enables bulk).
+    pub(crate) delete: bool,
+    /// Whether the row renders an Edit action.
+    pub(crate) edit: bool,
+    /// Whether the row renders a View action.
+    pub(crate) view: bool,
+}
+
+impl TableChrome {
+    /// Whether any row-level action link renders, and so needs a record key.
+    ///
+    /// The bulk-selection column needs it too, but rides the delete prefix (see
+    /// `Table::bulk_enabled`), so it is covered here rather than named again.
+    pub(crate) fn actions(&self) -> bool {
+        self.delete || self.edit || self.view
+    }
+}
+
+/// How [`Table::order_bys_for`] falls back when `?sort=` names no sortable
+/// column (GH #210): the one axis the list loader and the CSV export
+/// legitimately disagree on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OrderMode {
+    /// List loading (GH #96): the PK fallback applies only to a paginated
+    /// table, where toasty's cursor pagination needs a deterministic order.
+    List,
+    /// CSV export (GH #172): the chunked cursor walk needs a deterministic
+    /// order whether or not the table paginates, so the PK fallback applies
+    /// whenever no sortable column is declared — previously whatever order the
+    /// database happened to return.
+    Export,
+}
+
+impl OrderMode {
+    /// Whether the PK fallback applies, given whether the table paginates.
+    fn falls_back_to_pk(self, paginated: bool) -> bool {
+        match self {
+            Self::List => paginated,
+            Self::Export => true,
+        }
+    }
 }
 
 pub struct Table<M> {
@@ -222,6 +278,11 @@ impl<M> Table<M> {
     /// Documented no-op values are exempt (GH #170): `TernaryFilter`'s `all`
     /// selects no predicate by contract, so it is never flagged.
     ///
+    /// An oversized `?filters=` transport arrives here as
+    /// [`FILTERS_OVERFLOW_SEGMENT`](super::state::FILTERS_OVERFLOW_SEGMENT)
+    /// (GH #205), reported with its own reason so the warning says the
+    /// transport was refused rather than misdescribing it as malformed.
+    ///
     /// The list view renders these as a `role=alert` banner and keeps a 200;
     /// the export refuses the request with 400 instead of silently
     /// over-sharing an effectively-unfiltered CSV.
@@ -240,7 +301,12 @@ impl<M> Table<M> {
             }
         }
         for segment in &state.malformed_filters {
-            out.push((segment.clone(), "malformed: expected key:value".to_string()));
+            let reason = if segment == super::state::FILTERS_OVERFLOW_SEGMENT {
+                "too many filters: refused whole (GH #205)"
+            } else {
+                "malformed: expected key:value"
+            };
+            out.push((segment.clone(), reason.to_string()));
         }
         out.sort();
         out
@@ -299,7 +365,7 @@ impl<M> Table<M> {
     /// [`TablePage::from_toasty_page`]); the render then shows Previous/Next
     /// links built from the executed page's cursors — never fake page
     /// numbers. Also implies a deterministic PK ordering when the table
-    /// declares no sortable column (see [`Self::order_bys_for_state`]).
+    /// declares no sortable column (see [`Self::order_bys_for`]).
     ///
     /// A zero page size is a programmer error: it fails loudly at render/load
     /// time with a descriptive error (GH #96), never a bare panic.
@@ -441,7 +507,10 @@ impl<M> Table<M> {
     }
 
     /// First sortable column's order_by. Cursor determinism needs no
-    /// app-level tie-breaker (see [`Self::order_bys`]).
+    /// app-level tie-breaker: toasty's engine appends the physical PK columns
+    /// to ambiguous cursor orderings internally (`normalize_cursor_order`,
+    /// tokio-rs/toasty#1142), so page contents are deterministic on SQL
+    /// backends without Argentum's help (GH #76).
     pub fn order_by(&self, descending: bool) -> Option<OrderByExpr>
     where
         M: toasty::schema::Model,
@@ -449,26 +518,12 @@ impl<M> Table<M> {
         self.columns.iter().find_map(|c| c.to_order_by(descending))
     }
 
-    /// Ordered list for the query: the first sortable column's order.
-    /// Returns empty if no sortable column is declared.
-    ///
-    /// No app-level PK tie-breaker is appended: toasty's engine appends the
-    /// physical PK columns to ambiguous cursor orderings internally
-    /// (`normalize_cursor_order`, tokio-rs/toasty#1142), so page contents are
-    /// deterministic on SQL backends without Argentum's help (GH #76).
-    pub fn order_bys(&self) -> Vec<OrderByExpr>
-    where
-        M: toasty::schema::Model,
-    {
-        self.order_by(false).into_iter().collect()
-    }
-
     /// Order-bys over the model's primary key (asc, in declared order) —
     /// built through the public facade (`Model::path_field` + `Path::asc`),
     /// no `toasty_core` needed.
     ///
-    /// Used only when a paginated table declares no sortable column at all:
-    /// toasty's planner requires an `ORDER BY` for cursor pagination and its
+    /// Used only when a table declares no sortable column at all: toasty's
+    /// planner requires an `ORDER BY` for cursor pagination and its
     /// normalization only extends a non-empty ordering, so the PK order must
     /// be declared app-side in that one case.
     ///
@@ -498,21 +553,22 @@ impl<M> Table<M> {
             .collect()
     }
 
-    /// Resolve the full query ordering for a request.
+    /// Resolve the full query ordering for a request (GH #210).
     ///
-    /// Single source of truth for loaders and render:
+    /// Single source of truth for loaders, render and the export:
     /// 1. `?sort=<column>&dir=asc|desc` when `<column>` names a declared
     ///    sortable column — that column's direction (toasty appends the PK
-    ///    tie-breakers internally, see [`Self::order_bys`]);
+    ///    tie-breakers internally, see [`Self::order_by`]);
     /// 2. otherwise the declared default (first sortable column asc);
-    /// 3. otherwise, when the table is paginated, the PK alone — cursor
-    ///    pagination requires a deterministic order even with no sortable
-    ///    column, and toasty only *extends* an existing non-empty ordering.
+    /// 3. otherwise, when `mode` asks for it, the PK alone — cursor pagination
+    ///    requires a deterministic order even with no sortable column, and
+    ///    toasty only *extends* an existing non-empty ordering.
     ///
     /// Loaders that also need the search term parse the state once with
-    /// [`TableState::from_cx`] and pass it here (see
-    /// `crate::panel::Panel`'s generic resource list handler).
-    pub fn order_bys_for_state(&self, state: &TableState) -> Vec<OrderByExpr>
+    /// [`TableState::from_cx`] and apply the declaration through
+    /// [`Self::apply_declaration`] (see `crate::panel::Panel`'s generic
+    /// resource list handler).
+    pub fn order_bys_for(&self, state: &TableState, mode: OrderMode) -> Vec<OrderByExpr>
     where
         M: toasty::schema::Model,
     {
@@ -525,32 +581,47 @@ impl<M> Table<M> {
         {
             return vec![ord];
         }
-        let out = self.order_bys();
-        if out.is_empty() && self.page_size.is_some() {
+        let out: Vec<OrderByExpr> = self.order_by(false).into_iter().collect();
+        if out.is_empty() && mode.falls_back_to_pk(self.page_size.is_some()) {
             return Self::pk_order_bys();
         }
         out
     }
 
-    /// Resolve the query ordering for the CSV export (GH #172).
+    /// Apply this table's declaration to `query` — the one routine that turns
+    /// the search term, the filters and the ordering into a query (GH #210).
     ///
-    /// Same as [`Self::order_bys_for_state`], except the PK fallback applies
-    /// whenever no sortable column is declared — not only for paginated
-    /// tables. The export walks the filtered query in cursor chunks, and
-    /// cursor pagination requires a deterministic order even when the table
-    /// never paginates. For an unordered table this pins the export to PK
-    /// order (previously whatever the database returned); a non-root model
-    /// still resolves to empty and the engine reports its descriptive
-    /// "requires an ORDER BY" error at export time.
-    pub(crate) fn order_bys_for_export(&self, state: &TableState) -> Vec<OrderByExpr>
+    /// `query` is the caller's seed, which is the one thing the two loaders
+    /// legitimately differ on: the list loads
+    /// [`Resource::query`](crate::resource::Resource::query) (the tenancy
+    /// seam, ADR-0002) while the export loads
+    /// [`Resource::export_query`](crate::resource::Resource::export_query),
+    /// narrowed to the relations the rendered columns declared (GH #177).
+    /// `mode` picks the ordering fallback each caller needs.
+    ///
+    /// Everything else is shared, so a new search or filter dimension cannot
+    /// reach the list and miss the CSV — the drift class GH #172 fixed.
+    pub(crate) fn apply_declaration(
+        &self,
+        mut query: toasty::stmt::Query<List<M>>,
+        state: &TableState,
+        mode: OrderMode,
+    ) -> toasty::stmt::Query<List<M>>
     where
         M: toasty::schema::Model,
     {
-        let out = self.order_bys_for_state(state);
-        if out.is_empty() {
-            return Self::pk_order_bys();
+        if let Some(term) = &state.search
+            && let Some(expr) = self.search_expr(term)
+        {
+            query = query.filter(expr);
         }
-        out
+        if let Some(expr) = self.filter_expr(state) {
+            query = query.filter(expr);
+        }
+        for ord in self.order_bys_for(state, mode) {
+            query = query.order_by(ord);
+        }
+        query
     }
 
     /// Resolve and execute this table's query for `state` — search, filters,
@@ -564,7 +635,7 @@ impl<M> Table<M> {
     pub async fn load(
         &self,
         cx: &Cx,
-        mut query: toasty::stmt::Query<List<M>>,
+        query: toasty::stmt::Query<List<M>>,
         state: &TableState,
     ) -> Result<TablePage<M>>
     where
@@ -576,17 +647,10 @@ impl<M> Table<M> {
             )
             .into());
         }
-        if let Some(term) = &state.search
-            && let Some(expr) = self.search_expr(term)
-        {
-            query = query.filter(expr);
-        }
-        if let Some(expr) = self.filter_expr(state) {
-            query = query.filter(expr);
-        }
-        for ord in self.order_bys_for_state(state) {
-            query = query.order_by(ord);
-        }
+        // The declaration becomes predicates and an ordering through the one
+        // shared routine (GH #210) — the export loader applies the same one to
+        // its own seed query.
+        let query = self.apply_declaration(query, state, OrderMode::List);
         let mut db = crate::db::db(cx);
         match self.page_size {
             Some(per_page) => {
@@ -675,11 +739,16 @@ impl<M> Table<M> {
 
     /// The first declaration this table is missing, if any (GH #138).
     ///
-    /// The same three checks [`Self::render`](Self::render_with_state) enforces
-    /// per request, lifted so [`Panel::build`](crate::panel::Panel::build) can
+    /// The same checks [`Self::render`](Self::render_with_state) enforces per
+    /// request, lifted so [`Panel::build`](crate::panel::Panel::build) can
     /// refuse to serve a resource whose grid could never render — the
     /// declaration is knowable at boot, so a request is too late to report it.
-    pub(crate) fn missing_essentials(&self) -> Option<String> {
+    ///
+    /// `chrome` is the action chrome the caller will attach (GH #207): the
+    /// declared table carries no delete/edit/view prefix, so the record-key
+    /// requirement is only knowable once the wiring is known. The render
+    /// enforces the same predicate on the wired table.
+    pub(crate) fn missing_essentials(&self, chrome: TableChrome) -> Option<String> {
         if self.page_size == Some(0) {
             return Some("paginate requires per_page > 0".to_string());
         }
@@ -690,6 +759,12 @@ impl<M> Table<M> {
         }
         if self.row_key.is_none() {
             return Some("no row key declared — declare one via Table::id(|row| ..)".to_string());
+        }
+        if chrome.actions() && self.record_key.is_none() {
+            return Some(
+                "action chrome needs a record key — declare one via Table::pk(|row| ..)"
+                    .to_string(),
+            );
         }
         None
     }
@@ -926,7 +1001,7 @@ mod tests {
         let cx = CxTestBuilder::new().build();
         let users_table = Table::<User>::r#for(&cx)
             .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()).sortable());
-        let orders = users_table.order_bys();
+        let orders = users_table.order_bys_for(&TableState::default(), OrderMode::List);
         // Single sortable column, no app-level PK suffix — toasty's engine
         // appends the physical PK columns to ambiguous cursor orderings
         // internally (GH #76).
@@ -935,13 +1010,15 @@ mod tests {
         let table_none = Table::<User>::r#for(&cx)
             .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()));
         assert!(
-            table_none.order_bys().is_empty(),
+            table_none
+                .order_bys_for(&TableState::default(), OrderMode::List)
+                .is_empty(),
             "non-sortable should have no order_bys"
         );
     }
 
     #[test]
-    fn order_bys_for_state_resolves_sort_param_with_fallbacks() {
+    fn order_bys_for_resolves_sort_param_with_fallbacks() {
         let cx = CxTestBuilder::new().build();
         let sorted = Table::<User>::r#for(&cx)
             .paginate(25)
@@ -955,7 +1032,7 @@ mod tests {
             }),
             ..TableState::default()
         };
-        let orders = sorted.order_bys_for_state(&state);
+        let orders = sorted.order_bys_for(&state, OrderMode::List);
         assert_eq!(orders.len(), 1, "sort column only, got {orders:?}");
 
         // Unknown sort column → declared default (name asc)
@@ -966,16 +1043,21 @@ mod tests {
             }),
             ..TableState::default()
         };
-        assert_eq!(sorted.order_bys_for_state(&state).len(), 1);
+        assert_eq!(sorted.order_bys_for(&state, OrderMode::List).len(), 1);
 
         // No sort at all → declared default
-        assert_eq!(sorted.order_bys_for_state(&TableState::default()).len(), 1);
+        assert_eq!(
+            sorted
+                .order_bys_for(&TableState::default(), OrderMode::List)
+                .len(),
+            1
+        );
 
         // Paginated table with no sortable column → PK-only deterministic order
         let unsorted = Table::<User>::r#for(&cx)
             .paginate(25)
             .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()));
-        let orders = unsorted.order_bys_for_state(&TableState::default());
+        let orders = unsorted.order_bys_for(&TableState::default(), OrderMode::List);
         assert_eq!(
             orders.len(),
             1,
@@ -985,7 +1067,22 @@ mod tests {
         // Unpaginated and unsorted → empty (query stays unordered)
         let plain = Table::<User>::r#for(&cx)
             .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()));
-        assert!(plain.order_bys_for_state(&TableState::default()).is_empty());
+        assert!(
+            plain
+                .order_bys_for(&TableState::default(), OrderMode::List)
+                .is_empty()
+        );
+
+        // The export mode pins an unordered table to PK order (GH #172):
+        // the chunked cursor walk needs a deterministic order whether or not
+        // the table paginates.
+        assert_eq!(
+            plain
+                .order_bys_for(&TableState::default(), OrderMode::Export)
+                .len(),
+            1,
+            "export mode must fall back to the PK for an unordered table"
+        );
     }
 
     #[tokio::test]
@@ -1008,7 +1105,7 @@ mod tests {
 
         // Page 1 of 1-per-page: full page → real next cursor.
         let page1 = users_table
-            .order_bys()
+            .order_bys_for(&TableState::default(), OrderMode::List)
             .iter()
             .fold(User::all(), |q, ord| q.order_by(ord.clone()))
             .paginate(1)
@@ -1091,6 +1188,29 @@ mod tests {
         assert_eq!(
             tbl.unapplied_filters(&filters_state(&[("status", "Published")])),
             vec![("status:Published".to_string(), "invalid value".to_string())]
+        );
+    }
+
+    #[test]
+    fn unapplied_filters_flags_a_refused_filters_transport() {
+        // GH #205: an oversized `?filters=` is refused whole rather than
+        // partially applied, and it reads as its own reason — not as a
+        // malformed segment — so the list banner explains itself and the
+        // export's 400 is the fail-closed guard instead of a silent drop.
+        let cx = CxTestBuilder::new().build();
+        let tbl = status_table(&cx);
+        let huge = format!("status:published,{}", "k:v,".repeat(2 * 1024 * 1024));
+        let state = TableState::from_live_args("", &huge, "", "", "");
+        assert!(
+            state.filters.is_empty() && tbl.filter_expr(&state).is_none(),
+            "the refused transport must apply no predicate"
+        );
+        assert_eq!(
+            tbl.unapplied_filters(&state),
+            vec![(
+                "filters=overflow".to_string(),
+                "too many filters: refused whole (GH #205)".to_string()
+            )]
         );
     }
 

@@ -15,7 +15,9 @@ use topcoat::{
 };
 
 use super::{enforce_auth, enforce_tenant, list_url};
-use crate::resource::{Resource, Table, TablePage, TableSignals, TableState};
+use crate::resource::{
+    Resource, Table, TableChrome, TablePage, TableSignals, TableState, create_page_url,
+};
 
 /// Retry link for a failed streamed grid load (GH #110).
 ///
@@ -36,6 +38,21 @@ pub(crate) fn retry_url_for_error(
         state.without_cursor(path)
     } else {
         state.list_url(path)
+    }
+}
+
+/// The action chrome a resource declares (GH #207): the one derivation both
+/// [`wire_table_actions`] and the build-time declaration check
+/// ([`check_resource`](super::check_resource)) read, so the table the panel
+/// serves and the table it validated cannot disagree about whether a record
+/// key is required.
+pub(crate) fn declared_chrome<R: Resource>(cx: &Cx) -> TableChrome {
+    TableChrome {
+        delete: R::deletable(),
+        edit: R::editable(),
+        // GH #187: the View link follows the declaration, not a flag — a
+        // resource with no `view` schema has no page to link to.
+        view: R::viewed(cx),
     }
 }
 
@@ -62,17 +79,16 @@ pub(crate) fn wire_table_actions<R: Resource>(cx: &Cx, live: bool) -> Table<R::M
     if live {
         table = table.search(false).filter_bar(false);
     }
-    if R::deletable() {
+    let chrome = declared_chrome::<R>(cx);
+    if chrome.delete {
         table = table
             .with_delete(list_url(cx, &R::slug()))
             .with_bulk_delete(true);
     }
-    if R::editable() {
+    if chrome.edit {
         table = table.with_edit(list_url(cx, &R::slug()));
     }
-    // GH #187: the View link follows the declaration, not a flag — a resource
-    // with no `view` schema has no page to link to.
-    if R::viewed(cx) {
+    if chrome.view {
         table = table.with_view(list_url(cx, &R::slug()));
     }
     table
@@ -177,7 +193,7 @@ pub(crate) fn resource_list<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
         // Create entry point (GH #162, Filament's List page `CreateAction` in
         // the page header): a real link so no-JS keeps working. Gated on
         // `can_create`; the POST handler enforces it again.
-        let create_url = R::can_create(cx).then(|| format!("{}/create", list_path));
+        let create_url = R::can_create(cx).then(|| create_page_url(&list_path));
         let create_label = format!("Create {}", R::navigation_label());
         if table.is_live_search() {
             return Ok(resource_list_live::<R>(cx, table, state, title, list_path));
@@ -316,7 +332,7 @@ pub(crate) fn resource_list_live<R: Resource>(
         let delete_dialog = table.render_delete_dialog(cx, &state, &list_path).await?;
         // Create entry point (GH #162): same header button as the streamed
         // list — a real link above the swapped region, gated on `can_create`.
-        let create_url = R::can_create(cx).then(|| format!("{}/create", list_path));
+        let create_url = R::can_create(cx).then(|| create_page_url(&list_path));
         let create_label = format!("Create {}", R::navigation_label());
         // Normalize once for the closure (GH #153): the retry link must not
         // echo an unknown `?group_by=`. The invocation normalizes internally.

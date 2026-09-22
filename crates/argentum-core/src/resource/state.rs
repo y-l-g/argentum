@@ -1,6 +1,8 @@
 //! Cursor/URL state: [`TablePage`], [`Sort`], [`TableState`], and the URL codec.
 //!
-//! Moved verbatim from `resource.rs` (GH #133): no behavior change.
+//! Moved from `resource.rs` (GH #133), and changed since: both entry points
+//! share one parse contract (GH #206) and the `filters` transport is bounded
+//! where it is parsed (GH #205).
 
 use std::collections::HashMap;
 
@@ -174,7 +176,7 @@ pub struct Sort {
 /// Request-scoped table state, parsed from the current URL query.
 ///
 /// The single parse point shared by loaders (the search term, ordering via
-/// [`Table::order_bys_for_state`]) and render (active sort, toolbar values,
+/// [`Table::order_bys_for`]) and render (active sort, toolbar values,
 /// pagination links), so the URL is the one truth for list state. The fixed parameter
 /// names assume one table per page — per-table prefixes are deferred until a
 /// real page needs two tables.
@@ -189,7 +191,9 @@ pub struct TableState {
     pub after: Option<String>,
     /// `?before=` — encoded backward cursor.
     pub before: Option<String>,
-    /// `?filters=` — `key:value,key2:value2` (comma-separated, colon-delimited).
+    /// `?filters=` — `key:value,key2:value2` (comma-separated, colon-delimited),
+    /// bounded at parse time by [`MAX_FILTERS_PARAM`]/[`MAX_FILTER_SEGMENTS`]
+    /// (GH #205).
     pub filters: HashMap<String, String>,
     /// `?filters=` segments that carry no `key:value` pair (GH #148): kept so
     /// [`Table::unapplied_filters`] can flag them (list banner, export 400)
@@ -210,7 +214,9 @@ pub struct TableState {
 }
 
 /// Longest search term accepted (`?q=` and the shard's `q`, GH #148): bounded
-/// echoed state, matching the live-search shard's clamp.
+/// echoed state. Applied by [`TableState::from_parts`], so the GET path, the
+/// shard, and the public [`TableState::from_live_args`] all clamp alike
+/// (GH #206).
 pub(crate) const MAX_QUERY_TERM: usize = 128;
 
 /// Clamp a search term to [`MAX_QUERY_TERM`] chars (chars, not bytes, so a
@@ -219,18 +225,27 @@ pub(crate) fn clamp_query_term(term: &str) -> String {
     term.trim().chars().take(MAX_QUERY_TERM).collect()
 }
 
-/// Parse source for [`TableState::from_parts`]: the GET query string and the
-/// live-search shard disagree on two fields by history, and the shared
-/// constructor preserves each contract instead of unifying them (GH #133
-/// is move-only — unifying would be a query behavior change).
-#[derive(Clone, Copy)]
-enum StateSource {
-    /// `?q=` trims and clamps to [`MAX_QUERY_TERM`]; `?dir=` compares
-    /// untrimmed.
-    Url,
-    /// `q` trims without clamping; `dir` trims before comparing.
-    Live,
-}
+/// Longest `?filters=` transport parsed (GH #205): the live shard hands this
+/// the client-owned `filters` signal, and the router buffers shard bodies up
+/// to megabytes — so the same bounded-echoed-state posture as
+/// [`MAX_QUERY_TERM`] has to hold here, where the transport is parsed, rather
+/// than at the shard that happens to read it.
+pub(crate) const MAX_FILTERS_PARAM: usize = 1024;
+
+/// Most segments one `?filters=` transport may carry (GH #205): the byte cap
+/// alone still admits a thousand one-character segments, and each surviving
+/// segment becomes a map entry every rebuilt URL echoes.
+pub(crate) const MAX_FILTER_SEGMENTS: usize = 32;
+
+/// The one segment an over-long or over-full `?filters=` collapses to
+/// (GH #205).
+///
+/// It carries no `key:value` pair, so it rides the GH #148 malformed channel:
+/// [`Table::unapplied_filters`](crate::resource::Table::unapplied_filters)
+/// flags it (the list warns, the export refuses with 400 instead of exporting
+/// an over-broad CSV) and [`TableState::filters_param`] re-emits it, so the
+/// warning survives pagination and sort links.
+pub(crate) const FILTERS_OVERFLOW_SEGMENT: &str = "filters=overflow";
 
 impl TableState {
     /// Parse the state from the request in `cx`.
@@ -248,19 +263,20 @@ impl TableState {
             return Self::default();
         };
         let params = first_wins_query_params(parts.uri.query().unwrap_or(""));
-        Self::from_parts(|key| params.get(key).map(String::as_str), StateSource::Url)
+        Self::from_parts(|key| params.get(key).map(String::as_str))
     }
 
     /// One shared constructor behind [`Self::from_cx`] and
-    /// [`Self::from_live_args`] (GH #133): every query-state parse funnels
-    /// through these trims, so the two entry points cannot drift — and the
-    /// live args arrive named at the single `match` below, where a
-    /// transposed positional pair would not compile silently.
+    /// [`Self::from_live_args`] (GH #133, GH #206): every query-state parse
+    /// funnels through one contract, so the public live-args entry point — the
+    /// documented seam for a page owning its own signals — cannot be the
+    /// looser one. `q` is trimmed and clamped to [`MAX_QUERY_TERM`], `dir` is
+    /// trimmed before comparing, and the `filters` transport is bounded at
+    /// [`MAX_FILTERS_PARAM`]/[`MAX_FILTER_SEGMENTS`].
     ///
-    /// The two [`StateSource`] contracts differ only on `q`/`dir` (see its
-    /// docs); everything else (sort column, cursors, filters, grouping,
-    /// dialog) shares one implementation.
-    fn from_parts<'a>(get: impl Fn(&str) -> Option<&'a str>, source: StateSource) -> Self {
+    /// The live args arrive named at the single `match` below, where a
+    /// transposed positional pair would not compile silently.
+    fn from_parts<'a>(get: impl Fn(&str) -> Option<&'a str>) -> Self {
         let non_empty = |v: Option<&str>| {
             v.map(str::trim)
                 .filter(|t| !t.is_empty())
@@ -268,18 +284,10 @@ impl TableState {
         };
         let (filters, malformed_filters) = parse_filters_param(get("filters").unwrap_or_default());
         Self {
-            search: match source {
-                StateSource::Url => get("q").map(clamp_query_term).filter(|t| !t.is_empty()),
-                StateSource::Live => get("q")
-                    .map(|s| s.trim().to_string())
-                    .filter(|t| !t.is_empty()),
-            },
+            search: get("q").map(clamp_query_term).filter(|t| !t.is_empty()),
             sort: non_empty(get("sort")).map(|column| Sort {
                 column,
-                descending: match source {
-                    StateSource::Url => get("dir") == Some("desc"),
-                    StateSource::Live => get("dir").map(str::trim) == Some("desc"),
-                },
+                descending: get("dir").map(str::trim) == Some("desc"),
             }),
             after: non_empty(get("after")),
             before: non_empty(get("before")),
@@ -302,7 +310,14 @@ impl TableState {
     ///
     /// Keys/values escape `%`, `:`, `,` (`%25`/`%3A`/`%2C`, GH #93) so a
     /// free-text value like `a,b` round-trips instead of splitting.
+    ///
+    /// This is the expensive half of a URL projection (a `format!` per pair,
+    /// a sort, a join, and a percent-encode per byte), so a table render must
+    /// encode it a bounded number of times — never once per row (GH #205).
+    /// [`TableState::row_url_base`] exists to make that structural.
     pub fn filters_param(&self) -> Option<String> {
+        #[cfg(test)]
+        FILTERS_PARAM_ENCODES.with(|count| count.set(count.get() + 1));
         if self.filters.is_empty() && self.malformed_filters.is_empty() {
             return None;
         }
@@ -338,7 +353,7 @@ impl TableState {
     /// Expects `group_by` pre-normalized: render seams normalize through
     /// [`Table::normalize_state`], so the projection echoes `state.group_by`
     /// as-is. `open` is never emitted by any link; `delete` only by
-    /// [`Self::with_delete_dialog`].
+    /// [`Self::row_url_base`]'s dialog intent.
     ///
     /// Full state, including cursors; never `delete`/`open`. The streamed
     /// retry link for failures that keep their evidence (GH #98).
@@ -449,19 +464,17 @@ impl TableState {
         )
     }
 
-    /// Full state including cursors + `delete=key`; never `open` (GH #151).
-    pub(crate) fn with_delete_dialog(&self, path: &str, key: &str) -> String {
-        let filters = self.filters_param();
-        self.project_url(
-            path,
-            self.search.as_deref(),
-            self.sort_pair(),
-            filters.as_deref(),
-            self.group_by.as_deref(),
-            self.after.as_deref(),
-            self.before.as_deref(),
-            Some(key),
-        )
+    /// The shared parameters of every row-action URL on one page, encoded
+    /// once (GH #205).
+    ///
+    /// A row's action URL is this base plus the row's record key, so a table
+    /// render pays for the filter transport — the expensive half of the
+    /// projection — once, however many rows the page holds. Build it before
+    /// the row loop and call [`RowUrlBase::delete_dialog`] per row; that pair
+    /// is the full-state-plus-`delete` projection (GH #151), which keeps the
+    /// cursors and never emits `open`.
+    pub(crate) fn row_url_base(&self, path: &str) -> RowUrlBase {
+        RowUrlBase(self.list_url(path))
     }
 
     /// `?sort=` column + `?dir=` value for the projection.
@@ -521,6 +534,11 @@ impl TableState {
     /// `q` signal explicitly. Live search resets pagination (`after`/`before`
     /// are always `None` — a new search is a new result set, same as the GET
     /// toolbar) and keeps the page's `group_by`.
+    ///
+    /// Every argument is client-owned by the time the shard reads it back, so
+    /// this applies [`Self::from_cx`]'s bounds through the shared
+    /// [`Self::from_parts`] (GH #206) — the public constructor is not the
+    /// looser one.
     pub fn from_live_args(
         q: &str,
         filters_param: &str,
@@ -533,18 +551,90 @@ impl TableState {
         // is a new result set, same as the GET toolbar), and the panel
         // renders the dialog outside the shard region for live tables
         // (GH #151). Missing keys read as absent through `from_parts`.
-        Self::from_parts(
-            |key| match key {
-                "q" => Some(q),
-                "filters" => Some(filters_param),
-                "sort" => Some(sort),
-                "dir" => Some(dir),
-                "group_by" => Some(group_by),
-                _ => None,
-            },
-            StateSource::Live,
-        )
+        Self::from_parts(|key| match key {
+            "q" => Some(q),
+            "filters" => Some(filters_param),
+            "sort" => Some(sort),
+            "dir" => Some(dir),
+            "group_by" => Some(group_by),
+            _ => None,
+        })
     }
+}
+
+/// One page's shared row-action URL parameters, encoded once (GH #205).
+///
+/// The base is [`TableState::list_url`] — every parameter a row's action URL
+/// shares — so the filter transport is encoded once per render, not once per
+/// row. Row-specific intents ([`Self::delete_dialog`]) append to it in the
+/// projection's own order.
+pub(crate) struct RowUrlBase(String);
+
+impl RowUrlBase {
+    /// The `?delete=<key>` confirmation-dialog opener for one row (GH #151).
+    ///
+    /// `self.0` is [`TableState::list_url`]'s output, which never carries
+    /// `delete`, and `delete` is the projection's last parameter — so this is
+    /// byte-for-byte what the one-pass projection builds, without re-encoding
+    /// the parameters it shares with the rest of the page (GH #205).
+    pub(crate) fn delete_dialog(&self, key: &str) -> String {
+        let separator = if self.0.contains('?') { '&' } else { '?' };
+        format!("{}{separator}delete={}", self.0, encode_query_value(key))
+    }
+}
+
+// --- Action URL shapes (GH #206) -------------------------------------------
+//
+// `TableState` owns every table link's parameter vocabulary; these own the
+// *path* shapes, so a route change has one edit site per shape instead of a
+// hand-formatted `format!` at each render seam. The segment literals are shared
+// with the panel's route table (`Panel::resource`), so the routes the panel
+// registers and the links the table emits are spelled once.
+
+/// The record placeholder the route table registers: `{id}`.
+///
+/// A route *pattern*, not a URL — the link helpers below take the encoded
+/// record key instead.
+pub(crate) const RECORD_ROUTE_PARAM: &str = "{id}";
+
+/// Path segment of the list page's create page (GH #162).
+pub(crate) const CREATE_ROUTE_SEGMENT: &str = "create";
+
+/// Path segment of a row's edit page (GH #162).
+pub(crate) const EDIT_ROUTE_SEGMENT: &str = "edit";
+
+/// Path segment of a row's delete POST (GH #151).
+pub(crate) const DELETE_ROUTE_SEGMENT: &str = "delete";
+
+/// Path segment of the bulk-delete POST (GH #184).
+pub(crate) const BULK_DELETE_ROUTE_SEGMENT: &str = "bulk-delete";
+
+/// The row's `Edit` link: `{prefix}/{key}/edit` (GH #162).
+pub(crate) fn row_edit_url(prefix: &str, key: &str) -> String {
+    format!("{prefix}/{}/{EDIT_ROUTE_SEGMENT}", encode_path_segment(key))
+}
+
+/// The row's `View` link: `{prefix}/{key}` — the detail page (GH #187).
+pub(crate) fn row_view_url(prefix: &str, key: &str) -> String {
+    format!("{prefix}/{}", encode_path_segment(key))
+}
+
+/// The row delete form's POST target: `{prefix}/{key}/delete` (GH #151).
+pub(crate) fn delete_action_url(prefix: &str, key: &str) -> String {
+    format!(
+        "{prefix}/{}/{DELETE_ROUTE_SEGMENT}",
+        encode_path_segment(key)
+    )
+}
+
+/// The list page's create link: `{list_path}/create` (GH #162).
+pub(crate) fn create_page_url(list_path: &str) -> String {
+    format!("{list_path}/{CREATE_ROUTE_SEGMENT}")
+}
+
+/// The bulk form's POST target: `{list_path}/bulk-delete` (GH #184).
+pub(crate) fn bulk_delete_url(list_path: &str) -> String {
+    format!("{list_path}/{BULK_DELETE_ROUTE_SEGMENT}")
 }
 
 /// Query-string pairs with the first occurrence winning.
@@ -574,7 +664,20 @@ fn first_wins_query_params(query: &str) -> HashMap<String, String> {
 /// are flagged by [`Table::unapplied_filters`] (list banner, export 400)
 /// instead of being silently dropped, and round-trip through
 /// [`TableState::filters_param`] verbatim.
+///
+/// The transport is bounded here, where it is parsed (GH #205): the live shard
+/// hands this the client-owned `filters` signal, which the router will buffer
+/// up to megabytes of. An over-long or over-full transport is refused *whole*
+/// — never partially applied, which would silently drop filters the caller did
+/// send — and the refusal rides the GH #148 malformed channel as
+/// [`FILTERS_OVERFLOW_SEGMENT`], so the list warns and the export 400s instead
+/// of running unfiltered.
 fn parse_filters_param(raw: &str) -> (HashMap<String, String>, Vec<String>) {
+    // The length test first: it is O(1) and short-circuits the segment scan
+    // for the oversized input this bound exists for.
+    if raw.len() > MAX_FILTERS_PARAM || raw.split(',').count() > MAX_FILTER_SEGMENTS {
+        return (HashMap::new(), vec![FILTERS_OVERFLOW_SEGMENT.to_string()]);
+    }
     let mut map = HashMap::new();
     let mut malformed = Vec::new();
     for part in raw.split(',') {
@@ -657,8 +760,23 @@ fn fnv1a_32(s: &str) -> u32 {
 /// short hash: distinct keys (`Ada Lovelace`, `Ada-Lovelace`) can sanitize to
 /// the same token, and duplicate DOM ids would make the morph follow one row.
 pub(crate) fn row_dom_id(key: &str) -> String {
-    let mut out = String::with_capacity(key.len() + 14);
-    out.push_str("row-");
+    dom_id("row", key)
+}
+
+/// Stable DOM id for a page-local group header (GH #219).
+///
+/// Same contract as [`row_dom_id`]: the header is injected, removed and moved
+/// as the page is re-sorted, so the in-place morph needs an id derived from the
+/// group label it belongs to rather than from its position in the page.
+pub(crate) fn group_header_dom_id(label: &str) -> String {
+    dom_id("group", label)
+}
+
+/// The one sanitizer behind both ids: `{prefix}-{token}-{hash}`.
+fn dom_id(prefix: &str, key: &str) -> String {
+    let mut out = String::with_capacity(prefix.len() + key.len() + 14);
+    out.push_str(prefix);
+    out.push('-');
     for c in key.chars() {
         if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | ':' | '.') {
             out.push(c);
@@ -682,6 +800,27 @@ pub(crate) fn build_url(path: &str, params: &[(&str, Option<&str>)]) -> String {
     } else {
         format!("{path}?{query}")
     }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// How many times this thread has encoded the `filters` transport (GH
+    /// #205). A table render's encoding work must be bounded by the table's
+    /// declaration, never by the number of rows on the page — the only honest
+    /// way to pin that is to count the encodes.
+    static FILTERS_PARAM_ENCODES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Test-only: zero this thread's [`TableState::filters_param`] encode counter.
+#[cfg(test)]
+pub(crate) fn reset_filters_param_encodes() {
+    FILTERS_PARAM_ENCODES.with(|count| count.set(0));
+}
+
+/// Test-only: encodes counted on this thread since the last reset.
+#[cfg(test)]
+pub(crate) fn filters_param_encodes() -> usize {
+    FILTERS_PARAM_ENCODES.with(std::cell::Cell::get)
 }
 
 #[cfg(test)]
@@ -724,20 +863,82 @@ mod tests {
     }
 
     #[test]
-    fn from_live_args_preserves_live_contracts() {
-        // GH #133 is move-only: the live path trims `q` without the GET
-        // path's 128-char clamp, and trims `dir` before comparing.
+    fn live_and_url_constructors_share_one_contract() {
+        // GH #206: `from_live_args` is the public seam a page owning its own
+        // signals is documented to call, so it must apply the GET path's
+        // bounds — `q` trimmed and clamped to `MAX_QUERY_TERM`, `dir` trimmed
+        // before comparing — instead of being the looser of the two.
         let long = "x".repeat(MAX_QUERY_TERM + 10);
-        let state = TableState::from_live_args(&long, "", "", "", "");
-        assert_eq!(state.search.as_deref(), Some(long.as_str()));
-        let state = TableState::from_live_args("", "", "name", " desc ", "");
+        let live = TableState::from_live_args(&long, "", "name", " desc ", "");
+        let url = TableState::from_cx(&cx_with_query(&format!("q={long}&sort=name&dir=+desc+")));
+        assert_eq!(live, url, "the two entry points must agree field for field");
         assert_eq!(
-            state.sort,
+            live.search.as_deref().map(str::len),
+            Some(MAX_QUERY_TERM),
+            "the live constructor must clamp `q` like the GET path"
+        );
+        assert_eq!(
+            live.sort,
             Some(Sort {
                 column: "name".to_string(),
                 descending: true,
-            })
+            }),
+            "both paths trim `dir` before comparing"
         );
+        // Blank inputs agree on neutral state too.
+        assert_eq!(
+            TableState::from_live_args("", "", "", "", ""),
+            TableState::default()
+        );
+        assert_eq!(
+            TableState::from_cx(&cx_with_query("")),
+            TableState::default()
+        );
+    }
+
+    #[test]
+    fn oversized_filters_transport_is_refused_whole_and_flagged() {
+        // GH #205: the live shard hands `parse_filters_param` a client-owned
+        // signal the router will buffer megabytes of. The transport is bounded
+        // where it is parsed, and an oversized one is refused *whole* — never
+        // partially applied — through the GH #148 malformed channel, so the
+        // list warns and the export 400s instead of running unfiltered.
+        let huge = format!("status:published,{}", "k:v,".repeat(2 * 1024 * 1024));
+        assert!(huge.len() > MAX_FILTERS_PARAM);
+        let state = TableState::from_live_args("", &huge, "", "", "");
+        assert!(
+            state.filters.is_empty(),
+            "an oversized transport must not be partially applied"
+        );
+        assert_eq!(
+            state.malformed_filters,
+            vec![FILTERS_OVERFLOW_SEGMENT.to_string()]
+        );
+        // The refusal is bounded and survives into every rebuilt link.
+        let param = state.filters_param().expect("the refusal must project");
+        assert_eq!(param, FILTERS_OVERFLOW_SEGMENT);
+        assert!(
+            param.len() < MAX_FILTERS_PARAM,
+            "the projected transport stays bounded, got {} bytes",
+            param.len()
+        );
+
+        // A segment flood under the byte cap is refused the same way: 32
+        // one-character pairs are small but would each cost a map entry.
+        let flood = vec!["k:v"; MAX_FILTER_SEGMENTS + 1].join(",");
+        assert!(flood.len() <= MAX_FILTERS_PARAM);
+        let state = TableState::from_cx(&cx_with_query(&format!("filters={flood}")));
+        assert!(state.filters.is_empty());
+        assert_eq!(
+            state.malformed_filters,
+            vec![FILTERS_OVERFLOW_SEGMENT.to_string()]
+        );
+
+        // A transport inside both bounds still applies, unchanged.
+        let ok = vec!["k:v"; MAX_FILTER_SEGMENTS].join(",");
+        let state = TableState::from_live_args("", &ok, "", "", "");
+        assert!(state.malformed_filters.is_empty());
+        assert_eq!(state.filters.get("k").map(String::as_str), Some("v"));
     }
 
     #[test]
@@ -920,6 +1121,35 @@ mod tests {
         assert_ne!(row_dom_id("a/b?c"), row_dom_id("a-b-c"));
     }
 
+    #[test]
+    fn group_header_dom_ids_are_stable_and_distinct_from_row_ids() {
+        // GH #219: the injected group header is moved and removed as the page
+        // is re-sorted, so it needs a stable id of its own — and it must never
+        // collide with a row id, or the morph would follow the wrong element.
+        assert_eq!(
+            group_header_dom_id("draft"),
+            group_header_dom_id("draft"),
+            "ids must be stable per label"
+        );
+        let draft = group_header_dom_id("draft");
+        assert!(
+            draft.starts_with("group-draft-"),
+            "the id names its group, got {draft:?}"
+        );
+        assert!(
+            group_header_dom_id("New York").starts_with("group-New-York-"),
+            "labels sanitize to HTML-safe tokens, got {:?}",
+            group_header_dom_id("New York")
+        );
+        // Two labels sanitizing to one token must not collide, and a group id
+        // is never a row id even for the same text.
+        assert_ne!(
+            group_header_dom_id("New York"),
+            group_header_dom_id("New-York")
+        );
+        assert_ne!(group_header_dom_id("draft"), row_dom_id("draft"));
+    }
+
     /// Fully populated projection source (GH #153): every intent projects
     /// from this through the real parser (`from_cx`), asserting the typed
     /// delta — state, not URL bytes.
@@ -1047,16 +1277,25 @@ mod tests {
     }
 
     #[test]
-    fn projection_with_delete_dialog_adds_key() {
+    fn projection_row_url_base_adds_the_delete_dialog_key() {
         // GH #153 (GH #151): full state including cursors + `delete=key`;
         // never `open`.
         let source = populated_state();
         let mut expected = source.clone();
         expected.delete = Some("row-9".to_string());
         expected.open = None;
+        // Spelled as the page's shared base plus the row key — exactly what a
+        // table render does per row (GH #205).
         assert_eq!(
-            reparse(&source.with_delete_dialog("/admin/users", "row-9")),
+            reparse(&source.row_url_base("/admin/users").delete_dialog("row-9")),
             expected
+        );
+        // A state with nothing else to project still opens the dialog.
+        assert_eq!(
+            TableState::default()
+                .row_url_base("/admin/users")
+                .delete_dialog("row-9"),
+            "/admin/users?delete=row-9"
         );
     }
     /// GH #166: the live cursor travels as one wire value, so the browser can

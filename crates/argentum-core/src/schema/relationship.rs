@@ -182,7 +182,12 @@ where
             query = query.filter(expr);
         }
     }
-    for ord in R::table(cx).order_bys() {
+    // The declared default ordering only — the first sortable column, asc, or
+    // nothing (GH #210 removed `order_bys()`, so this is the column-level
+    // helper that replaced it). Deliberately not a list-mode resolution: the
+    // option search has no table state, and the PK fallback a paginated table
+    // would add is an ordering change this endpoint never had.
+    if let Some(ord) = R::table(cx).order_by(false) {
         query = query.order_by(ord);
     }
     let mut db = crate::db::db(cx);

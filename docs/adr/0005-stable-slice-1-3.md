@@ -35,3 +35,7 @@ The stable-state notes have moved on: `HasId`/`GetField` string dispatch was rep
 ## Amendment (2026-09-22, GH #204)
 
 The "`Column::Text` single variant (S5)" listed above under *Ignored by design* is gone, not deferred: the single-variant `Column<M>` enum was removed, and `Table::columns` / `IntoColumns` now carry `TextColumn<M>` directly.
+
+## Amendment (2026-09-22, GH #210)
+
+`order_bys()` is gone. The declared default ordering and the `?sort=` resolution are one entry point, `Table::order_bys_for(state, OrderMode)`, which takes the list/export fallback as its mode. The `(PK tie-breaker)` note above is historical twice over: the tie-breaker moved inside Toasty in the 2026-09-10 amendment, and the list loader asks for the PK fallback only when it paginates.

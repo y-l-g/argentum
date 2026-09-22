@@ -34,9 +34,15 @@ pub use relation::{IntoRelationColumns, RelationColumn, RelationColumns, render_
 #[cfg(test)]
 pub(crate) use state::MAX_QUERY_TERM;
 pub(crate) use state::clamp_query_term;
+pub(crate) use state::{
+    BULK_DELETE_ROUTE_SEGMENT, CREATE_ROUTE_SEGMENT, DELETE_ROUTE_SEGMENT, EDIT_ROUTE_SEGMENT,
+    RECORD_ROUTE_PARAM, create_page_url, cursor_after, cursor_before, cursor_none, split_cursor,
+};
 pub use state::{Sort, TablePage, TableSignals, TableState};
-pub(crate) use state::{cursor_after, cursor_before, cursor_none, split_cursor};
-pub use table::{GroupDef, GroupKey, RowKey, Table};
+#[cfg(test)]
+pub(crate) use state::{filters_param_encodes, reset_filters_param_encodes};
+pub(crate) use table::TableChrome;
+pub use table::{GroupDef, GroupKey, OrderMode, RowKey, Table};
 
 use naming::{kebab_case, pluralize, type_short_name};
 
