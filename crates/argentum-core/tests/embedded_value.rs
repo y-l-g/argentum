@@ -10,7 +10,7 @@
 use std::collections::HashMap;
 
 use argentum_core::{
-    EmbeddedForm, Schema, enum_spec, form_keys, leaf_key, read_embedded, submitted, write_embedded,
+    EmbeddedForm, Schema, enum_spec, leaf_key, read_embedded, submitted, write_embedded,
 };
 use topcoat::context::{Cx, CxTestBuilder};
 use topcoat::view::ViewExt;
@@ -75,6 +75,34 @@ enum Visibility {
     Private { reason: String },
 }
 
+/// A struct holding an enum: the nested enum's discriminant is a form key of
+/// the value too, not only its payloads.
+#[derive(Debug, Clone, PartialEq, toasty::Embed, EmbeddedForm)]
+struct Wrapper {
+    label: String,
+    inner: Media,
+}
+
+/// Variant idents the schema normalises (`OK` reads `Ok`): a codec addresses
+/// variants by declaration index, so no casing has to round-trip.
+#[derive(Debug, Clone, PartialEq, toasty::Embed, EmbeddedForm)]
+enum Casing {
+    #[column(variant = 1)]
+    OK { at: String },
+    #[column(variant = 2)]
+    Draft,
+}
+
+/// The leaf types the panel can spell (GH #192 + GH #191's widening): `bool`
+/// and the whole integer family, not only the three the showcase happened to
+/// use.
+#[derive(Debug, Clone, Default, PartialEq, toasty::Embed, EmbeddedForm)]
+struct Flags {
+    featured: bool,
+    level: u8,
+    revision: u32,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, toasty::Embed, EmbeddedForm)]
 struct PostStats {
     #[form(label = "Word count")]
@@ -93,6 +121,9 @@ struct Post {
     media: Media,
     post_stats: PostStats,
     visibility: Visibility,
+    wrapper: Wrapper,
+    casing: Casing,
+    flags: Flags,
 }
 
 async fn post_cx() -> Cx {
@@ -133,30 +164,28 @@ async fn keys_come_from_the_compiled_mapping() {
         "publication",
         "the enum's discriminant column is named after the field"
     );
-    assert_eq!(
-        publication.variants(),
-        [
-            ("Scheduled".to_string(), "1".to_string()),
-            ("Published".to_string(), "2".to_string()),
-            ("Archived".to_string(), "3".to_string()),
-        ],
-        "each variant's stored discriminant, in declaration order"
-    );
-    assert_eq!(publication.value_of("Published"), Some("2"));
-    assert_eq!(publication.variant_of("3"), Some("Archived"));
+    assert_eq!(publication.len(), 3, "three variants, in declaration order");
+    assert_eq!(publication.value_of_index(1), Some("2"));
+    assert_eq!(publication.index_of("3"), Some(2));
+    assert_eq!(publication.index_of("nope"), None);
 
-    let keys = form_keys(&cx, Post::fields().publication());
-    assert!(keys.contains(&"publication".to_string()), "got {keys:?}");
-    assert!(keys.contains(&"publication_timestamp".to_string()));
-    assert!(keys.contains(&"publication_canonical_url".to_string()));
-    // The shared column appears once, not once per declaring variant.
-    assert_eq!(
-        keys.iter()
-            .filter(|key| key.as_str() == "publication_timestamp")
-            .count(),
-        1,
-        "a shared column is one column, got {keys:?}"
-    );
+    // A value knows which keys are its own: the discriminant and every leaf,
+    // the shared column included (once — it is one column).
+    assert!(submitted(
+        &cx,
+        Post::fields().publication(),
+        &map(&[("publication", "1")])
+    ));
+    assert!(submitted(
+        &cx,
+        Post::fields().publication(),
+        &map(&[("publication_timestamp", "t")])
+    ));
+    assert!(submitted(
+        &cx,
+        Post::fields().publication(),
+        &map(&[("publication_canonical_url", "/x")])
+    ));
 
     assert!(enum_spec(&cx, Post::fields().seo()).is_none());
 }
@@ -227,26 +256,71 @@ async fn an_enum_round_trips_with_an_explicit_discriminant() {
     );
 }
 
-/// A submission without a discriminant — a hand-written POST, or the create
-/// form before a variant control exists — reads as the first variant, and never
-/// as "whichever payload happened to be filled in".
+/// A submission without a discriminant — the create form, or a hand-written
+/// POST — falls back to the rule the panel used before the discriminant
+/// existed: the first variant (in declaration order) with a payload of its own
+/// submitted. Reached only when no discriminant is named; an explicit one
+/// always wins.
 #[tokio::test]
-async fn a_missing_discriminant_reads_as_the_first_variant() {
+async fn a_missing_discriminant_infers_the_variant_from_its_payload() {
     let cx = post_cx().await;
-    let values = map(&[
+
+    // The pre-#191 showcase behaviour, preserved: filling the Published payload
+    // creates a Published value.
+    let published = map(&[
         ("publication_timestamp", "2026-09-22T00:00:00Z"),
         ("publication_canonical_url", "/hello"),
     ]);
+    let read: Publication = read_embedded(&cx, Post::fields().publication(), &published);
+    assert_eq!(
+        read,
+        Publication::Published {
+            published_at: "2026-09-22T00:00:00Z".to_string(),
+            canonical_url: "/hello".to_string(),
+        },
+        "a submitted Published payload must infer Published"
+    );
 
-    let read: Publication = read_embedded(&cx, Post::fields().publication(), &values);
+    let archived = map(&[
+        ("publication_timestamp", "2026-09-22T00:00:00Z"),
+        ("publication_reason", "superseded"),
+    ]);
+    let read: Publication = read_embedded(&cx, Post::fields().publication(), &archived);
+    assert_eq!(
+        read,
+        Publication::Archived {
+            archived_at: "2026-09-22T00:00:00Z".to_string(),
+            reason: "superseded".to_string(),
+        },
+        "a submitted Archived payload must infer Archived"
+    );
+
+    // A *shared* payload cannot say which variant was meant (it belongs to all
+    // three), so on its own it infers nothing: the first variant.
+    let shared_only = map(&[("publication_timestamp", "2026-09-22T00:00:00Z")]);
+    let read: Publication = read_embedded(&cx, Post::fields().publication(), &shared_only);
     assert_eq!(
         read,
         Publication::Scheduled {
             scheduled_at: "2026-09-22T00:00:00Z".to_string(),
             scheduled_for: String::new(),
         },
-        "no discriminant falls back to the first variant"
+        "a shared column never selects a variant"
     );
+}
+
+/// A discriminant the submission **names** but the enum does not declare is
+/// refused loudly. Reading it as some other variant would store a value the
+/// caller never asked for.
+#[tokio::test]
+#[should_panic(expected = "does not name a variant of Publication")]
+async fn an_unknown_discriminant_panics() {
+    let cx = post_cx().await;
+    let values = map(&[
+        ("publication", "99"),
+        ("publication_canonical_url", "/hello"),
+    ]);
+    let _: Publication = read_embedded(&cx, Post::fields().publication(), &values);
 }
 
 /// Nesting: a struct inside a variant delegates to that struct's own codec, and
@@ -384,6 +458,115 @@ async fn submitted_reports_whether_a_value_was_mentioned() {
         Post::fields().publication(),
         &map(&[("publication", "1")])
     ));
+}
+
+/// A nested enum contributes its discriminant to the value's form keys: a
+/// submission that names only the nested variant has mentioned the value.
+#[tokio::test]
+async fn a_nested_enum_contributes_its_discriminant() {
+    let cx = post_cx().await;
+
+    // The nested enum's discriminant is a key of the value: naming only it
+    // mentions the wrapper.
+    assert!(
+        submitted(
+            &cx,
+            Post::fields().wrapper(),
+            &map(&[("wrapper_inner", "1")])
+        ),
+        "naming only the nested variant mentions the value"
+    );
+    assert!(
+        !submitted(&cx, Post::fields().wrapper(), &map(&[("title", "x")])),
+        "a key outside the value does not mention it"
+    );
+
+    let wrapper = Wrapper {
+        label: "w".to_string(),
+        inner: Media::Image {
+            url: "/i.jpg".to_string(),
+            alt: "i".to_string(),
+        },
+    };
+    let mut values = HashMap::new();
+    write_embedded(&cx, Post::fields().wrapper(), &wrapper, &mut values);
+    assert_eq!(
+        values,
+        map(&[
+            ("wrapper_label", "w"),
+            ("wrapper_inner", "1"),
+            ("wrapper_inner_url", "/i.jpg"),
+            ("wrapper_inner_alt", "i"),
+        ])
+    );
+    let read: Wrapper = read_embedded(&cx, Post::fields().wrapper(), &values);
+    assert_eq!(read, wrapper);
+}
+
+/// Variant idents the schema normalises still round-trip: the codec addresses
+/// variants by declaration index, not by a name it would have to re-derive.
+#[tokio::test]
+async fn variant_casing_needs_no_normalisation() {
+    let cx = post_cx().await;
+
+    for casing in [
+        Casing::OK {
+            at: "now".to_string(),
+        },
+        Casing::Draft,
+    ] {
+        let mut values = HashMap::new();
+        write_embedded(&cx, Post::fields().casing(), &casing, &mut values);
+        let read: Casing = read_embedded(&cx, Post::fields().casing(), &values);
+        assert_eq!(read, casing, "wrote {values:?}");
+    }
+
+    // And the derived form renders (a name mismatch would panic here).
+    let html = Schema::new(Casing::form(&cx, Post::fields().casing()))
+        .render_with(&cx, &HashMap::new(), &HashMap::new())
+        .await
+        .unwrap()
+        .single()
+        .await
+        .unwrap()
+        .render(&cx);
+    assert!(html.contains("name=\"casing\""), "got {html}");
+    assert!(html.contains("name=\"casing_at\""), "got {html}");
+}
+
+/// `bool` and the wider integer types are leaves too (GH #191 widened
+/// `TypedValue` to the whole family the panel can spell).
+#[tokio::test]
+async fn typed_leaves_cover_bool_and_the_integer_family() {
+    let cx = post_cx().await;
+    let flags = Flags {
+        featured: true,
+        level: 3,
+        revision: 7,
+    };
+
+    let mut values = HashMap::new();
+    write_embedded(&cx, Post::fields().flags(), &flags, &mut values);
+    assert_eq!(
+        values,
+        map(&[
+            ("flags_featured", "true"),
+            ("flags_level", "3"),
+            ("flags_revision", "7"),
+        ])
+    );
+    let read: Flags = read_embedded(&cx, Post::fields().flags(), &values);
+    assert_eq!(read, flags);
+
+    // A bad `bool` is refused by the typed control before a record fn runs, so
+    // the codec only ever sees a spelling the type accepts.
+    let bad = map(&[("flags_featured", "yes")]);
+    assert!(
+        Schema::new(Flags::form(&cx, Post::fields().flags()))
+            .validate(&bad)
+            .contains_key("flags_featured"),
+        "the derived control validates its own type"
+    );
 }
 
 /// The generated form: every leaf control, plus the hidden discriminant, named

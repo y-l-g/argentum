@@ -41,7 +41,7 @@ pub use resource::{
 pub use schema::{
     EmbeddedForm, EnumSpec, FieldLens, FileUpload, Grid, Group, IntoSchema, Repeater, Schema,
     Section, Select, Tabs, TextInput, Textarea, TypedValue, Wizard, discriminant_input, enum_spec,
-    form_keys, leaf_key, read_embedded, submitted, write_embedded,
+    leaf_key, parse_leaf, read_embedded, submitted, write_embedded,
 };
 pub use tenancy::{Tenant, tenant_id};
 pub use upload::Uploader;

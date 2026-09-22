@@ -75,6 +75,16 @@ impl<'a> FieldResolver<'a> {
         }
     }
 
+    /// Whether this request carries an app schema at all (a `Db` in context).
+    ///
+    /// The leaf constructors fall back to the single-segment rule without one;
+    /// a *value* binding has no fallback — every key comes from the schema — so
+    /// its entry points say so rather than reporting a traversal-lens error
+    /// (GH #191).
+    pub(crate) fn has_schema(&self) -> bool {
+        self.schema.is_some()
+    }
+
     /// Resolve a lens to its leaf field.
     ///
     /// With a schema this walks the whole projection, so an embedded step lands
@@ -273,17 +283,12 @@ impl<'a> FieldResolver<'a> {
                 let variants = e
                     .variants
                     .iter()
-                    .map(|v| {
-                        Some((
-                            v.name.upper_camel_case(),
-                            discriminant_text(&v.discriminant)?,
-                        ))
-                    })
+                    .map(|v| discriminant_text(&v.discriminant))
                     .collect::<Option<Vec<_>>>()?;
-                Some(EnumSpec {
+                Some(crate::schema::embedded::EnumSpec::new(
                     discriminant,
                     variants,
-                })
+                ))
             }
             _ => return None,
         };
@@ -309,8 +314,11 @@ fn collect_columns(
 ) -> Option<()> {
     for (app_field, mapping_field) in app_fields.iter().zip(mapping_fields) {
         if is_document(app_field) {
-            push_column(schema, mapping_field, out)?;
-            continue;
+            // A `#[document]`'s inner fields share its one column, so a *value*
+            // codec has nothing per-field to bind: refuse rather than hand back
+            // one column for several fields (the misbind GH #100 guards
+            // against). Leaf binding still reaches a document's column (GH #185).
+            return None;
         }
         match &app_field.ty {
             toasty::schema::app::FieldTy::Primitive(_) => {
@@ -346,6 +354,14 @@ fn collect_enum_columns(
     me: &toasty_core::schema::mapping::FieldEnum,
     out: &mut Vec<String>,
 ) -> Option<()> {
+    // The discriminant column first: it is a form key of this value (the
+    // control that carries the variant), whether the enum is the value itself
+    // or nested inside one.
+    push_column(
+        schema,
+        &MappingField::Primitive(me.discriminant.clone()),
+        out,
+    )?;
     for (index, variant) in me.variants.iter().enumerate() {
         collect_columns(schema, e.variant_fields(index), &variant.fields, out)?;
     }
@@ -478,23 +494,15 @@ fn is_document(field: &toasty::schema::app::Field) -> bool {
 /// schema decides the structure, the compiled mapping names every column.
 #[derive(Debug, Clone)]
 pub(crate) struct EmbeddedValueSpec {
-    /// The columns the value's leaves occupy, in declaration order and
-    /// deduplicated — a `#[shared(..)]` column declared by several variants
-    /// appears once, because it *is* one column.
+    /// Every form key the value occupies, in declaration order and
+    /// deduplicated: each leaf column, and the discriminant column of every
+    /// enum the value contains — the top-level one and any nested inside a
+    /// struct or a variant. A `#[shared(..)]` column declared by several
+    /// variants appears once, because it *is* one column.
     pub(crate) columns: Vec<String>,
-    /// `Some` for an embedded enum: its discriminant column and, per variant,
-    /// the Rust variant name and the text stored in that column.
-    pub(crate) enum_spec: Option<EnumSpec>,
-}
-
-/// An embedded enum's discriminant column and variant values (GH #191).
-#[derive(Debug, Clone)]
-pub(crate) struct EnumSpec {
-    /// The discriminant column (`kind`), the one column that says which
-    /// variant a row carries.
-    pub(crate) discriminant: String,
-    /// `(Rust variant name, stored discriminant text)`, in declaration order.
-    pub(crate) variants: Vec<(String, String)>,
+    /// `Some` for an embedded enum: its discriminant column and variant
+    /// values. The one `EnumSpec` type is shared with the public seam.
+    pub(crate) enum_spec: Option<crate::schema::embedded::EnumSpec>,
 }
 
 /// The embedded model an app field targets, if it is embedded.

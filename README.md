@@ -452,7 +452,7 @@ let publication = read_embedded(cx, Post::fields().publication(), &values);
 if submitted(cx, Post::fields().publication(), &values) { /* the submit mentioned it */ }
 ```
 
-An enum's variant is its **discriminant column**, carried by the form: a stale payload never outvotes the variant the submission names, and a submission with no discriminant reads as the first variant. `#[form(label = "…")]`, `#[form(textarea)]` and `#[form(leaf | embedded)]` are the per-field overrides. A `#[document]` inside a value, a relation, and a tuple struct are not covered; every variant's payload renders until the variant-`Select` follow-up lands.
+An enum's variant is its **discriminant column**, carried by the form: a named discriminant always wins (and one the enum does not declare is refused loudly, never read as some other variant), so a stale payload is not a vote. Only when no discriminant is named at all — the create form, a hand-written POST — do payloads select one, by a variant's own **non-shared** payload through resolved keys. `#[form(label = "…")]`, `#[form(textarea)]` and `#[form(textarea, rows = N)]` are the per-field overrides; an unknown key is a compile error. A `#[document]` inside a value, a relation, an enum nested inside an enum variant, and a tuple struct are not covered; every variant's payload renders until the variant-`Select` follow-up lands.
 
 Schema setup: `db.push_schema().await` for prototypes, `toasty-cli` migrations for prod.
 

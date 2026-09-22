@@ -16,8 +16,16 @@
 //!
 //! That inference is the bug this module removes. An embedded enum *has* a
 //! discriminant column — Toasty stores the variant there — so the form carries
-//! the discriminant explicitly, hydration writes the stored variant, and a
-//! submission names the variant it means. Nothing inspects payload emptiness.
+//! the discriminant explicitly, hydration writes the stored variant, and an
+//! edit names the variant it means.
+//!
+//! Payloads still decide **one** case, and only when the submission carries no
+//! discriminant at all: the create form has no stored variant to hydrate, so a
+//! payload of the author's own selects the variant (a `#[shared(..)]` column
+//! never does, because it belongs to several). That is the panel's pre-#191
+//! rule, reimplemented from the keys the schema resolves rather than remembered
+//! column names — and a discriminant the submission *does* name always wins,
+//! with an unknown one refused loudly rather than read as something else.
 //!
 //! # What an app writes
 //!
@@ -44,12 +52,25 @@
 //! # What is not covered
 //!
 //! - A `#[document]` **inside** an embedded value: its fields share one column,
-//!   so there is no typed projection to bind (the document type would need its
-//!   own codec). Leaf binding of a document still works (GH #185).
+//!   so there is no per-field binding, and the walk refuses rather than hand one
+//!   column back for several fields. Leaf binding of a document still works
+//!   (GH #185).
 //! - A relation inside an embedded value: relations are not stored in the row.
+//! - An embedded enum nested **inside an enum variant**: value resolution starts
+//!   at a model root, and a variant-rooted path addresses one variant's leaf
+//!   (which leaf binding does handle). Nesting inside *structs* works at any
+//!   depth.
 //! - The variant **control**: this module carries the discriminant and derives
 //!   the leaf controls; choosing a variant in the UI is the follow-up on GH #191
 //!   (the active variant's fields rendering alone needs a form-reactivity seam).
+//!
+//! # What a derived control declares
+//!
+//! Every leaf under an embedded step is storage-nullable — only the matching
+//! variant writes a column — so a derived control is **not required** by
+//! default, which is what the hand-written forms spelled `.optional()` for. A
+//! leaf that must be present says so on the field's type or the app marks the
+//! control in its own layout.
 
 use std::collections::HashMap;
 
@@ -58,6 +79,17 @@ use topcoat::context::Cx;
 
 use crate::schema::TextInput;
 use crate::schema::lenses::FieldResolver;
+
+/// The resolver for this request, with the one failure a value binding cannot
+/// fall back from: no app schema means no columns.
+fn resolver(cx: &Cx) -> FieldResolver<'_> {
+    let resolver = FieldResolver::from_cx(cx);
+    assert!(
+        resolver.has_schema(),
+        "an embedded value needs the app schema: put a `Db` in the context (GH #191)"
+    );
+    resolver
+}
 
 /// An embedded value that can be read from, and written to, the flat form map
 /// (GH #191).
@@ -78,11 +110,26 @@ pub trait EmbeddedForm: Sized {
 
     /// Read a value back from a submission.
     ///
-    /// An embedded enum takes its variant from the discriminant key, falling
-    /// back to the first variant when the submission does not carry one (a
-    /// hand-written POST, or the create form before a variant control exists).
-    /// Payload emptiness is never consulted.
+    /// An embedded enum takes its variant from the discriminant key; a
+    /// submission that names one it does not declare is refused loudly, and one
+    /// that carries no discriminant at all falls back to the first variant
+    /// whose own payload was submitted (the create form, a hand-written POST),
+    /// else the first variant. That fallback is the panel's pre-#191 rule,
+    /// reimplemented from the keys the schema resolves rather than remembered
+    /// column names.
     fn read_form<M>(cx: &Cx, parent: Path<M, Self>, values: &HashMap<String, String>) -> Self
+    where
+        M: toasty::schema::Model;
+
+    /// Whether a submission mentions any key of this value (GH #191).
+    ///
+    /// The presence rule (GH #89) at the *value* level: an update that never
+    /// mentions a value leaves it alone, and "mentions" is decided by the keys
+    /// the schema resolves — the discriminant included, at every nesting
+    /// level. Generated code answers it, so a nested value composes; the parent
+    /// path of a field inside an enum variant is variant-rooted, which leaf
+    /// resolution handles ([`leaf_key`]) where whole-value resolution does not.
+    fn any_present<M>(cx: &Cx, parent: Path<M, Self>, values: &HashMap<String, String>) -> bool
     where
         M: toasty::schema::Model;
 }
@@ -95,41 +142,53 @@ pub fn leaf_key<M, T>(cx: &Cx, path: impl Into<Path<M, T>>) -> String
 where
     M: toasty::schema::Model,
 {
-    FieldResolver::from_cx(cx).resolve(path.into()).name
+    resolver(cx).resolve(path.into()).name
 }
 
 /// An embedded enum's discriminant column and variant values (GH #191).
+///
+/// Variants are addressed by **declaration index**, the same handle the schema
+/// itself uses (`VariantId { index }`) and the one a generated codec can rely
+/// on: the app schema lists variants in the order the Rust enum declares them,
+/// and a name is not recoverable from the schema (Toasty normalises it, so
+/// `OK` and `Ok` both read `Ok`).
 #[derive(Debug, Clone)]
 pub struct EnumSpec {
     discriminant: String,
-    variants: Vec<(String, String)>,
+    variants: Vec<String>,
 }
 
 impl EnumSpec {
+    pub(crate) fn new(discriminant: String, variants: Vec<String>) -> Self {
+        Self {
+            discriminant,
+            variants,
+        }
+    }
+
     /// The discriminant column the form carries (`kind`).
     pub fn discriminant(&self) -> &str {
         &self.discriminant
     }
 
-    /// `(Rust variant name, stored discriminant text)`, in declaration order.
-    pub fn variants(&self) -> &[(String, String)] {
-        &self.variants
+    /// The discriminant text variant `index` stores, if the enum declares it.
+    pub fn value_of_index(&self, index: usize) -> Option<&str> {
+        self.variants.get(index).map(|value| value.as_str())
     }
 
-    /// The discriminant text of `variant`.
-    pub fn value_of(&self, variant: &str) -> Option<&str> {
-        self.variants
-            .iter()
-            .find(|(name, _)| name == variant)
-            .map(|(_, value)| value.as_str())
+    /// The index of the variant a submission names, if it names a known one.
+    pub fn index_of(&self, submitted: &str) -> Option<usize> {
+        self.variants.iter().position(|value| value == submitted)
     }
 
-    /// The variant a submission selects, if it carries a known discriminant.
-    pub fn variant_of(&self, submitted: &str) -> Option<&str> {
-        self.variants
-            .iter()
-            .find(|(_, value)| value == submitted)
-            .map(|(name, _)| name.as_str())
+    /// How many variants the enum declares.
+    pub fn len(&self) -> usize {
+        self.variants.len()
+    }
+
+    /// Whether the enum declares no variants at all.
+    pub fn is_empty(&self) -> bool {
+        self.variants.is_empty()
     }
 }
 
@@ -144,7 +203,7 @@ pub fn enum_spec<M, T>(cx: &Cx, parent: impl Into<Path<M, T>>) -> Option<EnumSpe
 where
     M: toasty::schema::Model,
 {
-    let spec = FieldResolver::from_cx(cx)
+    let spec = resolver(cx)
         .resolve_embedded_value(parent.into())
         .unwrap_or_else(|| {
             panic!(
@@ -160,12 +219,16 @@ where
 }
 
 /// Every form key the value at `parent` occupies: its leaf columns, plus the
-/// discriminant for an enum.
-pub fn form_keys<M, T>(cx: &Cx, parent: impl Into<Path<M, T>>) -> Vec<String>
+/// discriminant of every enum it contains.
+///
+/// Internal to [`submitted`]: a value answers presence for itself through
+/// [`EmbeddedForm::any_present`], and this is the flat-map answer for a whole
+/// value at a model-rooted path.
+fn form_keys<M, T>(cx: &Cx, parent: impl Into<Path<M, T>>) -> Vec<String>
 where
     M: toasty::schema::Model,
 {
-    let spec = FieldResolver::from_cx(cx)
+    let spec = resolver(cx)
         .resolve_embedded_value(parent.into())
         .unwrap_or_else(|| {
             panic!(

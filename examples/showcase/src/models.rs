@@ -52,7 +52,7 @@ pub struct Seo {
     pub title: String,
     /// A multi-line control: the derive renders one `TextInput` per leaf, and
     /// this is the one leaf the panel wants as a `Textarea` (GH #191).
-    #[form(textarea)]
+    #[form(textarea, rows = 3)]
     pub description: String,
 }
 

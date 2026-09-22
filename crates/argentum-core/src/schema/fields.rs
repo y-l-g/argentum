@@ -92,11 +92,7 @@ fn render_hidden<'a>(
     let value = value.unwrap_or_default().to_string();
     // A raw element, not `ui_input`: a hidden control needs no styling, and
     // `ui_input` would dress it in the visible input's classes.
-    Ok(view! {
-        cx =>
-        <input type="hidden" name=(name.clone()) value=(value)>
-    }
-    .boxed())
+    Ok(view! { cx => <input type="hidden" name=(name.clone()) value=(value)> }.boxed())
 }
 
 /// Placeholder leaf — renders a text block. Used in T3 before typed fields land.
@@ -132,16 +128,30 @@ pub trait TypedValue: std::fmt::Display + std::str::FromStr {
     const NOUN: &'static str;
 }
 
-impl TypedValue for i64 {
-    const NOUN: &'static str = "whole number";
+/// The integer types a typed leaf can bind (GH #191 widened this from the three
+/// GH #192 shipped): a derived embedded value classifies a field as a leaf by
+/// its type, so the set of leaf-capable types has to be the whole integer
+/// family rather than the ones the showcase happened to use.
+macro_rules! typed_whole_number {
+    ($($ty:ty),* $(,)?) => {
+        $(
+            impl TypedValue for $ty {
+                const NOUN: &'static str = "whole number";
+            }
+        )*
+    };
 }
 
-impl TypedValue for i32 {
-    const NOUN: &'static str = "whole number";
+typed_whole_number!(
+    i8, i16, i32, i64, i128, isize, u8, u16, u32, u64, u128, usize
+);
+
+impl TypedValue for bool {
+    const NOUN: &'static str = "yes/no value";
 }
 
-impl TypedValue for u64 {
-    const NOUN: &'static str = "whole number";
+impl TypedValue for f32 {
+    const NOUN: &'static str = "number";
 }
 
 impl TypedValue for f64 {
