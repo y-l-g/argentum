@@ -8,7 +8,7 @@ use std::collections::HashMap;
 
 use topcoat::Result;
 use topcoat::context::Cx;
-use topcoat::runtime::Signal;
+use topcoat::runtime::{Signal, signal};
 
 use crate::query_term::clamp_query_term;
 
@@ -20,6 +20,12 @@ use crate::query_term::clamp_query_term;
 /// re-renders the table in place — no navigation, no scroll jump. Sort links,
 /// the pager, the filter transport, the bulk selection, and the clear links
 /// rendered by the table write them.
+///
+/// The two carriers meet in exactly two methods (GH #224):
+/// [`TableState::to_signals`] seeds these handles from a parsed state, and
+/// [`TableSignals::to_state`] rebuilds the state from their current values.
+/// A new interaction dimension is a field here plus one arm in each, instead
+/// of a hand-written conversion at every seam.
 ///
 /// `q`/`filters`/`sort`/`dir`/`group_by` reset the cursor when they change;
 /// [`Self::cursor`] pages within the current result set. All values are
@@ -523,15 +529,20 @@ impl TableState {
     ///
     /// Shard requests hit `POST /_topcoat/runtime/shards/...`, so
     /// [`Self::from_cx`] would see the endpoint URI — not the list page's
-    /// query. The page passes its (static) filter/sort state plus the live
-    /// `q` signal explicitly. Live search resets pagination (`after`/`before`
-    /// are always `None` — a new search is a new result set, same as the GET
-    /// toolbar) and keeps the page's `group_by`.
+    /// query. The page hands over the current values of its interaction
+    /// signals instead: the search term, the filter transport, the sort column
+    /// and its direction, and the page's grouping. Live search resets
+    /// pagination (`after`/`before` are always `None` — a new search is a new
+    /// result set, same as the GET toolbar) and keeps the page's `group_by`.
     ///
     /// Every argument is client-owned by the time the shard reads it back, so
     /// this applies [`Self::from_cx`]'s bounds through the shared
     /// [`Self::from_parts`] (GH #206) — the public constructor is not the
     /// looser one.
+    ///
+    /// [`TableSignals::to_state`] is the shard's call site for this (GH #224):
+    /// it reads the signals and passes their values here, so the shard never
+    /// rebuilds state by hand.
     pub fn from_live_args(
         q: &str,
         filters_param: &str,
@@ -552,6 +563,80 @@ impl TableState {
             "group_by" => Some(group_by),
             _ => None,
         })
+    }
+
+    /// Seed the page's interaction signals from this state (GH #224).
+    ///
+    /// The one state→signal conversion: the page owns the handles
+    /// ([`TableSignals`]) and every control it renders writes them, so the
+    /// values the page loaded with are what the signals start from. The
+    /// cursor is one signal (GH #166) seeded from the `after`/`before` pair
+    /// in this state; the bulk selection starts empty (the page never loads a
+    /// selection); `group_by` seeds from the page-load value and persists
+    /// across in-place reruns (GH #157).
+    ///
+    /// Call it with the *parsed* state, before normalizing: an unknown
+    /// `?group_by=` seeds the signal as written, and the shard's
+    /// [`TableSignals::to_state`] + [`Table::normalize_state`] drop it on the
+    /// way back in, exactly as the GET path does (GH #153).
+    ///
+    /// Creates the signals, so it carries [`topcoat::runtime::signal`]'s
+    /// contract: call it while a view is collecting signal declarations — the
+    /// panel calls it from the live page's render, and the declarations ride
+    /// that page's hoisted parts.
+    pub fn to_signals(&self, cx: &Cx) -> TableSignals {
+        TableSignals {
+            q: signal(cx, || self.search.clone().unwrap_or_default()),
+            filters: signal(cx, || self.filters_param().unwrap_or_default()),
+            // The projection's own spelling of `?sort=`/`?dir=` (GH #153), so
+            // the signal and every link agree on the direction word.
+            sort: signal(cx, || {
+                self.sort_pair()
+                    .map(|(column, _)| column.to_string())
+                    .unwrap_or_default()
+            }),
+            dir: signal(cx, || {
+                self.sort_pair()
+                    .map(|(_, dir)| dir.to_string())
+                    .unwrap_or_else(|| "asc".to_string())
+            }),
+            cursor: signal(cx, || match (&self.after, &self.before) {
+                (Some(token), _) => cursor_after(token),
+                (None, Some(token)) => cursor_before(token),
+                (None, None) => cursor_none(),
+            }),
+            group_by: signal(cx, || self.group_by.clone().unwrap_or_default()),
+            bulk: signal(cx, String::new),
+        }
+    }
+}
+
+/// The live seam's other direction (GH #224): the signals the page owns,
+/// read back into the request state the shard loads and renders with.
+impl TableSignals {
+    /// Rebuild request state from the live signals (GH #224).
+    ///
+    /// The one signal→state conversion, and the live half of the parse
+    /// contract: every value is client-owned by the time the shard reads it
+    /// back, so it goes through [`TableState::from_live_args`] — the same
+    /// `q` clamp and `filters` bound the GET path applies (GH #148,
+    /// GH #205, GH #206) — and the one cursor wire is split into the
+    /// `(after, before)` pair the loader consumes (GH #166).
+    ///
+    /// Pagination and the delete dialog are always reset: a live rerun is a
+    /// new result set, and the panel renders the dialog outside the shard
+    /// region (GH #151). A token that does not decode still fails loudly at
+    /// load time (GH #158).
+    pub fn to_state(&self) -> TableState {
+        let mut state = TableState::from_live_args(
+            &self.q.get(),
+            &self.filters.get(),
+            &self.sort.get(),
+            &self.dir.get(),
+            &self.group_by.get(),
+        );
+        (state.after, state.before) = split_cursor(&self.cursor.get());
+        state
     }
 }
 

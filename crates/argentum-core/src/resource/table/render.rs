@@ -20,7 +20,7 @@ use super::super::state::{
     TablePage, TableSignals, TableState, bulk_delete_url, delete_action_url, group_header_dom_id,
     row_dom_id, row_edit_url, row_view_url,
 };
-use super::Table;
+use super::{GroupKey, NormalizedState, RowKey, Table};
 
 /// Keystroke-quiet delay before a live search input reloads the table
 /// (GH #172, ~150-250ms): `assets/live-search.js` waits this long after the
@@ -66,7 +66,12 @@ impl<M> Table<M> {
     /// `POST /_topcoat/runtime/shards/...`, so `TableState::from_cx` would see
     /// the endpoint URI, not the list page's `?q=/filters/sort`. Callers pass
     /// the page's state (or shard args rebuilt via
-    /// [`TableState::from_live_args`]) and the list URL explicitly.
+    /// [`TableSignals::to_state`]) and the list URL explicitly.
+    ///
+    /// Normalizes the state it is handed (GH #153), so a page calling this
+    /// directly needs no knowledge of [`NormalizedState`]; a caller that
+    /// already normalized once per request goes through
+    /// [`Self::render_normalized`] instead (GH #224).
     pub async fn render_with_state<'a>(
         &self,
         cx: &'a Cx,
@@ -77,8 +82,25 @@ impl<M> Table<M> {
     where
         M: toasty::schema::Model + Send + Sync + 'static,
     {
-        let state = self.normalize_state(state);
-        self.render_inner(cx, page, &state, path, None).await
+        self.render_normalized(cx, page, &self.normalize_state(state), path)
+            .await
+    }
+
+    /// [`Self::render_with_state`] with the state already normalized
+    /// (GH #224): the request entry normalizes once and every seam below takes
+    /// the proof, so a live list request never normalizes the same state
+    /// twice.
+    pub(crate) async fn render_normalized<'a>(
+        &self,
+        cx: &'a Cx,
+        page: TablePage<M>,
+        state: &NormalizedState,
+        path: &str,
+    ) -> Result<BoxView<'a>>
+    where
+        M: toasty::schema::Model + Send + Sync + 'static,
+    {
+        self.render_inner(cx, page, state, path, None).await
     }
 
     /// Render the interactive body for a live table (GH #151): the same
@@ -99,8 +121,25 @@ impl<M> Table<M> {
     where
         M: toasty::schema::Model + Send + Sync + 'static,
     {
-        let state = self.normalize_state(state);
-        self.render_inner(cx, page, &state, path, Some(signals))
+        self.render_live_normalized(cx, page, &self.normalize_state(state), path, signals)
+            .await
+    }
+
+    /// [`Self::render_live_with_state`] with the state already normalized
+    /// (GH #224): the `table_search` shard normalizes once and renders
+    /// through here.
+    pub(crate) async fn render_live_normalized<'a>(
+        &self,
+        cx: &'a Cx,
+        page: TablePage<M>,
+        state: &NormalizedState,
+        path: &str,
+        signals: TableSignals,
+    ) -> Result<BoxView<'a>>
+    where
+        M: toasty::schema::Model + Send + Sync + 'static,
+    {
+        self.render_inner(cx, page, state, path, Some(signals))
             .await
     }
 
@@ -108,7 +147,7 @@ impl<M> Table<M> {
         &self,
         cx: &'a Cx,
         page: TablePage<M>,
-        state: &TableState,
+        state: &NormalizedState,
         path: &str,
         signals: Option<TableSignals>,
     ) -> Result<BoxView<'a>>
@@ -168,259 +207,28 @@ impl<M> Table<M> {
         } else {
             None
         };
-        let bulk_bar_view: BoxView<'_> = if with_bulk {
-            let prefix = self.delete_prefix.clone().unwrap();
-            let bulk_action = bulk_delete_url(&prefix);
-            let csrf = crate::csrf::current_token(cx);
-            // Stable ids so the dialog's confirm button can submit this form
-            // from inside the dialog (GH #184).
-            let bulk_form_id = format!("{}-bulk-form", prefix.replace('/', "-"));
-            let bulk_dialog_id = format!("{bulk_form_id}-confirm");
-            let bulk_dialog_title_id = format!("{bulk_dialog_id}-title");
-            let bulk_dialog_description_id = format!("{bulk_dialog_id}-description");
-            // No visible `ids` field (GH #151): the transport is fed by the row
-            // checkboxes (`bulk.js`) and ships `,a,b,`-delimited. On a live
-            // table the selection lives in a signal instead (GH #166), so a
-            // shard rerun re-renders the transport from the selection rather
-            // than dropping it.
-            //
-            // The trigger ships enabled (GH #184): the confirmation dialog is
-            // what gates the write now, and it reads the selection when it
-            // opens, so an empty selection is answered by the dialog rather
-            // than by a disabled control whose state has to be kept in step
-            // across a live swap.
-            let transport_attrs = match &signals {
-                Some(signals) => {
-                    let bulk = signals.bulk.clone();
-                    attributes! {
-                        cx =>
-                        type="hidden"
-                        name="ids"
-                        :value=$(bulk.get())
-                        @change=$(|e: Event| bulk.set(e.target.value))
-                        data-bulk-ids=""
-                    }
-                }
-                None => attributes! { cx => type="hidden" name="ids" value="" data-bulk-ids="" },
-            };
-            view! {
-                cx =>
-                <form
-                    method="post"
-                    action=(bulk_action)
-                    class="flex gap-2 p-3 border-b border-border"
-                    data-bulk-form=""
-                    id=(bulk_form_id.clone())
-                >
-                    (crate::csrf::field(cx, &csrf))
-                    <input (transport_attrs)>
-                    button(
-                        variant: ButtonVariant::Destructive,
-                        size: ButtonSize::Md,
-                        attrs: attributes! { type="button" data-bulk-confirm-trigger="" },
-                        "Bulk Delete"
-                    )
-                    // Destructive confirm (GH #184): a batch is the one place a
-                    // misclick costs many rows, so it asks first — the same
-                    // alert-dialog pattern the row delete already uses
-                    // (GH #151).
-                    //
-                    // The dialog lives *inside* the bulk form so its `confirm`
-                    // marker ships with the same payload as the selection: the
-                    // confirm button is an ordinary submit of that form. The
-                    // handler refuses a POST without the marker, so the
-                    // guarantee does not rest on `bulk.js` running — the script
-                    // only opens the dialog and reports the selection size.
-                    //
-                    // Rendered closed and opened client-side (`showModal`)
-                    // rather than driven by a runtime signal: the trigger is
-                    // `type="button"`, so opening the dialog is not a
-                    // result-set change and must not reload the table.
-                    alert_dialog(
-                        open: false,
-                        attrs: attributes! {
-                            id=(bulk_dialog_id.clone())
-                            data-bulk-confirm-dialog=""
-                            aria-labelledby=(bulk_dialog_title_id.clone())
-                            aria-describedby=(bulk_dialog_description_id.clone())
-                        },
-                        dialog_content(
-                            dialog_header(
-                                dialog_title(
-                                    attrs: attributes! { id=(bulk_dialog_title_id.clone()) },
-                                    "Delete the selected records?"
-                                )
-                                dialog_description(
-                                    attrs: attributes! {
-                                        id=(bulk_dialog_description_id.clone())
-                                        data-bulk-confirm-description=""
-                                    },
-                                    "This action cannot be undone."
-                                )
-                            )
-                            dialog_footer(
-                                button(
-                                    variant: ButtonVariant::Outline,
-                                    size: ButtonSize::Md,
-                                    attrs: attributes! { type="button" data-dialog-close="" },
-                                    "Cancel"
-                                )
-                                <input type="hidden" name="confirm" value="1">
-                                button(
-                                    variant: ButtonVariant::Destructive,
-                                    size: ButtonSize::Md,
-                                    attrs: attributes! { type="submit" },
-                                    "Delete"
-                                )
-                            )
-                        )
-                    )
-                </form>
-            }
-            .boxed()
-        } else {
-            view! { cx => <span></span> }.boxed()
-        };
+        let bulk_bar_view = self.render_bulk_bar(cx, signals.as_ref());
         let pager = self
             .render_pager(cx, state, path, &page, signals.as_ref())
             .await?;
-        // Fail-visible filters (GH #93): requested filters that produced no
-        // predicate render as a `role=alert` banner; the list keeps a 200
-        // while the export refuses with 400 (see `resource_export`).
-        let filter_warning: Option<BoxView<'_>> = {
-            let unapplied = self.unapplied_filters(state);
-            if unapplied.is_empty() {
-                None
-            } else {
-                let detail = unapplied
-                    .iter()
-                    .map(|(pair, reason)| format!("{pair} ({reason})"))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                // No false tail: when other filters still apply, "unfiltered"
-                // would be a lie (GH #148 — a malformed segment can ride
-                // alongside valid ones). Conversely an invalid-only request
-                // applies nothing, so "other filter(s)" would be the lie
-                // (GH #170) — key off applied predicates, not raw entries.
-                let consequence = if self.filter_expr(state).is_none() {
-                    "showing unfiltered results"
-                } else {
-                    "other filter(s) still apply"
-                };
-                let text = format!("Ignored filter(s): {detail} — {consequence}.");
-                let clear = state.without_filters(path);
-                Some(
-                    view! {
-                        cx =>
-                        <div
-                            class="border-b border-destructive/30 bg-muted px-4 py-2 text-sm"
-                            role="alert"
-                        >
-                            (text)
-                            " "
-                            <a href=(clear) class="underline">"Clear filters"</a>
-                        </div>
-                    }
-                    .boxed(),
-                )
-            }
-        };
-        // Precompute the row presentation so template bodies capture only
-        // owned data — the lazy view outlives this call, so it must never
-        // borrow `self` or `page`.
-        //
-        // The per-row delete URL (GH #151) opens the confirmation dialog on
-        // the list page (`?delete=<key>`) instead of posting straight away.
-        // The per-row edit URL (GH #162, Filament's `recordActions`
-        // `EditAction`) links straight to `{prefix}/{key}/edit`.
-        //
-        // Both URLs — and the bulk checkbox values below — carry the *record*
-        // key (GH #168), resolved by handlers as the model's typed PK. The
-        // display `key` stays on keyed diffs and DOM ids.
-        // `record_id` can only be empty on chromeless tables (guarded above),
-        // which render no URLs and no bulk column to read it.
-        //
-        // The delete URL's shared parameters are encoded once for the whole
-        // page (GH #205): the filter transport is the expensive half of the
-        // projection, and rebuilding it per row is work a client can inflate
-        // with one oversized `?filters=`.
-        let delete_url_base = delete_prefix.as_ref().map(|_| state.row_url_base(path));
+        let filter_warning = self.render_filter_warning(cx, state, path);
         // The declared grouping, when `?group_by=` names it (GH #92). Read
-        // before the row loop so each row can carry its group label, which the
-        // page-local shim orders by below (GH #219).
+        // before the row projection so each row can carry its group label,
+        // which the page-local shim orders by (GH #219).
         let group_key = self.effective_group_key(state);
-        let mut row_data: Vec<RowView> = page
-            .rows
-            .iter()
-            .map(|row| {
-                let key = row_key(row);
-                let record_id = record_key.as_ref().map(|f| f(row)).unwrap_or_default();
-                let cells: Vec<String> = self
-                    .columns
-                    .iter()
-                    .map(|col| col.render_cell(row))
-                    .collect();
-                let edit_url = edit_prefix
-                    .as_ref()
-                    .map(|prefix| row_edit_url(prefix, &record_id));
-                let view_url = view_prefix
-                    .as_ref()
-                    .map(|prefix| row_view_url(prefix, &record_id));
-                let delete_url = delete_url_base
-                    .as_ref()
-                    .map(|base| base.delete_dialog(&record_id));
-                RowView {
-                    key,
-                    record_id,
-                    cells,
-                    view_url,
-                    edit_url,
-                    delete_url,
-                    group: group_key.as_ref().map(|group| group(row)),
-                    group_header: None,
-                }
-            })
-            .collect();
-        // Page-local grouping (GH #92/#219) is display-only: `group_by` is a
-        // bare key closure with no lens, so no `ORDER BY` is derivable and a
-        // group cannot span pages. The shim therefore reorders *this page's*
-        // rows by the group label — a stable sort, so rows keep the query's
-        // order inside their group — and hangs each group's header off its
-        // first row, which the table body renders immediately above it. The
-        // query, its cursors and the export keep the declared ordering.
-        if group_key.is_some() {
-            row_data.sort_by(|a, b| a.group.cmp(&b.group));
-            let mut start = 0;
-            while start < row_data.len() {
-                let label = row_data[start].group.clone().unwrap_or_default();
-                let mut end = start;
-                while end < row_data.len() && row_data[end].group.as_deref() == Some(label.as_str())
-                {
-                    end += 1;
-                }
-                // The count is page-local, and says so: a group split across
-                // pages must not read as a table total (GH #92). The header
-                // carries an id derived from its label — never from its
-                // position — so the in-place morph can follow it (GH #104).
-                row_data[start].group_header = Some(GroupHeader {
-                    dom_id: group_header_dom_id(&label),
-                    text: format!("{label} ({} on this page)", end - start),
-                });
-                start = end;
-            }
-        }
-        // Row keys must be injective within a page (GH #96): duplicates corrupt
-        // keyed diffs and bulk selection (two rows, one checkbox value).
-        debug_assert!(
-            {
-                let mut seen = std::collections::HashSet::new();
-                row_data.iter().all(|row| seen.insert(row.key.clone()))
-            },
-            "duplicate Table::id keys in one page: Table::id must be injective"
+        let row_data = self.row_views(
+            state,
+            path,
+            &page,
+            &row_key,
+            record_key.as_ref(),
+            group_key.as_ref(),
         );
         // The confirmation dialog lives with the delete chrome (GH #151); the
         // live-search page renders it outside the shard region instead.
-        let delete_dialog = self.render_delete_dialog(cx, state, path).await?;
+        let delete_dialog = self
+            .render_delete_dialog_normalized(cx, state, path)
+            .await?;
 
         // Body-only branch (GH #133): the empty and rows pages share the one
         // chrome wrapper built below — only the table body differs. Group
@@ -569,6 +377,285 @@ impl<M> Table<M> {
         Ok(view! { cx => <div data-boundary="table">(inner)</div> }.boxed())
     }
 
+    /// The bulk-delete bar and its confirmation dialog (GH #184), or the
+    /// placeholder that keeps the chrome's node order stable when
+    /// [`Self::bulk_enabled`] is off.
+    ///
+    /// One destructive form for the whole page: the transport is fed by the
+    /// row checkboxes (`bulk.js`) and ships `,a,b,`-delimited, while on a live
+    /// table the selection lives in a signal instead (GH #166), so a shard
+    /// rerun re-renders the transport from the selection rather than dropping
+    /// it. The trigger ships enabled (GH #184): the confirmation dialog gates
+    /// the write and reads the selection when it opens, so an empty selection
+    /// is answered by the dialog rather than by a disabled control whose state
+    /// has to be kept in step across a live swap.
+    ///
+    /// The dialog lives *inside* the form so its `confirm` marker ships with
+    /// the same payload as the selection — the confirm button is an ordinary
+    /// submit of that form, and the handler refuses a POST without the marker.
+    /// It renders closed and opens client-side (`showModal`) rather than
+    /// through a runtime signal: the trigger is `type="button"`, so opening
+    /// the dialog is not a result-set change and must not reload the table.
+    fn render_bulk_bar<'a>(&self, cx: &'a Cx, signals: Option<&TableSignals>) -> BoxView<'a> {
+        if !self.bulk_enabled() {
+            return view! { cx => <span></span> }.boxed();
+        }
+        let prefix = self
+            .delete_prefix
+            .clone()
+            .expect("bulk chrome rides the delete prefix (see bulk_enabled)");
+        let bulk_action = bulk_delete_url(&prefix);
+        let csrf = crate::csrf::current_token(cx);
+        // Stable ids so the dialog's confirm button can submit this form
+        // from inside the dialog (GH #184).
+        let bulk_form_id = format!("{}-bulk-form", prefix.replace('/', "-"));
+        let bulk_dialog_id = format!("{bulk_form_id}-confirm");
+        let bulk_dialog_title_id = format!("{bulk_dialog_id}-title");
+        let bulk_dialog_description_id = format!("{bulk_dialog_id}-description");
+        // No visible `ids` field (GH #151): the transport is fed by the row
+        // checkboxes (`bulk.js`) and ships `,a,b,`-delimited. On a live
+        // table the selection lives in a signal instead (GH #166), so a
+        // shard rerun re-renders the transport from the selection rather
+        // than dropping it.
+        let transport_attrs = match signals {
+            Some(signals) => {
+                let bulk = signals.bulk.clone();
+                attributes! {
+                    cx =>
+                    type="hidden"
+                    name="ids"
+                    :value=$(bulk.get())
+                    @change=$(|e: Event| bulk.set(e.target.value))
+                    data-bulk-ids=""
+                }
+            }
+            None => attributes! { cx => type="hidden" name="ids" value="" data-bulk-ids="" },
+        };
+        view! {
+            cx =>
+            <form
+                method="post"
+                action=(bulk_action)
+                class="flex gap-2 p-3 border-b border-border"
+                data-bulk-form=""
+                id=(bulk_form_id.clone())
+            >
+                (crate::csrf::field(cx, &csrf))
+                <input (transport_attrs)>
+                button(
+                    variant: ButtonVariant::Destructive,
+                    size: ButtonSize::Md,
+                    attrs: attributes! { type="button" data-bulk-confirm-trigger="" },
+                    "Bulk Delete"
+                )
+                // Destructive confirm (GH #184): a batch is the one place a
+                // misclick costs many rows, so it asks first — the same
+                // alert-dialog pattern the row delete already uses (GH #151).
+                alert_dialog(
+                    open: false,
+                    attrs: attributes! {
+                        id=(bulk_dialog_id.clone())
+                        data-bulk-confirm-dialog=""
+                        aria-labelledby=(bulk_dialog_title_id.clone())
+                        aria-describedby=(bulk_dialog_description_id.clone())
+                    },
+                    dialog_content(
+                        dialog_header(
+                            dialog_title(
+                                attrs: attributes! { id=(bulk_dialog_title_id.clone()) },
+                                "Delete the selected records?"
+                            )
+                            dialog_description(
+                                attrs: attributes! {
+                                    id=(bulk_dialog_description_id.clone())
+                                    data-bulk-confirm-description=""
+                                },
+                                "This action cannot be undone."
+                            )
+                        )
+                        dialog_footer(
+                            button(
+                                variant: ButtonVariant::Outline,
+                                size: ButtonSize::Md,
+                                attrs: attributes! { type="button" data-dialog-close="" },
+                                "Cancel"
+                            )
+                            <input type="hidden" name="confirm" value="1">
+                            button(
+                                variant: ButtonVariant::Destructive,
+                                size: ButtonSize::Md,
+                                attrs: attributes! { type="submit" },
+                                "Delete"
+                            )
+                        )
+                    )
+                )
+            </form>
+        }
+        .boxed()
+    }
+
+    /// Project the loaded page into the row presentation the template renders
+    /// (GH #92, GH #96, GH #151, GH #162, GH #168, GH #205, GH #219).
+    ///
+    /// Precomputed so template bodies capture only owned data — the lazy view
+    /// outlives the render call, so it must never borrow `self` or `page`.
+    ///
+    /// The per-row delete URL (GH #151) opens the confirmation dialog on the
+    /// list page (`?delete=<key>`) instead of posting straight away; the
+    /// per-row edit URL (GH #162, Filament's `recordActions` `EditAction`)
+    /// links straight to `{prefix}/{key}/edit`. Both — and the bulk checkbox
+    /// values — carry the *record* key (GH #168), resolved by handlers as the
+    /// model's typed PK; the display `key` stays on keyed diffs and DOM ids.
+    /// `record_id` can only be empty on chromeless tables (guarded by the
+    /// caller), which render no URLs and no bulk column to read it.
+    ///
+    /// The delete URL's shared parameters are encoded once for the whole page
+    /// (GH #205): the filter transport is the expensive half of the
+    /// projection, and rebuilding it per row is work a client can inflate with
+    /// one oversized `?filters=`.
+    ///
+    /// Page-local grouping (GH #92/#219) is display-only: `group_by` is a bare
+    /// key closure with no lens, so no `ORDER BY` is derivable and a group
+    /// cannot span pages. The shim therefore reorders *this page's* rows by the
+    /// group label — a stable sort, so rows keep the query's order inside their
+    /// group — and hangs each group's header off its first row, which the table
+    /// body renders immediately above it. The query, its cursors and the export
+    /// keep the declared ordering.
+    ///
+    /// Row keys must be injective within a page (GH #96): duplicates corrupt
+    /// keyed diffs and bulk selection (two rows, one checkbox value).
+    fn row_views(
+        &self,
+        state: &NormalizedState,
+        path: &str,
+        page: &TablePage<M>,
+        row_key: &RowKey<M>,
+        record_key: Option<&RowKey<M>>,
+        group_key: Option<&GroupKey<M>>,
+    ) -> Vec<RowView>
+    where
+        M: toasty::schema::Model,
+    {
+        let delete_url_base = self
+            .delete_prefix
+            .as_ref()
+            .map(|_| state.row_url_base(path));
+        let mut row_data: Vec<RowView> = page
+            .rows
+            .iter()
+            .map(|row| {
+                let key = row_key(row);
+                let record_id = record_key.map(|f| f(row)).unwrap_or_default();
+                let cells: Vec<String> = self
+                    .columns
+                    .iter()
+                    .map(|col| col.render_cell(row))
+                    .collect();
+                let edit_url = self
+                    .edit_prefix
+                    .as_ref()
+                    .map(|prefix| row_edit_url(prefix, &record_id));
+                let view_url = self
+                    .view_prefix
+                    .as_ref()
+                    .map(|prefix| row_view_url(prefix, &record_id));
+                let delete_url = delete_url_base
+                    .as_ref()
+                    .map(|base| base.delete_dialog(&record_id));
+                RowView {
+                    key,
+                    record_id,
+                    cells,
+                    view_url,
+                    edit_url,
+                    delete_url,
+                    group: group_key.map(|group| group(row)),
+                    group_header: None,
+                }
+            })
+            .collect();
+        if group_key.is_some() {
+            row_data.sort_by(|a, b| a.group.cmp(&b.group));
+            let mut start = 0;
+            while start < row_data.len() {
+                let label = row_data[start].group.clone().unwrap_or_default();
+                let mut end = start;
+                while end < row_data.len() && row_data[end].group.as_deref() == Some(label.as_str())
+                {
+                    end += 1;
+                }
+                // The count is page-local, and says so: a group split across
+                // pages must not read as a table total (GH #92). The header
+                // carries an id derived from its label — never from its
+                // position — so the in-place morph can follow it (GH #104).
+                row_data[start].group_header = Some(GroupHeader {
+                    dom_id: group_header_dom_id(&label),
+                    text: format!("{label} ({} on this page)", end - start),
+                });
+                start = end;
+            }
+        }
+        debug_assert!(
+            {
+                let mut seen = std::collections::HashSet::new();
+                row_data.iter().all(|row| seen.insert(row.key.clone()))
+            },
+            "duplicate Table::id keys in one page: Table::id must be injective"
+        );
+        row_data
+    }
+
+    /// The fail-visible filter banner (GH #93): requested filters that produced
+    /// no predicate render as a `role=alert` banner; the list keeps a 200 while
+    /// the export refuses with 400 (see `resource_export`).
+    ///
+    /// No false tail: when other filters still apply, "unfiltered" would be a
+    /// lie (GH #148 — a malformed segment can ride alongside valid ones).
+    /// Conversely an invalid-only request applies nothing, so "other filter(s)"
+    /// would be the lie (GH #170) — the consequence keys off applied
+    /// predicates, not raw entries.
+    fn render_filter_warning<'a>(
+        &self,
+        cx: &'a Cx,
+        state: &NormalizedState,
+        path: &str,
+    ) -> Option<BoxView<'a>>
+    where
+        M: toasty::schema::Model,
+    {
+        let unapplied = self.unapplied_filters(state);
+        if unapplied.is_empty() {
+            return None;
+        }
+        let detail = unapplied
+            .iter()
+            .map(|(pair, reason)| format!("{pair} ({reason})"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let consequence = if self.filter_expr(state).is_none() {
+            "showing unfiltered results"
+        } else {
+            "other filter(s) still apply"
+        };
+        let text = format!("Ignored filter(s): {detail} — {consequence}.");
+        let clear = state.without_filters(path);
+        Some(
+            view! {
+                cx =>
+                <div
+                    class="border-b border-destructive/30 bg-muted px-4 py-2 text-sm"
+                    role="alert"
+                >
+                    (text)
+                    " "
+                    <a href=(clear) class="underline">"Clear filters"</a>
+                </div>
+            }
+            .boxed(),
+        )
+    }
+
     /// The row-delete confirmation dialog (GH #151), rendered when the URL
     /// asks for one and [`Self::with_delete`] wired the delete route.
     ///
@@ -596,7 +683,19 @@ impl<M> Table<M> {
         state: &TableState,
         path: &str,
     ) -> Result<Option<BoxView<'a>>> {
-        let state = self.normalize_state(state);
+        self.render_delete_dialog_normalized(cx, &self.normalize_state(state), path)
+            .await
+    }
+
+    /// [`Self::render_delete_dialog`] with the state already normalized
+    /// (GH #224): `render_inner` and the panel's live page both render the
+    /// dialog from the one state the request normalized.
+    pub(crate) async fn render_delete_dialog_normalized<'a>(
+        &self,
+        cx: &'a Cx,
+        state: &NormalizedState,
+        path: &str,
+    ) -> Result<Option<BoxView<'a>>> {
         let Some(prefix) = self.delete_prefix.as_deref() else {
             return Ok(None);
         };
@@ -672,14 +771,28 @@ impl<M> Table<M> {
         let state = TableState::from_cx(cx);
         // Same normalization as the table seams (GH #153): the placeholder
         // header links must not echo an unknown `?group_by=`.
-        let state = self.normalize_state(&state);
+        self.render_skeleton_normalized(cx, &self.normalize_state(&state))
+            .await
+    }
+
+    /// [`Self::render_skeleton`] with the state already normalized (GH #224):
+    /// the panel parses and normalizes once per request and renders the
+    /// streamed placeholder from that same state.
+    pub(crate) async fn render_skeleton_normalized<'a>(
+        &self,
+        cx: &'a Cx,
+        state: &NormalizedState,
+    ) -> Result<BoxView<'a>>
+    where
+        M: toasty::schema::Model,
+    {
         let path = topcoat::context::try_request_context::<http::request::Parts>(cx)
             .map(|parts| parts.uri.path().to_string())
             .unwrap_or_default();
         let head = self
             .render_thead(
                 cx,
-                &state,
+                state,
                 &path,
                 self.delete_prefix.is_some() || self.edit_prefix.is_some(),
                 self.bulk_enabled(),
@@ -837,8 +950,21 @@ impl<M> Table<M> {
     ) -> Result<BoxView<'a>> {
         // Called directly with raw state (panel live page, showcase demos):
         // normalize for the `<noscript>` fallback links (GH #153).
-        let state = self.normalize_state(state);
-        let fallback = self.render_search_bar(cx, &state, path).await?;
+        self.render_live_search_bar_normalized(cx, &self.normalize_state(state), path, signals)
+            .await
+    }
+
+    /// [`Self::render_live_search_bar`] with the state already normalized
+    /// (GH #224): the panel's live page renders the toolbar from the request's
+    /// one normalized state.
+    pub(crate) async fn render_live_search_bar_normalized<'a>(
+        &self,
+        cx: &'a Cx,
+        state: &NormalizedState,
+        path: &str,
+        signals: &TableSignals,
+    ) -> Result<BoxView<'a>> {
+        let fallback = self.render_search_bar(cx, state, path).await?;
         let q_display = state.search.clone().unwrap_or_default();
         let q = signals.q.clone();
         let cursor = signals.cursor.clone();
@@ -937,9 +1063,24 @@ impl<M> Table<M> {
     {
         // Called with raw page state (GH #153): normalize so the no-JS
         // fallback form carries the same normalized values the GET path would.
-        let state = self.normalize_state(state);
-        self.render_filter_bar(cx, &state, path, Some(signals))
+        self.render_live_filter_bar_normalized(cx, &self.normalize_state(state), path, signals)
             .await
+    }
+
+    /// [`Self::render_live_filter_bar`] with the state already normalized
+    /// (GH #224): the panel's live page renders the hoisted bar from the
+    /// request's one normalized state.
+    pub(crate) async fn render_live_filter_bar_normalized<'a>(
+        &self,
+        cx: &'a Cx,
+        state: &NormalizedState,
+        path: &str,
+        signals: &TableSignals,
+    ) -> Result<BoxView<'a>>
+    where
+        M: toasty::schema::Model,
+    {
+        self.render_filter_bar(cx, state, path, Some(signals)).await
     }
 
     /// The typed filter bar. For live tables (`signals`) the hidden `filters`

@@ -36,7 +36,7 @@ pub use navigation::{NavTarget, NavigationItem};
 pub use relation::{IntoRelationColumns, RelationColumn, RelationColumns, render_relation};
 pub(crate) use state::{
     BULK_DELETE_ROUTE_SEGMENT, CREATE_ROUTE_SEGMENT, DELETE_ROUTE_SEGMENT, EDIT_ROUTE_SEGMENT,
-    RECORD_ROUTE_PARAM, create_page_url, cursor_after, cursor_before, cursor_none, split_cursor,
+    RECORD_ROUTE_PARAM, create_page_url, cursor_after, cursor_before, cursor_none,
 };
 pub use state::{Sort, TablePage, TableSignals, TableState};
 #[cfg(test)]

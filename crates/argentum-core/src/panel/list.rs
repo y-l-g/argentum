@@ -199,32 +199,30 @@ pub(crate) fn resource_list<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
             return Ok(resource_list_live::<R>(cx, table, state, title, list_path));
         }
 
-        // First content: the skeleton table (`Table::render_skeleton`), while
-        // the rows load below. The load catches its own errors: post-stream
+        // First content: the skeleton table
+        // (`Table::render_skeleton_normalized`), while the rows load below.
+        // The load catches its own errors: post-stream
         // the status line is fixed, so a failed load must render the branded
         // ErrorState inside the region instead of truncating the body.
         // Pre-stream failures (e.g. the skeleton itself) still propagate and
         // map onto the response status. (For children that partially stream
         // before failing, topcoat's `error_boundary` is the replace-in-place
         // seam.)
-        let skeleton = table.render_skeleton(cx).await?;
-        // Normalize once for the closure (GH #153): the retry link must not
-        // echo an unknown `?group_by=`. The render re-normalizes internally.
+        //
+        // One normalization per request (GH #224): the skeleton, the load,
+        // the render and the retry link all read the state this page parsed,
+        // so it normalizes here and every seam below takes the proof (GH
+        // #153: the retry link must not echo an unknown `?group_by=`).
         let state = table.normalize_state(&state);
+        let skeleton = table.render_skeleton_normalized(cx, &state).await?;
         let lazy_rows = ThenView::new(async move {
             let rendered = async {
                 let page = load_table_page::<R>(cx, &table, &state).await?;
-                table.render(cx, page).await
+                table.render_normalized(cx, page, &state, &list_path).await
             };
             match rendered.await {
                 Ok(view) => Ok(view),
-                Err(error) => Ok(table_error_view::<R>(
-                    cx,
-                    &state,
-                    &error,
-                    &list_url(cx, &R::slug()),
-                    None,
-                )),
+                Err(error) => Ok(table_error_view::<R>(cx, &state, &error, &list_path, None)),
             }
         });
 
@@ -260,9 +258,9 @@ pub(crate) fn resource_list<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
 
 /// Live list page for `Table::live_search` tables (GH #104, GH #151): the
 /// page owns the interaction signals (`q`, `filters`, `sort`, `dir`,
-/// `after`, `before`, `group_by`) and renders the search toolbar eagerly above the
-/// streamed region while the `table_search` shard invocation fills the table
-/// below — one table per response, so rows can never duplicate. Every
+/// `cursor`, `group_by`, `bulk`) and renders the search toolbar eagerly above
+/// the streamed region while the `table_search` shard invocation fills the
+/// table below — one table per response, so rows can never duplicate. Every
 /// interaction writes a signal, so search, sort, filters, and pagination
 /// re-render only the invocation output, morphing in place with focus and
 /// scroll surviving.
@@ -274,39 +272,19 @@ pub(crate) fn resource_list_live<R: Resource>(
     list_path: String,
 ) -> BoxView<'_> {
     Box::pin(HoistView::new(ThenView::new(async move {
-        use crate::resource::TableSignals;
-        use topcoat::runtime::signal;
-
-        let signals = TableSignals {
-            q: signal(cx, || state.search.clone().unwrap_or_default()),
-            filters: signal(cx, || state.filters_param().unwrap_or_default()),
-            sort: signal(cx, || {
-                state
-                    .sort
-                    .as_ref()
-                    .map(|s| s.column.clone())
-                    .unwrap_or_default()
-            }),
-            dir: signal(cx, || {
-                state
-                    .sort
-                    .as_ref()
-                    .map(|s| if s.descending { "desc" } else { "asc" })
-                    .unwrap_or("asc")
-                    .to_string()
-            }),
-            cursor: signal(cx, || match (&state.after, &state.before) {
-                (Some(token), _) => crate::resource::cursor_after(token),
-                (None, Some(token)) => crate::resource::cursor_before(token),
-                (None, None) => crate::resource::cursor_none(),
-            }),
-            group_by: signal(cx, || state.group_by.clone().unwrap_or_default()),
-            bulk: signal(cx, String::new),
-        };
+        // One state→signal conversion (GH #224), seeded from the state the
+        // page parsed — before normalizing, so an unknown `?group_by=` seeds
+        // the signal as written and is dropped on the way back in.
+        let signals = state.to_signals(cx);
+        // One normalization per request (GH #224): the toolbar, the hoisted
+        // filter bar, the skeleton, the dialog and the retry link all read
+        // the state this page parsed, so it normalizes here and every seam
+        // below takes the proof (GH #153: no unknown `?group_by=` in a link).
+        let state = table.normalize_state(&state);
         let host = if table.search_enabled() {
             Some(
                 table
-                    .render_live_search_bar(cx, &state, &list_path, &signals)
+                    .render_live_search_bar_normalized(cx, &state, &list_path, &signals)
                     .await?,
             )
         } else {
@@ -318,25 +296,24 @@ pub(crate) fn resource_list_live<R: Resource>(
         let filter_bar = if table.filter_bar_enabled() {
             Some(
                 table
-                    .render_live_filter_bar(cx, &state, &list_path, &signals)
+                    .render_live_filter_bar_normalized(cx, &state, &list_path, &signals)
                     .await?,
             )
         } else {
             None
         };
-        let skeleton = table.render_skeleton(cx).await?;
+        let skeleton = table.render_skeleton_normalized(cx, &state).await?;
         // The delete confirmation dialog is not part of the swapped table
         // region: a keystroke starts a new result set and must never carry
         // (or re-open) a dialog, so the live page renders it eagerly once
         // (GH #151).
-        let delete_dialog = table.render_delete_dialog(cx, &state, &list_path).await?;
+        let delete_dialog = table
+            .render_delete_dialog_normalized(cx, &state, &list_path)
+            .await?;
         // Create entry point (GH #162): same header button as the streamed
         // list — a real link above the swapped region, gated on `can_create`.
         let create_url = R::can_create(cx).then(|| create_page_url(&list_path));
         let create_label = format!("Create {}", R::navigation_label());
-        // Normalize once for the closure (GH #153): the retry link must not
-        // echo an unknown `?group_by=`. The invocation normalizes internally.
-        let state = table.normalize_state(&state);
         let lazy_rows = ThenView::new(async move {
             // The retry link inside the table writes the same signals the
             // toolbar does (GH #166), so a bad cursor recovers in place.

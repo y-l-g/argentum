@@ -18,7 +18,23 @@ use topcoat::{
 
 use super::list::{load_table_page, table_error_view, wire_table_actions};
 use super::{enforce_auth, enforce_tenant};
-use crate::resource::{Resource, TableState};
+use crate::resource::{Resource, TableSignals};
+
+/// One live-table shard invocation (GH #224): the list path the page asks for
+/// and the interaction signals it owns.
+///
+/// The one argument the shard's *handler* takes. The `#[shard]` entry packs
+/// its wire parameters into this, and every seam below — the registry lookup,
+/// the state rebuild, the load, the render, and the retry link — reads the
+/// same value, so a new interaction dimension never changes a signature
+/// here.
+pub(crate) struct TableSearchArgs {
+    /// The list path to rerun: resolved through the registry (an allow-list,
+    /// never a raw route).
+    pub(crate) path: String,
+    /// The page's signals, untrusted by the time the shard reads them back.
+    pub(crate) signals: TableSignals,
+}
 
 /// A monomorphized live-search table loader, one per declared resource.
 ///
@@ -28,9 +44,7 @@ use crate::resource::{Resource, TableState};
 pub(crate) type SearchFn = Arc<
     dyn for<'a> Fn(
             &'a Cx,
-            TableState,
-            String,
-            crate::resource::TableSignals,
+            TableSearchArgs,
         ) -> Pin<Box<dyn Future<Output = Result<BoxView<'a>>> + Send + 'a>>
         + Send
         + Sync,
@@ -52,9 +66,7 @@ pub(crate) struct SearchRegistry(pub(crate) HashMap<String, SearchFn>);
 pub(crate) fn search_handler_for<R: Resource>() -> SearchFn {
     Arc::new(
         |cx: &Cx,
-         state: TableState,
-         path: String,
-         signals: crate::resource::TableSignals|
+         args: TableSearchArgs|
          -> Pin<Box<dyn Future<Output = Result<BoxView<'_>>> + Send + '_>> {
             Box::pin(async move {
                 enforce_auth(cx)?;
@@ -63,17 +75,22 @@ pub(crate) fn search_handler_for<R: Resource>() -> SearchFn {
                     return Err(forbidden().into());
                 }
                 let table = wire_table_actions::<R>(cx, true);
-                // Normalize once (GH #153): the shard `group_by` arg is
-                // client input — an unknown value must not echo through the
-                // retry link. The render re-normalizes internally.
-                let state = table.normalize_state(&state);
+                let TableSearchArgs { path, signals } = args;
+                // One shared bound and one normalization per request (GH
+                // #148, GH #206, GH #224): `TableSignals::to_state` applies
+                // the same `q` clamp and `filters` bound the GET path applies
+                // (GH #205), and the shard `group_by` arg is client input — an
+                // unknown value must not echo through the retry link
+                // (GH #153). The render below takes the proof and does not
+                // normalize again.
+                let state = table.normalize_state(&signals.to_state());
                 // The retry link inside a failed table writes the same signals
                 // the toolbar does (GH #166), so keep a handle for it.
                 let retry_signals = signals.clone();
                 let rendered = async {
                     let page = load_table_page::<R>(cx, &table, &state).await?;
                     table
-                        .render_live_with_state(cx, page, &state, &path, signals)
+                        .render_live_normalized(cx, page, &state, &path, signals)
                         .await
                 };
                 match rendered.await {
@@ -115,7 +132,7 @@ fn search_entry(cx: &Cx, path: &str) -> Result<SearchFn> {
 ///
 /// Every arg is untrusted shard input: `path` must name a registered list
 /// (allow-list, never a raw route), and every signal value is clamped or
-/// re-parsed through [`TableState::from_live_args`] like the GET path.
+/// re-parsed through [`TableSignals::to_state`] like the GET path.
 /// Authorization mirrors the list page (`requires_tenant` + `can_view_any`,
 /// row scoping via the tenant-scoped query, GH #223); shard POSTs carry no
 /// CSRF token, and
@@ -123,8 +140,19 @@ fn search_entry(cx: &Cx, path: &str) -> Result<SearchFn> {
 /// no-JS fallback.
 ///
 /// The module exists only to carry `allow(too_many_arguments)`: the shard's
-/// arity is its dependency list (one signal per interaction), and the macro
-/// expands the handler past the lint's default.
+/// arity *is* the interaction list — one named parameter per dimension — and
+/// that exceeds the lint's default before the macro adds the ambient context.
+///
+/// The wire stays scalar by choice, not by necessity (GH #224). A struct
+/// cannot travel as a shard argument at all (topcoat requires the `expr!`
+/// vocabulary, and a struct has no `Surrogated` surrogate the browser's
+/// `cx.hydrate` can rebuild), but a *list* can: `Vec<Signal<String>>` and
+/// `[Signal<String>; N]` are both vocabulary types that round-trip. Packing
+/// the dimensions into one is still refused, because a list couples the
+/// browser to this server's ordering — adding or reordering a dimension would
+/// silently mismatch the two halves, where a named parameter cannot. So the
+/// handler packs its named parameters into [`TableSearchArgs`] for everything
+/// *below* the shard, and the wire keeps naming each dimension.
 #[allow(clippy::too_many_arguments)]
 mod shard_body {
     use super::*;
@@ -142,30 +170,24 @@ mod shard_body {
         bulk: topcoat::runtime::Signal<String>,
     ) -> Result<impl View> {
         let entry = search_entry(cx, &path)?;
-        let signals = crate::resource::TableSignals {
-            q,
-            filters,
-            sort,
-            dir,
-            cursor,
-            group_by,
-            bulk,
-        };
-        // One shared bound (GH #148, GH #206): `TableState::from_live_args`
-        // applies the same `q` clamp and `filters` bound the GET path applies
-        // (GH #205), so a term or transport too large for the URL is too large
-        // here. The cursor travels as one signal (GH #166), so the pair the
-        // loader rejects (GH #155) can no longer be written from the browser at
-        // all; a token that does not decode still fails loudly (GH #158).
-        let mut state = TableState::from_live_args(
-            &signals.q.get(),
-            &signals.filters.get(),
-            &signals.sort.get(),
-            &signals.dir.get(),
-            &signals.group_by.get(),
-        );
-        (state.after, state.before) = crate::resource::split_cursor(&signals.cursor.get());
-        entry(cx, state, path, signals).await
+        // One argument struct from here down (GH #224): the handler owns the
+        // wire arity, nothing below it does.
+        entry(
+            cx,
+            TableSearchArgs {
+                path,
+                signals: TableSignals {
+                    q,
+                    filters,
+                    sort,
+                    dir,
+                    cursor,
+                    group_by,
+                    bulk,
+                },
+            },
+        )
+        .await
     }
 }
 pub(crate) use shard_body::table_search;

@@ -70,6 +70,29 @@ impl TableChrome {
     }
 }
 
+/// A [`TableState`] whose `group_by` has already been checked against the
+/// table's declared grouping (GH #92, GH #153).
+///
+/// [`Table::normalize_state`] is the only constructor, so a seam that takes
+/// one reads the pre-normalized `group_by` directly and cannot normalize a
+/// second time — or forget to normalize at all (GH #224). The request entry
+/// builds it once (the panel's list page, the `table_search` shard) and every
+/// seam below takes this proof; the public render seams keep accepting a raw
+/// `&TableState` and normalize it themselves, so an external page calling them
+/// directly is unaffected.
+///
+/// Derefs to [`TableState`], so the seams that only read state keep their
+/// `&TableState` signatures.
+pub(crate) struct NormalizedState(TableState);
+
+impl std::ops::Deref for NormalizedState {
+    type Target = TableState;
+
+    fn deref(&self) -> &TableState {
+        &self.0
+    }
+}
+
 /// How [`Table::order_bys_for`] falls back when `?sort=` names no sortable
 /// column (GH #210): the one axis the list loader and the CSV export
 /// legitimately disagree on.
@@ -346,17 +369,19 @@ impl<M> Table<M> {
     /// #153): an unknown `?group_by=` value renders no group headers and is
     /// dropped from every link instead of round-tripping.
     ///
-    /// Each render seam normalizes at its own entry (`render_with_state`,
-    /// `render_live_with_state`, `render_delete_dialog`,
-    /// `render_live_search_bar`, `render_live_invocation`, `render_skeleton`,
-    /// the shard handler, and the panel retry closures), so downstream links
-    /// read the pre-normalized `state.group_by` field directly.
-    pub(crate) fn normalize_state(&self, state: &TableState) -> TableState {
+    /// The request entry normalizes **once** and every render seam below takes
+    /// the proof ([`NormalizedState`]): the panel's list page and the
+    /// `table_search` shard normalize at the point they parse the state, and
+    /// pass the result down, so a live list request normalizes once instead of
+    /// once per seam (GH #224). The public seams still normalize their own
+    /// `&TableState` argument, so a page calling them directly keeps the GH
+    /// #153 guarantee without knowing about this type.
+    pub(crate) fn normalize_state(&self, state: &TableState) -> NormalizedState {
         let mut out = state.clone();
         if self.group_by.as_ref().map(|def| def.name.as_str()) != out.group_by.as_deref() {
             out.group_by = None;
         }
-        out
+        NormalizedState(out)
     }
 
     /// Enable real cursor pagination with the given page size.
