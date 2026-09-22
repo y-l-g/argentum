@@ -2,17 +2,22 @@
 
 > **Admin toolkit for Rust**, server-rendered on **Topcoat** (UI and reactivity) and **Toasty** (ORM). Filament-style Panel plus Resource, tables, and forms, with no SPA build step.
 
-Repo layout:
+[![CI](https://github.com/y-l-g/argentum/actions/workflows/ci.yml/badge.svg)](https://github.com/y-l-g/argentum/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-```
-argentum/
-  crates/argentum-core/    # Panel, Resource trait, Table and Schema types, auth, tenancy
-  crates/argentum-macros/  # derive(EmbeddedForm) for embedded values (GH #191)
-  crates/argentum-ui/      # Topcoat primitives plus owned composites (Page, Toast, Theme, ErrorState)
-  examples/showcase/       # runnable admin: /admin/users, /admin/authors, /admin/posts
-  benchmarks/              # perf harness plus axum-maud and leptos baselines
-  docs/adr/                # design notes; CONTEXT.md is the vocabulary
-```
+## What it is
+
+- Server-rendered HTML with `view!` and `#[component]`. No SPA, no WASM bundle.
+- Typed end to end: Toasty model to query to table and form. A bad column name fails to compile.
+- A Topcoat app: layouts, `href!`, `Cx`, `#[memoize]`, small `$(...)` expressions.
+- Fast by default: concurrent renders, preloaded relations, cursor pagination.
+
+It is deliberately not:
+
+- Not a Livewire port. No string state paths, no reflection DI, no Blade partials.
+- Not driver-agnostic in v1. The workspace targets Toasty over SQLite.
+- Not a client framework. Anything that needs the DB renders on the server.
+
+## Quick start
 
 Run the showcase:
 
@@ -20,27 +25,6 @@ Run the showcase:
 cargo run -p showcase
 # open http://localhost:3000/admin/users
 ```
-
----
-
-## 1. What it is / is not
-
-Is:
-
-- Server-rendered HTML with `view!` and `#[component]`. No SPA, no WASM bundle.
-- Typed end to end: Toasty model to query to table and form. A bad column name fails to compile.
-- Fast by default: concurrent renders, preloaded relations, cursor pagination.
-- A Topcoat app: layouts, `href!`, `Cx`, `#[memoize]`, small `$(...)` expressions.
-
-Is not:
-
-- Not a Livewire port. No string state paths, no reflection DI, no Blade partials.
-- Not driver-agnostic in v1. The workspace targets Toasty over SQLite.
-- Not a client framework. Anything that needs the DB renders on the server.
-
----
-
-## 2. Quick start
 
 Define a resource, register it on a panel, delegate the layout:
 
@@ -65,7 +49,7 @@ impl Resource for UserResource {
 
 List-only minimal: writes stay 403 and create/edit render empty until you add
 `can_create` / `can_update` / `can_delete`, `form()`, and the
-`create_record` / `update_record` fns (see §4).
+`create_record` / `update_record` fns (see the [resources chapter](docs/guide/src/resources.md)).
 
 ```rust
 #[layout("/admin")]
@@ -78,7 +62,8 @@ fn router(db: toasty::Db) -> Router {
         .app_context(db)
         .resource::<UserResource>()
         // Minimal example: auth off. With default auth on, register
-        // `AdminUser` + `AuthSession` in `toasty::models!` instead (see §7).
+        // `AdminUser` + `AuthSession` in `toasty::models!` instead
+        // (see the policy, auth, tenancy chapter).
         .auth(Auth::disabled())
         .build().expect("panel builds")
 }
@@ -86,497 +71,47 @@ fn router(db: toasty::Db) -> Router {
 
 See `examples/showcase/src/app.rs` for the full version with forms, filters, and tenancy.
 
----
-
-## 3. Panel and routing
-
-`Panel` owns the router, the `Db` in app context, and the shell layout. Registering a resource adds its routes and its sidebar item.
-
-Routes for a resource with slug `users` under prefix `admin`:
-
-- `GET /admin/users` : list
-- `GET + POST /admin/users/create` : create
-- `GET + POST /admin/users/{id}/edit` : edit
-- `POST /admin/users/{id}/delete` : delete with confirm step
-- `POST /admin/users/bulk-delete` : bulk delete
-- `GET /admin/users/export` : CSV export
-- `GET /admin` redirects to the first resource
-
-Useful panel options:
-
-```rust
-Panel::new("admin")
-    .brand(Brand::new("Acme"))
-    .dark_mode(true)
-    .login_hint("Demo: admin@example.com / password")
-```
-
-`brand` sets the header and sidebar name. `dark_mode` sets the theme a visitor sees **before they have chosen one** — the toggle is always rendered, and a stored choice wins in both directions (GH #184): picking light persists, and the next page stays light instead of falling back to this default. Omit `dark_mode` and the panel starts light.
-
----
-
-## 4. Resource
-
-One resource maps one Toasty model to its admin UI:
-
-```rust
-pub trait Resource: Sized + Send + Sync + 'static {
-    type Model: toasty::schema::Model + Send + Sync + 'static;
-    fn query(_cx: &Cx) -> Query<List<Self::Model>>; // default: Query::all()
-    fn hydrate_form_values(_cx: &Cx, _record: &Self::Model)
-        -> HashMap<String, String>;                 // default: empty
-    fn export_query(_cx: &Cx, _needs: &IncludeNeeds)
-        -> Query<List<Self::Model>>;                // default: query(cx), unchanged
-    fn table(_cx: &Cx) -> Table<Self::Model>;       // default: Table::new(), empty until columns + id
-    fn form(_cx: &Cx) -> Schema;                    // default: Schema::empty()
-    // plus can_* policy fns (default deny), slug/navigation/requires_tenant
-    // defaults, and create/update/delete record fns
-}
-```
-
-### The contract
-
-Every method is defaulted, so a resource compiles as soon as it names its model — which means an
-omission has to fail loudly instead of quietly:
-
-- **At `Panel::build`** (which returns `Result<Router>`): the table must be renderable — `table()`
-  declares columns and a row key — and where `can_create` allows it, `form()` must declare fields.
-  A resource that overrides nothing fails the build, naming the type, instead of serving an error
-  state or an empty form. `table()`, `form()` and `can_create()` are declarations: the panel calls
-  them once at boot, so they must not need request-scoped context.
-- **At request time, loudly**: the record fns default to an error naming the type ("delete not
-  implemented for …"), so a missing implementation never looks like a successful no-op.
-- **Chrome is opt-in**: `deletable()` and `editable()` default to `false`, so a resource that never
-  mentions them renders no Edit or Delete affordance — the routes still exist, and the default-deny
-  `can_*` predicates answer them. A resource that wants the chrome declares the flag **and** the
-  policy predicate it promises: `can_delete()` for `deletable()`, `can_view()` + `can_update()` for
-  `editable()`. What that buys is precise: a defaulted flag with a defaulted predicate can never
-  advertise an action that answers 403 (GH #226). It is **not** a per-record guarantee — chrome is
-  one whole-resource flag while `can_update`/`can_delete` take a record, so a resource that opts in
-  with a row-level rule still renders a link for a row the route refuses (the showcase's SSO-guarded
-  user is the worked example: its row keeps the Edit link and the edit page answers 403 by design).
-  That gap is inherent to the seam, not a defect. The `View` link needs no flag at all — it is
-  derived from whether the resource declares a `view()` schema, so there the route and the row link
-  genuinely cannot disagree.
-- **Default-deny stands**: every `can_*` defaults to `false`, so an unconfigured resource exposes
-  no data and no mutation.
-
-What to know:
-
-- `slug()` and `navigation_label()` have working defaults. Override only to rename.
-- `navigation()` curates this resource's sidebar entry: override it to change the label, the `order`
-  (lower renders first, ties keep declaration order) or the URL, e.g.
-  `NavigationItem { order: -1, ..NavigationItem::for_resource::<Self>() }`. The URL is the Panel's
-  call: `for_resource` names none, so the panel that mounts the resource resolves it to
-  `{prefix}/{slug}`, and a resource never links at `/admin` on a panel mounted elsewhere. Spell a
-  URL out instead (`NavigationItem::at(..)`) only to link somewhere other than the resource's list
-  page — the Panel keeps it verbatim.
-- `query()` is the scoping seam. All list, export, and relation loads use it. Put tenancy here. The
-  export builds its base query from `export_query(cx, needs)`, which defaults to `query(cx)` unchanged;
-  override it to narrow the includes to what the exported columns declared with `TextColumn::needs(..)`
-  — an include `query` carries for another page then stops riding along on every export (GH #177,
-  ADR-0018). Keep the tenancy filter and whatever your `can_view` reads in the narrowed branch.
-- `table()` and `form()` are hand-written, and so is the impl itself: a resource is `type Model` plus
-  whichever hooks it uses. There is no `Resource` derive — `derive(Resource)` was removed as dead
-  surface (GH #222); the macros crate ships `derive(EmbeddedForm)` only (GH #191).
-
-```rust
-struct UserResource;
-
-impl Resource for UserResource {
-    type Model = User;
-}
-
-struct PostResource;
-
-impl Resource for PostResource {
-    type Model = Post;
-
-    // the scoping seam, spelled out where it is used
-    fn query(cx: &Cx) -> Query<List<Post>> {
-        // tenancy filter, see below
-    }
-}
-```
-
-- Record fns (`create_record`, `update_record`, `delete_record`, `bulk_delete_records`) do the writes. Handlers load records, check policy, then call them in a transaction. `create_record` and `update_record` return the row they wrote — `toasty::create!` hands the created one back and a Toasty instance update reloads the model, so both are already in hand — because that is the only way the framework can name what a write committed (GH #112).
-  Upgrading to this contract: a record fn returns its row (`Ok(rec)` at the end of an instance update is usually the whole change), and a model used by a `Resource` derives `Clone`.
-- `after_commit(cx, committed)` is the post-commit seam (GH #112): called once per committed write, after the transaction and before the response, with a `Committed` naming the mutation (`Mutation::Create/Update/Delete`) and the rows it wrote (a bulk delete is one call with all of them). It is where email, webhooks, audit rows and cache invalidation belong — running them in a record fn leaks the effect on a rollback, and the transaction's pool discipline forbids a second handle while it is open. The default is a no-op, a hook failure is logged without touching the committed write, and it never runs when nothing committed.
-- For edit forms, `hydrate_form_values(cx, record)` maps a record to initial field values. `cx` is the request's: a scalar projection needs nothing from it, but an embedded value's keys come from the compiled mapping (GH #191).
-
-Tenancy pattern:
-
-```rust
-impl Resource for PostResource {
-    type Model = Post;
-
-    // `Post` declares `tenant_id: uuid::Uuid`. Declaring this is the whole
-    // tenant contract (GH #223): every handler 403s without a tenant, and every
-    // loader — list, edit, delete, bulk, export, relationship options — ANDs
-    // `tenant_id = <request tenant>`, derived from the model's own schema, onto
-    // whatever `query` returns.
-    fn requires_tenant() -> bool {
-        true
-    }
-
-    // The resource's *own* scoping only — a soft delete, row-level visibility,
-    // the includes a page loads. Writing the tenant filter here is redundant
-    // and was the GH #87 leak: one override that forgot it served every
-    // tenant's rows.
-    fn query(_cx: &Cx) -> Query<List<Post>> {
-        Query::<List<Post>>::all()
-    }
-}
-```
-
-App code that loads rows outside the framework's loaders — a record fn
-double-checking a foreign key, a custom page — calls
-`scoped_query::<PostResource>(cx)?` rather than `PostResource::query(cx)`: on a
-gated resource that method is the **tenant-unscoped** base, deliberately, so the
-tenant-unscoped case is visible at the call site (it still carries whatever the
-resource's own `query` scopes — soft deletes included).
-
-Three shapes, one gate:
-
-1. **The model carries the tenant** (the common case): `requires_tenant() =
-   true` and nothing else. The framework derives `tenant_id = <request tenant>`
-   from the model's own schema.
-2. **The row inherits its tenant** — `Comment` has no `tenant_id`, it belongs to
-   a post that does. Declare the predicate instead of the column:
-
-   ```rust
-   fn requires_tenant() -> bool {
-       true
-   }
-
-   fn tenant_scope(tenant: uuid::Uuid) -> Option<toasty::stmt::Expr<bool>> {
-       // The framework ANDs this onto `query`/`export_query` at every loader,
-       // exactly as it ANDs the derived filter elsewhere.
-       Some(Comment::fields().post().tenant_id().eq(tenant))
-   }
-   ```
-
-   The gate is what matters: writing this filter inside `query` with
-   `requires_tenant() = false` would *skip* it for a tenantless request rather
-   than refuse it, which is how the comments queue once served every tenant's
-   rows to a tenantless admin.
-3. **The resource must serve more than one tenant** (a deliberate cross-tenant
-   view): `requires_tenant() = false` and scope in `query` by hand — the one
-   explicit way out, and the gate goes with it.
-
-A gated resource that supplies no predicate at all — no `tenant_id` column and
-no `tenant_scope` override — fails `Panel::build` (GH #231), the same boot
-failure any other misdeclaration gets, and every loader keeps answering an error
-naming itself rather than querying tenant-unscoped — the backstop for a
-predicate that is only `None` for some tenants. There is no override that
-removes the scope.
-
----
-
-## 5. Tables
-
-Minimal table:
-
-```rust
-Table::r#for(cx)
-    .id(|u: &User| u.id.to_string())
-    .columns((
-        TextColumn::r#for(User::fields().name(), |u: &User| u.name.clone())
-            .searchable()
-            .sortable(),
-        TextColumn::computed("Status", |u: &User| {
-            if u.active { "Active".into() } else { "Inactive".into() }
-        }),
-    ))
-    .paginate(20)
-```
-
-Notes:
-
-- `.id(...)` is required. It keys rows for selection and live updates. Never use a loop index.
-- `searchable()` searches with `?q=`: an escaped substring match (`like_with_escape`, OR across searchable columns), so a term containing `%` or `_` matches those characters literally. `LIKE` is ASCII-case-insensitive on SQLite and case-sensitive on PostgreSQL. `sortable()` sorts with `?sort=` and `?dir=`. Both work without JS.
-- The URL is the state: `?q=`, `?sort=`, `?dir=`, `?after=`, `?before=`, `?filters=`, `?group_by=` parse into `TableState`. Pagination is cursor based; Toasty appends the PK tie-breaker internally so cursors stay deterministic.
-- Computed columns render only. They do not affect search or sort.
-
-Filters:
-
-```rust
-.filters((
-    SelectFilter::r#for(Post::fields().status(), vec!["draft".into(), "published".into()]),
-    TernaryFilter::r#for(Post::fields().featured()),
-    DateFilter::r#for(Post::fields().created_at()),
-))
-```
-
-Active filters travel in `?filters=` and combine with AND. Unknown keys and rejected values never fail silently: the list renders a `role=alert` banner (`Table::unapplied_filters`) while export refuses with 400.
-
-Grouping and export:
-
-```rust
-.group_by("status", |p: &Post| p.status.clone())
-```
-
-- Grouping is page-local with a row count per group. Toasty has no `GROUP BY` yet, so grouping never claims full-table totals. Unknown `?group_by=` values render no headers and drop from nav links.
-- `GET /admin/{slug}/export` returns the filtered set as CSV (`text/csv; charset=utf-8` + `Content-Disposition`, RFC4180 with OWASP formula-defusing), reusing the same filters and sort over `export_query` — the base `query` unless the resource narrows it to the includes its columns declared (GH #177). Capped at 10k viewable rows: per-row `can_view` runs before the cap, so 413 reflects what the caller may receive. `?bom=1` opts into an Excel BOM.
-- Failed table loads render the branded `ErrorState` in-region, not a blank page.
-
-Live updates:
-
-```rust
-Table::r#for(cx).live_search(true)
-```
-
-Search, sort, filter, and pager controls then refresh the table in place without a full page load. The plain links and forms stay as the no-JS fallback.
-
-Panel wires the bulk checkbox column when the resource opts in with `deletable() -> true` (GH #226: chrome is opt-in, and the flag pairs with `can_delete`). Bulk delete asks first: the bulk bar's button opens an alert dialog that names how many rows are selected, and its confirm control is the only thing carrying the `confirm=1` the handler requires — a POST without that marker is a 400, so the safeguard does not depend on the script that opens the dialog (GH #184).
-
----
-
-## 6. Forms
-
-Forms use typed lenses, not string paths:
-
-```rust
-Schema::new((
-    Section::new("Account").schema((
-        TextInput::r#for(User::fields().email()).email().unique(),
-        Select::r#for(User::fields().role())
-            .options(vec!["admin".into(), "member".into()]),
-    )),
-    Grid::new(2).schema((
-        TextInput::r#for(User::fields().name()),
-        FileUpload::r#for(Post::fields().image_path()),
-    )),
-))
-```
-
-What to know:
-
-- Layout blocks: `Section`, `Group`, `Grid`, `Tabs`. Fields: `TextInput`, `Textarea`, `Select`, `FileUpload`, `Repeater`. Every field takes a typed lens (`User::fields().email()`), never a string path. `Textarea` is the multi-line half of `TextInput` — same lens, same required default, same error contract, a `<textarea>` control instead, and no `unique()` (the app-side probe is built from `TextInput`, GH #184).
-- `required` defaults to the column nullability. Use `.optional()` to opt out. A bare `Select` over a non-nullable FK rejects `""` inline instead of failing at the driver.
-- **A non-`String` column binds through `TextInput::typed`** (GH #192): `TextInput::typed::<Post, i64>(Post::fields().post_stats().word_count())` renders the value's `Display`, parses the submission through the type's own `FromStr`, and refuses what it cannot parse as an inline field error naming the input — `` `twelve` is not a valid whole number `` — instead of a 500 or a silent default. What is stored is `Display` of the parsed value, so a value re-submitted unchanged is written back in the shape it was read. `typed_context(cx, path)` is the embedded/document sibling, as `r#for_context` is to `r#for`. `TypedValue` covers the integer types, `f64`, `Uuid` and `jiff::Timestamp`; a type needing its own words implements the trait. Empty is the presence rule's business, not the typed one: a typed column has no spelling for "no value", so an empty submission on an optional typed field reaches the record fn as `""` exactly as any other optional column does.
-- `unique()` does two things. It adds an app-level pre-check — Toasty exposes no unique-violation predicate yet, so the DB constraint stays the final guard and concurrent writes can race — and it implies **presence**: the framework stores `""` rather than NULL, so an empty value on a unique field is refused inline as `"<Label> is required"` instead of being written past an index that admits only one (GH #189). `.optional()` does not lift that rule, and `Panel::build` refuses a `unique()` marker on a column with no unique index (single-field or composite, `#[unique(a, b)]` included), so the declaration and the database cannot disagree about which fields are unique.
-- Relation select validates the FK against the related resource query before `create_record` runs:
-
-```rust
-Select::r#for(Post::fields().author_id())
-    .relationship::<AuthorResource>(
-        AuthorResource::query,
-        |a: &Author| a.id,
-        |a: &Author| a.name.clone(),
-    )
-    .label("Author")
-```
-
-- Relation options are bounded to 200 (`MAX_RELATIONSHIP_OPTIONS`) and memoized per `(request, tenant)`. Small tables validate against the bounded set; `can_view` filters before labels, `can_view_any`/tenant denial fails closed (`not available`).
-- Large reference tables (10k+ rows) need `.searchable()` on the `Select` (GH #150): over-cap searchable selects degrade to type-to-search instead of a retry error. Typing fetches `GET {parent_list_url}/options?field=&q=` (debounced 200ms, abort in-flight, selection preserved), which reuses the related `Table`'s declared `searchable()` columns (`search_expr`), bounds to 200, and filters `can_view` before labels. No searchable columns → hard-cap path (non-searchable keeps the cap error). Overflowed submits validate via a targeted PK check (the tenant-scoped query + `can_view`): legitimate FKs beyond the cap pass, hidden → `invalid`, denied → `not available`, DB failure → retry. Initial render keeps the stored value + search input + “Too many options — type to search” hint; no-JS keeps the plain select (other fields still submit, relation cannot be changed past the cap).
-
-- `FileUpload` binds a `String` path and owns the request half: no `value` on `type=file`, `enctype="multipart/form-data"` when a form has one, a 10 MiB body cap (413), a 400 for multipart without a boundary, and sanitized basenames (`.` / `..` / Windows reserved names surface as inline errors). On an edit the control drops native `required` (GH #184) — a `required` file input cannot be pre-filled, so it blocked every untouched save; `required` still holds on create.
-- **Where the bytes go is the app's** (GH #188, ADR-0017): install an `Uploader` once with `Panel::uploads(store)`. `store(filename, bytes) -> Result<String, String>` receives the sanitized name and the content (bounded by the cap) and returns the value the record stores; a refusal is an inline error (`"<Label> could not be uploaded: <reason>"`), not a 500. With no uploader installed the sanitized basename is stored, which is the pre-#188 contract, and the bytes are drained rather than buffered.
-- The stored path renders as the file it names: an image preview when it ends in an image extension, a link to the file otherwise — no URL convention is invented, and `Panel::serve_dir(path, dir)` mounts the directory an upload store writes to. A served directory is **public** (ADR-0017): its URLs answer whoever asks, with no session, because the auth gate covers only the panel prefix and `/_topcoat/runtime` (ADR-0013) and a served directory is mounted outside both. An app that needs protected files owns that route itself. Every stored value also offers a `clear_<field>` checkbox ("Remove the current file"), the one control that means "remove" rather than "keep"; an empty file input still means keep. Clearing does not waive `required` — a resource whose records may lose their file declares `.optional()`.
-- `Repeater` is a single-entry group. An all-empty group is skipped, so its inner required fields do not fail the submit. A `required` repeater yields one label-keyed error; a partially filled group still enforces inner `required`.
-
-Validation errors render inline per field. Absent keys validate as `""` and updates write only present keys; handlers reject unknown form keys with 400 (`role` / `tenant_id` smuggling fails closed; only `csrf_token` and `clear_<field>` are exempt), so extra posted keys never reach record fns.
-
-### Detail pages (GH #187)
-
-A resource can show one record read-only by declaring `view`, which is the same `Schema` read the other way round (ADR-0016):
-
-```rust
-fn view(cx: &Cx) -> Schema {
-    Schema::new(Section::new("Post").schema((
-        TextInput::r#for(Post::fields().title()),
-        Textarea::r#for(Post::fields().body()).rows(6),
-    )))
-}
-```
-
-That registers `GET /admin/{slug}/{id}` — loaded through the tenant-scoped query, so an unknown id and one outside the tenant are the same 404, while `can_view` denial is a 403 — and adds a `View` link beside `Edit` on each row. A resource with no `view` declaration has no page and no link, and the route answers 404 rather than rendering an empty shell.
-
-- **Read-only is not a disabled form.** Fields render labels and stored values: `TextInput`/`Textarea` show text, `Select` shows the option label the form offered (or the stored value when no option matches, a relationship key included), `FileUpload` shows the stored path and previews a stored image (GH #188), and layout blocks keep their structure. No control, no CSRF field, no validation slot.
-- **Values come from `hydrate_form_values`**, the same projection the edit form hydrates, so a field that renders in the form renders here.
-- **Related rows** render through `view_relations(cx, record)`, the page's second half:
-
-```rust
-fn view_relations<'a>(cx: &'a Cx, record: &Post) -> Option<BoxView<'a>> {
-    // The relation comes from `Resource::query`'s include, so this is the guard
-    // the list columns use: drop the include and the page says so instead of
-    // panicking inside `Deferred::get`.
-    if record.comments.is_unloaded() {
-        return Some(missing_include_notice(cx, "Comments"));
-    }
-    Some(render_relation(cx, "Comments", RelationColumns::columns(
-        RelationColumn::computed("Comment", |c: &Comment| c.body.clone()),
-    ), record.comments.get()))
-}
-```
-
-It is a typed method and not a Schema field because a Schema renders the record's *string projection* while a relation is a list of records — and `Resource::view(cx)` is handed no record at all, so a Schema node could not read one. Reading `record.comments.get()` issues no query: it is the row the include loaded, and a test counts the statements a detail page runs to hold that (`the_relation_issues_no_query_of_its_own`). Related rows render read-only: no pager, no search, no bulk column, no row actions.
-- **What a view cannot show yet**: typed columns (`Uuid`, `jiff::Timestamp`) need the GH #192 seam.
-- `IntoSchema` takes at most four top-level blocks; a longer view wraps a fifth in a `Group`.
-
----
-
-## 7. Policy, auth, tenancy
-
-Policy is `can_*` on the resource, default deny. Check both pages and handlers:
-
-```rust
-fn can_view_any(_cx: &Cx) -> bool { true }
-fn can_view(_cx: &Cx, _r: &User) -> bool { true }
-fn can_create(_cx: &Cx) -> bool { false }
-```
-
-List scope belongs in `query()`. Per-row `can_view` trims option lists and exports, but the list page itself checks only `can_view_any` so pagination stays honest. Edit GET and POST both require `can_view` + `can_update`; relation option loads fail closed when the related resource denies `can_view_any`.
-
-Mutations run in a framework-owned transaction: handlers load through `query()` and policy-check on that snapshot, then pass the checked records into the record fns with no silent re-loads. Bulk delete is all-or-nothing. Anything that must happen *after* the commit — a webhook, an email, an audit row — goes in `after_commit`, which runs once the transaction is gone; see §4.
-
-Auth is on by default and fails closed:
-
-- Register the shipped models and seed one admin:
-
-```rust
-toasty::models!(crate::User, argentum_core::auth::AdminUser, argentum_core::auth::AuthSession)
-```
-
-```rust
-let hash = argentum_core::auth::hash_password("secret").expect("hash password");
-// store in AdminUser.password_hash (Argon2id PHC string)
-```
-
-- Unauthenticated `GET` pages redirect to `{prefix}/login` with a validated same-origin `next`. Runtime endpoints (`/_topcoat/runtime`) and all non-GET panel requests answer 401; users without panel access answer 403. The gate installs exactly two layers — the panel prefix and `/_topcoat/runtime` — so a route mounted outside them is ungated by construction; `Panel::serve_dir` is the shipped case, and served directories are public by decision (ADR-0017).
-- Sessions are server-side `AuthSession` rows with a seven-day fixed lifetime, rotated on login and revoked on logout. Use `auth::revoke_sessions_for_user(cx, id)` to sign a user out everywhere. Logins verify Argon2id (dummy hash for unknown emails) and share one generic failure message. Handlers re-check the resolved user, including the panel root and live-search shard; logout accepts any resolved identity so a de-permitted session can still be cleared.
-
-Custom user table:
-
-```rust
-Panel::new("admin").auth(Auth::custom(MyAuth))
-```
-
-Implement `verify` plus `find_by_id` for your model. Session storage stays framework-owned. Read the result with `current_user(cx)` or `require_authenticated(cx)`.
-
-Explicit opt-out:
-
-```rust
-Panel::new("admin").auth(Auth::disabled())
-```
-
-Tenancy comes from the logged-in user. `tenant_id(cx)` reads the request `Tenant`, which the auth layer sets; a server-set `Tenant` request extension overrides deliberately (for middleware/tests). Mark tenant-owned resources with `requires_tenant()`: handlers fail closed (403) without a tenant, and the framework derives the `tenant_id` filter from the model and applies it at every loader (GH #223), so no `query()` override has to restate it. Never trust a tenant header from the client.
-
-No built-in rate limiter or lockout: enforce at the edge (proxy/WAF). `Notification` is a one-time `__Host-argentum_notification` flash cookie on the 303 Post/Redirect/Get response, consumed on follow-up so reloads never replay it.
-
----
-
-## 8. Data access
-
-Get the DB from app context:
-
-```rust
-let mut db = argentum_core::db::db(cx);
-let rows = User::all().exec(&mut db).await?;
-```
-
-`Db` is `Arc`-pooled; cloning per request is cheap and `exec` needs `&mut Db`.
-
-Filter and sort:
-
-```rust
-User::filter(User::fields().email().eq("alice@example.com"))
-User::filter(User::fields().name().starts_with(q))
-    .order_by(User::fields().name().asc())
-```
-
-Table search builds its pattern through `like_with_escape` with `%`, `_` and the escape character escaped (`escape_like_pattern`), so it is parameterised and portable. If you hand-write a pattern, escape `%` and `_` first, and never interpolate raw input into SQL.
-
-Preload relations in one trip:
-
-```rust
-let posts = Post::all()
-    .include(Post::fields().author())
-    .exec(&mut db)
-    .await?;
-// then `post.author.get()` with no extra query
-```
-
-Guard computed cells against a missing preload so a query change fails loudly, not with blank data — and declare the relation, which is what the CSV export's narrowed query is built from (GH #177):
-
-```rust
-TextColumn::computed("Author", |p: &Post| {
-    if p.author.is_unloaded() { "(unloaded)".into() } else { p.author.get().name.clone() }
-})
-.needs(["author"])
-```
-
-Embedded values: derive the codec and declare nothing per field (GH #191, ADR-0019). The derive reads the type's shape, the framework names the columns:
-
-```rust
-#[derive(Debug, Clone, toasty::Embed, argentum_core::EmbeddedForm)]
-pub enum Publication {
-    #[column(variant = 1)]
-    Scheduled { #[shared(timestamp)] scheduled_at: String, scheduled_for: String },
-    #[column(variant = 2)]
-    Published { #[shared(timestamp)] published_at: String, canonical_url: String },
-}
-
-// form declaration: controls, flattened names, and the variant Select
-Section::new("Publication").schema(Publication::form(cx, Post::fields().publication()))
-
-// hydration and the record fn: the typed value, keys resolved from the schema
-write_embedded(cx, Post::fields().publication(), &record.publication, &mut values);
-let publication = read_embedded(cx, Post::fields().publication(), &values);
-if submitted(cx, Post::fields().publication(), &values) { /* the submit mentioned it */ }
-```
-
-An enum's variant is its **discriminant column**, carried by the form as a `Select` over the schema's variant list — each option submitting the variant's stored value and reading as its name — and each variant's payload renders inside its own marked group, so the client shows only the chosen variant's, and a variant can be picked on create and changed on edit (a read-only page names the stored variant instead of printing its discriminant). A named discriminant always wins (and one the enum does not declare is refused loudly, never read as some other variant), so a stale payload is not a vote. Only when no discriminant is named at all — the create form, a hand-written POST — do payloads select one, by a variant's own **non-shared** payload through resolved keys. The toggle is markup-only (`variant.js` hides the inactive groups): with JavaScript off every variant's payload renders, which is the pre-#191 behaviour, so no field the server still parses is lost. `#[form(label = "…")]`, `#[form(textarea)]` and `#[form(textarea, rows = N)]` are the per-field overrides; an unknown key is a compile error. A `#[document]` inside a value, a relation, an enum nested inside an enum variant, and a tuple struct are not covered.
-
-Schema setup: `db.push_schema().await` for prototypes, `toasty-cli` migrations for prod.
-
-Render invariants: pages, layouts, and components are side-effect free and deterministic — no `HashMap` iteration, `Utc::now()`, or random IDs in a streamed region (breaks concurrent/streaming re-renders). Query Toasty directly with explicit `include` for relations, `#[index]` for filter columns, and `#[memoize]` for shared loads. `Cx`-scoped values (`Tenant`, auth), not middleware, carry request scope. Every value read on the server via `get()` / `read()` is untrusted client input.
-
-Reactivity: `signal(cx, init)` runs only in a page/layout/component body; loop bodies need `#[key(...)]` and reorderable rows need a stable `id` from the row key. `get()` / `read()` re-runs track and morph in place; `get_untracked()` opts out. Page/layout guards do not run on shard requests — shards authorize themselves (`requires_tenant` + `can_view_any` + the tenant-scoped query).
-
----
-
-## 9. Security defaults
-
-- All POSTs verify a double-submit `csrf_token` before any DB work. `confirm=1` is a UX step, not a boundary.
-- Passwords use Argon2id. Unknown emails take the same code path, and login failures share one generic message.
-- Deletes and bulk deletes re-fetch through `query()` and re-check policy inside the handler transaction.
-- Table free-text is an escaped substring `LIKE` across the searchable columns (`like_with_escape` + `escape_like_pattern`), never a raw pattern. Do not interpolate raw input into SQL.
-- Session, CSRF, and notification cookies use hardened `__Host-` + `Secure` settings. Localhost is exempt; non-localhost deploys need HTTPS or browsers drop them and mutations 403.
-- Responses carry `Content-Security-Policy: frame-ancestors 'self'`, so an admin page cannot be clickjacked from another origin. `Panel::frame_ancestors(..)` widens it for a deployment that frames the panel, `Panel::without_frame_ancestors()` sends none for a proxy that owns the whole policy, and an app's own `Content-Security-Policy` always wins — the layer only fills the gap.
-- Redirects: `Err(redirect(..))` (307) for GETs, `Err(see_other(..))` (303 PRG) after mutations. Mid-stream they degrade to `window.location.replace`; streamed regions own their failure rendering. Wrap `Slot` in `error_boundary` for branded error pages.
-
----
-
-## 10. Testing and benchmarks
-
-Unit render with `CxTestBuilder`. Cover each resource policy fn. Cover scoping in `query()`.
-
-The showcase has integration tests per area (list, create, edit, delete, bulk, filters, tenancy, uploads, export, auth) under `examples/showcase/tests/`.
-
-```sh
-cargo test -p showcase
-node --test crates/argentum-ui/assets/selects.test.js   # the one JS unit test
-cargo run --manifest-path benchmarks/argentum/Cargo.toml -- --bench
-./benchmarks/scripts/bench.sh
-```
-
-The shell scripts under `crates/argentum-ui/assets/` are plain browser scripts loaded through `asset!`, so they have no build step and no test runner. `selects.js` splits its one pure decision (`matchingOptions`) out and guards the rest behind `install()` so that single function can be unit-tested on Node's built-in runner (GH #184); everything else in those files is covered by the Rust-side markup assertions and manual checks.
-
-Budget: 50-row list with 2 preloaded relations renders under 40ms p50 on local SQLite. **This is a target, not a gate** (GH #171): the harness prints it "for reference only; UNGATED" and never PASS/FAILs on it, and `benchmarks/results/` is gitignored, so no committed number exists on a fresh checkout. The skeleton ships first, rows stream in after.
-
----
-
-## 11. Roadmap
+## Layout
+
+| Path | What it is |
+| --- | --- |
+| `crates/argentum-core` | `Panel`, the `Resource` trait, `Table` and `Schema` types, auth, tenancy |
+| `crates/argentum-macros` | the `derive(EmbeddedForm)` macro for embedded values (GH #191) |
+| `crates/argentum-ui` | Topcoat primitives plus owned composites (`Page`, `Toast`, `Theme`, `ErrorState`) |
+| `examples/showcase` | runnable admin: `/admin/users`, `/admin/authors`, `/admin/posts`, `/admin/comments` |
+| `benchmarks/` | server-render perf harness plus axum-maud and leptos smoke stubs |
+| `docs/guide` | the user guide, an mdBook |
+| `docs/adr` | one design note per decision |
+| `docs/dev` | contributor specs: commits, prose, labels |
+| `docs/agents` | process notes for agents: issue tracker, domain docs |
+| `CONTEXT.md` | the domain vocabulary the code and the docs share |
+
+## Documentation
+
+- **Guide**: [`docs/guide/`](docs/guide/) — build with `mdbook build docs/guide`, or read the
+  published copy at <https://y-l-g.github.io/argentum/nightly/guide/>.
+- [`CONTEXT.md`](CONTEXT.md) — the vocabulary.
+- [`docs/adr/`](docs/adr/) — the decisions, one note each.
+- [`examples/showcase/`](examples/showcase/) — the runnable reference.
+- [`benchmarks/README.md`](benchmarks/README.md) — the perf harness setup.
+- Upstream: the [Toasty guide](https://tokio-rs.github.io/toasty/0.10.0/guide/) (queries, filters,
+  sorting, preloading, migrations) and the [Topcoat docs](https://docs.rs/topcoat) (`view!` and
+  `#[component]`, router, cookie and session).
+- The [Filament PHP docs](https://filamentphp.com/docs) are product inspiration, not API source.
+
+## Roadmap
 
 Done:
 
-- CRUD for single resources: typed tables, cursor pagination, search and sort, create and edit forms, row and bulk delete, flash notifications, sidebar shell
-- Relations: preloaded `BelongsTo` and `HasMany`, relation selects, tenant scoping, server-side option search past the cap
-- Table extras: typed filters, page-local grouping with counts, CSV export, live in-place search and sort, empty and error states
+- CRUD for single resources: typed tables, cursor pagination, search and sort, create and edit
+  forms, row and bulk delete, flash notifications, sidebar shell
+- Relations: preloaded `BelongsTo` and `HasMany`, relation selects, tenant scoping, server-side
+  option search past the cap
+- Table extras: typed filters, page-local grouping with counts, CSV export, live in-place search and
+  sort, empty and error states
 - Auth: default login plus sessions, custom user table seam, explicit opt-out, per-resource policy
-- Media uploads: an app-level `Uploader` seam, and `Panel::serve_dir` for the directory it writes to (ADR-0017)
+- Media uploads: an app-level `Uploader` seam, and `Panel::serve_dir` for the directory it writes to
+  (ADR-0017)
 
 Next:
 
@@ -591,15 +126,16 @@ Non-goals for v1:
 - SQL aggregates beyond row counts
 - WASM admin or SPA mode
 
----
+## Contributing
 
-## 12. Docs
+Small fixes can go straight to a PR; larger changes are worth an issue first. Every branch is
+**squash-merged into `master`** as one Conventional Commit (`<type>(<scope>): <description> (#123)`).
+[`CONTRIBUTING.md`](CONTRIBUTING.md) covers the build, the CI gate set, and the commit rules;
+[`AGENTS.md`](AGENTS.md) is the short version for agents. The vendored-primitives rule is worth
+repeating here: `crates/argentum-ui/src/components/primitives/` mirrors `topcoat-ui-registry`
+verbatim — never hand-edit it, sync with `cargo xtask sync-topcoat-ui` (ADR-0007). Composites
+(`Page`, `Toast`, `Theme`, `ErrorState`) are Argentum's own.
 
-- `CONTEXT.md`: domain vocabulary
-- `docs/adr/`: design notes
-- `examples/showcase/`: runnable reference
-- `benchmarks/README.md`: perf setup
-- Upstream: Toasty guide (queries, filters, sorting, preloading, migrations) and Topcoat docs (view and component, router, cookie and session)
-- Filament PHP docs as product inspiration, not API source
+## License
 
-Notes for contributors: `argentum-ui` primitives mirror `topcoat-ui-registry` verbatim — sync with `cargo xtask sync-topcoat-ui`, never hand-edit; composites (`Page`, `Toast`, `Theme`, `ErrorState`) are owned. Topcoat 0.8 / Toasty 0.10 track `main` with pins in `Cargo.lock` — bump deliberately. Where this file and the code disagree, the code and `docs/adr/` win.
+MIT — see [`LICENSE`](LICENSE).

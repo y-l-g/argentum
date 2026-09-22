@@ -1,0 +1,98 @@
+name: Docs
+
+# Builds the mdBook guide and the rustdoc API reference and publishes both to
+# the `gh-pages` branch, under `nightly/`:
+#
+#   /nightly/guide/   the mdBook (docs/guide)
+#   /nightly/api/     cargo doc --workspace --no-deps
+#
+# `master` is the only deploy branch: there are no releases yet, so every
+# build is "nightly". modelled on tokio-rs/toasty's docs workflow.
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: docs-deploy
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: github.repository == 'y-l-g/argentum'
+    name: Build and deploy docs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - run: rustup update stable && rustup default stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install mdBook and mdbook-linkcheck2
+        uses: taiki-e/install-action@v2
+        with:
+          tool: mdbook@0.5.2,mdbook-linkcheck2
+
+      - name: Build guide
+        run: mdbook build docs/guide
+
+      # Deliberately not `-D warnings`: rustdoc warnings are the source batch's
+      # problem, and the API reference should publish whatever does build.
+      - name: Build Rust API docs
+        run: cargo doc --workspace --no-deps
+
+      - name: Assemble site directory
+        run: |
+          mkdir -p site/guide site/api
+          cp -r docs/guide/book/html/. site/guide/
+          cp -r target/doc/. site/api/
+
+      - name: Publish to gh-pages
+        env:
+          DEST: nightly
+          LABEL: nightly
+        run: |
+          set -euo pipefail
+
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+
+          if git ls-remote --exit-code --heads origin gh-pages >/dev/null 2>&1; then
+            git fetch origin gh-pages:gh-pages --depth=1
+            git worktree add gh-pages-tree gh-pages
+          else
+            git worktree add --detach gh-pages-tree
+            (cd gh-pages-tree && git checkout --orphan gh-pages && git rm -rf . 2>/dev/null || true)
+          fi
+
+          rm -rf "gh-pages-tree/${DEST}"
+          mkdir -p "gh-pages-tree/${DEST}"
+          cp -r site/. "gh-pages-tree/${DEST}/"
+
+          if [ ! -f gh-pages-tree/index.html ]; then
+            cat > gh-pages-tree/index.html <<'HTML'
+          <!DOCTYPE html>
+          <html>
+            <head><meta http-equiv="refresh" content="0; url=nightly/guide/"></head>
+            <body><a href="nightly/guide/">Redirect to the Argentum Guide</a></body>
+          </html>
+          HTML
+          fi
+
+          # Prevent GitHub Pages from running Jekyll, which would skip dirs
+          # whose names start with an underscore (e.g. mdbook's _FontAwesome).
+          touch gh-pages-tree/.nojekyll
+
+          cd gh-pages-tree
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes to deploy."
+            exit 0
+          fi
+          git commit -m "Deploy ${LABEL} from ${GITHUB_SHA}"
+          git push origin gh-pages

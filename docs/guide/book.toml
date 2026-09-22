@@ -1,0 +1,18 @@
+[book]
+title = "Argentum Guide"
+authors = ["Argentum contributors"]
+language = "en"
+src = "src"
+
+[output.html]
+default-theme = "light"
+preferred-dark-theme = "navy"
+git-repository-url = "https://github.com/y-l-g/argentum"
+edit-url-template = "https://github.com/y-l-g/argentum/edit/master/docs/guide/src/{path}"
+
+# mdbook-linkcheck2 (marxin/mdbook-linkcheck2). `optional = true` only means a
+# *missing* linkcheck binary is a warning instead of a hard failure — a local
+# `mdbook build` without the tool still produces the HTML. When the binary is
+# installed (CI, via taiki-e/install-action) broken links still fail the build.
+[output.linkcheck2]
+optional = true

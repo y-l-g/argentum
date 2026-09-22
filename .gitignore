@@ -1,6 +1,8 @@
 /target
 **/target/
 benchmarks/results/
+# mdBook build output (`mdbook build docs/guide`).
+docs/guide/book/
 # Agent/dev worktrees (`git worktree add .worktrees/<name>`) are scratch checkouts
 # of this same repo; never part of a commit.
 /.worktrees/
