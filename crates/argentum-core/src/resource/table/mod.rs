@@ -28,6 +28,49 @@ pub type RowKey<M> = Arc<dyn Fn(&M) -> String + Send + Sync>;
 /// (typically `|u| u.status.clone()`).
 pub type GroupKey<M> = Arc<dyn Fn(&M) -> String + Send + Sync>;
 
+/// Per-record action policy: reads which row actions one model instance allows
+/// (GH #235). See [`Table::row_actions`].
+pub type RowPolicy<M> = Arc<dyn Fn(&M) -> RowActions + Send + Sync>;
+
+/// Which row actions one record may use (GH #235).
+///
+/// The per-record half of `TableChrome`: the chrome flags say which
+/// affordances a resource declares, this says which of them the caller may use
+/// on one loaded row. [`Table::row_actions`] stores the projection and the
+/// renderer consults it per row — a denied action emits no link, and a row
+/// denied `delete` renders its bulk checkbox `disabled` with the reason as its
+/// accessible label, so the row can never enter the selection transport.
+///
+/// The panel derives one from the resource's
+/// [`can_view`](crate::resource::Resource::can_view) /
+/// [`can_update`](crate::resource::Resource::can_update) /
+/// [`can_delete`](crate::resource::Resource::can_delete), pairing each action
+/// with the same predicates its route checks, so a rendered affordance and the
+/// route that answers it cannot disagree.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RowActions {
+    /// Whether the row renders its `View` link — the detail route's
+    /// `can_view`.
+    pub view: bool,
+    /// Whether the row renders its `Edit` link — the edit route's `can_view`
+    /// **and** `can_update` (GH #86).
+    pub edit: bool,
+    /// Whether the row renders its `Delete` link and an enabled bulk checkbox —
+    /// the delete route's `can_view` **and** `can_delete` (GH #168).
+    pub delete: bool,
+}
+
+impl RowActions {
+    /// Every action allowed: what a table that declares no projection renders
+    /// ([`Table::row_actions`]), so a hand-wired table shows exactly the chrome
+    /// its `with_*` calls attached.
+    pub const ALL: Self = Self {
+        view: true,
+        edit: true,
+        delete: true,
+    };
+}
+
 /// A named grouping a `Table` can render: `name` is the `?group_by=` value
 /// the table accepts, `key` projects a row to its group label (GH #92).
 pub struct GroupDef<M> {
@@ -125,6 +168,7 @@ pub struct Table<M> {
     group_by: Option<GroupDef<M>>,
     row_key: Option<RowKey<M>>,
     record_key: Option<RowKey<M>>,
+    row_policy: Option<RowPolicy<M>>,
     page_size: Option<usize>,
     search_ui: Option<bool>,
     filters_ui: Option<bool>,
@@ -144,6 +188,7 @@ impl<M> std::fmt::Debug for Table<M> {
             .field("group_by", &self.group_by.is_some())
             .field("row_key", &self.row_key.is_some())
             .field("record_key", &self.record_key.is_some())
+            .field("row_policy", &self.row_policy.is_some())
             .field("page_size", &self.page_size)
             .field("search_ui", &self.search_ui)
             .field("filters_ui", &self.filters_ui)
@@ -170,6 +215,7 @@ impl<M> Table<M> {
             group_by: None,
             row_key: None,
             record_key: None,
+            row_policy: None,
             page_size: None,
             search_ui: None,
             filters_ui: None,
@@ -218,6 +264,34 @@ impl<M> Table<M> {
     /// resolve.
     pub fn pk(mut self, key: impl Fn(&M) -> String + Send + Sync + 'static) -> Self {
         self.record_key = Some(Arc::new(key));
+        self
+    }
+
+    /// Declare the per-record action policy (GH #235): which of the wired row
+    /// actions each record may use.
+    ///
+    /// The `with_*` methods say which affordances the table declares; this says
+    /// which of them a row may use. The renderer consults it per row — a denied
+    /// action emits no link, and a row denied `delete` renders its bulk
+    /// checkbox `disabled` with the reason as its accessible label, so the
+    /// selection transport never carries a key the handler refuses.
+    ///
+    /// Defaults to [`RowActions::ALL`], so a table that declares no policy
+    /// renders exactly the chrome its `with_*` calls attached. The policy is
+    /// consulted only where chrome is wired: a table with no action prefix
+    /// never calls it, and a resource that declares no chrome keeps its list
+    /// page free of per-record predicate calls.
+    ///
+    /// The panel wires this from
+    /// [`can_view`](crate::resource::Resource::can_view) /
+    /// [`can_update`](crate::resource::Resource::can_update) /
+    /// [`can_delete`](crate::resource::Resource::can_delete), each action
+    /// mirroring the predicates its route checks.
+    pub fn row_actions(
+        mut self,
+        policy: impl Fn(&M) -> RowActions + Send + Sync + 'static,
+    ) -> Self {
+        self.row_policy = Some(Arc::new(policy));
         self
     }
 
@@ -423,6 +497,18 @@ impl<M> Table<M> {
         self.record_key.as_ref().map(|f| f(record))
     }
 
+    /// Which row actions `record` allows (GH #235): the declared
+    /// [`Self::row_actions`] policy, or [`RowActions::ALL`] when the table
+    /// declares none.
+    ///
+    /// The renderer reads this per row to decide the View/Edit/Delete links and
+    /// whether the bulk checkbox is enabled.
+    pub fn actions_for(&self, record: &M) -> RowActions {
+        self.row_policy
+            .as_ref()
+            .map_or(RowActions::ALL, |policy| policy(record))
+    }
+
     /// Force the search toolbar on or off.
     ///
     /// Defaults to showing the toolbar whenever at least one column is
@@ -469,6 +555,10 @@ impl<M> Table<M> {
     /// `requires_confirmation` semantics. `{id}` is the [`Self::pk`]
     /// record key (handlers resolve it as the typed PK) — rendering with
     /// delete chrome but no `pk` is a render error (GH #168).
+    ///
+    /// The action is gated per record by [`Self::row_actions`] (GH #235): a row
+    /// the policy denies renders no `Delete` link and a disabled bulk checkbox,
+    /// matching the handler's `can_view` + `can_delete` check.
     pub fn with_delete(mut self, prefix: String) -> Self {
         self.delete_prefix = Some(prefix);
         self
@@ -478,9 +568,13 @@ impl<M> Table<M> {
     /// an `Edit` link to `{prefix}/{id}/edit` (Filament's `recordActions`
     /// `EditAction`, same last-column slot as `Delete`). `{id}` is the
     /// [`Self::pk`] record key — rendering with edit chrome but no `pk` is a
-    /// render error (GH #168). Per-record policy
-    /// stays handler-enforced (`can_view` + `can_update` in the edit GET/POST);
-    /// the list deliberately does not filter rows (GH #86).
+    /// render error (GH #168).
+    ///
+    /// The action is gated per record by [`Self::row_actions`] (GH #235): a row
+    /// the policy denies renders no `Edit` link, matching the edit route's
+    /// `can_view` + `can_update` check. The list still renders every row —
+    /// `can_view` stays out of the query, so pagination is not mislabelled
+    /// (GH #86).
     pub fn with_edit(mut self, prefix: String) -> Self {
         self.edit_prefix = Some(prefix);
         self
@@ -493,8 +587,9 @@ impl<M> Table<M> {
     ///
     /// The caller sets this only for a resource that declares a detail page
     /// ([`Resource::viewed`](crate::resource::Resource::viewed)), so a resource
-    /// with no view renders no link instead of one that 404s. Per-record policy
-    /// stays handler-enforced (`can_view` in the detail GET), matching `Edit`.
+    /// with no view renders no link instead of one that 404s. The action is
+    /// gated per record by [`Self::row_actions`] (GH #235): a row the policy
+    /// denies renders no `View` link, matching the detail route's `can_view`.
     pub fn with_view(mut self, prefix: String) -> Self {
         self.view_prefix = Some(prefix);
         self
@@ -503,6 +598,11 @@ impl<M> Table<M> {
     /// Enable bulk selection with `BulkDelete` action. Checkbox values are
     /// the [`Self::pk`] record keys (handlers resolve them as typed PKs) —
     /// rendering with bulk chrome but no `pk` is a render error (GH #168).
+    ///
+    /// A row the [`Self::row_actions`] policy denies `delete` renders its
+    /// checkbox `disabled` with the reason as its accessible label (GH #235),
+    /// so select-all never submits a batch the handler's all-or-nothing check
+    /// refuses.
     pub fn with_bulk_delete(mut self, enabled: bool) -> Self {
         self.bulk_delete = enabled;
         self

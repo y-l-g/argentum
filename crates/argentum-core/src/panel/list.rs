@@ -16,7 +16,7 @@ use topcoat::{
 
 use super::{enforce_auth, enforce_tenant, list_url};
 use crate::resource::{
-    Resource, Table, TableChrome, TablePage, TableSignals, TableState, create_page_url,
+    Resource, RowActions, Table, TableChrome, TablePage, TableSignals, TableState, create_page_url,
 };
 
 /// Retry link for a failed streamed table load (GH #110).
@@ -68,6 +68,14 @@ pub(crate) fn declared_chrome<R: Resource>(cx: &Cx) -> TableChrome {
 /// actions always answer 403. A resource that wants them declares the flag and
 /// the matching policy predicate together; see [`Resource::deletable`].
 ///
+/// The flags are the coarse gate; the per-*record* gate rides the same call
+/// (GH #235). The table's row policy is wired from the resource's predicates,
+/// each action paired with exactly what its route checks: `can_view` for View,
+/// `can_view` + `can_update` for Edit (GH #86), `can_view` + `can_delete` for
+/// Delete and the bulk checkbox (GH #168). A row the predicate refuses renders
+/// no link and a disabled checkbox, while the handler keeps its all-or-nothing
+/// check as the safety net for a hand-crafted POST.
+///
 /// `live` selects the shard variant: the swapped region is everything except
 /// the toolbar the page owns eagerly (the live host owns those slots, so swaps
 /// must never nest invocations or duplicate inputs), hence the shard forces
@@ -79,6 +87,19 @@ pub(crate) fn wire_table_actions<R: Resource>(cx: &Cx, live: bool) -> Table<R::M
     if live {
         table = table.search(false).filter_bar(false);
     }
+    // `Cx` is Arc-backed and `Clone`, so the projection owns one: the policy
+    // outlives the request borrow without copying request state.
+    let policy_cx = cx.clone();
+    table = table.row_actions(move |record| {
+        // Read once: every route pairs its own predicate with `can_view`, so a
+        // record that cannot be viewed allows no action (GH #168).
+        let view = R::can_view(&policy_cx, record);
+        RowActions {
+            view,
+            edit: view && R::can_update(&policy_cx, record),
+            delete: view && R::can_delete(&policy_cx, record),
+        }
+    });
     let chrome = declared_chrome::<R>(cx);
     if chrome.delete {
         table = table
@@ -419,6 +440,12 @@ mod tests {
     /// The `GET /admin/dummies` body for a resource registered with one seeded
     /// row, so the row-chrome assertions have a row to look at.
     async fn list_html<R: Resource>() -> String {
+        list_html_with::<R>(&["Ada"]).await
+    }
+
+    /// [`list_html`] with the named rows seeded in order, so a per-record
+    /// policy has rows to disagree about (GH #235).
+    async fn list_html_with<R: Resource>(names: &[&str]) -> String {
         use http_body_util::BodyExt;
 
         let mut db = Db::builder()
@@ -427,12 +454,14 @@ mod tests {
             .await
             .unwrap();
         db.push_schema().await.unwrap();
-        toasty::create!(Dummy {
-            name: "Ada".to_string(),
-        })
-        .exec(&mut db)
-        .await
-        .unwrap();
+        for name in names {
+            toasty::create!(Dummy {
+                name: (*name).to_string(),
+            })
+            .exec(&mut db)
+            .await
+            .unwrap();
+        }
         let router = Panel::new("admin")
             .app_context(db)
             .resource::<R>()
@@ -1129,12 +1158,20 @@ mod tests {
             fn deletable() -> bool {
                 false
             }
-            // GH #226: chrome is opt-in, so the writable half of this test
-            // declares the flag as well as the predicates that honour it.
+            // GH #226/#235: chrome is opt-in, so the writable half of this test
+            // declares the flag *and* the predicates that honour it — the row
+            // policy mirrors the edit route's own `can_view` + `can_update`
+            // check, so a flag beside default-deny predicates renders no link.
             fn editable() -> bool {
                 true
             }
             fn can_view_any(_cx: &Cx) -> bool {
+                true
+            }
+            fn can_view(_cx: &Cx, _record: &Dummy) -> bool {
+                true
+            }
+            fn can_update(_cx: &Cx, _record: &Dummy) -> bool {
                 true
             }
             fn can_create(_cx: &Cx) -> bool {
@@ -1195,14 +1232,15 @@ mod tests {
     /// GH #226: chrome is opt-in, so a list whose rows the policy denies renders
     /// no Edit link — the acceptance test for the flipped `editable()` default.
     ///
-    /// Before the flip this resource (which never mentions `editable()` or
-    /// `deletable()`) shipped an `/edit` link per row while `can_update`
-    /// answered the untouched default-deny: told they may act, then told they
-    /// may not. The row assertion comes first so the negative assertions below
-    /// cannot pass vacuously; the route assertion then records the one agreeing
-    /// instance this seam can give — a whole-resource flag beside a
-    /// whole-resource default-deny predicate. It is not a general guarantee: a
-    /// per-record predicate still leaves a link the route refuses.
+    /// This resource never mentions `editable()` or `deletable()`, so no prefix
+    /// is wired and its `can_update` (untouched default-deny) is never
+    /// consulted: the coarse whole-resource flag alone withholds the chrome.
+    /// GH #235 covers the other half — a resource that opts in *and* denies a
+    /// row per record — by wiring `can_update` into the table's row policy.
+    ///
+    /// The row assertion comes first so the negative assertions below cannot
+    /// pass vacuously; the route assertion then records the route's own answer
+    /// for the row the list never links.
     #[tokio::test]
     async fn denied_rows_render_no_edit_chrome() {
         use crate::resource::Resource;
@@ -1306,6 +1344,160 @@ mod tests {
             http::StatusCode::FORBIDDEN,
             "the edit route must deny the row the list no longer links"
         );
+    }
+
+    /// GH #235: a resource that opts into chrome narrows it per record. The
+    /// panel wires each action from the predicate its route checks — `can_view`
+    /// for View, `can_view` + `can_update` for Edit, `can_view` + `can_delete`
+    /// for Delete and the bulk checkbox — so a refused row renders no link and
+    /// a disabled checkbox instead of a control the route answers 403 to.
+    ///
+    /// This is the panel half, which the render-level test cannot cover: a
+    /// hand-written `row_actions` closure proves the renderer, not the wiring.
+    #[tokio::test]
+    async fn per_record_policy_narrows_the_wired_chrome() {
+        use crate::resource::Resource;
+        use crate::schema::{Schema, TextInput};
+        use std::collections::HashMap;
+
+        /// Chrome opted into for all three actions, with a policy that refuses
+        /// one row per predicate so each half is separately visible.
+        struct RowPolicyResource;
+        impl Resource for RowPolicyResource {
+            type Model = Dummy;
+            fn slug() -> String {
+                "dummies".to_string()
+            }
+            fn editable() -> bool {
+                true
+            }
+            fn deletable() -> bool {
+                true
+            }
+            fn can_view_any(_cx: &Cx) -> bool {
+                true
+            }
+            fn can_view(_cx: &Cx, record: &Dummy) -> bool {
+                record.name != "Hidden"
+            }
+            fn can_update(_cx: &Cx, record: &Dummy) -> bool {
+                record.name != "Locked"
+            }
+            fn can_delete(_cx: &Cx, record: &Dummy) -> bool {
+                record.name != "Locked"
+            }
+            fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
+                crate::resource::Table::r#for(cx)
+                    .id(|d: &Dummy| d.id.to_string())
+                    .pk(|d: &Dummy| d.id.to_string())
+                    .columns(crate::resource::TextColumn::r#for(
+                        Dummy::fields().name(),
+                        |d: &Dummy| d.name.clone(),
+                    ))
+                    .paginate(25)
+            }
+            fn hydrate_form_values(_cx: &Cx, _record: &Dummy) -> HashMap<String, String> {
+                HashMap::new()
+            }
+            fn form(_cx: &Cx) -> Schema {
+                Schema::new(TextInput::r#for(Dummy::fields().name()))
+            }
+            fn view(_cx: &Cx) -> Schema {
+                Schema::new(TextInput::r#for(Dummy::fields().name()))
+            }
+        }
+
+        let html = list_html_with::<RowPolicyResource>(&["Ada", "Hidden", "Locked"]).await;
+        let rows = rendered_rows(&html);
+        assert_eq!(rows.len(), 3, "three rows seeded, three rendered: {html}");
+        // The table orders by the PK fallback (no sortable column), so the
+        // seeding order is not the rendering order: read each row's own key.
+        let id_of = |name: &str| {
+            rows.iter()
+                .find(|(_, cell)| cell == name)
+                .map(|(id, _)| id.clone())
+                .unwrap_or_else(|| panic!("missing the {name} row in {html}"))
+        };
+        let (ada, hidden, locked) = (id_of("Ada"), id_of("Hidden"), id_of("Locked"));
+
+        // The allowed row keeps all three links and an enabled checkbox.
+        assert!(
+            html.contains(&format!("href=\"/admin/dummies/{ada}\""))
+                && html.contains(&format!("/admin/dummies/{ada}/edit"))
+                && html.contains(&format!("delete={ada}")),
+            "the allowed row must keep its View/Edit/Delete links, got {html}"
+        );
+        assert!(
+            !disabled_box(&html, &ada),
+            "the allowed row's checkbox must stay enabled, got {html}"
+        );
+
+        // The view-refused row renders no link at all — the View link included,
+        // which is the half only `can_view` can withhold.
+        assert!(
+            !html.contains(&format!("/admin/dummies/{hidden}")),
+            "the view-refused row must render no View/Edit link, got {html}"
+        );
+        assert!(
+            !html.contains(&format!("delete={hidden}")),
+            "the view-refused row must render no Delete link, got {html}"
+        );
+        assert!(
+            disabled_box(&html, &hidden),
+            "the view-refused row's checkbox must be disabled, got {html}"
+        );
+
+        // The update/delete-refused row keeps View and loses the other two.
+        assert!(
+            html.contains(&format!("href=\"/admin/dummies/{locked}\""))
+                && !html.contains(&format!("/admin/dummies/{locked}/edit"))
+                && !html.contains(&format!("delete={locked}")),
+            "the update/delete-refused row must keep only its View link, got {html}"
+        );
+        assert!(
+            disabled_box(&html, &locked),
+            "the update/delete-refused row's checkbox must be disabled, got {html}"
+        );
+    }
+
+    /// The `(record key, name cell)` pairs `html` renders, in document order.
+    ///
+    /// A test cannot assume the seeding order — a paginated table with no
+    /// sortable column orders by the PK fallback, and the keys are random — so
+    /// it reads each row's own cells.
+    fn rendered_rows(html: &str) -> Vec<(String, String)> {
+        let mut rows = Vec::new();
+        let mut rest = html;
+        while let Some(at) = rest.find("data-row-select") {
+            let start = rest[..at]
+                .rfind("<input")
+                .expect("the marker's opening tag");
+            let tag = &rest[start..];
+            let value_at = tag.find("value=\"").expect("a checkbox value");
+            let after = &tag[value_at + "value=\"".len()..];
+            let end = after.find('"').expect("a closed value");
+            let id = after[..end].to_string();
+            // The name is the cell after the checkbox's own `<td>`.
+            let cell = &rest[at..];
+            let cell_at = cell.find("<td").expect("the name cell");
+            let text = &cell[cell_at..];
+            let text_at = text.find('>').expect("the cell's opening tag") + 1;
+            let text_end = text[text_at..].find('<').expect("the cell's text end");
+            rows.push((id, text[text_at..text_at + text_end].trim().to_string()));
+            rest = &rest[at + 1..];
+        }
+        rows
+    }
+
+    /// Whether the checkbox carrying `id` renders `disabled`.
+    fn disabled_box(html: &str, id: &str) -> bool {
+        let at = html
+            .find(&format!("value=\"{id}\""))
+            .unwrap_or_else(|| panic!("missing a checkbox for {id} in {html}"));
+        let start = html[..at].rfind("<input").expect("its opening tag");
+        let tag = &html[start..];
+        let end = tag.find('>').expect("the tag's end");
+        tag[..end].contains("disabled")
     }
 
     /// The GET `?q=` term is clamped like the shard's (GH #148): bounded

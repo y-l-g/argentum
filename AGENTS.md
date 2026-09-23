@@ -15,6 +15,7 @@ cargo +1.98 check --workspace --locked           # MSRV floor (rust-version 1.98
 
 cargo run -p showcase                            # http://localhost:3000/admin/users
 node --test crates/argentum-ui/assets/selects.test.js
+node --test crates/argentum-ui/assets/bulk.test.js
 cargo xtask sync-topcoat-ui                      # re-vendor primitives, verbatim
 cargo xtask verify-topcoat-ui                    # fail on vendored drift
 

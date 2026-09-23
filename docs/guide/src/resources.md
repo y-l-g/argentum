@@ -32,18 +32,20 @@ omission has to fail loudly instead of quietly:
   them once at boot, so they must not need request-scoped context.
 - **At request time, loudly**: the record fns default to an error naming the type ("delete not
   implemented for …"), so a missing implementation never looks like a successful no-op.
-- **Chrome is opt-in**: `deletable()` and `editable()` default to `false`, so a resource that never
-  mentions them renders no Edit or Delete affordance — the routes still exist, and the default-deny
-  `can_*` predicates answer them. A resource that wants the chrome declares the flag **and** the
-  policy predicate it promises: `can_delete()` for `deletable()`, `can_view()` + `can_update()` for
-  `editable()`. What that buys is precise: a defaulted flag with a defaulted predicate can never
-  advertise an action that answers 403 (GH #226). It is **not** a per-record guarantee — chrome is
-  one whole-resource flag while `can_update`/`can_delete` take a record, so a resource that opts in
-  with a row-level rule still renders a link for a row the route refuses (the showcase's SSO-guarded
-  user is the worked example: its row keeps the Edit link and the edit page answers 403 by design).
-  That gap is inherent to the seam, not a defect. The `View` link needs no flag at all — it is
-  derived from whether the resource declares a `view()` schema, so there the route and the row link
-  genuinely cannot disagree.
+- **Chrome is opt-in, gated per record**: `deletable()` and `editable()` default to `false`, so a
+  resource that never mentions them renders no Edit or Delete affordance — the routes still exist,
+  and the default-deny `can_*` predicates answer them. A resource that wants the chrome declares the
+  flag **and** the policy predicate it promises: `can_view()` + `can_delete()` for `deletable()`,
+  `can_view()` + `can_update()` for `editable()`. The flag is the whole-resource gate (GH #226); the
+  predicates are
+  applied **per row** (GH #235). The panel wires them into the table's row policy, so a row
+  `can_update()` refuses renders no Edit link, a row `can_delete()` refuses renders no Delete link
+  and a **disabled bulk checkbox** labelled with the reason, and a row `can_view()` refuses renders
+  no View link. Select-all therefore submits only the rows the handler will accept — the showcase's
+  SSO-guarded user is the worked example: its row keeps the View link and nothing else. The handler
+  keeps its all-or-nothing check on the POST as the safety net for a hand-crafted request. The
+  `View` link needs no flag at all — it is derived from whether the resource declares a `view()`
+  schema, so there the route and the row link cannot disagree.
 - **Default-deny stands**: every `can_*` defaults to `false`, so an unconfigured resource exposes
   no data and no mutation.
 

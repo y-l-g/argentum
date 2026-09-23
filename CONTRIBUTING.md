@@ -14,7 +14,9 @@ cargo run -p showcase
 
 `crates/argentum-core` is the framework. `examples/showcase` is the runnable admin, the reference
 for panel and resource declarations, and the home of the integration tests (`cargo test -p
-showcase`); the one JavaScript unit test is `node --test crates/argentum-ui/assets/selects.test.js`.
+showcase`); the JavaScript unit tests are `node --test
+crates/argentum-ui/assets/selects.test.js` and `node --test
+crates/argentum-ui/assets/bulk.test.js`.
 
 ## The gate set
 
