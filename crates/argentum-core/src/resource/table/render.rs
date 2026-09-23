@@ -3,6 +3,8 @@
 //! Grouping is page-local and interleaved (GH #219) and a page encodes the
 //! filter transport once (GH #205).
 
+use std::borrow::Cow;
+
 use argentum_ui::{
     ButtonSize, ButtonVariant, alert_dialog, button, button_variants, dialog_content,
     dialog_description, dialog_footer, dialog_header, dialog_title, icons, input as ui_input,
@@ -14,7 +16,6 @@ use topcoat::icon::icon;
 use topcoat::runtime::Event;
 use topcoat::{Result, view::*};
 
-use super::super::ColumnWidth;
 use super::super::filter::Filter;
 use super::super::state::{
     TablePage, TableSignals, TableState, bulk_delete_url, delete_action_url, group_header_dom_id,
@@ -36,11 +37,46 @@ pub(crate) const LIVE_SEARCH_DEBOUNCE_MS: u32 = 200;
 /// checkbox's usual "Select row" label, and offered as the pointer tooltip too.
 pub(crate) const DENIED_ROW_REASON: &str = "You cannot delete this row";
 
-/// The width the bulk-selection column declares (GH #240): one checkbox plus
-/// the cell's `p-3` padding. `table-fixed` splits the free width equally
-/// between the columns that declare none, so an undeclared checkbox column
-/// would sit as wide as the title beside it.
-const BULK_COLUMN_WIDTH: ColumnWidth = ColumnWidth::Rem(3);
+/// The share of the table the bulk-selection column claims (GH #240): one
+/// checkbox plus the cell's `p-3` padding at the widths a list is read at. A
+/// percentage, not a length: the column keeps its share as the table narrows,
+/// and the columns that declare none keep theirs.
+const BULK_COLUMN_PERCENT: u8 = 5;
+
+/// The most of the table the kind defaults claim together (GH #240).
+///
+/// The defaults are shares of the table, and the columns that declare none
+/// take what they leave: a total over 100% gives those columns no space at
+/// all, and `table-fixed` renders a column with no space at zero width, header
+/// text included. The budget keeps the rest of the table for them whatever the
+/// column set.
+const DEFAULT_WIDTH_BUDGET_PERCENT: u8 = 60;
+
+/// The share a kind default claims, scaled down when the table's defaults
+/// together exceed [`DEFAULT_WIDTH_BUDGET_PERCENT`] (GH #240).
+fn scaled_default_percent(nominal: u8, total: u32) -> u8 {
+    if total <= u32::from(DEFAULT_WIDTH_BUDGET_PERCENT) {
+        return nominal;
+    }
+    let scaled = u32::from(nominal) * u32::from(DEFAULT_WIDTH_BUDGET_PERCENT) / total;
+    // `scaled` is at most the budget, so the conversion cannot fail.
+    u8::try_from(scaled).unwrap_or(DEFAULT_WIDTH_BUDGET_PERCENT)
+}
+
+/// The `style` value a kind default emits.
+fn default_width_style(percent: u8) -> Cow<'static, str> {
+    Cow::Owned(format!("width: {percent}%"))
+}
+
+/// The width every column of one render declares (GH #240): one `style` value
+/// per declared column, in column order, plus the two chrome columns.
+/// `None` is a column that declares no width — a wide column, which takes a
+/// share of what the declared ones leave.
+struct ColumnWidths {
+    cells: Vec<Option<Cow<'static, str>>>,
+    bulk: Option<Cow<'static, str>>,
+    actions: Option<Cow<'static, str>>,
+}
 
 impl<M> Table<M> {
     /// Render the table for the given loaded page.
@@ -191,10 +227,7 @@ impl<M> Table<M> {
         };
         let row_key = row_key.clone();
         let delete_prefix = self.delete_prefix.clone();
-        let edit_prefix = self.edit_prefix.clone();
-        let view_prefix = self.view_prefix.clone();
-        let with_actions =
-            delete_prefix.is_some() || edit_prefix.is_some() || view_prefix.is_some();
+        let with_actions = self.with_actions();
         let with_bulk = self.bulk_enabled();
         // Record keys feed URLs and bulk values, which handlers resolve as
         // the typed PK (GH #168): chrome without `pk` would emit display keys
@@ -264,11 +297,7 @@ impl<M> Table<M> {
         // so they are resolved once here: the same CSS for every row, and a
         // `for` whose expression names `self.columns` would carry the table's
         // borrow into the view (GH #240).
-        let cell_widths: Vec<_> = self
-            .columns
-            .iter()
-            .map(|col| col.column_width().css())
-            .collect();
+        let cell_widths = self.column_widths().cells;
         let mut pager_views: Vec<BoxView<'_>> = Vec::new();
         let body: BoxView<'_> = if page.rows.is_empty() {
             let empty_cell = self
@@ -923,9 +952,7 @@ impl<M> Table<M> {
         // The action column exists for any of the three row links, matching
         // `render_inner` — a `with_view`-only table must not swap a
         // narrower skeleton for a wider table.
-        let with_actions = self.delete_prefix.is_some()
-            || self.edit_prefix.is_some()
-            || self.view_prefix.is_some();
+        let with_actions = self.with_actions();
         let with_bulk = self.bulk_enabled();
         let head = self
             .render_thead(cx, state, &path, with_actions, with_bulk, None)
@@ -1708,6 +1735,73 @@ impl<M> Table<M> {
         Ok(vec![pager.boxed()])
     }
 
+    /// Whether the table renders a row-actions column.
+    fn with_actions(&self) -> bool {
+        self.delete_prefix.is_some() || self.edit_prefix.is_some() || self.view_prefix.is_some()
+    }
+
+    /// The share of the table the row-actions column claims (GH #240): the row
+    /// links sit side by side and each is a fixed-size control, so the share
+    /// grows with the number of links the table renders. The values hold the
+    /// widest set at a 1280px window and the narrower sets inside it.
+    fn actions_percent(&self) -> u8 {
+        let links = usize::from(self.view_prefix.is_some())
+            + usize::from(self.edit_prefix.is_some())
+            + usize::from(self.delete_prefix.is_some());
+        match links {
+            2 => 18,
+            3.. => 25,
+            _ => 12,
+        }
+    }
+
+    /// The width every column of this table declares (GH #240).
+    ///
+    /// The kind defaults — a [`ColumnWidth::Narrow`] column, the bulk
+    /// checkbox, the row actions — are shares of the table, scaled down
+    /// together when their nominal total exceeds
+    /// [`DEFAULT_WIDTH_BUDGET_PERCENT`]: the wide columns take what the
+    /// declared ones leave, and a table that spends every percent on declared
+    /// columns leaves them none. An explicit `Rem`/`Percent` is emitted as
+    /// declared.
+    fn column_widths(&self) -> ColumnWidths
+    where
+        M: toasty::schema::Model,
+    {
+        let bulk = self.bulk_enabled().then_some(BULK_COLUMN_PERCENT);
+        let actions = self.with_actions().then(|| self.actions_percent());
+        let total: u32 = bulk
+            .into_iter()
+            .chain(
+                self.columns
+                    .iter()
+                    .filter_map(|col| col.column_width().default_percent()),
+            )
+            .chain(actions)
+            .map(u32::from)
+            .sum();
+        let default_style =
+            |nominal: u8| default_width_style(scaled_default_percent(nominal, total));
+
+        let cells = self
+            .columns
+            .iter()
+            .map(|col| {
+                let width = col.column_width();
+                // `Wide` declares nothing; a kind default is resolved against
+                // the rest of the table; `Rem`/`Percent` are verbatim.
+                width
+                    .explicit_css()
+                    .or_else(|| width.default_percent().map(default_style))
+            })
+            .collect();
+        ColumnWidths {
+            cells,
+            bulk: bulk.map(default_style),
+            actions: actions.map(default_style),
+        }
+    }
+
     /// The shared column-header row — the single source of the `<thead>`
     /// markup: labels and **links** on sortable columns that toggle
     /// `?sort=`/`?dir=` (a Lucide arrow with `aria-sort` when active,
@@ -1734,15 +1828,17 @@ impl<M> Table<M> {
                 .iter()
                 .any(|c| c.is_sortable() && c.name() == s.column)
         });
+        let widths = self.column_widths();
         let mut heads: Vec<BoxView<'_>> = Vec::with_capacity(self.columns.len());
-        for col in &self.columns {
+        for (index, col) in self.columns.iter().enumerate() {
+            // Owned per iteration: the view must not borrow the resolved list.
+            let width = widths.cells[index].clone();
             let label = col.label().to_string();
             // The declared width rides the header cell's inline `style`
             // (GH #240): a Tailwind class assembled at render would emit no
             // CSS, because Tailwind only generates the literals it finds in
             // source. A wide column declares nothing and takes a share of what
-            // the fixed columns leave.
-            let width = col.column_width().css();
+            // the declared columns leave.
             // A static preview renders plain labels: no link to an interaction
             // the page does not honor (GH #151).
             let sortable = col.is_sortable();
@@ -1818,7 +1914,11 @@ impl<M> Table<M> {
                 view! {
                     cx =>
                     table_head(
-                        attrs: attributes! { class=(head_class) aria-sort=(aria_sort) style=(width) },
+                        attrs: attributes! {
+                            class=(head_class)
+                            aria-sort=(aria_sort)
+                            style=(width.as_deref())
+                        },
                         (header)
                     )
                 }
@@ -1826,23 +1926,13 @@ impl<M> Table<M> {
             );
         }
         if with_actions {
-            // The row links are chrome, not a declared column, but they need a
-            // width all the same: `table-fixed` splits the free width equally
-            // between the columns that declare none, so an auto Actions column
-            // next to a title would be too narrow for three links. The count is
-            // what the table knows; the widths are a static set (GH #240).
-            let links = usize::from(self.view_prefix.is_some())
-                + usize::from(self.edit_prefix.is_some())
-                + usize::from(self.delete_prefix.is_some());
-            let width = match links {
-                2 => ColumnWidth::Rem(12),
-                3.. => ColumnWidth::Rem(16),
-                _ => ColumnWidth::Rem(8),
-            };
             heads.push(
                 view! {
                     cx =>
-                    table_head(attrs: attributes! { style=(width.css()) }, "Actions")
+                    table_head(
+                        attrs: attributes! { style=(widths.actions.as_deref()) },
+                        "Actions"
+                    )
                 }
                 .boxed(),
             );
@@ -1852,13 +1942,11 @@ impl<M> Table<M> {
             table_header(
                 table_row(
                     if with_bulk {
-                        // The checkbox column is the same size for every table:
-                        // one checkbox plus the cell's padding. The header row
-                        // is the row `table-fixed` measures, so the chrome
-                        // columns declare their width here and their `td`s
-                        // declare none (GH #240).
+                        // The header row is the row `table-fixed` measures, so
+                        // the chrome columns declare their width here and
+                        // their `td`s declare none (GH #240).
                         table_head(
-                            attrs: attributes! { style=(BULK_COLUMN_WIDTH.css()) },
+                            attrs: attributes! { style=(widths.bulk.as_deref()) },
                             <input
                                 type="checkbox"
                                 aria-label="Select all rows"
@@ -2017,6 +2105,21 @@ mod tests {
         &html[start..end]
     }
 
+    /// Every whole-percent width a rendered table declares, in document order
+    /// (GH #240). A length declaration is skipped: those carry a unit.
+    fn declared_percents(html: &str) -> Vec<u32> {
+        html.match_indices("style=\"width: ")
+            .filter_map(|(at, marker)| {
+                html[at + marker.len()..]
+                    .split('"')
+                    .next()?
+                    .strip_suffix('%')?
+                    .parse()
+                    .ok()
+            })
+            .collect()
+    }
+
     #[tokio::test]
     async fn table_render_requires_row_key_and_columns() {
         let cx = CxTestBuilder::new().build();
@@ -2155,7 +2258,7 @@ mod tests {
         let cx = CxTestBuilder::new().build();
         let width_table = Table::<Task>::r#for(&cx).id(|t| t.id.to_string()).columns((
             // A field-backed column defaults to `Wide`: it declares no
-            // width and takes a share of what the fixed columns leave.
+            // width and takes the share the declared columns leave.
             TextColumn::r#for(Task::fields().title(), |t: &Task| t.title.clone()),
             // A computed column defaults to `Narrow`, overridden here.
             TextColumn::computed("Status", |t: &Task| t.status.clone())
@@ -2177,10 +2280,10 @@ mod tests {
             .await
             .unwrap()
             .render(&cx);
-        // The fixed layout is this change's contract and a class is its only
-        // transport (GH #240's Done-when names `table-fixed`), so it is
-        // asserted here; the paint classes stay the showcase's business
-        // (GH #216/#136).
+        // The fixed layout is the table's own contract, not paint: GH #240's
+        // Done-when names it as the observable and a class is its only
+        // transport, so this is the one class literal asserted here. The paint
+        // classes stay the showcase's business (GH #216/#136).
         let tag = table_tag(&html);
         assert!(
             tag.contains("table-fixed"),
@@ -2202,27 +2305,25 @@ mod tests {
         );
     }
 
-    /// GH #240: the chrome columns declare a width, because `table-fixed`
-    /// splits the free width equally between the columns that declare none —
-    /// an undeclared checkbox column would sit as wide as the title beside it,
-    /// and an undeclared Actions column too narrow for its row links.
+    /// GH #240: a column that declares nothing but its kind claims a share of
+    /// the table — a percentage, so it shrinks with the table instead of
+    /// outgrowing it — and the wide column beside it still declares none.
     #[tokio::test]
-    async fn chrome_columns_declare_their_widths() {
+    async fn kind_defaults_claim_a_share_of_the_table() {
         let cx = CxTestBuilder::new().build();
-        let chrome_table = Table::<User>::r#for(&cx)
-            .id(|u| u.id.to_string())
-            .pk(|u| u.id.to_string())
-            .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()))
-            .with_delete("/admin/users".to_string())
-            .with_edit("/admin/users".to_string())
-            .with_view("/admin/users".to_string())
-            .with_bulk_delete(true);
-        let page: TablePage<User> = vec![User {
+        let default_table = Table::<Task>::r#for(&cx).id(|t| t.id.to_string()).columns((
+            TextColumn::r#for(Task::fields().title(), |t: &Task| t.title.clone()),
+            TextColumn::computed("Status", |t: &Task| t.status.clone()),
+        ));
+        let page: TablePage<Task> = vec![Task {
             id: uuid::Uuid::new_v4(),
-            name: "Ada".to_string(),
+            title: "Ada".to_string(),
+            status: "draft".to_string(),
+            featured: false,
+            created_at: jiff::Timestamp::now(),
         }]
         .into();
-        let html = chrome_table
+        let html = default_table
             .render(&cx, page)
             .await
             .unwrap()
@@ -2230,17 +2331,146 @@ mod tests {
             .await
             .unwrap()
             .render(&cx);
-        // The header row is the row `table-fixed` measures, so the chrome
-        // columns declare their width there: one declaration each.
         assert_eq!(
-            html.matches("style=\"width: 3rem\"").count(),
-            1,
-            "the checkbox column must declare its width, got {html}"
+            declared_percents(&html),
+            [10, 10],
+            "a computed column claims its kind's share on the th and the td, got {html}"
         );
         assert_eq!(
-            html.matches("style=\"width: 16rem\"").count(),
-            1,
-            "the three-link Actions column must declare its width, got {html}"
+            html.matches("style=\"width").count(),
+            2,
+            "the field column must declare nothing, got {html}"
+        );
+    }
+
+    /// GH #240: the chrome columns declare a share of the table too — the
+    /// header row is the row `table-fixed` measures — and the share grows with
+    /// the number of row links, which sit side by side.
+    #[tokio::test]
+    async fn chrome_columns_declare_their_widths() {
+        // Each case: the row links to wire, and the share Actions claims.
+        let cases: [(usize, &str); 3] = [(1, "12%"), (2, "18%"), (3, "25%")];
+        for (links, expected) in cases {
+            let cx = CxTestBuilder::new().build();
+            let mut chrome_table = Table::<User>::r#for(&cx)
+                .id(|u| u.id.to_string())
+                .pk(|u| u.id.to_string())
+                .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()))
+                .with_view("/admin/users".to_string());
+            if links > 1 {
+                chrome_table = chrome_table.with_edit("/admin/users".to_string());
+            }
+            if links > 2 {
+                // Delete is what the bulk column pairs with (GH #226).
+                chrome_table = chrome_table
+                    .with_delete("/admin/users".to_string())
+                    .with_bulk_delete(true);
+            }
+            let page: TablePage<User> = vec![User {
+                id: uuid::Uuid::new_v4(),
+                name: "Ada".to_string(),
+            }]
+            .into();
+            let html = chrome_table
+                .render(&cx, page)
+                .await
+                .unwrap()
+                .single()
+                .await
+                .unwrap()
+                .render(&cx);
+            assert_eq!(
+                html.matches(&format!("style=\"width: {expected}\""))
+                    .count(),
+                1,
+                "{links} row links must claim {expected} in the header row, got {html}"
+            );
+            // The bulk checkbox claims its own share, and only when the table
+            // renders one.
+            let bulk = if links > 2 { 1 } else { 0 };
+            assert_eq!(
+                html.matches(&format!("style=\"width: {BULK_COLUMN_PERCENT}%\""))
+                    .count(),
+                bulk,
+                "the bulk column's share must follow the table's chrome, got {html}"
+            );
+        }
+    }
+
+    /// GH #240: the kind defaults together stay inside their budget, whatever
+    /// the column set — a column that declares none is rendered at zero width
+    /// once the declared shares claim the whole table, header text included,
+    /// so the defaults scale down instead of spending the last percent.
+    #[tokio::test]
+    async fn kind_defaults_stay_inside_their_budget() {
+        let cx = CxTestBuilder::new().build();
+        // Four computed columns (4 × the 10% nominal) plus both chrome columns
+        // (5% + 20%) overrun the budget, so every default is scaled down
+        // together and the field column beside them keeps the rest.
+        let crowded = Table::<Task>::r#for(&cx)
+            .id(|t| t.id.to_string())
+            .pk(|t| t.id.to_string())
+            .columns((
+                TextColumn::r#for(Task::fields().title(), |t: &Task| t.title.clone()),
+                TextColumn::computed("Status", |t: &Task| t.status.clone()),
+                TextColumn::computed("Featured", |t: &Task| t.featured.to_string()),
+                TextColumn::computed("Created", |t: &Task| t.created_at.to_string()),
+                TextColumn::computed("Id", |t: &Task| t.id.to_string()),
+            ))
+            .with_delete("/admin/tasks".to_string())
+            .with_edit("/admin/tasks".to_string())
+            .with_view("/admin/tasks".to_string())
+            .with_bulk_delete(true);
+        let page: TablePage<Task> = vec![Task {
+            id: uuid::Uuid::new_v4(),
+            title: "Ada".to_string(),
+            status: "draft".to_string(),
+            featured: false,
+            created_at: jiff::Timestamp::now(),
+        }]
+        .into();
+        let html = crowded
+            .render(&cx, page)
+            .await
+            .unwrap()
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
+        // One share per declared column, in the header row: the four computed
+        // columns and the two chrome columns.
+        let thead_at = html.find("<thead").expect("a header row");
+        let thead_end = html.find("</thead>").expect("its end");
+        let percents = declared_percents(&html[thead_at..thead_end]);
+        assert_eq!(
+            percents.len(),
+            6,
+            "one share per declared column, got {percents:?} in {html}"
+        );
+        assert!(
+            percents.iter().all(|percent| *percent > 0),
+            "a scaled share must keep its column visible, got {percents:?}"
+        );
+        let total: u32 = percents.iter().sum();
+        assert!(
+            total <= u32::from(DEFAULT_WIDTH_BUDGET_PERCENT),
+            "the kind defaults must leave the field column a share, got {percents:?}"
+        );
+        // The field column declares nothing at all, so it takes what the
+        // declared columns leave.
+        let title_at = html.find(">Title<").expect("the Title header");
+        let title_th = html[..title_at].rfind("<th").expect("its <th>");
+        assert!(
+            !html[title_th..title_at].contains("style="),
+            "the field column must declare no width, got {}",
+            &html[title_th..title_at]
+        );
+        // Every share rides its header cell, and each text column repeats its
+        // own on the row's cell: four text columns twice, two chrome once.
+        assert_eq!(
+            declared_percents(&html).len(),
+            10,
+            "each share must reach its th and its td, got {html}"
         );
     }
 

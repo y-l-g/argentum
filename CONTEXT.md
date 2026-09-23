@@ -127,8 +127,9 @@ through a lens-bound closure where typos fail at compile time. `searchable`/`sor
 Toasty predicates and order_by; computed columns render values but declare none. A column whose
 projection reads a relation declares it with `needs(..)`, and the CSV export's narrowed query is
 built from those declarations (GH #177, ADR-0018). A column declares its width in the table's
-fixed layout with `width(ColumnWidth::..)`, defaulting by kind: a field column takes a share of the
-free width, a computed column is narrow (GH #240). `TextColumn` is the only column type; Badge,
+fixed layout with `width(ColumnWidth::..)`; widths are shares of the table, and the default follows
+the column's kind: a field column declares none and takes what the declared columns leave, a
+computed column claims a share (GH #240). `TextColumn` is the only column type; Badge,
 Number and the rest remain spec-level.
 
 _Avoid_: Field (in table context), Cell, Attribute
