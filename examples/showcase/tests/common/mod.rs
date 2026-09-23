@@ -41,8 +41,8 @@ pub async fn empty_schema_db() -> Db {
     db
 }
 
-/// [`empty_schema_db`] with the demo admin seeded and zero team rows.
-pub async fn empty_team_db() -> Db {
+/// [`empty_schema_db`] with the demo admin seeded and zero user rows.
+pub async fn empty_users_db() -> Db {
     let mut db = empty_schema_db().await;
     create_admin(
         &mut db,
@@ -603,7 +603,7 @@ pub async fn post_count(db: &Db) -> usize {
 
 /// How many `User` rows the database holds (GH #217).
 ///
-/// [`post_count`]'s pattern for the team roster: a seeded-row literal like
+/// [`post_count`]'s pattern for the user list: a seeded-row literal like
 /// `8` asserts the fixture's size. Write/delete tests compare this before and
 /// after instead.
 pub async fn user_count(db: &Db) -> usize {

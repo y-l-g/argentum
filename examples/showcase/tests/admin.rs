@@ -28,10 +28,10 @@ async fn admin_resource_list_page_serve_seeded_users() {
         html.contains("data-sidebar=\"sidebar\"") || html.contains("data-sidebar=\"menu\""),
         "missing sidebar in {html}"
     );
-    // Sidebar lists one entry per resource: Team, Writers, Blog Posts,
+    // Sidebar lists one entry per resource: Users, Writers, Blog Posts,
     // Comments. No manual saved view (GH #184) and no Showcase documentation
     // entry (GH #163).
-    assert!(html.contains("Team"), "missing Team label in {html}");
+    assert!(html.contains("Users"), "missing Users label in {html}");
     assert!(
         html.contains("href=\"/admin/users\"") || html.contains("/admin/users"),
         "missing navigation url in {html}"
@@ -72,7 +72,12 @@ async fn admin_resource_list_page_serve_seeded_users() {
     // seeded users on page 1; cursor pagination across pages is exercised by
     // admin_list_pagination_walks_cursor_links, which seeds one row past the
     // page size.
-    assert!(html.contains("Team</h1>"), "missing heading in {html}");
+    assert!(html.contains("Users</h1>"), "missing heading in {html}");
+    // The create button is worded from the same label (GH #246).
+    assert!(
+        html.contains("Create Users"),
+        "missing create entry point in {html}"
+    );
     assert!(html.contains("Ada Lovelace"), "missing Ada in {html}");
     assert!(html.contains("Alan Turing"), "missing Alan in {html}");
     assert!(html.contains("Grace Hopper"), "missing Grace in {html}");

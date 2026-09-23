@@ -55,6 +55,16 @@ async fn post_detail_renders_the_record_read_only() {
         html.contains(&post.status),
         "detail page must show the status: {html}"
     );
+    // Each value carries the label the form and the table use (GH #246): the
+    // flag reads "Featured" and the stored image reads "Cover image".
+    assert!(
+        html.contains("Featured</div>"),
+        "detail page must label the flag as featured: {html}"
+    );
+    assert!(
+        html.contains("Cover image"),
+        "detail page must label the stored image by role: {html}"
+    );
     assert!(
         html.contains("Back to list"),
         "detail page must offer a way back: {html}"

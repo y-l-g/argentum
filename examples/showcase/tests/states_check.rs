@@ -1,10 +1,10 @@
 use showcase::{app::router_for_tests as router, models::User};
 
-use crate::common::{body_string, demo_client, empty_team_db, find_href_with, full_db, seeded_db};
+use crate::common::{body_string, demo_client, empty_users_db, find_href_with, full_db, seeded_db};
 
 #[tokio::test]
-async fn empty_team_list_shows_no_records_yet() {
-    let db = empty_team_db().await;
+async fn empty_users_list_shows_no_records_yet() {
+    let db = empty_users_db().await;
     let router = router(db.clone());
     let client = demo_client(&router, &db).await;
     let resp = client.get("/admin/users").await;
@@ -31,7 +31,7 @@ async fn tampered_cursor_shows_in_region_error_with_retry() {
     assert!(resp.status().is_success());
     let html = body_string(resp).await;
     assert!(
-        html.contains("Couldn't load Team"),
+        html.contains("Couldn't load Users"),
         "failed load must name the resource: {html}"
     );
     assert!(

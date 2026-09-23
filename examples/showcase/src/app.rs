@@ -38,10 +38,6 @@ pub struct UserResource;
 impl Resource for UserResource {
     type Model = User;
 
-    fn navigation_label() -> String {
-        "Team".to_string()
-    }
-
     fn can_view_any(_cx: &Cx) -> bool {
         true
     }
@@ -534,9 +530,9 @@ impl Resource for PostResource {
                                 ("true".to_string(), "Featured".to_string()),
                                 ("false".to_string(), "Regular".to_string()),
                             ])
-                            .label("Spotlight"),
+                            .label("Featured"),
                     )),
-                    TextInput::r#for(Post::fields().image_path()).label("Image"),
+                    TextInput::r#for(Post::fields().image_path()).label("Cover image"),
                     TextInput::r#for(Post::fields().tags()).label("Tags"),
                 )),
             ),
@@ -668,13 +664,27 @@ impl Resource for PostResource {
                 TernaryFilter::r#for(Post::fields().featured()),
                 DateFilter::r#for(Post::fields().created_at()),
                 // Prebuilt-expression VariantFilter (no embedded enum needed):
-                // the editorial spotlight facet over the featured flag.
+                // the editorial facet, where each option pairs the featured
+                // flag with the lifecycle status — `Promoted` is featured and
+                // published, `Backlog` is a draft that is not featured.
                 VariantFilter::r#for(
-                    "spotlight",
-                    "Spotlight",
+                    "promoted",
+                    "Promoted",
                     vec![
-                        ("Featured".to_string(), Post::fields().featured().eq(true)),
-                        ("Standard".to_string(), Post::fields().featured().eq(false)),
+                        (
+                            "Promoted".to_string(),
+                            Post::fields()
+                                .featured()
+                                .eq(true)
+                                .and(Post::fields().status().eq("published".to_string())),
+                        ),
+                        (
+                            "Backlog".to_string(),
+                            Post::fields()
+                                .featured()
+                                .eq(false)
+                                .and(Post::fields().status().eq("draft".to_string())),
+                        ),
                     ],
                 ),
             ))
@@ -706,7 +716,7 @@ impl Resource for PostResource {
                             ("true".to_string(), "Featured".to_string()),
                             ("false".to_string(), "Regular".to_string()),
                         ])
-                        .label("Spotlight")
+                        .label("Featured")
                         .optional(),
                 )),
                 Select::r#for(Post::fields().author_id())
@@ -718,9 +728,9 @@ impl Resource for PostResource {
                     .searchable()
                     .label("Author"),
             )),
-            // Media as tabs: upload and tags grouped until tab JS lands.
+            // Upload and tags as tabs: grouped until tab JS lands.
             Tabs::new().schema((
-                FileUpload::r#for(Post::fields().image_path()),
+                FileUpload::r#for(Post::fields().image_path()).label("Cover image"),
                 Repeater::new("Tags").schema(TextInput::r#for(Post::fields().tags()).label("Tag")),
             )),
             // Embedded **values** (GH #191). One declaration per value: the
@@ -735,7 +745,7 @@ impl Resource for PostResource {
                 ),
                 Section::new("Publication")
                     .schema(Publication::form(cx, Post::fields().publication())),
-                Section::new("Media").schema(Media::form(cx, Post::fields().media())),
+                Section::new("Attachment").schema(Media::form(cx, Post::fields().media())),
             )),
         ))
     }
