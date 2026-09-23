@@ -36,6 +36,14 @@ is no binding, no handler, and no shard (pinned by
 `a_static_table_renders_no_runtime_bindings_at_all`). The control's presence is therefore the page's
 own answer to "can this table refresh in place?", and the client needs no other test.
 
+**The client finds the table from the form, not from the document.** The bulk form lives inside its
+table's `[data-table-root]`; the row confirm lives in the dialog the page owns, outside every table,
+so its table is the one holding the control that opened it — the control carries the same POST target
+`dialog.js` copies onto the form. A target that matches no control resolves to no table, and the
+client then leaves the page to the browser. Both paths read the region, the refresh control and the
+bulk transport through that one root, so a page rendering two tables cannot have one table's delete
+touch the other's.
+
 **The client never morphs the response into the live document.** The reason is state, not markup:
 
 - **The response renders the bare list URL, the page keeps its live state.** A delete 303s to
