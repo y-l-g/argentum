@@ -70,23 +70,25 @@
 <a href=#70 id=70 data-nosnippet>70</a><span class="kw">pub const </span>VARIANT_JS: topcoat::asset::Asset = <span class="macro">topcoat::asset::asset!</span>(<span class="string">"../assets/variant.js"</span>);
 <a href=#71 id=71 data-nosnippet>71</a><span class="kw">pub const </span>NOTIFICATION_JS: topcoat::asset::Asset =
 <a href=#72 id=72 data-nosnippet>72</a>    <span class="macro">topcoat::asset::asset!</span>(<span class="string">"../assets/notifications.js"</span>);
-<a href=#73 id=73 data-nosnippet>73</a>
-<a href=#74 id=74 data-nosnippet>74</a><span class="doccomment">/// Tailwind build helper for the per-app contract.
-<a href=#75 id=75 data-nosnippet>75</a>///
-<a href=#76 id=76 data-nosnippet>76</a>/// Call from the app's `build.rs`:
+<a href=#73 id=73 data-nosnippet>73</a><span class="kw">pub const </span>MUTATION_SUBMIT_JS: topcoat::asset::Asset =
+<a href=#74 id=74 data-nosnippet>74</a>    <span class="macro">topcoat::asset::asset!</span>(<span class="string">"../assets/mutation-submit.js"</span>);
+<a href=#75 id=75 data-nosnippet>75</a>
+<a href=#76 id=76 data-nosnippet>76</a><span class="doccomment">/// Tailwind build helper for the per-app contract.
 <a href=#77 id=77 data-nosnippet>77</a>///
-<a href=#78 id=78 data-nosnippet>78</a>/// ```ignore
-<a href=#79 id=79 data-nosnippet>79</a>/// fn main() {
-<a href=#80 id=80 data-nosnippet>80</a>///     argentum_ui::tailwind_build().unwrap();
-<a href=#81 id=81 data-nosnippet>81</a>/// }
-<a href=#82 id=82 data-nosnippet>82</a>/// ```
-<a href=#83 id=83 data-nosnippet>83</a>///
-<a href=#84 id=84 data-nosnippet>84</a>/// This scans `styles.css` (which must `@import "tailwindcss"` and contain
-<a href=#85 id=85 data-nosnippet>85</a>/// `@source` globs for the app's `src/` and for `argentum-ui/src/`) and
-<a href=#86 id=86 data-nosnippet>86</a>/// writes `$OUT_DIR/tailwind.css` for `tailwind::stylesheet!()`.
-<a href=#87 id=87 data-nosnippet>87</a></span><span class="kw">pub fn </span>tailwind_build() -&gt; <span class="prelude-ty">Result</span>&lt;std::path::PathBuf, topcoat::tailwind::BuildError&gt; {
-<a href=#88 id=88 data-nosnippet>88</a>    topcoat::tailwind::BuildConfig::new()
-<a href=#89 id=89 data-nosnippet>89</a>        .input(<span class="string">"styles.css"</span>)
-<a href=#90 id=90 data-nosnippet>90</a>        .render()
-<a href=#91 id=91 data-nosnippet>91</a>}
+<a href=#78 id=78 data-nosnippet>78</a>/// Call from the app's `build.rs`:
+<a href=#79 id=79 data-nosnippet>79</a>///
+<a href=#80 id=80 data-nosnippet>80</a>/// ```ignore
+<a href=#81 id=81 data-nosnippet>81</a>/// fn main() {
+<a href=#82 id=82 data-nosnippet>82</a>///     argentum_ui::tailwind_build().unwrap();
+<a href=#83 id=83 data-nosnippet>83</a>/// }
+<a href=#84 id=84 data-nosnippet>84</a>/// ```
+<a href=#85 id=85 data-nosnippet>85</a>///
+<a href=#86 id=86 data-nosnippet>86</a>/// This scans `styles.css` (which must `@import "tailwindcss"` and contain
+<a href=#87 id=87 data-nosnippet>87</a>/// `@source` globs for the app's `src/` and for `argentum-ui/src/`) and
+<a href=#88 id=88 data-nosnippet>88</a>/// writes `$OUT_DIR/tailwind.css` for `tailwind::stylesheet!()`.
+<a href=#89 id=89 data-nosnippet>89</a></span><span class="kw">pub fn </span>tailwind_build() -&gt; <span class="prelude-ty">Result</span>&lt;std::path::PathBuf, topcoat::tailwind::BuildError&gt; {
+<a href=#90 id=90 data-nosnippet>90</a>    topcoat::tailwind::BuildConfig::new()
+<a href=#91 id=91 data-nosnippet>91</a>        .input(<span class="string">"styles.css"</span>)
+<a href=#92 id=92 data-nosnippet>92</a>        .render()
+<a href=#93 id=93 data-nosnippet>93</a>}
 </code></pre></div></section></main></body></html>

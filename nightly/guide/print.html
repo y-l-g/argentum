@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-baba99e0.js";
+            window.path_to_searchindex_js = "searchindex-85965c51.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-da1679ae.js"></script>
@@ -577,9 +577,12 @@ button opens an alert dialog that names how many rows are selected, and its conf
 only thing carrying the <code>confirm=1</code> the handler requires — a POST without that marker is a 400, so
 the safeguard does not depend on the script that opens the dialog (GH #184).</p>
 <p>Row delete asks first too, and the dialog opens in place (GH #233): the row control names the
-table’s one dialog and carries that record’s POST target, so a delete costs the confirmed POST
-alone. Cancel is a button, so dismissing never navigates; the control’s <code>?delete=&lt;key&gt;</code> href stays
-as the no-JS fallback, which renders the same dialog open with the action already set.</p>
+table’s one dialog and carries that record’s POST target. Confirming it needs no navigation
+(GH #234): the client follows the POST’s 303, mounts the flash toast the handler set, and refreshes
+the table through the shard — a delete costs the confirmed POST, the list render behind the redirect
+(whose body is discarded except the toast) and one <code>table_search</code> request. Cancel is a button, so
+dismissing never navigates; the control’s <code>?delete=&lt;key&gt;</code> href stays as the no-JS fallback, which
+renders the same dialog open with the action already set.</p>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="forms"><a class="header" href="#forms">Forms</a></h1>
 <p>Create and edit forms: typed lenses, layout blocks, the fields and what each one guarantees, file
