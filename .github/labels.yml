@@ -29,9 +29,6 @@
 - name: ready-for-agent
   description: "Fully specified, ready for an AFK agent."
   color: "0e8a16"
-- name: ready-for-human
-  description: "Requires human implementation."
-  color: "b60205"
 
 # Applied by a maintainer.
 - name: accessibility

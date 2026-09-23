@@ -24,7 +24,6 @@ One role at a time. A maintainer sets it, and replaces it as the issue moves.
 | `needs-triage` | Maintainer needs to evaluate this issue. |
 | `needs-info` | Waiting on the reporter for more information. |
 | `ready-for-agent` | Fully specified, ready for an AFK agent. |
-| `ready-for-human` | Requires human implementation. |
 
 ## Applied by a maintainer
 
