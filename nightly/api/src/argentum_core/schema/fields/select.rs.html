@@ -531,7 +531,7 @@
 <a href=#531 id=531 data-nosnippet>531</a>        <span class="comment">// The upstream `field` family (topcoat#420): the `select` primitive
 <a href=#532 id=532 data-nosnippet>532</a>        // brings the same `aria-invalid` error styling and focus ring as the
 <a href=#533 id=533 data-nosnippet>533</a>        // `input` primitive, plus the chevron and the customizable picker —
-<a href=#534 id=534 data-nosnippet>534</a>        // the control no longer hand-rolls the input chrome.
+<a href=#534 id=534 data-nosnippet>534</a>        // the control uses the primitive's chrome.
 <a href=#535 id=535 data-nosnippet>535</a>        </span><span class="kw">let </span>field_class = <span class="kw">if </span>has_error {
 <a href=#536 id=536 data-nosnippet>536</a>            <span class="string">"ac-field ac-field--error"
 <a href=#537 id=537 data-nosnippet>537</a>        </span>} <span class="kw">else </span>{
@@ -639,9 +639,9 @@
 <a href=#639 id=639 data-nosnippet>639</a>    <span class="kw">use </span><span class="kw">super</span>::<span class="kw">super</span>::test_support::{DummyUser, FkRef, opening_tag_at};
 <a href=#640 id=640 data-nosnippet>640</a>    <span class="kw">use super</span>::<span class="kw-2">*</span>;
 <a href=#641 id=641 data-nosnippet>641</a>
-<a href=#642 id=642 data-nosnippet>642</a>    <span class="doccomment">/// A bare `Select` over a non-nullable FK must reject an empty submit
-<a href=#643 id=643 data-nosnippet>643</a>    /// inline (GH #147): previously it passed validation and died at the
-<a href=#644 id=644 data-nosnippet>644</a>    /// driver's `parse::&lt;Uuid&gt;("")` as a 500.
+<a href=#642 id=642 data-nosnippet>642</a>    <span class="doccomment">/// A bare `Select` over a non-nullable FK rejects an empty submit inline
+<a href=#643 id=643 data-nosnippet>643</a>    /// (GH #147): an empty submit fails here with `is required`, so it never
+<a href=#644 id=644 data-nosnippet>644</a>    /// reaches the driver's `parse::&lt;Uuid&gt;("")`.
 <a href=#645 id=645 data-nosnippet>645</a>    </span><span class="attr">#[test]
 <a href=#646 id=646 data-nosnippet>646</a>    </span><span class="kw">fn </span>bare_non_nullable_fk_select_rejects_empty_inline() {
 <a href=#647 id=647 data-nosnippet>647</a>        <span class="kw">let </span>select = Select::r#for(FkRef::fields().author_id());

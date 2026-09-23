@@ -35,7 +35,7 @@
 <a href=#35 id=35 data-nosnippet>35</a>    <span class="doccomment">/// Create a `FileUpload` bound to the given field lens.
 <a href=#36 id=36 data-nosnippet>36</a>    ///
 <a href=#37 id=37 data-nosnippet>37</a>    /// Required defaults from the lens's nullability (GH #100, GH #147),
-<a href=#38 id=38 data-nosnippet>38</a>    /// same as `TextInput`/`Select`. Today the `String` lens type only binds
+<a href=#38 id=38 data-nosnippet>38</a>    /// same as `TextInput`/`Select`. The `String` lens type only binds
 <a href=#39 id=39 data-nosnippet>39</a>    /// non-nullable columns (`Option&lt;String&gt;` fields do not typecheck), so
 <a href=#40 id=40 data-nosnippet>40</a>    /// the default is always required and `.optional()` is the form-level
 <a href=#41 id=41 data-nosnippet>41</a>    /// opt-out; the nullability walk stays correct if the lens widens
@@ -57,7 +57,7 @@
 <a href=#57 id=57 data-nosnippet>57</a>        <span class="self">self
 <a href=#58 id=58 data-nosnippet>58</a>    </span>}
 <a href=#59 id=59 data-nosnippet>59</a>
-<a href=#60 id=60 data-nosnippet>60</a>    <span class="doccomment">/// Opt out of the required default (GH #147): today `r#for` only binds
+<a href=#60 id=60 data-nosnippet>60</a>    <span class="doccomment">/// Opt out of the required default (GH #147): `r#for` only binds
 <a href=#61 id=61 data-nosnippet>61</a>    /// non-nullable `String` columns (an `Option&lt;String&gt;` field is
 <a href=#62 id=62 data-nosnippet>62</a>    /// `Path&lt;M, Option&lt;String&gt;&gt;` and does not typecheck), so the default is
 <a href=#63 id=63 data-nosnippet>63</a>    /// always required and this is the only way to treat a required-backed

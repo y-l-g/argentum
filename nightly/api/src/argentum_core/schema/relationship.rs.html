@@ -305,7 +305,7 @@
 <a href=#305 id=305 data-nosnippet>305</a>/// * Empty/blank `q` → bounded head (same cap as [`related_records`]).
 <a href=#306 id=306 data-nosnippet>306</a>/// * `q` non-empty but `search_expr` is `None` (no searchable columns) →
 <a href=#307 id=307 data-nosnippet>307</a>///   fallback to the hard-cap path (D1a): unfiltered bounded load, `Overflow`
-<a href=#308 id=308 data-nosnippet>308</a>///   when over the cap. Non-searchable selects keep today's behavior.
+<a href=#308 id=308 data-nosnippet>308</a>///   when over the cap. Non-searchable selects use the hard-cap path.
 <a href=#309 id=309 data-nosnippet>309</a>/// * Filtered fetch carries `limit(MAX+1)` and fails with `Overflow` past the
 <a href=#310 id=310 data-nosnippet>310</a>///   cap instead of scanning the table — one bounded round-trip per keystroke
 <a href=#311 id=311 data-nosnippet>311</a>///   burst, never the whole table.
@@ -330,7 +330,7 @@
 <a href=#330 id=330 data-nosnippet>330</a>        <span class="comment">// D1: reuse the related table's declared searchable columns. When it
 <a href=#331 id=331 data-nosnippet>331</a>        // declares none, `search_expr` is None and we fall through unfiltered
 <a href=#332 id=332 data-nosnippet>332</a>        // to the capped exec below (D1a fallback: hard-cap path, `Overflow`
-<a href=#333 id=333 data-nosnippet>333</a>        // on large tables). Non-searchable selects keep today's behavior.
+<a href=#333 id=333 data-nosnippet>333</a>        // on large tables). Non-searchable selects use the hard-cap path.
 <a href=#334 id=334 data-nosnippet>334</a>        </span><span class="kw">if let </span><span class="prelude-val">Some</span>(expr) = R::search_expr(cx, <span class="kw-2">&amp;</span>term) {
 <a href=#335 id=335 data-nosnippet>335</a>            query = query.filter(expr);
 <a href=#336 id=336 data-nosnippet>336</a>        }
@@ -908,7 +908,7 @@
 <a href=#908 id=908 data-nosnippet>908</a>    <span class="attr">#[tokio::test]
 <a href=#909 id=909 data-nosnippet>909</a>    </span><span class="kw">async fn </span>relationship_options_share_one_load_per_request_and_tenant() {
 <a href=#910 id=910 data-nosnippet>910</a>        <span class="comment">// GH #91: selects over one source share a single bounded load per
-<a href=#911 id=911 data-nosnippet>911</a>        // (request, tenant) — validate + re-render no longer rescan.
+<a href=#911 id=911 data-nosnippet>911</a>        // (request, tenant) — validate and re-render share the one load.
 <a href=#912 id=912 data-nosnippet>912</a>        </span><span class="kw">use </span>std::sync::atomic::{AtomicUsize, Ordering};
 <a href=#913 id=913 data-nosnippet>913</a>
 <a href=#914 id=914 data-nosnippet>914</a>        <span class="kw">static </span>OPTION_LOADS: AtomicUsize = AtomicUsize::new(<span class="number">0</span>);
@@ -1035,7 +1035,7 @@
 <a href=#1035 id=1035 data-nosnippet>1035</a>            .<span class="kw">await
 <a href=#1036 id=1036 data-nosnippet>1036</a>            </span>.unwrap_err();
 <a href=#1037 id=1037 data-nosnippet>1037</a>        <span class="macro">assert_eq!</span>(err, <span class="kw-2">&amp;</span><span class="kw">super</span>::OptionLoadError::Overflow);
-<a href=#1038 id=1038 data-nosnippet>1038</a>        <span class="comment">// Non-searchable keeps the retry message (today's behavior).
+<a href=#1038 id=1038 data-nosnippet>1038</a>        <span class="comment">// Non-searchable keeps the retry message.
 <a href=#1039 id=1039 data-nosnippet>1039</a>        </span><span class="kw">let </span>plain = Select::r#for(BigRef::fields().name()).relationship::&lt;BigRefSource&gt;(
 <a href=#1040 id=1040 data-nosnippet>1040</a>            |_cx| Query::all(),
 <a href=#1041 id=1041 data-nosnippet>1041</a>            |r: <span class="kw-2">&amp;</span>BigRef| r.id,

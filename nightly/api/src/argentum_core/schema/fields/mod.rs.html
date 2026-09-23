@@ -23,8 +23,8 @@
 <a href=#23 id=23 data-nosnippet>23</a>/// Two shapes, because the difference is content, not styling: prose wraps
 <a href=#24 id=24 data-nosnippet>24</a>/// mid-word never, and an identifier (a stored path, an address) has no spaces
 <a href=#25 id=25 data-nosnippet>25</a>/// to break at, so it breaks anywhere and sets in mono. A `bool` parameter
-<a href=#26 id=26 data-nosnippet>26</a>/// carried the same decision until it read as validation metadata at a call
-<a href=#27 id=27 data-nosnippet>27</a>/// site.
+<a href=#26 id=26 data-nosnippet>26</a>/// reads as validation metadata at a call site, so the two shapes are the
+<a href=#27 id=27 data-nosnippet>27</a>/// `ValueKind` enum.
 <a href=#28 id=28 data-nosnippet>28</a></span><span class="attr">#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 <a href=#29 id=29 data-nosnippet>29</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">enum </span>ValueKind {
 <a href=#30 id=30 data-nosnippet>30</a>    <span class="doccomment">/// Wrapping text: a title, a body, a description.
@@ -231,7 +231,7 @@
 <a href=#231 id=231 data-nosnippet>231</a>        );
 <a href=#232 id=232 data-nosnippet>232</a>        <span class="comment">// FileUpload's lens type only binds non-nullable `String` columns
 <a href=#233 id=233 data-nosnippet>233</a>        // (a nullable field is `Option&lt;String&gt;`), so its required default is
-<a href=#234 id=234 data-nosnippet>234</a>        // always on today; the nullability walk keeps it correct if the lens
+<a href=#234 id=234 data-nosnippet>234</a>        // always on; the nullability walk keeps it correct if the lens
 <a href=#235 id=235 data-nosnippet>235</a>        // widens upstream (#183).
 <a href=#236 id=236 data-nosnippet>236</a>    </span>}
 <a href=#237 id=237 data-nosnippet>237</a>}
