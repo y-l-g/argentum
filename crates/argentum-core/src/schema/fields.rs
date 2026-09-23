@@ -1382,9 +1382,9 @@ impl Textarea {
 /// none, the sanitized basename is stored. The file input renders no `value`
 /// attribute, which browsers ignore for security.
 ///
-/// `render_with` and `validate` own the rest: the stored-value preview and its
-/// `clear_<field>` checkbox (GH #188), and the edit-time `required` rule
-/// (GH #184).
+/// `render_with` and `validate` own the rest: the stored value as a link and
+/// its `clear_<field>` checkbox (GH #188, GH #242), and the edit-time
+/// `required` rule (GH #184).
 #[derive(Debug, Clone)]
 pub struct FileUpload {
     name: String,
@@ -1469,16 +1469,14 @@ impl FileUpload {
         // stored file" affordance, which is a statement about a form, not about
         // a record.
         if mode == Mode::View {
-            return view_value(cx, &self.label, value);
+            return stored_upload_value(cx, &self.label, value);
         }
         let label_text = self.label.clone();
         let name = self.name.clone();
         // An edit hydrates the stored path; a create does not (GH #184). See
         // the type docs: the control is required only when nothing is stored,
         // since a file input cannot be pre-filled.
-        let stored = value
-            .map(|v| v.trim().to_string())
-            .filter(|v| !v.is_empty());
+        let stored = stored_path(value);
         let is_edit = stored.is_some();
         let control_required = self.required && !is_edit;
         let has_error = !errors.is_empty();
@@ -1499,20 +1497,11 @@ impl FileUpload {
             (false, true) => Some(hint_id.clone()),
             (false, false) => None,
         };
-        // The stored value as the file it names (GH #188): an image preview
-        // when the path looks like an image, a link to the file otherwise.
-        // Nothing here guesses a URL convention — the app decides what it
-        // stores (the uploader's return value) and this renders it verbatim.
-        let stored_is_image = stored.as_deref().is_some_and(is_image_path);
-        let stored_display: Option<BoxView<'a>> = stored
-            .clone()
-            .map(|current| stored_upload_row(cx, current, stored_is_image));
-        // The full image with a size cap, not a thumbnail: thumbnailing means
-        // an image pipeline, and the framework has none (GH #188).
-        let preview: Option<BoxView<'a>> = stored
-            .clone()
-            .filter(|_| stored_is_image)
-            .map(|current| stored_upload_preview(cx, current, label_text.clone()));
+        // The stored value as a link to the file it names (GH #242). Nothing
+        // here guesses a URL convention — the app decides what it stores (the
+        // uploader's return value) and this renders it verbatim.
+        let stored_display: Option<BoxView<'a>> =
+            stored.map(|current| stored_upload_row(cx, current));
         Ok(view! {
             cx =>
             ui_field(
@@ -1532,9 +1521,6 @@ impl FileUpload {
                     // longer ambiguous, and the empty control reads as "leave
                     // it alone" rather than "this field is broken".
                     (row)
-                }
-                if let Some(preview) = preview {
-                    (preview)
                 }
                 // The `input` primitive styles `type="file"` through its
                 // `file:` classes and carries the `aria-invalid` error styling.
@@ -1591,93 +1577,61 @@ impl FileUpload {
     }
 }
 
-/// Whether a stored upload path names an image, by extension (GH #188).
+/// The stored path a `FileUpload` shows, if it has one.
 ///
-/// Deliberately a suffix check and nothing more: the framework renders what the
-/// app stored and never fetches or probes it, so a path with no recognisable
-/// image extension renders as a link — which still shows the file — and a
-/// non-image with one renders as a broken image the app can see and fix. A
-/// query or fragment is ignored, because a signed URL carries one
-/// (`/media/x.png?token=…`).
-fn is_image_path(path: &str) -> bool {
-    const IMAGE_EXTENSIONS: [&str; 7] = ["png", "jpg", "jpeg", "gif", "webp", "svg", "avif"];
-    let path = path.split(['?', '#']).next().unwrap_or(path);
-    let Some((_, extension)) = path.rsplit_once('.') else {
-        return false;
-    };
-    IMAGE_EXTENSIONS
-        .iter()
-        .any(|known| extension.eq_ignore_ascii_case(known))
+/// A value that is absent or only whitespace is not a file: the form renders a
+/// create rather than an edit with an empty "Current:" line, and the read-only
+/// value renders without a link.
+fn stored_path(value: Option<&str>) -> Option<String> {
+    value
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
 }
 
 /// The `Current: …` row a `FileUpload` shows for a stored value (GH #188).
 ///
 /// Takes the path by value: the rendered view has to outlive the field's
 /// `render_with`, and a rendering coroutine may not hold a borrow of it.
-fn stored_upload_row<'a>(cx: &'a Cx, path: String, is_image: bool) -> BoxView<'a> {
-    // An image path is shown as text *and* previewed below it, so the row's
-    // own link would be redundant; everything else is a file the user can only
-    // reach by following it. Each branch owns the strings its view moves.
-    let display_path = path.clone();
-    let display: BoxView<'a> = if is_image {
-        view! { cx => <span class="font-medium text-foreground">(display_path)</span> }.boxed()
-    } else {
-        let href = display_path.clone();
-        view! {
-            cx =>
-            <a class="font-medium text-foreground underline" href=(href)>
-                (display_path)
-            </a>
-        }
-        .boxed()
-    };
+fn stored_upload_row<'a>(cx: &'a Cx, path: String) -> BoxView<'a> {
+    // The link is the only way to reach the file, and the path is what it
+    // says; each node owns its own copy of it.
+    let href = path.clone();
+    let text = path.clone();
     view! {
         cx =>
         <div class="text-xs text-muted-foreground" data-file-current=(path)>
             "Current: "
-            (display)
+            <a class="font-medium text-foreground underline" href=(href)>(text)</a>
         </div>
     }
     .boxed()
 }
 
-/// A `FileUpload` read rather than edited (GH #187): the stored path as a
-/// record value, plus the same preview the form shows when it looks like an
-/// image (GH #188) — the reader has the same "is the stored value right?"
-/// question the editor has, and only the control is a form's business.
-fn view_value<'a>(cx: &'a Cx, label: &str, value: Option<&str>) -> Result<BoxView<'a>> {
-    let record_value = render_value(cx, label, value, ValueKind::Machine)?;
-    let stored = value
-        .map(|v| v.trim().to_string())
-        .filter(|v| !v.is_empty());
-    let preview = stored
-        .filter(|path| is_image_path(path))
-        .map(|path| stored_upload_preview(cx, path, label.to_string()));
+/// A `FileUpload` read rather than edited (GH #187): the label over the stored
+/// path, as a link to the file (GH #242).
+///
+/// The reader asks the same "is the stored value right?" question the editor
+/// asks, and following the link is how they answer it. The chrome is the one
+/// `render_value` gives every read-only field, so a detail page stays uniform.
+fn stored_upload_value<'a>(cx: &'a Cx, label: &str, value: Option<&str>) -> Result<BoxView<'a>> {
+    let Some(path) = stored_path(value) else {
+        return render_value(cx, label, value, ValueKind::Machine);
+    };
+    let label = label.to_string();
+    let href = path.clone();
     Ok(view! {
         cx =>
-        (record_value)
-        if let Some(preview) = preview {
-            (preview)
-        }
+        ui_field(
+            attrs: attributes! { class="ac-field" },
+            ui_field_content(
+                ui_field_title((label))
+                <a class="text-sm font-mono break-all whitespace-pre-wrap" href=(href)>
+                    (path)
+                </a>
+            )
+        )
     }
     .boxed())
-}
-
-/// The preview a `FileUpload` shows under a stored image (GH #188).
-///
-/// The stored path, rendered as an `<img>` — the full image with a size cap,
-/// not a thumbnail, because thumbnailing means an image pipeline and the
-/// framework has none.
-fn stored_upload_preview<'a>(cx: &'a Cx, path: String, label: String) -> BoxView<'a> {
-    view! {
-        cx =>
-        <img
-            src=(path)
-            alt=(label)
-            class="mt-2 max-h-40 w-auto max-w-full rounded-md border border-border"
-        >
-    }
-    .boxed()
 }
 
 #[cfg(test)]
@@ -2383,49 +2337,40 @@ mod tests {
         );
     }
 
-    /// GH #188: the stored path is previewed as the file it names — an image
-    /// when it looks like one, a link to the file otherwise. The framework
-    /// renders what the app stored and invents no URL convention.
+    /// GH #242: the stored path is a link to the file it names, whatever the
+    /// extension — the framework renders what the app stored, invents no URL
+    /// convention, and keeps no image pipeline.
     #[tokio::test]
-    async fn file_upload_previews_an_image_and_links_any_other_file() {
+    async fn file_upload_links_the_stored_file() {
         let (cx, schema) = cx_and_doc_schema();
         let image = render_upload(&schema, &cx, Some("/uploads/cover.png")).await;
-        let preview = tag_with(&image, "src=\"/uploads/cover.png\"");
         assert!(
-            preview.starts_with("<img"),
-            "an image path must be previewed as an image, got {preview}"
+            !image.contains("<img"),
+            "a stored path is never rendered as an image, got {image}"
         );
-        // GH #216: the size cap (`max-h-40`) is paint. What the preview must be
-        // is the stored path itself, as an `<img>`, not a link to somewhere
-        // else — the `src` slice above and `data-file-current` below are that.
+        assert!(
+            tag_with(&image, "href=\"/uploads/cover.png\"").starts_with("<a"),
+            "the stored path must be a link to the file, got {image}"
+        );
         assert!(
             image.contains("data-file-current=\"/uploads/cover.png\""),
-            "the path stays readable next to the preview, got {image}"
+            "the path stays readable beside the link, got {image}"
         );
 
-        let other = render_upload(&schema, &cx, Some("/files/spec.pdf?v=2")).await;
-        assert!(
-            !other.contains("<img"),
-            "a non-image must not be rendered as an image, got {other}"
-        );
-        assert!(
-            tag_with(&other, "href=\"/files/spec.pdf?v=2\"").starts_with("<a"),
-            "a non-image must be a link to the file, got {other}"
-        );
-        // The extension check ignores a signed URL's query (and is
-        // case-insensitive), so a real image behind one is still previewed.
+        // The stored value is opaque: a query string is part of the path the
+        // app stored and reaches the link unchanged.
         let signed = render_upload(&schema, &cx, Some("/media/photo.JPG?token=abc")).await;
         assert!(
-            tag_with(&signed, "src=\"/media/photo.JPG?token=abc\"").starts_with("<img"),
-            "a query string must not hide the extension, got {signed}"
+            tag_with(&signed, "href=\"/media/photo.JPG?token=abc\"").starts_with("<a"),
+            "the stored path is rendered verbatim, got {signed}"
         );
     }
 
-    /// GH #188: a *read* of the stored value previews it too — the same
-    /// question ("is what is stored right?") reaches a reader, and only the
-    /// control is a form's business.
+    /// GH #242: a *read* of the stored value links it too — a reader asks the
+    /// same "is what is stored right?" question the editor asks, and following
+    /// the link is how they answer it.
     #[tokio::test]
-    async fn file_upload_view_mode_previews_a_stored_image() {
+    async fn file_upload_view_mode_links_the_stored_file() {
         let (cx, schema) = cx_and_doc_schema();
         let mut values = HashMap::new();
         values.insert("path".to_string(), "/uploads/cover.png".to_string());
@@ -2438,18 +2383,21 @@ mod tests {
             .unwrap()
             .render(&cx);
         assert!(
-            tag_with(&html, "src=\"/uploads/cover.png\"").starts_with("<img"),
-            "a detail page must preview a stored image, got {html}"
+            tag_with(&html, "href=\"/uploads/cover.png\"").starts_with("<a"),
+            "a detail page must link the stored file, got {html}"
+        );
+        assert!(
+            !html.contains("<img"),
+            "a detail page renders no image, got {html}"
         );
         assert!(
             !html.contains("type=\"file\""),
             "and must never show a file control, got {html}"
         );
 
-        let mut values = HashMap::new();
-        values.insert("path".to_string(), "/files/spec.pdf".to_string());
-        let other = schema
-            .render_readonly(&cx, &values)
+        // Nothing stored is not a link to nowhere.
+        let empty = schema
+            .render_readonly(&cx, &HashMap::new())
             .await
             .unwrap()
             .single()
@@ -2457,8 +2405,8 @@ mod tests {
             .unwrap()
             .render(&cx);
         assert!(
-            !other.contains("<img"),
-            "a non-image stays a value, got {other}"
+            !empty.contains("<a"),
+            "an empty stored value must not render a link, got {empty}"
         );
     }
 
@@ -2486,22 +2434,6 @@ mod tests {
             !create.contains("name=\"clear_path\""),
             "a create has nothing to clear, got {create}"
         );
-    }
-
-    /// The extension check behind the preview, including the cases a naive
-    /// `ends_with(".png")` gets wrong.
-    #[test]
-    fn image_paths_are_recognised_by_extension() {
-        assert!(is_image_path("/uploads/cover.png"));
-        assert!(is_image_path("cover.JPEG"));
-        assert!(is_image_path("/media/photo.webp?token=abc"));
-        assert!(is_image_path("https://cdn.example.com/a/b/c.svg#frag"));
-        assert!(!is_image_path("/files/spec.pdf"));
-        assert!(!is_image_path("/uploads/no-extension"));
-        assert!(!is_image_path(""));
-        // Not an image, even though the *directory* says png: only the last
-        // extension decides.
-        assert!(!is_image_path("/a.png/report.txt"));
     }
 
     #[tokio::test]

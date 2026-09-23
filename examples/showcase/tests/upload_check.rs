@@ -113,9 +113,9 @@ async fn an_uploaded_file_lands_in_the_served_directory_and_fetches_back() {
 }
 
 #[tokio::test]
-async fn the_edit_page_previews_the_stored_upload_and_offers_to_remove_it() {
+async fn the_edit_page_links_the_stored_upload_and_offers_to_remove_it() {
     let db = full_db().await;
-    let router = router_with_uploads(db.clone(), temp_dir("preview"));
+    let router = router_with_uploads(db.clone(), temp_dir("link"));
     let (stored, id) = upload_a_cover_image(&router, &db).await;
 
     let client = demo_client(&router, &db).await;
@@ -123,12 +123,12 @@ async fn the_edit_page_previews_the_stored_upload_and_offers_to_remove_it() {
     assert!(response.status().is_success());
     let html = body_string(response).await;
     assert!(
-        html.contains("<img") && html.contains(&format!("src=\"{stored}\"")),
-        "the edit form must preview the stored upload: {html}"
+        !html.contains(&format!("src=\"{stored}\"")),
+        "the edit form renders no image preview of the upload: {html}"
     );
     assert!(
-        !html.contains(&format!("href=\"{stored}\"")),
-        "a previewed image is not also a link: {html}"
+        html.contains(&format!("href=\"{stored}\"")),
+        "the edit form must link the stored upload: {html}"
     );
     assert!(
         html.contains("name=\"clear_image_path\""),

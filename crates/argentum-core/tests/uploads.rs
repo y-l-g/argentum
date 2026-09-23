@@ -642,7 +642,7 @@ async fn an_over_cap_body_still_413s_with_an_uploader_installed() {
 }
 
 #[tokio::test]
-async fn the_edit_form_previews_an_image_and_links_any_other_file() {
+async fn the_edit_form_links_the_stored_files() {
     let db = seeded_db().await;
     let router = router(db.clone(), Some(RecordingUploader::default()));
     let doc = seed_doc(&db, "Notes", "/uploads/photo.png", "/files/spec.pdf").await;
@@ -651,20 +651,16 @@ async fn the_edit_form_previews_an_image_and_links_any_other_file() {
     assert!(response.status().is_success());
     let html = body_string(response).await;
     assert!(
-        html.contains("<img") && html.contains("src=\"/uploads/photo.png\""),
-        "an image path is previewed as an image: {html}"
+        !html.contains("src=\"/uploads/photo.png\""),
+        "no stored path is rendered as an image: {html}"
     );
     assert!(
-        !html.contains("href=\"/uploads/photo.png\""),
-        "and a previewed image is not also a link: {html}"
+        html.contains("href=\"/uploads/photo.png\""),
+        "a stored image path is a link to the file: {html}"
     );
     assert!(
         html.contains("href=\"/files/spec.pdf\""),
-        "a non-image path is a link to the file: {html}"
-    );
-    assert!(
-        !html.contains("src=\"/files/spec.pdf\""),
-        "and a non-image is not rendered as an image: {html}"
+        "a stored non-image path is a link to the file: {html}"
     );
     // Both stored values offer the clear control, labelled with what it does.
     assert!(html.contains("name=\"clear_cover\""), "{html}");
@@ -673,7 +669,7 @@ async fn the_edit_form_previews_an_image_and_links_any_other_file() {
 }
 
 #[tokio::test]
-async fn a_create_form_offers_neither_a_preview_nor_a_clear_control() {
+async fn a_create_form_offers_no_stored_value_and_no_clear_control() {
     // Both belong to a stored value: a create has none, and an empty file
     // input cannot express "remove what is not there".
     let db = seeded_db().await;
@@ -683,6 +679,7 @@ async fn a_create_form_offers_neither_a_preview_nor_a_clear_control() {
     assert!(response.status().is_success());
     let html = body_string(response).await;
     assert!(!html.contains("<img"), "{html}");
+    assert!(!html.contains("data-file-current"), "{html}");
     assert!(!html.contains("name=\"clear_"), "{html}");
     assert!(
         html.contains("enctype=\"multipart/form-data\""),
