@@ -21,7 +21,7 @@ async fn delete_requires_confirmation_and_deletes() {
     let csrf = uuid::Uuid::new_v4().to_string();
 
     // The list renders a Delete link that opens the confirmation dialog
-    // (`?delete=<key>`) — no per-row POST form, no dialog until asked. The
+    // (`?delete=<key>`) — no per-row POST form, no navigation to open. The
     // row action is destructive (GH #154 §6), matching the bulk Delete and
     // the dialog's confirm.
     let resp = client.get("/admin/users").await;
@@ -30,22 +30,49 @@ async fn delete_requires_confirmation_and_deletes() {
         html.contains(&format!("delete={id}")),
         "list should link the delete dialog for the row, got {html}"
     );
-    let row_delete = {
-        let at = html.find(&format!("delete={id}")).unwrap();
-        let start = html[..at].rfind("<a ").unwrap();
-        let end = html[at..].find('>').unwrap() + at;
-        &html[start..end]
-    };
+    let row_delete = tag_with(&html, &format!("delete={id}"));
     assert!(
         row_delete.contains("bg-destructive"),
         "row Delete must be destructive, got {row_delete}"
     );
-    // The row-delete dialog is URL-driven, so without `?delete=` it is absent.
-    // Checked by its own title rather than by "no alertdialog on the page":
-    // the bulk bar carries its own confirm dialog (GH #184).
+    // The control keeps the `?delete=` opener as the no-JS fallback, which
+    // renders the same dialog open with the action already set.
+    let href = attr_value(row_delete, "href");
     assert!(
-        !html.contains("Delete this record?"),
-        "the row delete dialog must not render without ?delete=, got {html}"
+        href.starts_with("/admin/users?") && href.ends_with(&format!("delete={id}")),
+        "the control must keep its fallback href, got {href}"
+    );
+    // The control opens the table's one dialog in place (GH #233): it names
+    // that dialog and carries this record's POST target, so the click costs no
+    // navigation and the dialog's Delete posts to the clicked row.
+    let dialog_id = attr_value(row_delete, "data-row-delete-trigger");
+    assert_eq!(
+        attr_value(row_delete, "data-row-delete-action"),
+        format!("/admin/users/{id}/delete"),
+        "the control must carry the row's POST target, got {row_delete}"
+    );
+    // The dialog itself ships closed — an ordinary list page renders no open
+    // dialog — and takes its action from the control, not from the server. One
+    // dialog for the page: the streamed table carries none of its own.
+    assert_eq!(
+        html.matches("data-row-delete-dialog").count(),
+        1,
+        "one row dialog per page, got {html}"
+    );
+    let dialog = tag_with(&html, "data-row-delete-dialog");
+    assert_eq!(
+        attr_value(dialog, "id"),
+        dialog_id,
+        "the control must name a dialog the page renders, got {dialog}"
+    );
+    assert!(
+        !dialog.contains("open=\"\""),
+        "an ordinary list page must render the row dialog closed, got {dialog}"
+    );
+    let form = tag_with(&html, "data-row-delete-form");
+    assert!(
+        !form.contains("action="),
+        "the closed dialog takes its action from the row control, got {form}"
     );
 
     // ?delete=<id> renders the alert dialog on the list page: destructive
@@ -53,6 +80,20 @@ async fn delete_requires_confirmation_and_deletes() {
     let resp = client.get(&format!("/admin/users?delete={id}")).await;
     assert!(resp.status().is_success());
     let html = body_string(resp).await;
+    let dialog = tag_with(&html, "data-row-delete-dialog");
+    assert!(
+        dialog.contains("open=\"\""),
+        "?delete= must render the row dialog open, got {dialog}"
+    );
+    // The open one is the only one: the streamed table's shard output carries
+    // no dialog of its own (GH #233), so the live page's eager copy stands
+    // alone. A second copy would duplicate the dialog's ids and give the morph
+    // one to replace mid-dismissal.
+    assert_eq!(
+        html.matches("data-row-delete-dialog").count(),
+        1,
+        "one row dialog on the page, got {html}"
+    );
     let action = format!("action=\"/admin/users/{id}/delete\"");
     for needle in [
         "role=\"alertdialog\"",
@@ -67,6 +108,16 @@ async fn delete_requires_confirmation_and_deletes() {
     ] {
         assert!(html.contains(needle), "dialog missing {needle} in {html}");
     }
+    // Cancel is a button (GH #233): dismissal closes in place instead of
+    // navigating to the list URL.
+    let from_title = &html[html
+        .find("Delete this record?")
+        .expect("the row dialog's title")..];
+    let cancel = tag_with(from_title, "data-dialog-close");
+    assert!(
+        cancel.starts_with("<button"),
+        "the row dialog's Cancel must be a button, got {cancel}"
+    );
 
     // dialog.js mirrors Escape/backdrop dismissal into the URL; the server
     // honors it so a reload stays closed.
@@ -76,9 +127,14 @@ async fn delete_requires_confirmation_and_deletes() {
     let html = body_string(resp).await;
     // The row dialog specifically: the page also carries the bulk bar's own
     // confirm dialog (GH #184), which is unrelated to `?delete=`/`?open=`.
+    let dialog = tag_with(&html, "data-row-delete-dialog");
     assert!(
-        !html.contains("Delete this record?"),
-        "?open=false must keep the row dialog closed, got {html}"
+        !dialog.contains("open=\"\""),
+        "?open=false must keep the row dialog closed, got {dialog}"
+    );
+    assert!(
+        !dialog.contains("data-dialog-open-param"),
+        "a closed dialog has no dismissal to mirror, got {dialog}"
     );
 
     // POST without the dialog's confirmation marker is malformed now that
@@ -331,4 +387,25 @@ async fn delete_sso_managed_user_is_forbidden() {
         before,
         "forbidden delete must remove nothing"
     );
+}
+
+/// The opening tag of the element carrying `marker`: from the nearest `<`
+/// before it to its closing `>`.
+fn tag_with<'a>(html: &'a str, marker: &str) -> &'a str {
+    let at = html
+        .find(marker)
+        .unwrap_or_else(|| panic!("missing {marker} in {html}"));
+    let start = html[..at].rfind('<').expect("the marker's opening tag");
+    let end = html[start..].find('>').expect("the tag's end") + start;
+    &html[start..=end]
+}
+
+/// The value of `name="…"` inside `tag`.
+fn attr_value<'a>(tag: &'a str, name: &str) -> &'a str {
+    let at = tag
+        .find(&format!("{name}=\""))
+        .unwrap_or_else(|| panic!("missing {name} in {tag}"));
+    let start = at + name.len() + 2;
+    let end = tag[start..].find('"').expect("the value's end") + start;
+    &tag[start..end]
 }

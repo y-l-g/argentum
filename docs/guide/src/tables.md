@@ -1,7 +1,7 @@
 # Tables
 
 The list view: columns and the row key, search and sort, filters, grouping and CSV export, live
-updates, and bulk delete.
+updates, and row and bulk delete.
 
 Minimal table:
 
@@ -77,3 +77,8 @@ the whole batch over. Bulk delete asks first: the bulk bar's
 button opens an alert dialog that names how many rows are selected, and its confirm control is the
 only thing carrying the `confirm=1` the handler requires — a POST without that marker is a 400, so
 the safeguard does not depend on the script that opens the dialog (GH #184).
+
+Row delete asks first too, and the dialog opens in place (GH #233): the row control names the
+table's one dialog and carries that record's POST target, so a delete costs the confirmed POST
+alone. Cancel is a button, so dismissing never navigates; the control's `?delete=<key>` href stays
+as the no-JS fallback, which renders the same dialog open with the action already set.

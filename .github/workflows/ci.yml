@@ -36,7 +36,7 @@ jobs:
   # The shell assets are plain browser scripts loaded through `asset!`: no build
   # step, no dependencies, nothing to install, and the runner's Node runs them
   # as-is. A job of its own keeps a JS failure attributable to the assets and
-  # off the Rust job's queue. Both suites are named rather than globbed: a glob
+  # off the Rust job's queue. The suites are named rather than globbed: a glob
   # would silently shrink the run when a suite is renamed, while a missing path
   # fails the job.
   assets:
@@ -48,6 +48,7 @@ jobs:
           node --test
           crates/argentum-ui/assets/selects.test.js
           crates/argentum-ui/assets/bulk.test.js
+          crates/argentum-ui/assets/dialog.test.js
 
   clippy:
     name: clippy
