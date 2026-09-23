@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use argentum_core::{
-    Brand, DateFilter, FileUpload, Grid, Group, IncludeNeeds, Panel, RelationColumn,
+    Brand, ColumnWidth, DateFilter, FileUpload, Grid, Group, IncludeNeeds, Panel, RelationColumn,
     RelationColumns, Repeater, Resource, Schema, Section, Select, SelectFilter, Table, Tabs,
     TernaryFilter, TextColumn, TextInput, Textarea, Uploader, VariantFilter, read_embedded,
     render_relation, require_tenant, scoped_query, submitted, tenant_id, write_embedded,
@@ -631,10 +631,17 @@ impl Resource for PostResource {
                 TextColumn::r#for(Post::fields().title(), |p: &Post| p.title.clone())
                     .searchable()
                     .sortable(),
-                TextColumn::r#for(Post::fields().status(), |p: &Post| p.status.clone()),
+                // GH #240: a status is narrow by content, not by kind — `r#for`
+                // binds a `String` field, which the framework cannot tell from
+                // a title. Featured and Comments below keep the `computed`
+                // default (narrow).
+                TextColumn::r#for(Post::fields().status(), |p: &Post| p.status.clone())
+                    .width(ColumnWidth::Narrow),
                 TextColumn::computed("Featured", |p: &Post| {
                     if p.featured { "Yes" } else { "No" }.to_string()
                 }),
+                // The other override direction: a computed column that holds a
+                // name is body text, so it takes a share of the free width.
                 TextColumn::computed("Author", |p: &Post| {
                     // Loud on missing includes (GH #101): a silent "-" reads
                     // as data. The list/export loaders include author when
@@ -650,6 +657,7 @@ impl Resource for PostResource {
                         p.author.get().name.clone()
                     }
                 })
+                .width(ColumnWidth::Wide)
                 .needs(["author"]),
                 TextColumn::computed("Comments", |p: &Post| {
                     debug_assert!(
@@ -1203,6 +1211,9 @@ impl Resource for CommentResource {
                         c.post.get().title.clone()
                     }
                 })
+                // GH #240: a post title is body text, not the narrow badge a
+                // computed column defaults to.
+                .width(ColumnWidth::Wide)
                 .needs(["post"]),
             ))
             .paginate(25)
@@ -1368,9 +1379,20 @@ pub fn router_with_uploads(db: Db, dir: impl Into<PathBuf>) -> Router {
     build_router(db, None, Some(dir.into()))
 }
 
+/// Build the showcase router with uploads at the directory the application
+/// itself uses (GH #248).
+///
+/// [`router_with_uploads`] takes a directory so the framework's upload tests
+/// can own theirs; this one is the configuration the app runs with, which is
+/// what the media library's page writes through — the panel's `serve_dir` mount
+/// and the store are two ends of one directory.
+pub fn router_with_app_uploads(db: Db) -> Router {
+    build_router(db, None, Some(upload_dir()))
+}
+
 /// Where the showcase writes uploaded bytes: `SHOWCASE_UPLOAD_DIR`, or
 /// `target/showcase-uploads` so a local run works with no configuration.
-fn upload_dir() -> PathBuf {
+pub(crate) fn upload_dir() -> PathBuf {
     std::env::var_os("SHOWCASE_UPLOAD_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("target/showcase-uploads"))
@@ -1387,18 +1409,28 @@ pub const UPLOAD_URL_PREFIX: &str = "/uploads";
 /// return the URL they are served at (GH #188).
 ///
 /// A demo, not a framework default — the trait is the seam and drivers are the
-/// app's business. Two things a real store still owns and this one borrows from
-/// the framework: the client name is already sanitized to a basename (GH #90),
-/// and the UUID prefix keeps two uploads of `cover.png` apart. Writing the file
-/// is this app's job; swapping in an object store means replacing this type and
-/// nothing else.
-struct DirUploader {
+/// app's business. The UUID prefix keeps two uploads of `cover.png` apart, and
+/// the framework hands this store a name already sanitized to a basename
+/// (GH #90). Writing the file is this app's job; swapping in an object store
+/// means replacing this type and nothing else.
+///
+/// The media library's page builds this store too (GH #248): it parses its own
+/// multipart body, so the sanitized name is not the framework's to guarantee
+/// there — the store applies [`basename`] itself rather than trusting every
+/// caller to have done it.
+pub(crate) struct DirUploader {
     dir: PathBuf,
+}
+
+impl DirUploader {
+    pub(crate) fn new(dir: impl Into<PathBuf>) -> Self {
+        Self { dir: dir.into() }
+    }
 }
 
 impl Uploader for DirUploader {
     async fn store(&self, filename: &str, bytes: &[u8]) -> Result<String, String> {
-        let name = format!("{}-{filename}", uuid::Uuid::new_v4());
+        let name = format!("{}-{}", uuid::Uuid::new_v4(), basename(filename));
         // Failure reasons are rendered to the user, so they say what the user
         // can act on and never leak the path that failed.
         tokio::fs::create_dir_all(&self.dir)
@@ -1407,8 +1439,69 @@ impl Uploader for DirUploader {
         tokio::fs::write(self.dir.join(&name), bytes)
             .await
             .map_err(|_| "the upload could not be written".to_string())?;
-        Ok(format!("{UPLOAD_URL_PREFIX}/{name}"))
+        // The caller stores this string and renders it verbatim as the file's
+        // URL (GH #242), so it has to be one: the segment is percent-encoded,
+        // or `cover #1.png` would be served as `cover ` plus a fragment, and a
+        // `%22` the browser sent in the filename would decode to a quote the
+        // file on disk does not carry.
+        Ok(format!("{UPLOAD_URL_PREFIX}/{}", url_segment(&name)))
     }
+}
+
+/// The longest client filename the showcase keeps, in bytes.
+///
+/// 255 bytes is the common per-component limit on Linux filesystems, and the
+/// store's `{uuid}-` prefix takes 37 of them, so the basename is capped to what
+/// is left. The media library records the name it stores, so the row's
+/// `filename` and the file on disk cannot disagree.
+const MAX_BASENAME_BYTES: usize = 218;
+
+/// Reduce a client-supplied filename to the basename this app stores and shows
+/// (GH #90).
+///
+/// Strips directory components (`../../etc/passwd` → `passwd`), drops control
+/// characters, trims the ends, and caps the byte length preserving the tail, so
+/// the extension survives. The framework sanitizes the names its own form
+/// parser hands an [`Uploader`]; the media library's page parses its own
+/// multipart body (GH #248), and this is the one rule both callers apply.
+pub(crate) fn basename(raw: &str) -> String {
+    let base = raw.rsplit(['/', '\\']).next().unwrap_or(raw);
+    let clean: String = base.chars().filter(|c| !c.is_control()).collect();
+    let trimmed = clean.trim();
+    if trimmed.len() <= MAX_BASENAME_BYTES {
+        return trimmed.to_string();
+    }
+    // Walk the cut point forward to a char boundary: slicing a multibyte
+    // character would panic on an attacker-controlled filename (GH #90).
+    let mut start = trimmed.len() - MAX_BASENAME_BYTES;
+    while !trimmed.is_char_boundary(start) {
+        start += 1;
+    }
+    trimmed[start..].to_string()
+}
+
+/// `name` as one URL path segment: everything outside the unreserved set is
+/// percent-encoded (RFC 3986 §2.3).
+///
+/// The store's contract is that the string it returns is fetchable verbatim
+/// (GH #242), and a client filename is arbitrary: a space must not become the
+/// end of the URL, a `#` must not start a fragment, and a `%` must not decode
+/// to something else.
+fn url_segment(name: &str) -> String {
+    use std::fmt::Write as _;
+
+    let mut out = String::with_capacity(name.len());
+    for byte in name.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                out.push(byte as char);
+            }
+            _ => {
+                let _ = write!(out, "%{byte:02X}");
+            }
+        }
+    }
+    out
 }
 
 fn build_router(db: Db, bundle: Option<AssetBundle>, uploads: Option<PathBuf>) -> Router {
@@ -1445,7 +1538,7 @@ fn build_router(db: Db, bundle: Option<AssetBundle>, uploads: Option<PathBuf>) -
         // fetchable without the framework inventing a URL convention.
         panel = panel
             .serve_dir(format!("{UPLOAD_URL_PREFIX}/{{*file}}"), dir.clone())
-            .uploads(DirUploader { dir });
+            .uploads(DirUploader::new(dir));
     }
     match bundle {
         Some(bundle) => panel
@@ -1485,6 +1578,61 @@ fn load_assets() -> AssetBundle {
                     "showcase asset bundle is unavailable: executable lookup failed ({near_executable})"
                 ),
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_client_filename_is_reduced_to_a_basename() {
+        assert_eq!(basename("../../etc/passwd"), "passwd");
+        assert_eq!(basename("/abs/path/cover.png"), "cover.png");
+        assert_eq!(basename("C:\\fakepath\\cover.png"), "cover.png");
+        assert_eq!(basename("  cover.png  "), "cover.png");
+        assert_eq!(basename("cover\u{7}.png"), "cover.png");
+        assert_eq!(basename("   "), "");
+        // Capped by bytes, keeping the tail so the extension survives.
+        let long = format!("{}{}", "a".repeat(300), ".png");
+        let capped = basename(&long);
+        assert_eq!(capped.len(), MAX_BASENAME_BYTES);
+        assert!(capped.ends_with(".png"), "got {capped}");
+    }
+
+    #[test]
+    fn a_multibyte_filename_caps_on_a_char_boundary() {
+        let long = format!("{}.png", "é".repeat(300));
+        let capped = basename(&long);
+        assert!(capped.len() <= MAX_BASENAME_BYTES);
+        assert!(capped.ends_with(".png"), "got {capped}");
+        assert!(
+            capped
+                .chars()
+                .all(|c| c == 'é' || c == '.' || c == 'p' || c == 'n' || c == 'g')
+        );
+    }
+
+    #[test]
+    fn a_stored_name_becomes_a_url_path_segment() {
+        assert_eq!(url_segment("cover.png"), "cover.png");
+        assert_eq!(url_segment("cover #1.png"), "cover%20%231.png");
+        assert_eq!(
+            url_segment("quote%22 onerror=%22boom.png"),
+            "quote%2522%20onerror%3D%2522boom.png"
+        );
+        assert_eq!(url_segment("100%.png"), "100%25.png");
+        assert_eq!(url_segment("a+b&c.png"), "a%2Bb%26c.png");
+        // Nothing a browser sends reaches the URL as a delimiter.
+        for name in ["#", "?", "\"", " ", "%", "&", "+", "/", "\\"] {
+            let encoded = url_segment(name);
+            assert!(
+                encoded
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b"%.-_~".contains(&b)),
+                "{name:?} encoded to {encoded}"
+            );
         }
     }
 }

@@ -25,6 +25,7 @@ mod file_repeater_check;
 mod filter_check;
 mod group_export_check;
 mod list_actions_check;
+mod media_check;
 mod relation_check;
 mod states_check;
 mod tenancy_check;

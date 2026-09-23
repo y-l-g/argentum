@@ -22,9 +22,11 @@ argentum-core = { path = "../../crates/argentum-core" }
 argentum-ui = { path = "../../crates/argentum-ui" }
 jiff.workspace = true
 toasty.workspace = true
-# `fs` is for the demo uploader's `tokio::fs` write (GH #188).
+# `fs` is for the demo uploader's `tokio::fs` write (GH #188); `multipart` is
+# the extractor the media library's page parses its own upload body with
+# (GH #248).
 tokio = { workspace = true, features = ["fs"] }
-topcoat = { workspace = true, features = ["serve", "tailwind", "font", "font-fontsource", "asset", "runtime"] }
+topcoat = { workspace = true, features = ["serve", "tailwind", "font", "font-fontsource", "asset", "runtime", "multipart"] }
 uuid.workspace = true
 
 [build-dependencies]

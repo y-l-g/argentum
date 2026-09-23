@@ -130,7 +130,10 @@ A typed projection of a Model field (or a computed value) displayed in a Table r
 through a lens-bound closure where typos fail at compile time. `searchable`/`sortable` map to
 Toasty predicates and order_by; computed columns render values but declare none. A column whose
 projection reads a relation declares it with `needs(..)`, and the CSV export's narrowed query is
-built from those declarations (GH #177, ADR-0018). `TextColumn` is the only column type; Badge,
+built from those declarations (GH #177, ADR-0018). A column declares its width in the table's
+fixed layout with `width(ColumnWidth::..)`; widths are shares of the table, and the default follows
+the column's kind: a field column declares none and takes what the declared columns leave, a
+computed column claims a share (GH #240). `TextColumn` is the only column type; Badge,
 Number and the rest remain spec-level.
 
 _Avoid_: Field (in table context), Cell, Attribute
@@ -315,7 +318,9 @@ per Panel (`Panel::uploads`), discovered on the app_context wherever a `FileUplo
 object store is an app-level dependency, not a per-field declaration.
 `store(filename, bytes) -> Result<String, String>` receives the part's already-sanitized basename
 and its content (bounded by the 10 MiB form cap) and returns the value the record stores, which the
-framework renders verbatim as a link to the file (GH #242). A refusal (`Err(reason)`) is an inline
+framework renders verbatim as a link to the file (GH #242) — so what it returns is a URL the
+browser can fetch, percent-encoded by the store when the client filename carries anything outside
+the unreserved set. A refusal (`Err(reason)`) is an inline
 field error — `"<Label> could not be uploaded: <reason>"` — because a rejected upload is user input,
 not infrastructure. With no
 uploader installed the sanitized basename is stored, and the bytes are drained rather than
@@ -328,7 +333,26 @@ served directory is **public** (ADR-0017): those URLs answer whoever asks, with 
 the auth gate covers exactly the panel prefix and the runtime prefix (ADR-0013) and a served
 directory sits outside both. An app that needs protected files owns that route itself.
 
-_Avoid_: FileStore, Attachment, Media library, Blob store
+_Avoid_: FileStore, Attachment, Blob store
+
+### Media asset
+
+One stored file in the showcase's media library (GH #248, ADR-0021): a row of the `medias` table,
+carrying the tenant that uploaded it, the `path` the `Uploader` returned, the client's `filename`, a
+`kind` (`"image"` or `"file"`), and an **owner pair** — `owner_type` (`"post"` or `"user"`) plus
+`owner_id` — naming the record it belongs to. The pair is polymorphic because the owner is one of
+several tables: it carries no foreign key, so the app refuses an owner that does not resolve before
+it writes, and deleting an owner leaves the row dangling rather than cascading. `MediaOwner` is the
+typed half of the pair and `media_for_owner` the whole relation. The showcase's page renders a
+thumbnail for an image and a link for anything else.
+
+The model is `MediaAsset`, never `Media`: `Media` is the embedded value on `Post` — an image/video
+description in the post's own columns, with no bytes and no owner — and "Attachment" is only the
+label over that value's controls in the post form. An `Uploader` is not a media library either: it
+moves bytes and returns a path, while the library is the table of rows and the page that renders
+them.
+
+_Avoid_: Media (for this row), Attachment (as a term), Upload, File
 
 ### Streamed region
 
