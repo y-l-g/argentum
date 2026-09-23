@@ -18,13 +18,38 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { headerState, selectionKeys, wireFrom, wireOf } = require('./bulk.js');
+const { boxesIn, headerState, selectionKeys, wireFrom, wireOf } = require('./bulk.js');
 
 // A row checkbox, as the DOM hands it over: value + checked + disabled.
 const box = (value, { checked = false, disabled = false } = {}) => ({
   value,
   checked,
   disabled,
+});
+
+// What `boxesIn` needs from a table root, and nothing more.
+const rootOf = (...boxes) => ({ querySelectorAll: () => boxes });
+
+test('boxesIn drops the disabled boxes a page renders', () => {
+  // The one selector every other function reads the page through: with the
+  // filter gone, a denied row counts toward the tri-state header and select-all
+  // can check it.
+  const root = rootOf(box('ada'), box('ken', { disabled: true }), box('grace'));
+  assert.deepEqual(boxesIn(root).map((b) => b.value), ['ada', 'grace']);
+});
+
+test('the tri-state header reads "all" with a denied row on the page', () => {
+  // The browser-visible regression: select-all checks the allowed row, the
+  // denied row stays unchecked, and the header must read "all" — not "partial",
+  // which is what counting the denied box produces.
+  const root = rootOf(box('ada', { checked: true }), box('ken', { disabled: true }));
+  assert.deepEqual(headerState(boxesIn(root)), { checked: true, indeterminate: false });
+});
+
+test('a page of only denied boxes offers nothing to check', () => {
+  const root = rootOf(box('ken', { disabled: true }), box('bob', { disabled: true }));
+  assert.deepEqual(boxesIn(root), []);
+  assert.deepEqual(headerState(boxesIn(root)), { checked: false, indeterminate: false });
 });
 
 test('a disabled box never enters the wire, checked or not', () => {

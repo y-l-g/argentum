@@ -189,9 +189,10 @@ row/bulk chrome that promises these actions is opt-in to match (GH #226):
 `Resource::editable`/`deletable` default to `false`, so a resource that never declares them renders no
 Edit or Delete affordance and its default-deny predicates are never contradicted. A resource that opts
 in declares the flag beside the predicate it promises — `can_view` + `can_update` for the Edit link,
-`can_delete` for row and bulk Delete — and the panel applies those predicates per row through the
-table's row policy (GH #235): a refused row renders no link, and a delete-refused row a **disabled**
-bulk checkbox labelled with the reason, so select-all ships only rows the handler accepts. The
+`can_view` + `can_delete` for row and bulk Delete — and the panel applies those predicates per row
+through the table's row policy (GH #235): a refused row renders no link, and a delete-refused row a
+**disabled** bulk checkbox labelled with the reason, so select-all submits only rows the handler
+accepts. The
 chrome narrows with the rule instead of contradicting it, and the handler's all-or-nothing check
 stays as the safety net for a hand-crafted POST. `Resource::viewed` is per-record exact the same
 way, derived from the declared `view` schema rather than declared beside it. Nothing enforces the
@@ -221,10 +222,11 @@ _Avoid_: Writable, Mutable, can_edit
 A **chrome switch**, not a policy predicate: `Resource::deletable()` decides whether the row Delete
 button and the bulk checkbox column render (GH #96). Defaults to `false` — chrome is opt-in
 (GH #226), matching the default-deny `can_delete`, so a resource that never declares it renders no
-Delete affordance. A resource that opts in overrides it to `true` alongside `can_delete`, which
-the panel then applies per record (GH #235): a row the predicate refuses renders no Delete link and
-a **disabled** bulk checkbox labelled with the reason, so select-all cannot ship a key the handler's
-all-or-nothing check refuses. It grants nothing: `delete_record`/`bulk_delete_records` re-check
+Delete affordance. A resource that opts in overrides it to `true` alongside `can_view` +
+`can_delete`, which the panel then applies per record (GH #235): a row either predicate refuses
+renders no Delete link and a **disabled** bulk checkbox labelled with the reason, so select-all
+cannot submit a key the handler's all-or-nothing check refuses. It grants nothing:
+`delete_record`/`bulk_delete_records` re-check
 `can_delete` on the loaded record inside the handler's transaction, and the routes exist whether or
 not the chrome renders.
 

@@ -260,8 +260,13 @@ async fn select_all_skips_the_denied_row_and_deletes_the_rest() {
     );
 
     let html = body_string(client.get("/admin/users").await).await;
-    // The rendered chrome is the fix: the denied row links no delete dialog and
-    // its checkbox is disabled, carrying the reason as its accessible label.
+    // The rendered chrome is the fix: the denied row links no edit page and no
+    // delete dialog, and its checkbox is disabled, carrying the reason as its
+    // accessible label.
+    assert!(
+        !html.contains(&format!("/admin/users/{}/edit", ken.id)),
+        "the denied row must render no Edit link, got {html}"
+    );
     assert!(
         !html.contains(&format!("delete={}", ken.id)),
         "the denied row must render no Delete link, got {html}"
@@ -275,8 +280,19 @@ async fn select_all_skips_the_denied_row_and_deletes_the_rest() {
         ken_tag.contains("You cannot delete this row"),
         "the disabled checkbox must carry the reason, got {ken_tag}"
     );
+    // The allowed rows keep both links, so the absences above are not passing
+    // on a page that renders no chrome at all.
+    let ada = users
+        .iter()
+        .find(|u| u.name == "Ada Lovelace")
+        .expect("the seeded allowed row");
+    assert!(
+        html.contains(&format!("/admin/users/{}/edit", ada.id))
+            && html.contains(&format!("delete={}", ada.id)),
+        "an allowed row must keep its Edit and Delete links, got {html}"
+    );
 
-    // What select-all ships: exactly the boxes `bulk.js` would check.
+    // What select-all submits: exactly the boxes `bulk.js` would check.
     let ids = selectable_row_ids(&html);
     assert_eq!(
         ids.len(),
@@ -340,7 +356,7 @@ fn input_tag_at(html: &str) -> String {
 /// The row ids the page offers for bulk selection, in document order: every
 /// `data-row-select` checkbox a user can check. A row the per-record policy
 /// denies delete renders `disabled` (GH #235), and `bulk.js`'s `boxesIn` skips
-/// exactly those — so this is what select-all ships.
+/// exactly those — so this is what select-all submits.
 fn selectable_row_ids(html: &str) -> Vec<String> {
     let mut ids = Vec::new();
     let mut rest = html;
@@ -365,6 +381,10 @@ fn selectable_row_ids(html: &str) -> Vec<String> {
 /// still 403. The check is all-or-nothing (GH #168: `can_view` then
 /// `can_delete` on every row, before any write), so the batch aborts with zero
 /// deletions — which is why the rendered checkbox must never offer that row.
+///
+/// `can_view` allows every row here, so only the partial `can_delete` deny can
+/// produce the 403: with the default-deny `can_view` in place, dropping the
+/// handler's own `can_delete` check would leave this test green.
 #[tokio::test]
 async fn bulk_delete_hand_crafted_partial_deny_is_refused() {
     use argentum_core::{Resource, Schema, Table, TextColumn, TextInput};
@@ -381,6 +401,9 @@ async fn bulk_delete_hand_crafted_partial_deny_is_refused() {
     impl Resource for PartialDenyResource {
         type Model = DummyUser;
         fn can_view_any(_cx: &topcoat::context::Cx) -> bool {
+            true
+        }
+        fn can_view(_cx: &topcoat::context::Cx, _rec: &DummyUser) -> bool {
             true
         }
         fn can_delete(_cx: &topcoat::context::Cx, rec: &DummyUser) -> bool {

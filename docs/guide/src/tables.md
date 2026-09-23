@@ -70,10 +70,10 @@ Search, sort, filter, and pager controls then refresh the table in place without
 The plain links and forms stay as the no-JS fallback.
 
 Panel wires the bulk checkbox column when the resource opts in with `deletable() -> true` (GH #226:
-chrome is opt-in, and the flag pairs with `can_delete`). The column then follows `can_delete` per
-record (GH #235): a row the predicate refuses renders its checkbox `disabled` with the reason as its
-accessible label, so select-all never ships a key the handler would refuse the whole batch over.
-Bulk delete asks first: the bulk bar's
+chrome is opt-in, and the flag pairs with `can_view` + `can_delete`). The column then follows those
+predicates per record (GH #235): a row either one refuses renders its checkbox `disabled`
+with the reason as its accessible label, so select-all never submits a key the handler would refuse
+the whole batch over. Bulk delete asks first: the bulk bar's
 button opens an alert dialog that names how many rows are selected, and its confirm control is the
 only thing carrying the `confirm=1` the handler requires — a POST without that marker is a 400, so
 the safeguard does not depend on the script that opens the dialog (GH #184).

@@ -1770,7 +1770,7 @@ struct RowView {
     /// Whether the row's bulk checkbox is enabled (GH #235): a row the
     /// [`Table::row_actions`] policy denies `delete` renders it `disabled`, so
     /// `bulk.js` never lets it into the selection transport and select-all
-    /// cannot ship a batch the handler refuses wholesale.
+    /// cannot submit a batch the handler refuses wholesale.
     selectable: bool,
     /// The row's group label, when `?group_by=` named the declared group
     /// (GH #219). Carried on every row so the page-local shim can order by it.

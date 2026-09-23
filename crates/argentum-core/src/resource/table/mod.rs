@@ -601,7 +601,7 @@ impl<M> Table<M> {
     ///
     /// A row the [`Self::row_actions`] policy denies `delete` renders its
     /// checkbox `disabled` with the reason as its accessible label (GH #235),
-    /// so select-all never ships a batch the handler's all-or-nothing check
+    /// so select-all never submits a batch the handler's all-or-nothing check
     /// refuses.
     pub fn with_bulk_delete(mut self, enabled: bool) -> Self {
         self.bulk_delete = enabled;

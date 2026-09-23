@@ -57,6 +57,8 @@ function allBoxesIn(root) {
 
 // The row checkboxes a user may check (GH #235): a row the policy denies delete
 // renders `disabled`, and a disabled control is not part of the selection.
+// Every selector below reads the page through this, so a denied box is invisible
+// to select-all, to the tri-state header, and to the transport alike.
 function boxesIn(root) {
   return allBoxesIn(root).filter((box) => !box.disabled);
 }
@@ -228,6 +230,6 @@ if (typeof document !== 'undefined') install();
 // loaded by `asset!`, so it cannot be an ES module). Guarded, so the browser
 // branch is inert.
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { headerState, selectionKeys, wireFrom, wireOf };
+  module.exports = { boxesIn, headerState, selectionKeys, wireFrom, wireOf };
 }
 })();

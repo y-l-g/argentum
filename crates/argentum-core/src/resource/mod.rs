@@ -72,8 +72,9 @@ use naming::{kebab_case, pluralize, type_short_name};
 ///   [`editable`](Self::editable) default to `false`, so a resource that never
 ///   mentions them renders no Edit or Delete affordance and cannot advertise an
 ///   action its default-deny predicate refuses. A resource that wants the chrome
-///   declares the flag *and* the matching policy predicate (`can_delete` for
-///   `deletable`, `can_view` + `can_update` for `editable`). The flag is the
+///   declares the flag *and* the matching policy predicates (`can_view` +
+///   `can_delete` for `deletable`, `can_view` + `can_update` for `editable`).
+///   The flag is the
 ///   whole-resource gate; the predicates are applied per row, because the panel
 ///   wires them into the table's row policy ([`Table::row_actions`], GH #235):
 ///   a row `can_update` refuses renders no Edit link, and a row `can_delete`
@@ -147,15 +148,16 @@ pub trait Resource: Sized + Send + Sync + 'static {
     ///
     /// Chrome is opt-in (GH #226): the default renders no Delete button, no
     /// bulk bar and no confirmation dialog, because server policy
-    /// ([`can_delete`](Self::can_delete), default-deny) would answer 403 to
-    /// every one of them. Override to `true` alongside `can_delete`.
+    /// ([`can_view`](Self::can_view) +
+    /// [`can_delete`](Self::can_delete), both default-deny) would answer 403 to
+    /// every one of them. Override to `true` alongside those predicates.
     ///
-    /// This flag is the whole-resource gate; `can_delete` is applied per row
-    /// (GH #235). The panel wires the predicate into the table's row policy, so
-    /// a row it refuses renders no Delete link and a disabled bulk checkbox —
-    /// the affordance narrows with the rule instead of leaving a control the
-    /// POST answers 403 to. The handler keeps its all-or-nothing check as the
-    /// safety net for a hand-crafted POST.
+    /// This flag is the whole-resource gate; the predicates are applied per row
+    /// (GH #235). The panel wires them into the table's row policy, so a row
+    /// they refuse renders no Delete link and a disabled bulk checkbox — the
+    /// affordance narrows with the rule instead of leaving a control the POST
+    /// answers 403 to. The handler keeps its all-or-nothing check as the safety
+    /// net for a hand-crafted POST.
     fn deletable() -> bool {
         false
     }
