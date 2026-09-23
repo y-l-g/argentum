@@ -69,8 +69,10 @@ nodes.
   POST that names one switches it (`post_edit_switches_the_publication_variant_explicitly`).
   **Creating** works as it must: the create form has no stored variant, so rule 2 selects the variant
   its payload names (`post_create_keeps_the_variant_its_payload_names`).
-- Derived controls are not required, because every column under an embedded step is storage-nullable —
-  a declaration change, not a validation change, since the flags resolve identically. A `Textarea`
+- Derived controls are not required by binding policy: the resolver reports `nullable=true` for every
+  leaf under an embedded step, since only the matching variant writes a variant payload column — a
+  declaration change, not a validation change, since the flags resolve identically. That is the binding
+  default, not a storage fact: the flattened column of a required embedded struct is `NOT NULL`. A `Textarea`
   keeps its height through `#[form(textarea, rows = 3)]`.
 - The read-only page names the stored variant (`Published` / `Archived`) instead of printing its
   discriminant; that row says which state the record is in, and a record with no stored variant renders

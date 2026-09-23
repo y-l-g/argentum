@@ -305,7 +305,7 @@ where
 /// * Empty/blank `q` → bounded head (same cap as [`related_records`]).
 /// * `q` non-empty but `search_expr` is `None` (no searchable columns) →
 ///   fallback to the hard-cap path (D1a): unfiltered bounded load, `Overflow`
-///   when over the cap. Non-searchable selects keep today's behavior.
+///   when over the cap. Non-searchable selects use the hard-cap path.
 /// * Filtered fetch carries `limit(MAX+1)` and fails with `Overflow` past the
 ///   cap instead of scanning the table — one bounded round-trip per keystroke
 ///   burst, never the whole table.
@@ -330,7 +330,7 @@ where
         // D1: reuse the related table's declared searchable columns. When it
         // declares none, `search_expr` is None and we fall through unfiltered
         // to the capped exec below (D1a fallback: hard-cap path, `Overflow`
-        // on large tables). Non-searchable selects keep today's behavior.
+        // on large tables). Non-searchable selects use the hard-cap path.
         if let Some(expr) = R::search_expr(cx, &term) {
             query = query.filter(expr);
         }
@@ -908,7 +908,7 @@ mod tests {
     #[tokio::test]
     async fn relationship_options_share_one_load_per_request_and_tenant() {
         // GH #91: selects over one source share a single bounded load per
-        // (request, tenant) — validate + re-render no longer rescan.
+        // (request, tenant) — validate and re-render share the one load.
         use std::sync::atomic::{AtomicUsize, Ordering};
 
         static OPTION_LOADS: AtomicUsize = AtomicUsize::new(0);
@@ -1035,7 +1035,7 @@ mod tests {
             .await
             .unwrap_err();
         assert_eq!(err, &super::OptionLoadError::Overflow);
-        // Non-searchable keeps the retry message (today's behavior).
+        // Non-searchable keeps the retry message.
         let plain = Select::r#for(BigRef::fields().name()).relationship::<BigRefSource>(
             |_cx| Query::all(),
             |r: &BigRef| r.id,

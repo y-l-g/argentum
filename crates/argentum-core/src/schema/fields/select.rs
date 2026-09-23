@@ -531,7 +531,7 @@ impl Select {
         // The upstream `field` family (topcoat#420): the `select` primitive
         // brings the same `aria-invalid` error styling and focus ring as the
         // `input` primitive, plus the chevron and the customizable picker —
-        // the control no longer hand-rolls the input chrome.
+        // the control uses the primitive's chrome.
         let field_class = if has_error {
             "ac-field ac-field--error"
         } else {
@@ -639,9 +639,9 @@ mod tests {
     use super::super::test_support::{DummyUser, FkRef, opening_tag_at};
     use super::*;
 
-    /// A bare `Select` over a non-nullable FK must reject an empty submit
-    /// inline (GH #147): previously it passed validation and died at the
-    /// driver's `parse::<Uuid>("")` as a 500.
+    /// A bare `Select` over a non-nullable FK rejects an empty submit inline
+    /// (GH #147): an empty submit fails here with `is required`, so it never
+    /// reaches the driver's `parse::<Uuid>("")`.
     #[test]
     fn bare_non_nullable_fk_select_rejects_empty_inline() {
         let select = Select::r#for(FkRef::fields().author_id());
