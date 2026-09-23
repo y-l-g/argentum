@@ -9,7 +9,7 @@ uploads, export, auth) under `examples/showcase/tests/`.
 
 ```sh
 cargo test -p showcase
-node --test crates/argentum-ui/assets/selects.test.js   # the one JS unit test
+node --test crates/argentum-ui/assets/*.test.js   # the shell asset suites
 cargo run --manifest-path benchmarks/argentum/Cargo.toml -- --bench
 ./benchmarks/scripts/bench.sh
 ```
