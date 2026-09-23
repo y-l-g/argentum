@@ -506,6 +506,12 @@ impl Resource for PostResource {
         Self::base(needs)
     }
 
+    /// The post's title, so the detail heading names the post rather than its
+    /// record key (GH #241).
+    fn record_label(record: &Post) -> Option<String> {
+        Some(record.title.clone())
+    }
+
     /// One post, read-only (GH #187). Each entry binds the same storage name
     /// the form posts — flattened embedded columns included — so a field means
     /// the same thing on both pages. The *list* of fields is still written

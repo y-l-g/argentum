@@ -23,6 +23,43 @@ async fn a_post_id(db: &mut toasty::Db) -> String {
         .to_string()
 }
 
+/// The detail page's `<h1>` text — the title line.
+fn page_heading(html: &str) -> String {
+    let heading = html
+        .split("<h1")
+        .nth(1)
+        .and_then(|rest| rest.split("</h1>").next())
+        .expect("the detail page renders a page title");
+    let text = heading.find('>').map_or(heading, |at| &heading[at + 1..]);
+    text.trim().to_string()
+}
+
+#[tokio::test]
+async fn post_detail_heading_names_the_post() {
+    // GH #241: `PostResource::record_label` returns the title, so the heading
+    // names the post instead of falling back to `Blog Posts <record key>`.
+    let db = full_db().await;
+    let router = router(db.clone());
+    let client = demo_client(&router, &db).await;
+    let mut db_q = db.clone();
+    let id = a_post_id(&mut db_q).await;
+    let post = Post::all()
+        .filter(Post::fields().id().eq(uuid::Uuid::parse_str(&id).unwrap()))
+        .first()
+        .exec(&mut db_q)
+        .await
+        .unwrap()
+        .expect("the id came from this database");
+
+    let html = body_string(client.get(&format!("/admin/posts/{id}")).await).await;
+    let heading = page_heading(&html);
+    assert_eq!(heading, post.title, "the heading names the post: {html}");
+    assert!(
+        !heading.contains(&id),
+        "the heading must not fall back to the record key: {heading}"
+    );
+}
+
 #[tokio::test]
 async fn post_detail_renders_the_record_read_only() {
     let db = full_db().await;
