@@ -198,3 +198,44 @@ pub struct Comment {
     #[belongs_to(key = post_id, references = id)]
     pub post: Deferred<Post>,
 }
+
+/// One stored file in the media library (GH #248) — the `medias` table.
+///
+/// **`owner_type`/`owner_id` are a polymorphic pair.** A media row names the
+/// record it belongs to without a foreign key, because that record is a `Post`
+/// or a `User` and Toasty's typed relations express one target table. So there
+/// is no `#[belongs_to]` here and no `#[has_many]` on either owner: the
+/// database enforces nothing, [`crate::media`] checks the owner exists before
+/// it writes, and deleting an owner leaves its media rows dangling rather than
+/// cascading. ADR-0021 records the tradeoff.
+///
+/// The name is `MediaAsset`, not `Media` or `Attachment`: `Media` is the
+/// embedded enum on `Post` — an image/video *description* in the post's own
+/// columns, with no bytes and no owner — and "Attachment" is only the label
+/// over that value's controls in the post form. `CONTEXT.md` keeps the three
+/// apart.
+#[derive(Debug, Clone, toasty::Model)]
+#[table = "medias"]
+#[index(owner_type, owner_id)]
+pub struct MediaAsset {
+    #[key]
+    #[auto]
+    pub id: uuid::Uuid,
+    /// The tenant that uploaded the file, like every other showcase row
+    /// (GH #87): the library lists one tenant's media.
+    #[index]
+    pub tenant_id: uuid::Uuid,
+    /// Which table `owner_id` names: [`crate::media::OWNER_POST`] or
+    /// [`crate::media::OWNER_USER`].
+    pub owner_type: String,
+    pub owner_id: uuid::Uuid,
+    /// What the app's [`Uploader`](argentum_core::Uploader) returned, stored
+    /// verbatim and rendered as the URL the file is served at (GH #188).
+    pub path: String,
+    /// The client's filename, a basename, for display.
+    pub filename: String,
+    /// `"image"` or `"file"` — the app's own kind, from the uploaded part's
+    /// content type. It decides whether a row renders a thumbnail or a link.
+    pub kind: String,
+    pub created_at: Timestamp,
+}

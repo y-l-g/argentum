@@ -31,6 +31,7 @@ pub async fn empty_schema_db() -> Db {
             showcase::models::Author,
             showcase::models::Post,
             showcase::models::Comment,
+            showcase::models::MediaAsset,
             argentum_core::auth::AdminUser,
             argentum_core::auth::AuthSession
         ))

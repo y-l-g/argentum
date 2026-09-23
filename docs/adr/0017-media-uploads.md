@@ -25,9 +25,9 @@ page. The field reads no extension and owns no image pipeline, so it neither pre
 guesses a URL convention (GH #242).
 
 **The primitive stops at the file input.** A thumbnail in the stored row, an × that clears the input
-without JavaScript, drag-and-drop and upload progress are media-library work, tracked by GH #248:
-they need the app's own media table and its own assets, and a generic `String`-bound field is the
-wrong place to guess them.
+and the preview, drag-and-drop and upload progress are media-library work: the showcase renders the
+first two (GH #248, ADR-0021) from its own `medias` table and its own asset, drag-and-drop and
+progress stay unbuilt, and a generic `String`-bound field is the wrong place to guess any of them.
 
 **The clear control is a declared transport key.** `FileUpload` renders a `clear_<field>` checkbox
 whenever a value is stored, alongside the hint that an empty file input keeps what is there.

@@ -1379,9 +1379,20 @@ pub fn router_with_uploads(db: Db, dir: impl Into<PathBuf>) -> Router {
     build_router(db, None, Some(dir.into()))
 }
 
+/// Build the showcase router with uploads at the directory the application
+/// itself uses (GH #248).
+///
+/// [`router_with_uploads`] takes a directory so the framework's upload tests
+/// can own theirs; this one is the configuration the app runs with, which is
+/// what the media library's page writes through — the panel's `serve_dir` mount
+/// and the store are two ends of one directory.
+pub fn router_with_app_uploads(db: Db) -> Router {
+    build_router(db, None, Some(upload_dir()))
+}
+
 /// Where the showcase writes uploaded bytes: `SHOWCASE_UPLOAD_DIR`, or
 /// `target/showcase-uploads` so a local run works with no configuration.
-fn upload_dir() -> PathBuf {
+pub(crate) fn upload_dir() -> PathBuf {
     std::env::var_os("SHOWCASE_UPLOAD_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("target/showcase-uploads"))
@@ -1398,18 +1409,29 @@ pub const UPLOAD_URL_PREFIX: &str = "/uploads";
 /// return the URL they are served at (GH #188).
 ///
 /// A demo, not a framework default — the trait is the seam and drivers are the
-/// app's business. Two things a real store still owns and this one borrows from
-/// the framework: the client name is already sanitized to a basename (GH #90),
-/// and the UUID prefix keeps two uploads of `cover.png` apart. Writing the file
-/// is this app's job; swapping in an object store means replacing this type and
-/// nothing else.
-struct DirUploader {
+/// app's business. The UUID prefix keeps two uploads of `cover.png` apart, and
+/// the framework hands this store a name already sanitized to a basename
+/// (GH #90). Writing the file is this app's job; swapping in an object store
+/// means replacing this type and nothing else.
+///
+/// The media library's page builds this store too (GH #248): it parses its own
+/// multipart body, so the sanitized name is not the framework's to guarantee
+/// there — the store takes the basename itself rather than trusting every
+/// caller to have done it.
+pub(crate) struct DirUploader {
     dir: PathBuf,
+}
+
+impl DirUploader {
+    pub(crate) fn new(dir: impl Into<PathBuf>) -> Self {
+        Self { dir: dir.into() }
+    }
 }
 
 impl Uploader for DirUploader {
     async fn store(&self, filename: &str, bytes: &[u8]) -> Result<String, String> {
-        let name = format!("{}-{filename}", uuid::Uuid::new_v4());
+        let basename = filename.rsplit(['/', '\\']).next().unwrap_or(filename);
+        let name = format!("{}-{basename}", uuid::Uuid::new_v4());
         // Failure reasons are rendered to the user, so they say what the user
         // can act on and never leak the path that failed.
         tokio::fs::create_dir_all(&self.dir)
@@ -1456,7 +1478,7 @@ fn build_router(db: Db, bundle: Option<AssetBundle>, uploads: Option<PathBuf>) -
         // fetchable without the framework inventing a URL convention.
         panel = panel
             .serve_dir(format!("{UPLOAD_URL_PREFIX}/{{*file}}"), dir.clone())
-            .uploads(DirUploader { dir });
+            .uploads(DirUploader::new(dir));
     }
     match bundle {
         Some(bundle) => panel

@@ -27,6 +27,7 @@ use topcoat::{
 };
 
 use crate::app::GEIST;
+use crate::media::{MediaOwner, media_file_view, media_for_owner};
 use crate::models::{Author, Post};
 
 /// The status a post carries once it is visible to the public.
@@ -185,6 +186,11 @@ async fn post_page(cx: &Cx) -> Result<impl View> {
     .await?
     .ok_or_not_found()?;
 
+    // The post's media library rows (GH #248): the polymorphic pair has no
+    // relation to include, so the page asks for them by owner — the same
+    // query the media library's own page could run.
+    let media = media_for_owner(&mut db, MediaOwner::Post(post.id)).await?;
+
     Ok(view! {
         <a
             href=(href!(page))
@@ -216,6 +222,19 @@ async fn post_page(cx: &Cx) -> Result<impl View> {
             }
 
             <div class="mt-8 leading-7">(&post.body)</div>
+
+            // Uploaded through the admin's media library: a thumbnail for an
+            // image, a link for anything else.
+            if !media.is_empty() {
+                <section class="mt-8 border-t border-border pt-6">
+                    <h2 class="text-sm font-medium text-muted-foreground">"Media"</h2>
+                    <ul class="mt-3 flex flex-wrap items-center gap-4">
+                        for asset in &media {
+                            <li>(media_file_view(cx, asset))</li>
+                        }
+                    </ul>
+                </section>
+            }
         </article>
     })
 }

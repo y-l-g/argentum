@@ -329,6 +329,25 @@ directory sits outside both. An app that needs protected files owns that route i
 
 _Avoid_: FileStore, Attachment, Media library, Blob store
 
+### Media asset
+
+One stored file in the showcase's media library (GH #248, ADR-0021): a row of the `medias` table,
+carrying the tenant that uploaded it, the `path` the `Uploader` returned, the client's `filename`, a
+`kind` (`"image"` or `"file"`), and an **owner pair** — `owner_type` (`"post"` or `"user"`) plus
+`owner_id` — naming the record it belongs to. The pair is polymorphic because the owner is one of
+several tables: it carries no foreign key, so the app refuses an owner that does not resolve before
+it writes, and deleting an owner leaves the row dangling rather than cascading. `MediaOwner` is the
+typed half of the pair and `media_for_owner` the whole relation. The showcase's page renders a
+thumbnail for an image and a link for anything else.
+
+The model is `MediaAsset`, never `Media`: `Media` is the embedded value on `Post` — an image/video
+description in the post's own columns, with no bytes and no owner — and "Attachment" is only the
+label over that value's controls in the post form. An `Uploader` is not a media library either: it
+moves bytes and returns a path, while the library is the table of rows and the page that renders
+them.
+
+_Avoid_: Media (for this row), Attachment (as a term), Upload, File
+
 ### Streamed region
 
 A `suspense` region of the page whose content swaps in after the first render. The resource list
