@@ -424,6 +424,31 @@ async fn posts_author_select_is_searchable() {
         html.contains("data-options-filter"),
         "author select must render the filter hook, got {html}"
     );
+    // GH #236: hiding the native select is the script's job, so the markup keeps
+    // both controls. The select stays the submitted value carrier, and
+    // `partsOf` keeps resolving it as a descendant of the filterable field.
+    let author_select = html
+        .match_indices("<select")
+        .map(|(start, _)| opening_tag_at(&html, start))
+        .find(|tag| tag.contains("name=\"author_id\""))
+        .expect("the author select stays in the markup as the submitted value carrier");
+    assert!(
+        author_select.contains("id=\"author_id\""),
+        "the author select keeps its field id, got {author_select}"
+    );
+}
+
+/// The opening tag that starts at `start`, up to its unquoted `>`.
+fn opening_tag_at(html: &str, start: usize) -> &str {
+    let mut quoted = false;
+    for (offset, byte) in html[start..].bytes().enumerate() {
+        match byte {
+            b'"' => quoted = !quoted,
+            b'>' if !quoted => return &html[start..start + offset],
+            _ => {}
+        }
+    }
+    panic!("unterminated tag at byte {start}");
 }
 
 /// The edit form surfaces the stored image path, drops the native `required`
