@@ -1,8 +1,9 @@
 use jiff::Timestamp;
 use toasty::Deferred;
 
-/// The seeder and the demo constants (GH #87) live in [`crate::seed`];
-/// re-exported so the panel, the binary and the tests keep one import path.
+/// The seeder and the demo constants (GH #87) live in the private `seed`
+/// module; re-exported so the panel, the binary and the tests keep one import
+/// path.
 pub use crate::seed::{
     BLOCKED_TENANT, DEMO_ADMIN_EMAIL, DEMO_ADMIN_PASSWORD, DEMO_TENANT, TENANTLESS_ADMIN_EMAIL,
     create_admin, seed, seed_phase2,
