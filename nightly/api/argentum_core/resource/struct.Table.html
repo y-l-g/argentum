@@ -19,7 +19,7 @@ variants, which spreadsheets treat as formulas even when the payload
 does not start the raw cell (GH #145) — opens as text, not a live
 spreadsheet formula. Buffers the whole page as one <code>String</code>; the export
 handler streams <a href="struct.Table.html#method.csv_header" title="method argentum_core::resource::Table::csv_header"><code>Self::csv_header</code></a> and <a href="struct.Table.html#method.csv_row" title="method argentum_core::resource::Table::csv_row"><code>Self::csv_row</code></a> instead.</p>
-</div></details></div></details><details class="toggle implementors-toggle" open><summary><section id="impl-Table%3CM%3E-1" class="impl"><a class="src rightside" href="../../src/argentum_core/resource/table/render.rs.html#38-1753">Source</a><a href="#impl-Table%3CM%3E-1" class="anchor">§</a><h3 class="code-header">impl&lt;M&gt; <a class="struct" href="struct.Table.html" title="struct argentum_core::resource::Table">Table</a>&lt;M&gt;</h3></section></summary><div class="impl-items"><details class="toggle method-toggle" open><summary><section id="method.render" class="method"><a class="src rightside" href="../../src/argentum_core/resource/table/render.rs.html#58-67">Source</a><h4 class="code-header">pub async fn <a href="#method.render" class="fn">render</a>&lt;'a&gt;(
+</div></details></div></details><details class="toggle implementors-toggle" open><summary><section id="impl-Table%3CM%3E-1" class="impl"><a class="src rightside" href="../../src/argentum_core/resource/table/render.rs.html#38-1809">Source</a><a href="#impl-Table%3CM%3E-1" class="anchor">§</a><h3 class="code-header">impl&lt;M&gt; <a class="struct" href="struct.Table.html" title="struct argentum_core::resource::Table">Table</a>&lt;M&gt;</h3></section></summary><div class="impl-items"><details class="toggle method-toggle" open><summary><section id="method.render" class="method"><a class="src rightside" href="../../src/argentum_core/resource/table/render.rs.html#58-67">Source</a><h4 class="code-header">pub async fn <a href="#method.render" class="fn">render</a>&lt;'a&gt;(
     &amp;self,
     cx: &amp;'a Cx,
     page: <a class="struct" href="struct.TablePage.html" title="struct argentum_core::resource::TablePage">TablePage</a>&lt;M&gt;,
@@ -56,7 +56,7 @@ the page’s state (or shard args rebuilt via
 directly needs no knowledge of <code>NormalizedState</code>; a caller that
 already normalized once per request goes through
 <code>Self::render_normalized</code> instead (GH #224).</p>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.render_live_with_state" class="method"><a class="src rightside" href="../../src/argentum_core/resource/table/render.rs.html#118-131">Source</a><h4 class="code-header">pub async fn <a href="#method.render_live_with_state" class="fn">render_live_with_state</a>&lt;'a&gt;(
+</div></details><details class="toggle method-toggle" open><summary><section id="method.render_live_with_state" class="method"><a class="src rightside" href="../../src/argentum_core/resource/table/render.rs.html#123-136">Source</a><h4 class="code-header">pub async fn <a href="#method.render_live_with_state" class="fn">render_live_with_state</a>&lt;'a&gt;(
     &amp;self,
     cx: &amp;'a Cx,
     page: <a class="struct" href="struct.TablePage.html" title="struct argentum_core::resource::TablePage">TablePage</a>&lt;M&gt;,
@@ -71,37 +71,44 @@ pager, the filter transport, and the empty-state clear links bound to
 shard’s new output in place, without a navigation or a scroll jump.
 Every bound control keeps its real <code>href</code>/form, so a page without JS
 still navigates as before.</p>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.render_delete_dialog" class="method"><a class="src rightside" href="../../src/argentum_core/resource/table/render.rs.html#719-727">Source</a><h4 class="code-header">pub async fn <a href="#method.render_delete_dialog" class="fn">render_delete_dialog</a>&lt;'a&gt;(
+<p>The row-delete dialog is not part of this output (GH #233): it lives
+outside the region a rerun swaps, rendered once by the page that owns
+the signals, so a caller rendering only through this method renders
+<a href="struct.Table.html#method.render_delete_dialog" title="method argentum_core::resource::Table::render_delete_dialog"><code>Self::render_delete_dialog</code></a> itself to keep the <code>?delete=</code> fallback.</p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.render_delete_dialog" class="method"><a class="src rightside" href="../../src/argentum_core/resource/table/render.rs.html#758-765">Source</a><h4 class="code-header">pub async fn <a href="#method.render_delete_dialog" class="fn">render_delete_dialog</a>&lt;'a&gt;(
     &amp;self,
     cx: &amp;'a Cx,
     state: &amp;<a class="struct" href="struct.TableState.html" title="struct argentum_core::resource::TableState">TableState</a>,
-    path: &amp;<a class="primitive" href="https://doc.rust-lang.org/1.98.1/std/primitive.str.html">str</a>,
-) -&gt; Result&lt;<a class="enum" href="https://doc.rust-lang.org/1.98.1/core/option/enum.Option.html" title="enum core::option::Option">Option</a>&lt;BoxView&lt;'a&gt;&gt;&gt;</h4></section></summary><div class="docblock"><p>The row-delete confirmation dialog (GH #151), rendered when the URL
-asks for one and <a href="struct.Table.html#method.with_delete" title="method argentum_core::resource::Table::with_delete"><code>Self::with_delete</code></a> wired the delete route.</p>
-<p><code>?delete=&lt;row key&gt;</code> opens the alert dialog on the list page; the
-dialog’s form POSTs to <code>{prefix}/{key}/delete</code> with <code>confirm=1</code> — the
-same two-step route as the old confirmation page, now with a
-Destructive confirm. Cancel is a link back to the list state without
-<code>?delete=</code>; <code>dialog.js</code> adds Escape/backdrop dismissal and mirrors it
-as <code>?open=false</code> (<a href="struct.TableState.html#structfield.open" title="field argentum_core::resource::TableState::open"><code>TableState::open</code></a>), so a reload stays closed.</p>
+) -&gt; Result&lt;<a class="enum" href="https://doc.rust-lang.org/1.98.1/core/option/enum.Option.html" title="enum core::option::Option">Option</a>&lt;BoxView&lt;'a&gt;&gt;&gt;</h4></section></summary><div class="docblock"><p>The row-delete confirmation dialog (GH #151, GH #233), rendered with
+the table when <a href="struct.Table.html#method.with_delete" title="method argentum_core::resource::Table::with_delete"><code>Self::with_delete</code></a> wired the delete route.</p>
+<p>One dialog per table: the row Delete controls name it
+(<code>data-row-delete-trigger</code>) and carry the record’s POST target
+(<code>data-row-delete-action</code>), which <code>assets/dialog.js</code> writes to the form
+before opening the dialog in place. The control keeps its
+<code>?delete=&lt;row key&gt;</code> href, so a page without the script opens this dialog
+through the URL instead — and that is the render where it ships open,
+with the form’s action already set. <code>?open=false</code> (the mirror
+<code>dialog.js</code> writes on dismissal, <a href="struct.TableState.html#structfield.open" title="field argentum_core::resource::TableState::open"><code>TableState::open</code></a>) leaves it closed.</p>
+<p>Cancel is a button (<code>data-dialog-close</code>) on both paths, so a dismissal
+never navigates; on the URL-driven render <code>dialog.js</code> closes the dialog
+in place and mirrors <code>?open=false</code>, so a reload stays closed. Without
+the document scripts Cancel is inert and Delete still POSTs.</p>
 <p><a href="struct.Table.html#method.render_with_state" title="method argentum_core::resource::Table::render_with_state"><code>Self::render_with_state</code></a> renders it with the table; the live-search
 page (<code>panel::resource_list_live</code>) calls this separately because the
 shard swaps the table per keystroke and must not carry dialog state.</p>
-<p>Behavior asset: Escape/backdrop dismissal and the <code>data-dialog-close</code>
-cancel hook need <code>assets/dialog.js</code> (<code>argentum_ui::DIALOG_JS</code>, which
-also mirrors the dismissal into <code>?open=false</code>), emitted by
-<code>Panel::render_document</code> on every document with shell assets (see
-ADR-0014). The dialog primitives are vendored under the ADR-0007 sync
-guard so they carry no note themselves. Without the document scripts
-Cancel still navigates and Delete still POSTs.</p>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.render_skeleton" class="method"><a class="src rightside" href="../../src/argentum_core/resource/table/render.rs.html#806-815">Source</a><h4 class="code-header">pub async fn <a href="#method.render_skeleton" class="fn">render_skeleton</a>&lt;'a&gt;(&amp;self, cx: &amp;'a Cx) -&gt; Result&lt;BoxView&lt;'a&gt;&gt;<div class="where">where
+<p>Behavior asset: Escape/backdrop dismissal, the <code>data-dialog-close</code>
+cancel hook and the trigger wiring need <code>assets/dialog.js</code>
+(<code>argentum_ui::DIALOG_JS</code>), emitted by <code>Panel::render_document</code> on every
+document with shell assets (see ADR-0014). The dialog primitives are
+vendored under the ADR-0007 sync guard so they carry no note themselves.</p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.render_skeleton" class="method"><a class="src rightside" href="../../src/argentum_core/resource/table/render.rs.html#862-871">Source</a><h4 class="code-header">pub async fn <a href="#method.render_skeleton" class="fn">render_skeleton</a>&lt;'a&gt;(&amp;self, cx: &amp;'a Cx) -&gt; Result&lt;BoxView&lt;'a&gt;&gt;<div class="where">where
     M: Model,</div></h4></section></summary><div class="docblock"><p>The skeleton placeholder table — three pulsing rows under the real
 column header. This is the [<code>suspense</code>] fallback for tables whose rows
 stream in. Wrapped in the same <code>data-boundary</code> region as the real table
 so the markup shape matches when the swap arrives.
 Carries <code>aria-busy</code> while loading plus toolbar/pager pulse placeholders
 (GH #98) so the streamed chrome lands without a layout shift.</p>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.render_live_search_bar" class="method"><a class="src rightside" href="../../src/argentum_core/resource/table/render.rs.html#981-992">Source</a><h4 class="code-header">pub async fn <a href="#method.render_live_search_bar" class="fn">render_live_search_bar</a>&lt;'a&gt;(
+</div></details><details class="toggle method-toggle" open><summary><section id="method.render_live_search_bar" class="method"><a class="src rightside" href="../../src/argentum_core/resource/table/render.rs.html#1037-1048">Source</a><h4 class="code-header">pub async fn <a href="#method.render_live_search_bar" class="fn">render_live_search_bar</a>&lt;'a&gt;(
     &amp;self,
     cx: &amp;'a Cx,
     state: &amp;<a class="struct" href="struct.TableState.html" title="struct argentum_core::resource::TableState">TableState</a>,
@@ -120,7 +127,7 @@ term is a new result set). The shard re-renders in place (GH #151).</p>
 <p>Public so a page owning its own signals can render the same toolbar
 above its own shard (the showcase demos, GH #154 §2); resource lists
 reach it through <code>panel::resource_list_live</code>.</p>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.render_live_filter_bar" class="method"><a class="src rightside" href="../../src/argentum_core/resource/table/render.rs.html#1091-1105">Source</a><h4 class="code-header">pub async fn <a href="#method.render_live_filter_bar" class="fn">render_live_filter_bar</a>&lt;'a&gt;(
+</div></details><details class="toggle method-toggle" open><summary><section id="method.render_live_filter_bar" class="method"><a class="src rightside" href="../../src/argentum_core/resource/table/render.rs.html#1147-1161">Source</a><h4 class="code-header">pub async fn <a href="#method.render_live_filter_bar" class="fn">render_live_filter_bar</a>&lt;'a&gt;(
     &amp;self,
     cx: &amp;'a Cx,
     state: &amp;<a class="struct" href="struct.TableState.html" title="struct argentum_core::resource::TableState">TableState</a>,

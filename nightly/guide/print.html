@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-23a43a66.js";
+            window.path_to_searchindex_js = "searchindex-44233982.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-da1679ae.js"></script>
@@ -495,7 +495,7 @@ removes the scope.</p>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="tables"><a class="header" href="#tables">Tables</a></h1>
 <p>The list view: columns and the row key, search and sort, filters, grouping and CSV export, live
-updates, and bulk delete.</p>
+updates, and row and bulk delete.</p>
 <p>Minimal table:</p>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
@@ -565,6 +565,10 @@ the whole batch over. Bulk delete asks first: the bulk bar’s
 button opens an alert dialog that names how many rows are selected, and its confirm control is the
 only thing carrying the <code>confirm=1</code> the handler requires — a POST without that marker is a 400, so
 the safeguard does not depend on the script that opens the dialog (GH #184).</p>
+<p>Row delete asks first too, and the dialog opens in place (GH #233): the row control names the
+table’s one dialog and carries that record’s POST target, so a delete costs the confirmed POST
+alone. Cancel is a button, so dismissing never navigates; the control’s <code>?delete=&lt;key&gt;</code> href stays
+as the no-JS fallback, which renders the same dialog open with the action already set.</p>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="forms"><a class="header" href="#forms">Forms</a></h1>
 <p>Create and edit forms: typed lenses, layout blocks, the fields and what each one guarantees, file
