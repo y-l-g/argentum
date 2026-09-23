@@ -1,13 +1,14 @@
 # Shell JS assets: ownership, all-load policy, and the hook contract
 
-Date: 2026-09-18 — Status: accepted — Amended: 2026-09-19, 2026-09-22
+Date: 2026-09-18 — Status: accepted — Amended: 2026-09-19, 2026-09-22, 2026-09-23
 
 ## Decision
 
 **Ownership.** `crates/argentum-ui/assets/` holds nine hand-written JS assets (`sidebar.js`,
 `theme.js`, `dialog.js`, `bulk.js`, `filters.js`, `live-search.js`, `selects.js`, `variant.js`,
-`notifications.js`; `selects.test.js` is the Node test, not shipped — ~41 KB unminified, ~15 KB
-gzipped summed per asset, with no build or minify step). They are declared as `Asset` constants in
+`notifications.js`; `selects.test.js`, `bulk.test.js` and `dialog.test.js` are the Node tests, not
+shipped — ~44 KB unminified, ~18 KB gzipped summed per asset, with no build or minify step). They
+are declared as `Asset` constants in
 `crates/argentum-ui/src/lib.rs` and emitted by `Panel::render_document` in `argentum-core` on every
 document with `ShellAssets`, including the login page, where all but `theme.js`'s backstop apply are
 no-ops. Only the document emits `<script>` tags, `defer`red (GH #152 — parsing never waits for them;
@@ -35,7 +36,7 @@ The list is attribute hooks only — structural selectors (`.relative`, `pre cod
 |---|---|---|
 | `sidebar.js` | `data-sidebar`, `data-state` (sidebar primitive), `sidebar_state` cookie (shell) | State no longer persists; `Ctrl+B` dies |
 | `theme.js` | `data-theme-toggle` (shell) | Toggle inert; init script still paints the stored theme |
-| `dialog.js` | `data-dialog-close`, `data-dialog-open-param` (delete dialog) | Cancel still navigates, Delete still POSTs; no Escape/backdrop dismissal |
+| `dialog.js` | `data-dialog-close`, `data-dialog-open-param`, `data-row-delete-trigger`, `data-row-delete-action`, `data-row-delete-form` (row delete dialog) | Row Delete still opens the dialog through `?delete=` and Delete still POSTs; Cancel is inert, and Escape/backdrop do not dismiss |
 | `bulk.js` | `data-bulk-form`, `data-table-root`, `data-bulk-confirm-trigger`, `data-bulk-confirm-dialog`, `data-bulk-confirm-description`, `data-row-select`, `data-bulk-select-all`, `ids` transport (table) | Bulk delete unusable |
 | `filters.js` | `data-filter-name`, `data-filters-form`, `data-filters-transport`, `data-filters-live` (filter bar) | Typed controls inert; `<noscript>` free-text + Apply keeps working |
 | `live-search.js` | `data-live-search`, `data-live-search-input`, `data-live-search-transport`, `data-debounce-ms` (live table toolbar) | Typing no longer debounces into a reload; the `<noscript>` GET form is the search path |

@@ -115,6 +115,11 @@ impl<M> Table<M> {
     /// shard's new output in place, without a navigation or a scroll jump.
     /// Every bound control keeps its real `href`/form, so a page without JS
     /// still navigates as before.
+    ///
+    /// The row-delete dialog is not part of this output (GH #233): it lives
+    /// outside the region a rerun swaps, rendered once by the page that owns
+    /// the signals, so a caller rendering only through this method renders
+    /// [`Self::render_delete_dialog`] itself to keep the `?delete=` fallback.
     pub async fn render_live_with_state<'a>(
         &self,
         cx: &'a Cx,
@@ -229,11 +234,18 @@ impl<M> Table<M> {
             record_key.as_ref(),
             group_key.as_ref(),
         );
-        // The confirmation dialog lives with the delete chrome (GH #151); the
-        // live-search page renders it outside the shard region instead.
-        let delete_dialog = self
-            .render_delete_dialog_normalized(cx, state, path)
-            .await?;
+        // The confirmation dialog lives with the delete chrome (GH #151) and
+        // ships closed, so a row control opens it in place (GH #233). A live
+        // output carries none: the page that owns the signals renders it once,
+        // outside the region a rerun swaps (`panel::resource_list_live`). The
+        // dialog renders on every page with delete chrome, not only under
+        // `?delete=`, so without this gate every shard rerun would morph a
+        // second copy — and its ids — into the page.
+        let delete_dialog = if signals.is_none() {
+            self.render_delete_dialog_normalized(cx, state).await?
+        } else {
+            None
+        };
 
         // Body-only branch (GH #133): the empty and rows pages share the one
         // chrome wrapper built below — only the table body differs. Group
@@ -261,6 +273,12 @@ impl<M> Table<M> {
             // rows instead of a count legend stacked over an ungrouped table.
             let header_colspan =
                 self.columns.len() + usize::from(with_bulk) + usize::from(with_actions);
+            // The one dialog every row control on this table opens (GH #233);
+            // empty without delete chrome, where no control renders one.
+            let delete_dialog_id = delete_prefix
+                .as_deref()
+                .map(Self::delete_dialog_dom_id)
+                .unwrap_or_default();
             view! {
                 cx =>
                 table(
@@ -273,6 +291,8 @@ impl<M> Table<M> {
                             let view_for_row = row.view_url.clone();
                             let edit_for_row = row.edit_url.clone();
                             let open_for_row = row.delete_url.clone();
+                            let delete_action_for_row = row.delete_action.clone();
+                            let delete_dialog_for_row = delete_dialog_id.clone();
                             let selectable_for_row = row.selectable;
                             let row_dom_id = row_dom_id(&key_for_row);
                             if let Some(header) = row.group_header.clone() {
@@ -342,9 +362,14 @@ impl<M> Table<M> {
                                                     "Edit"
                                                 </a>
                                             }
-                                            if let Some(url) = open_for_row {
+                                            if let (Some(url), Some(action)) = (
+                                                open_for_row,
+                                                delete_action_for_row,
+                                            ) {
                                                 <a
                                                     href=(url)
+                                                    data-row-delete-trigger=(delete_dialog_for_row)
+                                                    data-row-delete-action=(action)
                                                     class=(button_variants(
                                                         ButtonVariant::Destructive,
                                                         ButtonSize::Md,
@@ -601,6 +626,14 @@ impl<M> Table<M> {
                     .as_ref()
                     .filter(|_| actions.delete)
                     .map(|base| base.delete_dialog(&record_id));
+                // The shared dialog's POST target for this row (GH #233): the
+                // row control hands it over before opening the dialog, so the
+                // action and the control come from the one policy decision.
+                let delete_action = self
+                    .delete_prefix
+                    .as_ref()
+                    .filter(|_| actions.delete)
+                    .map(|prefix| delete_action_url(prefix, &record_id));
                 RowView {
                     key,
                     record_id,
@@ -608,6 +641,7 @@ impl<M> Table<M> {
                     view_url,
                     edit_url,
                     delete_url,
+                    delete_action,
                     selectable: actions.delete,
                     group: group_key.map(|group| group(row)),
                     group_header: None,
@@ -695,34 +729,38 @@ impl<M> Table<M> {
         )
     }
 
-    /// The row-delete confirmation dialog (GH #151), rendered when the URL
-    /// asks for one and [`Self::with_delete`] wired the delete route.
+    /// The row-delete confirmation dialog (GH #151, GH #233), rendered with
+    /// the table when [`Self::with_delete`] wired the delete route.
     ///
-    /// `?delete=<row key>` opens the alert dialog on the list page; the
-    /// dialog's form POSTs to `{prefix}/{key}/delete` with `confirm=1` — the
-    /// same two-step route as the old confirmation page, now with a
-    /// Destructive confirm. Cancel is a link back to the list state without
-    /// `?delete=`; `dialog.js` adds Escape/backdrop dismissal and mirrors it
-    /// as `?open=false` ([`TableState::open`]), so a reload stays closed.
+    /// One dialog per table: the row Delete controls name it
+    /// (`data-row-delete-trigger`) and carry the record's POST target
+    /// (`data-row-delete-action`), which `assets/dialog.js` writes to the form
+    /// before opening the dialog in place. The control keeps its
+    /// `?delete=<row key>` href, so a page without the script opens this dialog
+    /// through the URL instead — and that is the render where it ships open,
+    /// with the form's action already set. `?open=false` (the mirror
+    /// `dialog.js` writes on dismissal, [`TableState::open`]) leaves it closed.
+    ///
+    /// Cancel is a button (`data-dialog-close`) on both paths, so a dismissal
+    /// never navigates; on the URL-driven render `dialog.js` closes the dialog
+    /// in place and mirrors `?open=false`, so a reload stays closed. Without
+    /// the document scripts Cancel is inert and Delete still POSTs.
     ///
     /// [`Self::render_with_state`] renders it with the table; the live-search
     /// page (`panel::resource_list_live`) calls this separately because the
     /// shard swaps the table per keystroke and must not carry dialog state.
     ///
-    /// Behavior asset: Escape/backdrop dismissal and the `data-dialog-close`
-    /// cancel hook need `assets/dialog.js` (`argentum_ui::DIALOG_JS`, which
-    /// also mirrors the dismissal into `?open=false`), emitted by
-    /// `Panel::render_document` on every document with shell assets (see
-    /// ADR-0014). The dialog primitives are vendored under the ADR-0007 sync
-    /// guard so they carry no note themselves. Without the document scripts
-    /// Cancel still navigates and Delete still POSTs.
+    /// Behavior asset: Escape/backdrop dismissal, the `data-dialog-close`
+    /// cancel hook and the trigger wiring need `assets/dialog.js`
+    /// (`argentum_ui::DIALOG_JS`), emitted by `Panel::render_document` on every
+    /// document with shell assets (see ADR-0014). The dialog primitives are
+    /// vendored under the ADR-0007 sync guard so they carry no note themselves.
     pub async fn render_delete_dialog<'a>(
         &self,
         cx: &'a Cx,
         state: &TableState,
-        path: &str,
     ) -> Result<Option<BoxView<'a>>> {
-        self.render_delete_dialog_normalized(cx, &self.normalize_state(state), path)
+        self.render_delete_dialog_normalized(cx, &self.normalize_state(state))
             .await
     }
 
@@ -733,53 +771,60 @@ impl<M> Table<M> {
         &self,
         cx: &'a Cx,
         state: &NormalizedState,
-        path: &str,
     ) -> Result<Option<BoxView<'a>>> {
         let Some(prefix) = self.delete_prefix.as_deref() else {
             return Ok(None);
         };
-        let Some(key) = state.delete.as_deref() else {
-            return Ok(None);
-        };
-        if state.open == Some(false) {
-            return Ok(None);
-        }
-        let action = delete_action_url(prefix, key);
+        let key = state
+            .delete
+            .as_deref()
+            .filter(|_| state.open != Some(false));
+        let server_open = key.is_some();
+        let action = key.map(|key| delete_action_url(prefix, key));
+        // Only the URL-driven dialog mirrors its dismissal into the URL: a
+        // dialog a row control opens client-side has no `?delete=` to close,
+        // so dismissing it leaves the URL alone (GH #154 §3).
+        let open_param = server_open.then_some("open");
+        let dialog_id = Self::delete_dialog_dom_id(prefix);
+        let title_id = format!("{dialog_id}-title");
+        let description_id = format!("{dialog_id}-description");
         let csrf = crate::csrf::current_token(cx);
-        let cancel_url = state.list_url(path);
         Ok(Some(
             view! {
                 cx =>
                 alert_dialog(
-                    open: true,
+                    open: server_open,
                     attrs: attributes! {
-                        aria-labelledby="delete-dialog-title"
-                        aria-describedby="delete-dialog-description"
-                        data-dialog-open-param="open"
+                        id=(dialog_id)
+                        data-row-delete-dialog=""
+                        aria-labelledby=(title_id.clone())
+                        aria-describedby=(description_id.clone())
+                        data-dialog-open-param=(open_param)
                     },
                     dialog_content(
                         dialog_header(
                             dialog_title(
-                                attrs: attributes! { id="delete-dialog-title" },
+                                attrs: attributes! { id=(title_id.clone()) },
                                 "Delete this record?"
                             )
                             dialog_description(
-                                attrs: attributes! { id="delete-dialog-description" },
+                                attrs: attributes! { id=(description_id.clone()) },
                                 "This action cannot be undone."
                             )
                         )
                         dialog_footer(
-                            <form method="post" action=(action) class="contents">
-                                <a
-                                    href=(cancel_url)
-                                    data-dialog-close=""
-                                    class=(button_variants(
-                                        ButtonVariant::Outline,
-                                        ButtonSize::Md,
-                                    ))
-                                >
+                            <form
+                                method="post"
+                                action=(action)
+                                class="contents"
+                                data-row-delete-form=""
+                            >
+                                button(
+                                    variant: ButtonVariant::Outline,
+                                    size: ButtonSize::Md,
+                                    attrs: attributes! { type="button" data-dialog-close="" },
                                     "Cancel"
-                                </a>
+                                )
                                 <input type="hidden" name="confirm" value="1">
                                 (crate::csrf::field(cx, &csrf))
                                 button(
@@ -795,6 +840,17 @@ impl<M> Table<M> {
             }
             .boxed(),
         ))
+    }
+
+    /// The DOM id of a table's row-delete dialog (GH #233): the delete prefix
+    /// with its slashes flattened, so two tables with different delete prefixes
+    /// never share an id. Two tables over one prefix (a page rendering the same
+    /// resource twice) derive the same ids; the panel renders one list table
+    /// per page — the list parameters are shared — so its own routes cannot
+    /// reach that. The row controls name the dialog they open, and its
+    /// `aria-labelledby`/`aria-describedby` ids derive from it.
+    fn delete_dialog_dom_id(prefix: &str) -> String {
+        format!("{}-delete-dialog", prefix.replace('/', "-"))
     }
 
     /// The skeleton placeholder table — three pulsing rows under the real
@@ -1767,6 +1823,10 @@ struct RowView {
     view_url: Option<String>,
     edit_url: Option<String>,
     delete_url: Option<String>,
+    /// The row's delete POST target (`{prefix}/{key}/delete`, GH #233): the
+    /// Delete control hands it to the shared dialog before opening it, so the
+    /// confirmed POST keeps the route the `?delete=` fallback uses.
+    delete_action: Option<String>,
     /// Whether the row's bulk checkbox is enabled (GH #235): a row the
     /// [`Table::row_actions`] policy denies `delete` renders it `disabled`, so
     /// `bulk.js` never lets it into the selection transport and select-all

@@ -328,9 +328,7 @@ pub(crate) fn resource_list_live<R: Resource>(
         // region: a keystroke starts a new result set and must never carry
         // (or re-open) a dialog, so the live page renders it eagerly once
         // (GH #151).
-        let delete_dialog = table
-            .render_delete_dialog_normalized(cx, &state, &list_path)
-            .await?;
+        let delete_dialog = table.render_delete_dialog_normalized(cx, &state).await?;
         // Create entry point (GH #162): same header button as the streamed
         // list — a real link above the swapped region, gated on `can_create`.
         let create_url = R::can_create(cx).then(|| create_page_url(&list_path));

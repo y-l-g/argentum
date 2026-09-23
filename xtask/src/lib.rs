@@ -417,6 +417,23 @@ pub const ASSET_HOOKS: &[AssetHook] = &[
         js: "dialogOpenParam",
         rust: "data-dialog-open-param",
     },
+    // The row-delete dialog (GH #233): the trigger names its table's dialog and
+    // carries the record's POST target, which the dialog's form takes.
+    AssetHook {
+        asset: "dialog.js",
+        js: "data-row-delete-trigger",
+        rust: "data-row-delete-trigger",
+    },
+    AssetHook {
+        asset: "dialog.js",
+        js: "data-row-delete-action",
+        rust: "data-row-delete-action",
+    },
+    AssetHook {
+        asset: "dialog.js",
+        js: "data-row-delete-form",
+        rust: "data-row-delete-form",
+    },
     AssetHook {
         asset: "bulk.js",
         js: "data-bulk-form",
