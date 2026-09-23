@@ -1,4 +1,5 @@
 use showcase::app::router_for_tests as router;
+use showcase::models::{Author, Post};
 
 use crate::common::{body_string, demo_client, find_href_with, full_db, row_titles};
 
@@ -16,7 +17,7 @@ async fn posts_filter_widgets_render_typed_controls() {
     let html = body_string(resp).await;
     // One typed control per declared filter, composed by filters.js into the
     // hidden `filters` transport (the text fallback lives in `<noscript>`).
-    for name in ["status", "featured", "created_at", "spotlight"] {
+    for name in ["status", "featured", "created_at", "promoted"] {
         assert!(
             html.contains(&format!("data-filter-name=\"{name}\"")),
             "missing control for {name} in {html}",
@@ -237,7 +238,6 @@ async fn posts_filter_with_cursor_paginates_filtered_rows() {
     // GH #136 extension: `admin.rs` walked cursors unfiltered and
     // `filter_check.rs` asserted filtered lists without following
     // `after=`/`before=` — no `?filters=` + cursor test existed.
-    use showcase::models::{Author, Post};
 
     let db = full_db().await;
     let router = router(db.clone());
@@ -324,41 +324,94 @@ async fn posts_filter_with_cursor_paginates_filtered_rows() {
     );
 }
 
+/// A post the seed does not carry, for the facet test below (GH #246).
+///
+/// The seed's only featured post is published and every other post is a
+/// non-featured draft, so each option of the facet needs a row that the
+/// single-lens filter beside it keeps and the option drops.
+async fn create_fixture_post(
+    db: &mut toasty::Db,
+    author: &Author,
+    title: &str,
+    status: &str,
+    featured: bool,
+) {
+    toasty::create!(Post {
+        tenant_id: author.tenant_id,
+        title: title.to_string(),
+        body: "Fixture for the promoted facet.".to_string(),
+        status: status.to_string(),
+        featured,
+        created_at: "2024-02-01T00:00:00Z".parse::<jiff::Timestamp>().unwrap(),
+        image_path: "fixture.jpg".to_string(),
+        tags: "fixture".to_string(),
+        seo: showcase::models::Seo {
+            title: title.to_string(),
+            description: String::new(),
+        },
+        publication: showcase::models::Publication::Scheduled {
+            scheduled_at: String::new(),
+            scheduled_for: String::new(),
+        },
+        media: showcase::models::Media::Image {
+            url: "fixture.jpg".to_string(),
+            alt: String::new(),
+        },
+        post_stats: showcase::models::PostStats {
+            word_count: 0,
+            read_minutes: 0,
+        },
+        author_id: author.id,
+    })
+    .exec(&mut *db)
+    .await
+    .unwrap();
+}
+
 #[tokio::test]
-async fn posts_filter_variant_spotlight_splits_featured() {
-    // The fourth filter kind: prebuilt-expression VariantFilter over the
-    // featured flag, no embedded enum required.
+async fn posts_filter_variant_promoted_pairs_the_flag_with_status() {
+    // The fourth filter kind: prebuilt-expression VariantFilter, no embedded
+    // enum required. Each option pairs the featured flag with the lifecycle
+    // status, so each one drops a row the single-lens filter beside it keeps.
     let db = full_db().await;
     let router = router(db.clone());
     let client = demo_client(&router, &db).await;
+    let mut db_q = db.clone();
+    let authors = Author::all().exec(&mut db_q).await.unwrap();
+    create_fixture_post(&mut db_q, &authors[0], "Featured Draft", "draft", true).await;
+    create_fixture_post(
+        &mut db_q,
+        &authors[0],
+        "Evergreen Roundup",
+        "published",
+        false,
+    )
+    .await;
 
-    // Both halves narrow by search so the row under test is on the page
-    // regardless of where the pagination fixture (GH #184) puts it.
-    let resp = client
-        .get("/admin/posts?filters=spotlight:Featured&q=Toasty")
-        .await;
-    assert!(resp.status().is_success());
-    let html = body_string(resp).await;
-    assert!(
-        html.contains("Hello Toasty"),
-        "Featured must show the spotlight post: {html}"
-    );
-    assert!(
-        !html.contains("Second Post"),
-        "Featured must hide regular posts: {html}"
-    );
-
-    let resp = client
-        .get("/admin/posts?filters=spotlight:Standard&q=Second")
-        .await;
-    assert!(resp.status().is_success());
-    let html = body_string(resp).await;
-    assert!(
-        html.contains("Second Post"),
-        "Standard must show non-spotlight posts: {html}"
-    );
-    assert!(
-        !html.contains("Hello Toasty"),
-        "Standard must hide the spotlight post: {html}"
-    );
+    // The controls prove each fixture row is on the page under the filter it
+    // pairs with; the facet cases assert the whole row list, so an option that
+    // is ignored leaves rows behind and one that is too narrow drops a row it
+    // should keep.
+    let cases: [(&str, &[&str]); 6] = [
+        // The published non-featured row: the ternary's flag-off facet carries
+        // it, `Backlog` does not, so `Backlog` pairs the flag with a draft.
+        ("filters=featured:false&q=Evergreen", &["Evergreen Roundup"]),
+        ("filters=promoted:Backlog&q=Evergreen", &[]),
+        // The featured draft: the status filter carries it, `Backlog` does not,
+        // so `Backlog` pairs the status with the flag.
+        ("filters=status:draft&q=Featured", &["Featured Draft"]),
+        ("filters=promoted:Backlog&q=Featured", &[]),
+        // `Promoted` is featured *and* published: both fixtures fall outside.
+        ("filters=promoted:Promoted", &["Hello Toasty"]),
+        // The non-featured draft the option names. The term carries both words
+        // so the pagination filler's "…a Second Database…" title stays out.
+        ("filters=promoted:Backlog&q=Second+Post", &["Second Post"]),
+    ];
+    for (query, expected) in cases {
+        let resp = client.get(&format!("/admin/posts?{query}")).await;
+        assert!(resp.status().is_success(), "{query} must answer 200");
+        let html = body_string(resp).await;
+        let expected: Vec<String> = expected.iter().map(|title| title.to_string()).collect();
+        assert_eq!(row_titles(&html), expected, "{query}: {html}");
+    }
 }

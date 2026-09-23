@@ -44,6 +44,18 @@ async fn posts_create_shows_fileupload_and_repeater() {
         "missing lifecycle selects {}",
         html
     );
+    // The form's own labels (GH #246): the flag select reads "Featured" and
+    // the embedded media value reads "Attachment".
+    assert!(
+        html.contains("Featured</label>"),
+        "missing Featured label for the flag select {}",
+        html
+    );
+    assert!(
+        html.contains(">Attachment<"),
+        "missing Attachment section {}",
+        html
+    );
     assert!(
         html.contains("field-group"),
         "missing Group container {}",
@@ -87,7 +99,7 @@ async fn posts_create_invalid_fileupload_repeater_shows_errors() {
         html
     );
     assert!(
-        html.contains("Image path is required"),
+        html.contains("Cover image is required"),
         "missing required error for the file field, got {html}"
     );
     assert_eq!(
