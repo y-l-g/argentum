@@ -35,7 +35,7 @@ function standInDocument(filters) {
   const byType = new Map();
   return {
     activeElement: null,
-    documentElement: null,
+    documentElement: {},
     addEventListener(type, handler) {
       if (!byType.has(type)) byType.set(type, []);
       byType.get(type).push(handler);
@@ -87,6 +87,7 @@ function searchableField() {
 
   const combo = {};
   const wrap = {};
+  const filterAttrs = {};
   const filter = {
     value: '',
     closest: (selector) =>
@@ -94,6 +95,10 @@ function searchableField() {
         : selector === '[data-options-combobox]' ? combo
           : selector === '[data-select-filterable]' ? wrap
             : null,
+    getAttribute: (name) => (name in filterAttrs ? filterAttrs[name] : null),
+    setAttribute: (name, value) => {
+      filterAttrs[name] = value;
+    },
   };
   const list = {
     hidden: false,
@@ -114,6 +119,7 @@ function searchableField() {
   const select = {
     value: '',
     options,
+    required: false,
     events: [],
     dispatchEvent(event) {
       this.events.push(event);
@@ -134,6 +140,16 @@ function searchableField() {
             : null;
   });
   return { combo, wrap, filter, list, select, control, rows };
+}
+
+// A non-searchable field: the field wrapper, the select primitive's wrapper
+// `<span>`, and a native `<select>` with no combobox over it.
+function plainField() {
+  const select = { value: '', required: true };
+  const control = { hidden: false };
+  select.parentElement = control;
+  const wrap = { querySelector: (selector) => (selector === 'select' ? select : null) };
+  return { wrap, select, control };
 }
 
 // The matching cases are pure; a document with no fields is enough to load the
@@ -227,10 +243,57 @@ test('a wired field hides the replaced control, not the field', () => {
   assert.equal(world.select.options.length, 3, 'the select stays the value carrier');
 });
 
-test('a plain select is left visible', () => {
+test('hiding drops the required attribute the browser would block on', () => {
   const world = searchableField();
-  load(standInDocument([]));
-  assert.notEqual(world.control.hidden, true, 'nothing replaces a select with no combobox');
+  world.select.required = true;
+  load(standInDocument([world.filter]));
+  // Constraint validation still runs for a `display: none` control, and a
+  // failed one cannot take focus, so the browser refuses the submit before any
+  // `submit` handler sees it.
+  assert.equal(world.select.required, false, 'the unfocusable control is not required');
+  assert.equal(
+    world.filter.getAttribute('aria-required'),
+    'true',
+    'the combobox carries the field requiredness',
+  );
+});
+
+test('a plain select keeps its control and its required attribute', () => {
+  // A non-searchable field shares the document with the wired one, so the pass
+  // really runs and really leaves it alone.
+  const searchable = searchableField();
+  const plain = plainField();
+  load(standInDocument([searchable.filter]));
+  assert.equal(searchable.control.hidden, true, 'the wired field hides its control');
+  assert.notEqual(plain.control.hidden, true, 'nothing replaces a select with no combobox');
+  assert.equal(plain.select.required, true, 'native validation stays on the visible control');
+});
+
+test('a swapped-in field is hidden again', () => {
+  const world = searchableField();
+  const document = standInDocument([world.filter]);
+  const observers = [];
+  global.MutationObserver = class {
+    constructor(callback) {
+      this.callback = callback;
+      observers.push(this);
+    }
+
+    observe() {}
+  };
+  try {
+    load(document);
+    assert.equal(observers.length, 1, 'the script watches for swapped markup');
+    // The swap replaces the field, so the server-rendered control is visible
+    // again until the observer replays the hide pass on the new nodes.
+    world.control.hidden = false;
+    observers[0].callback([
+      { addedNodes: [{ nodeType: 1, querySelectorAll: () => [world.filter] }] },
+    ]);
+    assert.equal(world.control.hidden, true, 'the swapped field is hidden again');
+  } finally {
+    delete global.MutationObserver;
+  }
 });
 
 // --- GH #237: one wiring pass -------------------------------------------------
@@ -266,7 +329,7 @@ test('an arrow key advances one row', () => {
   load(document);
   // No row starts selected, so `activeItem` is the first: one ArrowDown lands
   // on the second. A second wiring block re-reads the live `aria-selected` and
-  // advances again, to the third.
+  // advances again, which wraps to the first.
   document.listeners('keydown').forEach((handler) => {
     handler({ key: 'ArrowDown', target: world.filter, preventDefault() {} });
   });

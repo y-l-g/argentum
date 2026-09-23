@@ -27,9 +27,7 @@
 //
 // The server renders both controls so the field works without this script;
 // with it, the native `<select>` is hidden once the combobox over it is wired
-// (GH #236). Hiding is display only: the select stays in the markup as the
-// submitted value carrier, and `partsOf` still resolves it as a descendant of
-// `[data-select-filterable]`.
+// (GH #236).
 //
 // Document-level delegation (like bulk.js) so streamed/shard swaps that
 // replace form markup need no re-installation.
@@ -226,10 +224,6 @@ function activeItem(list) {
 // visible control rather than losing the only one it has. Hiding is display
 // only — the select stays in the markup as the submitted value carrier, and
 // `partsOf` still resolves it as a descendant of `[data-select-filterable]`.
-//
-// A hidden control is barred from constraint validation, so a `required`
-// select no longer fails the browser's own check; the server's required check
-// is what enforces it.
 function shouldHideNativeSelect({ combo, filter, list, select }) {
   return Boolean(combo && filter && list && select);
 }
@@ -244,9 +238,23 @@ function nativeControl({ wrap, select }) {
   return parent && parent !== wrap ? parent : select;
 }
 
+// Hide the control the combobox replaces, and move the field's requiredness
+// onto the combobox.
+//
+// A `display: none` control is still a candidate for constraint validation, and
+// one that fails validation cannot take focus, so the browser refuses the
+// submit outright ("An invalid form control with name='author_id' is not
+// focusable") before the `submit` event fires. The script therefore drops the
+// native `required`, which leaves the server's required check enforcing the
+// value, and marks the filter input `aria-required`, which is the control the
+// user sees.
 function hideNativeSelect(parts) {
   if (!shouldHideNativeSelect(parts)) return;
   nativeControl(parts).hidden = true;
+  if (parts.select.required) {
+    parts.select.required = false;
+    parts.filter.setAttribute('aria-required', 'true');
+  }
 }
 
 // Hide the control behind every wired combobox in `root`, or in the document.
