@@ -17,11 +17,15 @@
 //! rule (GH #100) still applies — the owned `app::Model` cannot see embedded
 //! models, which is exactly what the schema adds.
 //!
-//! The walk is covered directly by the test module at the foot of this file:
-//! one case per shape it branches on — a plain leaf, a leaf inside an embedded
-//! struct, a variant-rooted path through nested structs, a `#[shared]` column,
-//! a `#[document]`, and a path whose root model the schema does not carry (the
-//! identity guard) — plus one test per `resolve_embedded_value` shape.
+//! The walk is covered directly by the test module at the foot of this file,
+//! over a fixture built for the shapes it resolves: a leaf inside an embedded
+//! struct, a variant-rooted path through nested structs and through a struct
+//! that holds the enum, a `#[shared]` column (one column for every variant that
+//! declares it), and a `#[document]`. A plain leaf is covered too, but it never
+//! enters the walk — a single segment on a model root reads the owned app field.
+//! The identity guard is covered on both entries, and `resolve_embedded_value`
+//! for both the value shapes (struct, enum, struct holding an enum) and the
+//! paths it refuses (variant root, leaf, document, foreign root, no schema).
 
 use toasty_core::stmt::PathRoot;
 use topcoat::context::Cx;
@@ -42,9 +46,12 @@ pub(crate) struct LeafField {
     /// own name for a single-segment path.
     pub(crate) name: String,
     pub(crate) label: String,
-    /// Whether the leaf column is nullable. An embedded step makes every
-    /// column under it storage-nullable — only the matching enum variant
-    /// writes a value — so an embedded leaf is never required by default.
+    /// Whether the leaf is nullable. Every leaf the walk resolves reports
+    /// `true`: an embedded leaf is never required by default, because only the
+    /// matching enum variant writes a variant payload's column. That is this
+    /// walk's policy rather than the compiled column's own nullability — the
+    /// flattened column of a required embedded struct is `NOT NULL` — so it is
+    /// the *binding* default, not a storage fact.
     pub(crate) nullable: bool,
 }
 
@@ -478,8 +485,10 @@ fn column_of(schema: &toasty_core::Schema, field: &MappingField) -> Option<LeafF
     Some(LeafField {
         name: column.name.clone(),
         label: capitalize(&column.name.replace('_', " ")),
-        // Every column under an embedded step is storage-nullable: only the
-        // matching variant writes a value.
+        // Reported nullable by policy, not read off the column: an embedded
+        // leaf is never required by default, because only the matching enum
+        // variant writes a variant payload's column. The compiled column can be
+        // `NOT NULL` — an embedded struct's flattened column is.
         nullable: true,
     })
 }
@@ -938,7 +947,7 @@ mod tests {
         );
         assert!(
             leaf.nullable,
-            "every column under an embedded step is storage-nullable"
+            "an embedded leaf is never required by default"
         );
     }
 
@@ -977,6 +986,29 @@ mod tests {
         assert!(leaf.nullable);
     }
 
+    /// A variant-rooted path whose *parent* walks through an embedded struct:
+    /// the payload accessor rebases onto the variant, so the parent path has
+    /// two steps and both halves of the walk have to follow them to reach the
+    /// enum — the app side to find its payload list, the mapping side to find
+    /// its per-variant columns.
+    #[tokio::test]
+    async fn a_variant_rooted_path_through_an_embedded_struct_resolves() {
+        let cx = lens_cx().await;
+        let resolver = FieldResolver::from_cx(&cx);
+        assert_eq!(
+            resolver
+                .resolve(LensPost::fields().wrapper().inner().image().url())
+                .name,
+            "wrapper_inner_url"
+        );
+        assert_eq!(
+            resolver
+                .resolve(LensPost::fields().wrapper().inner().video().video_url())
+                .name,
+            "wrapper_inner_video_url"
+        );
+    }
+
     /// `#[shared(timestamp)]`: both variants' leaves name the one column the
     /// identifier declares, and a non-shared payload keeps its own.
     #[tokio::test]
@@ -1013,7 +1045,7 @@ mod tests {
         assert_eq!(leaf.label, "Stats");
         assert!(
             leaf.nullable,
-            "a document column is storage-nullable like any embedded leaf"
+            "a document leaf is never required by default either"
         );
     }
 
@@ -1040,8 +1072,8 @@ mod tests {
         );
     }
 
-    /// ... and through `resolve` it panics rather than binding a column of the
-    /// model the schema *does* carry (the GH #100 policy).
+    /// ... and through `resolve` the same path panics instead of quietly
+    /// resolving to nothing (the GH #100 policy).
     #[tokio::test]
     #[should_panic(expected = "does not resolve to a single column")]
     async fn a_root_model_the_schema_does_not_carry_refuses_a_leaf_lens() {
