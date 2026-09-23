@@ -33,6 +33,18 @@ jobs:
       # a real escape hatch (GH #129).
       - run: cargo check -p argentum-core --no-default-features --locked
 
+  # The shell assets are plain browser scripts loaded through `asset!`: no build
+  # step, no dependencies, nothing to install, and the runner's Node runs them
+  # as-is. A job of its own keeps a JS failure attributable to the assets and
+  # off the Rust job's critical path. The glob runs every `*.test.js` beside the
+  # scripts it covers.
+  assets:
+    name: assets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: node --test crates/argentum-ui/assets/*.test.js
+
   clippy:
     name: clippy
     runs-on: ubuntu-latest

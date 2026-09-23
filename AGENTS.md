@@ -3,7 +3,7 @@
 ## Commands
 
 ```sh
-# The gate set (.github/workflows/ci.yml). All eight before merging.
+# The gate set (.github/workflows/ci.yml). All nine before merging.
 cargo test --workspace --locked
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo check -p argentum-core --no-default-features --locked
@@ -12,10 +12,9 @@ topcoat fmt && git diff --exit-code
 cargo check --locked --manifest-path benchmarks/argentum/Cargo.toml
 cargo clippy --locked --manifest-path benchmarks/argentum/Cargo.toml --all-targets -- -D warnings
 cargo +1.98 check --workspace --locked           # MSRV floor (rust-version 1.98)
+node --test crates/argentum-ui/assets/*.test.js  # the shell asset suites
 
 cargo run -p showcase                            # http://localhost:3000/admin/users
-node --test crates/argentum-ui/assets/selects.test.js
-node --test crates/argentum-ui/assets/bulk.test.js
 cargo xtask sync-topcoat-ui                      # re-vendor primitives, verbatim
 cargo xtask verify-topcoat-ui                    # fail on vendored drift
 
