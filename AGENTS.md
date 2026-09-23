@@ -60,8 +60,9 @@ issue in the subject: `<type>(<scope>): <description> (#123)` (`docs/dev/COMMITS
 | `benchmarks/` | `argentum`, `axum-maud`, `leptos` — detached workspaces |
 | `README.md` | entry point; the user guide is `docs/guide` (mdBook) |
 | `CONTEXT.md`, `docs/adr` | domain vocabulary, decisions |
-| `docs/dev` | specs (commits, prose, labels) and `architecture.md` |
+| `docs/dev` | specs (commits, prose, labels, testing) and `architecture.md` |
 | `docs/agents` | tracker notes for agents |
+| `.agents/skills` | load-when instructions: `check`, `commit`, `issue`, `pr`, `prose`, `style` |
 
 ## Renovate PRs
 
@@ -78,4 +79,6 @@ issue in the subject: `<type>(<scope>): <description> (#123)` (`docs/dev/COMMITS
 
 ## Further reading
 
-`CONTRIBUTING.md` · `docs/dev/architecture.md` · `docs/dev/COMMITS.md` · `docs/dev/PROSE.md` · `docs/dev/LABELS.md` · `docs/guide/` · `CONTEXT.md` · `docs/adr/` · `docs/agents/`.
+`CONTRIBUTING.md` · `docs/dev/architecture.md` · `docs/dev/COMMITS.md` · `docs/dev/PROSE.md` ·
+`docs/dev/LABELS.md` · `docs/dev/TESTING.md` · `docs/dev/design/` ·
+`docs/dev/upstream-notes.md` · `docs/guide/` · `CONTEXT.md` · `docs/adr/` · `docs/agents/`.

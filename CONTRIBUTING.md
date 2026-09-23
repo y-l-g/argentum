@@ -2,8 +2,23 @@
 
 Small fixes, documentation corrections, and tests can go straight to a pull request. For a new
 feature or a public-API change, open an issue first and describe the problem: redirecting a
-design is cheaper than redirecting a patch. Read [`AGENTS.md`](AGENTS.md) before your first
-change; it holds the rules this document expands.
+design is cheaper than redirecting a patch. A change that reshapes `Panel`, `Resource`, `Table`,
+`Schema`, or the policy/tenancy seams additionally needs an accepted design document under
+[`docs/dev/design/`](docs/dev/design/) before the implementation lands. Read
+[`AGENTS.md`](AGENTS.md) before your first change; it holds the rules this document expands.
+
+## Fork and branch
+
+Fork the repository and branch off `master`. Keep the branch mergeable by rebasing onto `master`
+rather than merging `master` into it. Branches squash-merge, so no history tidying is needed
+before pushing. Keep pull requests focused: if a fix grows into a feature or a redesign, discuss
+the scope before continuing.
+
+## Using AI assistants
+
+AI-assisted contributions are welcome. The human author is responsible for understanding the
+submitted code and defending it in review: a change whose author cannot discuss it gets closed.
+Name the model and describe what it did in the pull request description.
 
 ## Build and run
 
@@ -81,11 +96,23 @@ different upstream code than the workspace builds.
 Every branch is squash-merged into `master`: one commit per branch, so no empty
 merge commits. The squashed commit is a Conventional Commit with the issue
 reference in the subject. [`docs/dev/COMMITS.md`](docs/dev/COMMITS.md) is the
-authoritative format.
+authoritative format. The `semantic-pr` workflow enforces the same format on
+pull request titles, since the title becomes the landed commit.
+
+## Triage
+
+Maintainers close issues and pull requests without detailed review when a change
+does not align with the project's direction, duplicates existing work, or is not
+worth the time to review. Closures are routine and carry no judgment: if context
+changes the picture, follow up in the thread.
 
 ## Decisions and vocabulary
 
 Record durable design decisions in [`docs/adr/`](docs/adr/). Domain terms and
 the synonyms to avoid live in [`CONTEXT.md`](CONTEXT.md); use its words in code,
 issues, and commits. All human-readable text follows
-[`docs/dev/PROSE.md`](docs/dev/PROSE.md).
+[`docs/dev/PROSE.md`](docs/dev/PROSE.md). Test discipline lives in
+[`docs/dev/TESTING.md`](docs/dev/TESTING.md).
+
+By contributing, you agree that your contributions are licensed under the
+[MIT license](LICENSE).

@@ -2,8 +2,12 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": ["config:recommended"],
   "prBodyNotes": [
-    "Pin policy (GH #103): any change to the workspace Cargo.lock must sync benchmarks/argentum/Cargo.lock in the same commit, keeping topcoat/toasty revs identical."
+    "Pin policy (GH #103): any change to the workspace Cargo.lock must sync benchmarks/argentum/Cargo.lock in the same commit, keeping topcoat/toasty revs identical.",
+    "Lockfile-maintenance PRs: do not automerge — sync benchmarks/argentum/Cargo.lock in the same commit before merging."
   ],
+  "lockFileMaintenance": {
+    "enabled": true
+  },
   "packageRules": [
     {
       "description": "syn v3 breaks topcoat fmt's view-macro parser (PR #83 fmt job) — defer until topcoat migrates. Note: syn 3.x already in-tree transitively via async-trait; this pin constrains only the direct dep, do not blanket-update to fix it.",

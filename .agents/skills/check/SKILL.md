@@ -1,0 +1,42 @@
+---
+name: check
+description: Always use this skill to verify a change locally before committing or opening a pull request in the Argentum repository
+---
+
+# Verifying a Change
+
+Keep this file in sync with `.github/workflows/ci.yml`.
+
+Run the gates covering the touched area before pushing, and all nine before merging:
+
+```
+cargo test --workspace --locked
+cargo clippy --workspace --all-targets --locked -- -D warnings
+cargo check -p argentum-core --no-default-features --locked
+cargo fmt -p argentum-core -p argentum-macros -p argentum-ui -p showcase -p xtask -- --check
+topcoat fmt && git diff --exit-code
+cargo check --locked --manifest-path benchmarks/argentum/Cargo.toml
+cargo clippy --locked --manifest-path benchmarks/argentum/Cargo.toml --all-targets -- -D warnings
+cargo +1.98 check --workspace --locked
+node --test crates/argentum-ui/assets/*.test.js
+```
+
+Rules that catch the recurring failures:
+
+- `topcoat fmt` only agrees with the CLI built from the rev `Cargo.lock` pins.
+  Another CLI's diff is not a fix: install the locked rev (see `CONTRIBUTING.md`)
+  and run that.
+- `cargo fmt` covers workspace members only; the detached `benchmarks/*`
+  workspaces are formatted and linted by manifest path.
+- Any lockfile change syncs `benchmarks/argentum/Cargo.lock` in the same commit,
+  with identical `topcoat`/`toasty` revs.
+- Give each worktree its own target directory; a shared `CARGO_TARGET_DIR`
+  cross-contaminates.
+- Never pipe when you need the exit code: `| tail` masks it. Read `PIPESTATUS`
+  or redirect to a file.
+- Never hand-edit `crates/argentum-ui/src/components/primitives/`; sync it with
+  `cargo xtask sync-topcoat-ui`.
+
+Only on request: unused dependencies via `cargo +nightly udeps` (needs
+`cargo-udeps` on nightly for `-Z binary-dep-depinfo`; GH #271 tracks promoting
+this to a CI job once it is verified green).
