@@ -41,12 +41,12 @@ what would collide. `CONTEXT.md` carries the same split.
 
 **The library is a page, not a `Resource`.** `GET /admin/media` renders the tenant's rows and the
 upload form; `POST /admin/media` parses the multipart body, stores the bytes through the app's own
-`Uploader` (the `DirUploader` the panel installs, GH #188), and writes the row. Neither seam fits:
-a `Table` column projects a `String`, so it cannot render a thumbnail, and the `Schema` tree has no
-node for a stored file's preview. The page parses its own form for the same reason, which is also
-why it verifies the CSRF token itself (`csrf::verify`, GH #99) and reduces the client filename to a
-basename before the store sees it — the store takes the basename again rather than trusting a
-caller to have done it (GH #90).
+`Uploader` (the same `DirUploader` the app gives `Panel::uploads`, GH #188), and writes the row.
+Neither seam fits: a `Table` column projects a `String`, so it cannot render a thumbnail, and the
+`Schema` tree has no node for a stored file's preview. The page parses its own form for the same
+reason, which is also why it verifies the CSRF token itself (`csrf::verify`, GH #99) and reduces the
+client filename to a basename before the store sees it — the store takes the basename again rather
+than trusting a caller to have done it (GH #90).
 
 **The rich upload UX is the app's, and its no-JS fallback is a reset button.** The page renders the
 file input, a preview region (`data-media-preview`), and an × (`data-media-clear`) that is a
@@ -84,6 +84,10 @@ page, so nothing here reads or rewrites the bytes after the store returns.
   outgrows a page wants its own loader and pager.
 - The panel's sidebar is derived from its `Resource`s (ADR-0008), so a hand-written page has no
   navigation entry; the library is reached at `/admin/media`.
+- The page builds the app's store from the same `upload_dir()` the panel is configured with, because
+  the `Uploader` `Panel::uploads` installs lives on the app context for the framework's form parser
+  and is not readable from a page. An app whose store is configured elsewhere gives the page the same
+  store it gives the panel.
 - The page links its script only when the router carries an asset bundle, so a test router renders
   the markup without one. A bundle built before `media.js` existed does not carry it and the page
   panics on render, like any other asset the bundle is missing; `topcoat dev` re-bundles.

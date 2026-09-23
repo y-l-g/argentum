@@ -354,9 +354,9 @@ async fn media_page(cx: &Cx) -> Result<impl View> {
 ///
 /// The page renders its own form, so it parses its own multipart body: the
 /// framework's parser serves the fields a `Schema` declares, and this form is
-/// not one. The bytes go through the app's own [`Uploader`] — the store the
-/// panel installs for `FileUpload` (GH #188) — outside any transaction, like
-/// every upload (ADR-0017).
+/// not one. The bytes go through the app's own [`Uploader`] — the same
+/// `DirUploader` the app gives `Panel::uploads` (GH #188) — outside any
+/// transaction, like every upload (ADR-0017).
 #[route(POST "/admin/media")]
 async fn upload(cx: &Cx, mut multipart: Multipart) -> Result<SeeOther> {
     let tenant = require_tenant(cx)?;
@@ -398,6 +398,10 @@ async fn upload(cx: &Cx, mut multipart: Multipart) -> Result<SeeOther> {
     if !owner_exists(cx, owner, &mut db).await? {
         return Err(bad_request("That owner does not exist.").into());
     }
+    // The app's own store, pointed at the directory the panel serves: the
+    // `Uploader` `Panel::uploads` installs lives on the app context for the
+    // framework's form parser and is not readable from a page, so the page
+    // builds the same store from the same configuration.
     let path = DirUploader::new(upload_dir())
         .store(&part.filename, &part.bytes)
         .await
