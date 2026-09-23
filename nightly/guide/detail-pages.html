@@ -35,7 +35,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-05601bbf.js";
+            window.path_to_searchindex_js = "searchindex-33e17d5b.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-da1679ae.js"></script>
@@ -211,9 +211,9 @@ replace <code>Table::id</code>, which must stay injective within a page for keye
 <ul>
 <li><strong>Read-only is not a disabled form.</strong> Fields render labels and stored values:
 <code>TextInput</code>/<code>Textarea</code> show text, <code>Select</code> shows the option label the form offered (or the stored
-value when no option matches, a relationship key included), <code>FileUpload</code> shows the stored path and
-previews a stored image (GH #188), and layout blocks keep their structure. No control, no CSRF
-field, no validation slot.</li>
+value when no option matches, a relationship key included), <code>FileUpload</code> shows the stored path as a
+link to the file (GH #242), and layout blocks keep their structure. No control, no CSRF field, no
+validation slot.</li>
 <li><strong>Values come from <code>hydrate_form_values</code></strong>, the same projection the edit form hydrates, so a field
 that renders in the form renders here.</li>
 <li><strong>Related rows</strong> render through <code>view_relations(cx, record)</code>, the page’s second half:</li>
