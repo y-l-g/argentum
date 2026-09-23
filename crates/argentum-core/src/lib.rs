@@ -34,10 +34,10 @@ pub use auth::{Auth, Authenticator, CurrentUser, PasswordAuth};
 pub use notification::{Notification, NotificationStatus};
 pub use panel::{Brand, DarkMode, Panel};
 pub use resource::{
-    Committed, DateFilter, Filter, IncludeNeeds, IntoFilters, IntoRelationColumns, Mutation,
-    NavTarget, NavigationItem, RelationColumn, RelationColumns, Resource, RowActions, RowKey,
-    SelectFilter, Sort, Table, TablePage, TableSignals, TableState, TernaryFilter, TextColumn,
-    VariantFilter, render_relation, scoped_query,
+    ColumnWidth, Committed, DateFilter, Filter, IncludeNeeds, IntoFilters, IntoRelationColumns,
+    Mutation, NavTarget, NavigationItem, RelationColumn, RelationColumns, Resource, RowActions,
+    RowKey, SelectFilter, Sort, Table, TablePage, TableSignals, TableState, TernaryFilter,
+    TextColumn, VariantFilter, render_relation, scoped_query,
 };
 pub use schema::{
     EmbeddedForm, EnumSpec, FieldLens, FileUpload, Grid, Group, IntoSchema, Repeater, Schema,

@@ -28,7 +28,7 @@ mod table;
 #[cfg(test)]
 pub(crate) use crate::query_term::MAX_QUERY_TERM;
 pub(crate) use crate::query_term::clamp_query_term;
-pub use column::{IncludeNeeds, IntoColumns, TextColumn};
+pub use column::{ColumnWidth, IncludeNeeds, IntoColumns, TextColumn};
 pub(crate) use commit::run_after_commit;
 pub use commit::{Committed, Mutation};
 pub use filter::{DateFilter, Filter, IntoFilters, SelectFilter, TernaryFilter, VariantFilter};

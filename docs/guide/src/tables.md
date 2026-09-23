@@ -29,6 +29,17 @@ Notes:
 - The URL is the state: `?q=`, `?sort=`, `?dir=`, `?after=`, `?before=`, `?filters=`, `?group_by=`
   parse into `TableState`. Pagination is cursor based; Toasty appends the PK tie-breaker internally
   so cursors stay deterministic.
+- Columns render in a fixed layout (`table-fixed`): a column's width is the one its header declares, not
+  the widest cell on the current page, so filtering, sorting or paging never re-measures the columns.
+  Widths are percentages of the table, so what a table declares is a share of its container rather than a
+  length that can outgrow it. The default follows the column's kind: a field column
+  (`TextColumn::r#for`) declares nothing and takes what the declared columns leave, a computed column
+  (`TextColumn::computed`) claims a share (10% nominally). The chrome columns — bulk selection, row
+  actions — claim shares too, and the kind defaults scale down together when their total would leave the
+  field columns less than 40% of the table. `TextColumn::width(ColumnWidth::..)` overrides either; an
+  explicit `Rem` does not shrink with the table, so a table narrower than its lengths leaves the field
+  columns no space at all. The width is emitted as an inline `style` — Tailwind generates only the class
+  literals it finds in source — and a value wider than its column truncates with an ellipsis.
 - Computed columns render only. They do not affect search or sort.
 
 Filters:

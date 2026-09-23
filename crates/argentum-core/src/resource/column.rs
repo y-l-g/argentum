@@ -1,5 +1,6 @@
 //! Table columns: [`TextColumn`] plus the [`IntoColumns`] seam.
 
+use std::borrow::Cow;
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
@@ -63,6 +64,80 @@ impl<const N: usize> From<[&'static str; N]> for IncludeNeeds {
     }
 }
 
+/// The share of the table a [`ColumnWidth::Narrow`] column claims, in whole
+/// percent (GH #240).
+pub(crate) const NARROW_DEFAULT_PERCENT: u8 = 10;
+
+/// The width a [`TextColumn`] claims in the table's fixed layout (GH #240).
+///
+/// Widths are **shares of the table**, so what a table declares is a fraction
+/// of its container rather than a length that can outgrow it: the columns that
+/// declare none take what the declared ones leave. A length
+/// ([`Rem`](Self::Rem)) is the exception — lengths do not shrink with the
+/// table, and a table whose lengths exceed its width gives the columns that
+/// declare none no space at all, header text included.
+///
+/// The renderer writes the width into the column's `th` and every row's `td`
+/// as an inline `style` attribute — data, never a generated Tailwind class.
+/// Tailwind generates only the class literals it finds in source, so a width
+/// assembled at render (`w-[{n}%]`) would emit no CSS at all (ADR-0006); a
+/// declared width is read by the layout directly.
+///
+/// A column's **kind** picks the default: `TextColumn::r#for` binds a `String`
+/// field, so its cells hold the row's own text — a title, a name, a body — and
+/// it defaults to [`Wide`](Self::Wide), taking a share of what the declared
+/// columns leave; [`TextColumn::computed`] derives its cell (a status, a
+/// boolean, a date, a count) and defaults to [`Narrow`](Self::Narrow), a share
+/// of the table. [`TextColumn::width`] overrides either, which is the seam for
+/// a column whose content disagrees with its kind.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ColumnWidth {
+    /// Take a share of whatever the declared columns leave: the column
+    /// declares no width, and `table-fixed` splits the remainder between the
+    /// wide columns instead of measuring the rows currently rendered.
+    #[default]
+    Wide,
+    /// A share of the table for a status, boolean, date or count cell: the
+    /// default for a [`TextColumn::computed`] column. The renderer resolves
+    /// the share (10% nominally) against the table's other kind defaults.
+    Narrow,
+    /// An explicit length in whole rem: `Rem(14)` declares `14rem`. A length
+    /// does not shrink with the table, so a table narrower than the lengths it
+    /// declares gives the columns that declare none no space at all.
+    Rem(u8),
+    /// An explicit share of the table in whole percent: `Percent(30)`
+    /// declares `30%`.
+    Percent(u8),
+}
+
+impl ColumnWidth {
+    /// The share of the table this column claims as a **kind default**, in
+    /// whole percent, or `None` for a column that declares an explicit width
+    /// or none at all.
+    ///
+    /// A nominal: the renderer scales the kind defaults down together when
+    /// their total would leave the wide columns less than their share of the
+    /// table (GH #240).
+    pub(crate) fn default_percent(self) -> Option<u8> {
+        match self {
+            Self::Narrow => Some(NARROW_DEFAULT_PERCENT),
+            Self::Wide | Self::Rem(_) | Self::Percent(_) => None,
+        }
+    }
+
+    /// The `style` attribute value an **explicit** declaration emits, or
+    /// `None` for [`Wide`](Self::Wide), which declares nothing, and for
+    /// [`Narrow`](Self::Narrow), whose share the renderer resolves against the
+    /// rest of the table.
+    pub(crate) fn explicit_css(self) -> Option<Cow<'static, str>> {
+        match self {
+            Self::Rem(rem) => Some(Cow::Owned(format!("width: {rem}rem"))),
+            Self::Percent(percent) => Some(Cow::Owned(format!("width: {percent}%"))),
+            Self::Wide | Self::Narrow => None,
+        }
+    }
+}
+
 /// Text column bound to a typed lens **and** a typed projection.
 ///
 /// The lens (`FieldLens<M, String>`) is the query side: it names the column
@@ -90,6 +165,8 @@ pub struct TextColumn<M> {
     project: Arc<dyn Fn(&M) -> String + Send + Sync>,
     searchable: bool,
     sortable: bool,
+    /// The width this column claims in the table's fixed layout (GH #240).
+    width: ColumnWidth,
     /// Relations this column's projection reads, in the resource's vocabulary
     /// (GH #177).
     needs: Vec<&'static str>,
@@ -141,6 +218,7 @@ where
             project: Arc::new(project),
             searchable: false,
             sortable: false,
+            width: ColumnWidth::Wide,
             needs: Vec::new(),
         }
     }
@@ -165,6 +243,7 @@ where
             project: Arc::new(project),
             searchable: false,
             sortable: false,
+            width: ColumnWidth::Narrow,
             needs: Vec::new(),
         }
     }
@@ -220,6 +299,25 @@ where
 
     pub fn is_sortable(&self) -> bool {
         self.sortable
+    }
+
+    /// Declare this column's width in the table's fixed layout (GH #240):
+    /// `.width(ColumnWidth::Percent(20))` for a column that knows its own
+    /// measure.
+    ///
+    /// The default follows the column's kind — see [`ColumnWidth`]. Override
+    /// it when the content disagrees with the kind: a `computed` column that
+    /// holds a name or a title is [`Wide`](ColumnWidth::Wide), a `String` field
+    /// that holds a status is [`Narrow`](ColumnWidth::Narrow).
+    pub fn width(mut self, width: ColumnWidth) -> Self {
+        self.width = width;
+        self
+    }
+
+    /// The width this column declares, which the renderer emits on its `th`
+    /// and on every `td` of its column (GH #240).
+    pub fn column_width(&self) -> ColumnWidth {
+        self.width
     }
 
     pub fn label(&self) -> &str {
@@ -278,6 +376,7 @@ impl<M> std::fmt::Debug for TextColumn<M> {
             .field("label", &self.label)
             .field("searchable", &self.searchable)
             .field("sortable", &self.sortable)
+            .field("width", &self.width)
             .field("needs", &self.needs)
             .finish_non_exhaustive()
     }
@@ -419,6 +518,39 @@ mod tests {
         assert!(!col.is_searchable() && !col.is_sortable());
         assert!(col.to_search_expr("x").is_none());
         assert!(col.to_order_by(false).is_none());
+    }
+
+    /// GH #240: a column's kind picks its default width, `.width(..)`
+    /// overrides it, and the declaration reaches the renderer as data — the
+    /// CSS it writes on the `th`/`td`, never a Tailwind class.
+    #[test]
+    fn text_column_width_defaults_by_kind() {
+        let field = TextColumn::r#for(User::fields().name(), |u| u.name.clone());
+        assert_eq!(field.column_width(), ColumnWidth::Wide);
+
+        let computed = TextColumn::computed("Status", |u: &User| u.name.clone());
+        assert_eq!(computed.column_width(), ColumnWidth::Narrow);
+
+        let declared = computed.width(ColumnWidth::Percent(30));
+        assert_eq!(declared.column_width(), ColumnWidth::Percent(30));
+
+        // A wide column declares nothing at all: it takes the share the
+        // declared columns leave.
+        assert!(ColumnWidth::Wide.explicit_css().is_none());
+        assert!(ColumnWidth::Wide.default_percent().is_none());
+
+        // A kind default is a nominal share of the table, resolved by the
+        // renderer; an explicit width is emitted as written.
+        assert_eq!(ColumnWidth::Narrow.default_percent(), Some(10));
+        assert!(ColumnWidth::Narrow.explicit_css().is_none());
+        assert_eq!(
+            ColumnWidth::Rem(14).explicit_css().as_deref(),
+            Some("width: 14rem")
+        );
+        assert_eq!(
+            ColumnWidth::Percent(30).explicit_css().as_deref(),
+            Some("width: 30%")
+        );
     }
 
     /// GH #177: a column that reads no relation declares nothing, and repeat
