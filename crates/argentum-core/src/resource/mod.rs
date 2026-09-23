@@ -245,6 +245,30 @@ pub trait Resource: Sized + Send + Sync + 'static {
         !Self::view(cx).is_empty()
     }
 
+    /// The record's label in the detail page's title (GH #241), or `None` when
+    /// the record has no label to show.
+    ///
+    /// The detail page titles itself with this label when a resource returns
+    /// `Some`, and with [`navigation_label`](Self::navigation_label) plus the
+    /// URL's record key when it returns `None` — the default, so a resource
+    /// that declares nothing keeps the title it has. The showcase's
+    /// `PostResource` is the worked example: it returns the post's title, so
+    /// its heading reads the title instead of `Blog Posts <record key>`.
+    ///
+    /// `cx` is the request's context — the same one [`view`](Self::view) and
+    /// [`hydrate_form_values`](Self::hydrate_form_values) receive — so a label
+    /// can read request state (a locale, a tenant). The default ignores both
+    /// arguments and returns `None`.
+    ///
+    /// A label is display text, not a key. Two records can share one (two
+    /// users named Ada), so it cannot replace [`Table::id`], whose projection
+    /// must stay injective within a page for keyed diffs and bulk selection
+    /// (GH #96), or [`Table::pk`], which the action routes resolve as the
+    /// model's typed PK (GH #168).
+    fn record_label(_cx: &Cx, _record: &Self::Model) -> Option<String> {
+        None
+    }
+
     /// The URL slug for this resource's pages, e.g. `"users"` mounts the list
     /// at `{panel prefix}/users`.
     ///

@@ -20,6 +20,18 @@ and one outside the tenant are the same 404, while `can_view` denial is a 403 â€
 link beside `Edit` on each row. A resource with no `view` declaration has no page and no link, and
 the route answers 404 rather than rendering an empty shell.
 
+The heading is the record's label when the resource declares one:
+
+```rust
+fn record_label(cx: &Cx, record: &Post) -> Option<String> {
+    Some(record.title.clone())
+}
+```
+
+The default returns `None`, and the heading is then `{navigation_label} {id}` â€” the page's name and
+the URL's record key. A label is display text, not a key: two records may share one, so it does not
+replace `Table::id`, which must stay injective within a page for keyed diffs (GH #241).
+
 - **Read-only is not a disabled form.** Fields render labels and stored values:
   `TextInput`/`Textarea` show text, `Select` shows the option label the form offered (or the stored
   value when no option matches, a relationship key included), `FileUpload` shows the stored path and

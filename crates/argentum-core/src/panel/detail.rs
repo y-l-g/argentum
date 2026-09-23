@@ -50,10 +50,11 @@ pub(crate) fn resource_view<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
         // above carries only its string projection, and the related rows are
         // already loaded by `query`'s `include`, so this adds no query.
         let relations = R::view_relations(cx, &record);
-        // The title names the page and the record's key, which is what the
-        // list and the URL call it (`Table::id` is the display key, `pk` the
-        // record key — the URL carries the latter, GH #168).
-        let title = format!("{} {id}", R::navigation_label());
+        // The record's own label titles the page when the resource declares
+        // one (GH #241). The fallback is the page's name plus the URL's record
+        // key, which is what the route carries (`Table::id` is the list's
+        // display key and `pk` its record key, GH #168).
+        let title = detail_title::<R>(cx, &record, &id);
         let back = list_url(cx, &R::slug());
         Ok(view! {
             cx =>
@@ -76,4 +77,69 @@ pub(crate) fn resource_view<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
         }
         .boxed())
     })))
+}
+
+/// The detail page's title (GH #241): the record's label when the resource
+/// declares one ([`Resource::record_label`]), else the page's name and the
+/// URL's record key.
+fn detail_title<R: Resource>(cx: &Cx, record: &R::Model, id: &str) -> String {
+    R::record_label(cx, record).unwrap_or_else(|| format!("{} {id}", R::navigation_label()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use topcoat::context::CxTestBuilder;
+
+    #[derive(Debug, Clone, toasty::Model)]
+    struct Note {
+        #[key]
+        #[auto]
+        id: uuid::Uuid,
+        title: String,
+    }
+
+    /// A resource with no label: the title keeps the page name and the record
+    /// key.
+    struct Unlabelled;
+
+    impl Resource for Unlabelled {
+        type Model = Note;
+    }
+
+    /// A resource that labels its records with the note's title.
+    struct Labelled;
+
+    impl Resource for Labelled {
+        type Model = Note;
+
+        fn record_label(_cx: &Cx, record: &Note) -> Option<String> {
+            Some(record.title.clone())
+        }
+    }
+
+    fn note() -> Note {
+        Note {
+            id: uuid::Uuid::nil(),
+            title: "A Title".to_string(),
+        }
+    }
+
+    #[test]
+    fn a_resource_without_a_label_titles_the_page_with_the_record_key() {
+        let cx = CxTestBuilder::new().build();
+        assert_eq!(
+            detail_title::<Unlabelled>(&cx, &note(), "8f14e45f"),
+            "Notes 8f14e45f"
+        );
+    }
+
+    #[test]
+    fn a_declared_label_titles_the_page() {
+        let cx = CxTestBuilder::new().build();
+        assert_eq!(
+            detail_title::<Labelled>(&cx, &note(), "8f14e45f"),
+            "A Title"
+        );
+    }
 }
