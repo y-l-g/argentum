@@ -51,19 +51,30 @@ fn render_value<'a>(
     value: Option<&str>,
     kind: ValueKind,
 ) -> Result<BoxView<'a>> {
-    let label = label.to_string();
     let text = value.unwrap_or_default().to_string();
     let value_class = match kind {
         ValueKind::Prose => "text-sm break-words whitespace-pre-wrap",
         ValueKind::Machine => "text-sm font-mono break-all whitespace-pre-wrap",
     };
+    let value = view! { cx => <div class=(value_class)>(text)</div> }.boxed();
+    render_value_view(cx, label, value)
+}
+
+/// The field chrome `render_value` puts around a rendered value (GH #187), for
+/// a field whose read-only value is not a plain string.
+///
+/// A `FileUpload` renders its stored path as a link (GH #242) and supplies that
+/// view here, so the label, the `field` family and the `ac-field` marker stay
+/// the ones every other read-only field renders through.
+fn render_value_view<'a>(cx: &'a Cx, label: &str, value: BoxView<'a>) -> Result<BoxView<'a>> {
+    let label = label.to_string();
     Ok(view! {
         cx =>
         ui_field(
             attrs: attributes! { class="ac-field" },
             ui_field_content(
                 ui_field_title((label))
-                <div class=(value_class)>(text)</div>
+                (value)
             )
         )
     }
@@ -1611,27 +1622,27 @@ fn stored_upload_row<'a>(cx: &'a Cx, path: String) -> BoxView<'a> {
 /// path, as a link to the file (GH #242).
 ///
 /// The reader asks the same "is the stored value right?" question the editor
-/// asks, and following the link is how they answer it. The chrome is the one
-/// `render_value` gives every read-only field, so a detail page stays uniform.
+/// asks, and following the link is how they answer it. `underline` is the
+/// affordance: the value sits in body colour inside the field chrome, so
+/// without it a stored path reads as text. The chrome is the one
+/// `render_value_view` gives every read-only field, so a detail page stays
+/// uniform.
 fn stored_upload_value<'a>(cx: &'a Cx, label: &str, value: Option<&str>) -> Result<BoxView<'a>> {
     let Some(path) = stored_path(value) else {
         return render_value(cx, label, value, ValueKind::Machine);
     };
-    let label = label.to_string();
     let href = path.clone();
-    Ok(view! {
+    let link = view! {
         cx =>
-        ui_field(
-            attrs: attributes! { class="ac-field" },
-            ui_field_content(
-                ui_field_title((label))
-                <a class="text-sm font-mono break-all whitespace-pre-wrap" href=(href)>
-                    (path)
-                </a>
-            )
-        )
+        <a
+            class="text-sm font-mono break-all whitespace-pre-wrap underline"
+            href=(href)
+        >
+            (path)
+        </a>
     }
-    .boxed())
+    .boxed();
+    render_value_view(cx, label, link)
 }
 
 #[cfg(test)]
@@ -1683,6 +1694,37 @@ mod tests {
             }
         }
         panic!("unterminated tag at byte {start} in {html}");
+    }
+
+    /// The attributes of the opening tag carrying `needle`, sorted — quoting is
+    /// honoured, so a Tailwind class value stays one token.
+    ///
+    /// `Attributes` renders in no guaranteed order (topcoat#122), so two
+    /// renders of the same markup compare as sets of `name="value"` tokens.
+    fn attributes_of(html: &str, needle: &str) -> Vec<String> {
+        let mut quoted = false;
+        let mut attrs: Vec<String> = Vec::new();
+        let mut current = String::new();
+        for ch in tag_with(html, needle).chars() {
+            match ch {
+                '"' => {
+                    quoted = !quoted;
+                    current.push(ch);
+                }
+                ch if ch.is_whitespace() && !quoted => {
+                    if !current.is_empty() {
+                        attrs.push(std::mem::take(&mut current));
+                    }
+                }
+                ch => current.push(ch),
+            }
+        }
+        if !current.is_empty() {
+            attrs.push(current);
+        }
+        attrs.remove(0); // the tag name
+        attrs.sort();
+        attrs
     }
 
     /// A nullable FK, for the optional-by-default select case.
@@ -2272,6 +2314,22 @@ mod tests {
             .render(cx)
     }
 
+    /// The same field on a detail page (`Mode::View`).
+    async fn render_readonly_upload(schema: &Schema, cx: &Cx, value: Option<&str>) -> String {
+        let mut values = HashMap::new();
+        if let Some(value) = value {
+            values.insert("path".to_string(), value.to_string());
+        }
+        schema
+            .render_readonly(cx, &values)
+            .await
+            .unwrap()
+            .single()
+            .await
+            .unwrap()
+            .render(cx)
+    }
+
     /// GH #184: nothing stored (a create) keeps the required contract — the
     /// browser blocks an empty submit and the server reports it inline.
     #[tokio::test]
@@ -2372,16 +2430,7 @@ mod tests {
     #[tokio::test]
     async fn file_upload_view_mode_links_the_stored_file() {
         let (cx, schema) = cx_and_doc_schema();
-        let mut values = HashMap::new();
-        values.insert("path".to_string(), "/uploads/cover.png".to_string());
-        let html = schema
-            .render_readonly(&cx, &values)
-            .await
-            .unwrap()
-            .single()
-            .await
-            .unwrap()
-            .render(&cx);
+        let html = render_readonly_upload(&schema, &cx, Some("/uploads/cover.png")).await;
         assert!(
             tag_with(&html, "href=\"/uploads/cover.png\"").starts_with("<a"),
             "a detail page must link the stored file, got {html}"
@@ -2396,18 +2445,45 @@ mod tests {
         );
 
         // Nothing stored is not a link to nowhere.
-        let empty = schema
-            .render_readonly(&cx, &HashMap::new())
-            .await
-            .unwrap()
-            .single()
-            .await
-            .unwrap()
-            .render(&cx);
+        let empty = render_readonly_upload(&schema, &cx, None).await;
         assert!(
-            !empty.contains("<a"),
+            !empty.contains("href="),
             "an empty stored value must not render a link, got {empty}"
         );
+    }
+
+    /// GH #242: the stored path is opaque. A `.png` and a `.txt` render the
+    /// same row and the same link, which is the property that fails the moment
+    /// the field reads the extension again — whatever it then emits.
+    #[tokio::test]
+    async fn file_upload_renders_any_extension_identically() {
+        let (cx, schema) = cx_and_doc_schema();
+        let png = render_upload(&schema, &cx, Some("/uploads/cover.png")).await;
+        let txt = render_upload(&schema, &cx, Some("/uploads/cover.txt")).await;
+        for needle in ["data-file-current=", "href="] {
+            assert_eq!(
+                stored_attributes(&png, needle, "/uploads/cover.png"),
+                stored_attributes(&txt, needle, "/uploads/cover.txt"),
+                "the extension must not change the form row ({needle})"
+            );
+        }
+
+        let png = render_readonly_upload(&schema, &cx, Some("/uploads/cover.png")).await;
+        let txt = render_readonly_upload(&schema, &cx, Some("/uploads/cover.txt")).await;
+        assert_eq!(
+            stored_attributes(&png, "href=", "/uploads/cover.png"),
+            stored_attributes(&txt, "href=", "/uploads/cover.txt"),
+            "the extension must not change the read-only link"
+        );
+    }
+
+    /// The tag carrying `needle`, with `path` normalized out of its attributes
+    /// so two renders of different paths compare equal.
+    fn stored_attributes(html: &str, needle: &str, path: &str) -> Vec<String> {
+        attributes_of(html, needle)
+            .into_iter()
+            .map(|attr| attr.replace(path, "<stored>"))
+            .collect()
     }
 
     /// GH #188: the clear control belongs to a stored value — it is the only
