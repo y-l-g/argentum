@@ -49,6 +49,7 @@ jobs:
           crates/argentum-ui/assets/selects.test.js
           crates/argentum-ui/assets/bulk.test.js
           crates/argentum-ui/assets/dialog.test.js
+          crates/argentum-ui/assets/mutation-submit.test.js
 
   clippy:
     name: clippy

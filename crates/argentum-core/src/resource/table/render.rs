@@ -389,7 +389,37 @@ impl<M> Table<M> {
             .boxed()
         };
 
-        // One chrome wrapper for both branches: search bar, filter bar, bulk
+        // The refresh control (GH #234): a live table's region re-renders when
+        // a signal its shard tracked changes, and a mutation changes rows the
+        // tracked inputs do not describe — the query is the same, the data is
+        // not. One write that means "re-read the table" is therefore the
+        // mutation's only honest in-place effect: the client bumps this
+        // revision token and the shard re-runs the query, morphing and
+        // re-hydrating the region through the seam that already exists.
+        //
+        // The signal is declared here, inside the shard's own output, so it
+        // belongs to the shard's content scope: its id derives from the shard
+        // invocation's identity and this call site, so it is stable across
+        // reruns and distinct per shard, and the runtime keeps its value when
+        // the declaration renders again. Reading it for the input's initial
+        // value is what declares the dependency; the token itself is opaque.
+        //
+        // A static table renders no control at all: it has no shard to re-run,
+        // its region is inert markup, and the client replaces it wholesale
+        // (GH #234) — so the control's presence *is* the page's answer to
+        // "can this table refresh in place?".
+        let revision_attrs = signals.as_ref().map(|_| {
+            let revision = topcoat::runtime::signal(cx, || "0".to_string());
+            attributes! {
+                cx =>
+                type="hidden"
+                value=(revision.get())
+                :value=$(revision.get())
+                @change=$(|e: Event| revision.set(e.target.value))
+                data-table-revision=""
+            }
+        });
+
         // One chrome wrapper for both branches: search bar, filter bar, bulk
         // bar, warning, table body, pager, dialog (GH #133), inside the
         // `data-boundary` region the morph swaps (GH #160).
@@ -406,6 +436,9 @@ impl<M> Table<M> {
                     (filter_bar.expect("filter bar built when enabled"))
                 }
                 (bulk_bar_view)
+                if let Some(attrs) = revision_attrs {
+                    <input (attrs)>
+                }
                 if let Some(warning) = filter_warning {
                     (warning)
                 }
@@ -482,6 +515,7 @@ impl<M> Table<M> {
                 action=(bulk_action)
                 class="flex gap-2 p-3 border-b border-border"
                 data-bulk-form=""
+                data-mutation-submit=""
                 id=(bulk_form_id.clone())
             >
                 (crate::csrf::field(cx, &csrf))
@@ -818,6 +852,7 @@ impl<M> Table<M> {
                                 action=(action)
                                 class="contents"
                                 data-row-delete-form=""
+                                data-mutation-submit=""
                             >
                                 button(
                                     variant: ButtonVariant::Outline,
@@ -3110,6 +3145,42 @@ mod tests {
         assert!(
             html.contains("Ada"),
             "swap payload must be rows, got {html}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_static_table_renders_no_runtime_bindings_at_all() {
+        // GH #234: a table without `live_search` has no shard to re-run, so a
+        // mutation replaces its region with the response's. That is only sound
+        // because the region is inert: no binding, no handler, nothing the
+        // replacement could leave dead. The refresh control's absence is the
+        // page's own answer to "can this table refresh in place?".
+        let cx = CxTestBuilder::new().build();
+        let tbl = Table::<User>::r#for(&cx)
+            .id(|u| u.id.to_string())
+            .pk(|u| u.id.to_string())
+            .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()))
+            .with_delete("/admin/users".to_string())
+            .with_bulk_delete(true);
+        let rows = vec![User {
+            id: uuid::Uuid::nil(),
+            name: "Ada".to_string(),
+        }];
+        let html = tbl
+            .render_with_state(&cx, rows.into(), &TableState::default(), "/admin/users")
+            .await
+            .unwrap()
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
+        assert!(
+            !html.contains("data-table-revision"),
+            "a static table must carry no refresh control, got {html}"
+        );
+        assert!(
+            !html.contains("data-topcoat-"),
+            "a static table's region must be inert markup, got {html}"
         );
     }
 

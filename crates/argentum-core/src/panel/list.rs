@@ -679,6 +679,36 @@ mod tests {
             table_html.contains("data-topcoat-on:click") && table_html.contains("sort=name"),
             "live table must bind the sort link and keep its href, got {table_html}"
         );
+        // GH #234: the shard's own refresh control. A mutation changes rows the
+        // tracked inputs do not describe, so the client writes this token and
+        // the shard re-runs. The write is only a re-run because the render read
+        // the signal: the control's binding and the dep marker must name the
+        // same id, and that id is not the bulk transport's.
+        assert!(
+            table_html.contains("data-table-revision")
+                && table_html.contains("data-topcoat-on:change"),
+            "the live table must carry the writable refresh control, got {table_html}"
+        );
+        let after = &table_html[table_html
+            .find("data-table-revision")
+            .expect("the refresh control")..];
+        let id_at = after
+            .find(r#"id&quot;:&quot;"#)
+            .unwrap_or_else(|| panic!("the control must bind a signal, got {table_html}"));
+        let id_at = id_at + r#"id&quot;:&quot;"#.len();
+        let revision = &after[id_at..id_at + 32];
+        assert_ne!(
+            revision, "00000000000000000000000000000007",
+            "the refresh control must not reuse the bulk transport's signal"
+        );
+        assert!(
+            table_html.contains(&format!(r#"::topcoat::dep("{revision}")"#)),
+            "the refresh control's signal must be a shard dependency, got {table_html}"
+        );
+        assert!(
+            table_html.contains("data-bulk-form") && table_html.contains("data-mutation-submit"),
+            "the bulk form must opt into the in-place path, got {table_html}"
+        );
 
         // A direct context for the loader/cursor assertions below.
         let (parts, ()) = http::Request::builder()

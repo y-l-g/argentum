@@ -110,7 +110,7 @@ streamed region.
 
 ## Assets
 
-`argentum-ui` owns nine browser scripts under `crates/argentum-ui/assets/`. They are loaded through
+`argentum-ui` owns ten browser scripts under `crates/argentum-ui/assets/`. They are loaded through
 `asset!`, so they have no build step. Each one is wired to a constant in `argentum-ui/src/lib.rs`,
 and a test guards the pairing: `cargo test -p xtask` runs `shell_assets_match_hook_contract`, which
 fails when an asset is missing or a hook no longer appears in both its JavaScript and the Rust that

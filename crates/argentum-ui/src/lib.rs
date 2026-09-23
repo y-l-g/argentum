@@ -70,6 +70,8 @@ pub const SELECTS_JS: topcoat::asset::Asset = topcoat::asset::asset!("../assets/
 pub const VARIANT_JS: topcoat::asset::Asset = topcoat::asset::asset!("../assets/variant.js");
 pub const NOTIFICATION_JS: topcoat::asset::Asset =
     topcoat::asset::asset!("../assets/notifications.js");
+pub const MUTATION_SUBMIT_JS: topcoat::asset::Asset =
+    topcoat::asset::asset!("../assets/mutation-submit.js");
 
 /// Tailwind build helper for the per-app contract.
 ///

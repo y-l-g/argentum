@@ -6,7 +6,9 @@ Livewire port, explicit preloading and cursor pagination, and a narrow reactivit
 `suspense` regions render the list shell first and swap the loaded table in, while reruns morph in
 place (focus survives) and tables opting into `Table::live_search` re-render their table in place
 through the slug-dispatched `table_search` shard: search, sort, filters, and pagination write
-signals, and the table morphs without a navigation (ticket #104, GH #151).
+signals, and the table morphs without a navigation (ticket #104, GH #151). A confirmed delete rides
+the same seam: the POST still 303s, and the client that follows it re-runs the table's shard instead
+of morphing the response (GH #234, ADR-0020).
 
 > **Shipped vs spec:** everything the terms below call shipped — Panel, Resource, Table, Schema,
 > Policy, authentication, tenancy, and uploads — lives in `argentum-core`. `examples/showcase` is
@@ -111,7 +113,9 @@ reads re-render the table in place when search, sort, filters, or pagination wri
 via navigation until a live control exists (GH #157). A page can own the same seam directly —
 create the `TableSignals`, render the live toolbar, and let its own shard load through `Table::load`
 and re-render with `Table::render_live_with_state` — which is how the showcase table demos stay
-live without being resources (GH #154 §2).
+live without being resources (GH #154 §2). A live render also carries a refresh control: a
+confirmed delete writes it and the shard re-runs, so the table reflects the write without a
+navigation (GH #234, ADR-0020).
 
 _Avoid_: Grid, Listing, DataTable
 
