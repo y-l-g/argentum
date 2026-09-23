@@ -113,11 +113,14 @@ Done:
 - Auth: default login plus sessions, custom user table seam, explicit opt-out, per-resource policy
 - Media uploads: an app-level `Uploader` seam, and `Panel::serve_dir` for the directory it writes to
   (ADR-0017)
+- Media library (showcase): a polymorphic `medias` table, an app-level upload page, and a thumbnail
+  or link per stored row (ADR-0021)
 
 Next:
 
 - Widgets and infolists: stats overview, charts, global search
-- Image handling: thumbnails, transcoding, dimensions
+- Image handling in the framework: transcoding, dimensions (the showcase renders a stored image at
+  thumbnail size, ADR-0021)
 - Documented production migrations
 
 Non-goals for v1:

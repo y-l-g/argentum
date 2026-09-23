@@ -25,6 +25,7 @@ code and an ADR disagree, the code wins and the ADR is the thing to fix.
 | [0017](0017-media-uploads.md) | Uploads go through an app-level `Uploader` and a clear control |
 | [0018](0018-export-include-scoping.md) | Export includes are declared per column and narrowed per resource |
 | [0019](0019-embedded-values.md) | Embedded values derive their codec; the discriminant picks the variant |
+| [0021](0021-media-library.md) | The media library is a polymorphic `medias` table in the showcase |
 
 **Numbers are permanent.** An ADR keeps its number and subject matter for the life of the repo,
 because code comments, vendored headers, and rustdoc cite them (ADR-0007 in every synced primitive
