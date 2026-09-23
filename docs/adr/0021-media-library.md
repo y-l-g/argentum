@@ -56,11 +56,12 @@ all. `examples/showcase/assets/media.js` adds the preview — an `<img>` from an
 — and drops the preview when the reset control is clicked. It never cancels that click: the reset
 is what empties the input, and the script owns only what it drew.
 
-The script is the **app's asset**, declared as `MEDIA_JS` and linked `defer`red by the page, not a
-tenth shell asset: ADR-0014's ownership and all-load rules govern the assets `argentum-ui` ships
-and `render_document` emits, and a shell asset would load media-widget code into every admin
-document of every app for a widget one page renders. The app owns its script the way it owns its
-`styles.css` (ADR-0006).
+The script is the **app's asset**, declared as `MEDIA_JS` and linked `defer`red by the page rather
+than added to the shell's set. ADR-0014 owns the scripts `argentum-ui` ships — the document emits
+them, and no component emits its own — and this is the app's own script on the app's own page: a
+tenth shell asset would load media-widget code into every admin document of every app (ADR-0014's
+all-load policy) for a widget one page renders, and the framework offers no seam for an app-supplied
+shell script at all. The app owns its script the way it owns its `styles.css` (ADR-0006).
 
 **A thumbnail is decided by content type, not by a suffix.** A row's `kind` is `"image"` when the
 uploaded part's `Content-Type` is `image/*`, and `"file"` otherwise. The framework deleted its
