@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-33e17d5b.js";
+            window.path_to_searchindex_js = "searchindex-9b791b76.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-da1679ae.js"></script>
@@ -291,18 +291,20 @@ state or an empty form. <code>table()</code>, <code>form()</code> and <code>can_
 them once at boot, so they must not need request-scoped context.</li>
 <li><strong>At request time, loudly</strong>: the record fns default to an error naming the type (“delete not
 implemented for …”), so a missing implementation never looks like a successful no-op.</li>
-<li><strong>Chrome is opt-in</strong>: <code>deletable()</code> and <code>editable()</code> default to <code>false</code>, so a resource that never
-mentions them renders no Edit or Delete affordance — the routes still exist, and the default-deny
-<code>can_*</code> predicates answer them. A resource that wants the chrome declares the flag <strong>and</strong> the
-policy predicate it promises: <code>can_delete()</code> for <code>deletable()</code>, <code>can_view()</code> + <code>can_update()</code> for
-<code>editable()</code>. What that buys is precise: a defaulted flag with a defaulted predicate can never
-advertise an action that answers 403 (GH #226). It is <strong>not</strong> a per-record guarantee — chrome is
-one whole-resource flag while <code>can_update</code>/<code>can_delete</code> take a record, so a resource that opts in
-with a row-level rule still renders a link for a row the route refuses (the showcase’s SSO-guarded
-user is the worked example: its row keeps the Edit link and the edit page answers 403 by design).
-That gap is inherent to the seam, not a defect. The <code>View</code> link needs no flag at all — it is
-derived from whether the resource declares a <code>view()</code> schema, so there the route and the row link
-genuinely cannot disagree.</li>
+<li><strong>Chrome is opt-in, gated per record</strong>: <code>deletable()</code> and <code>editable()</code> default to <code>false</code>, so a
+resource that never mentions them renders no Edit or Delete affordance — the routes still exist,
+and the default-deny <code>can_*</code> predicates answer them. A resource that wants the chrome declares the
+flag <strong>and</strong> the policy predicate it promises: <code>can_view()</code> + <code>can_delete()</code> for <code>deletable()</code>,
+<code>can_view()</code> + <code>can_update()</code> for <code>editable()</code>. The flag is the whole-resource gate (GH #226); the
+predicates are
+applied <strong>per row</strong> (GH #235). The panel wires them into the table’s row policy, so a row
+<code>can_update()</code> refuses renders no Edit link, a row <code>can_delete()</code> refuses renders no Delete link
+and a <strong>disabled bulk checkbox</strong> labelled with the reason, and a row <code>can_view()</code> refuses renders
+no View link. Select-all therefore submits only the rows the handler will accept — the showcase’s
+SSO-guarded user is the worked example: its row keeps the View link and nothing else. The handler
+keeps its all-or-nothing check on the POST as the safety net for a hand-crafted request. The
+<code>View</code> link needs no flag at all — it is derived from whether the resource declares a <code>view()</code>
+schema, so there the route and the row link cannot disagree.</li>
 <li><strong>Default-deny stands</strong>: every <code>can_*</code> defaults to <code>false</code>, so an unconfigured resource exposes
 no data and no mutation.</li>
 </ul>
@@ -503,7 +505,10 @@ reflects what the caller may receive. <code>?bom=1</code> opts into an Excel BOM
 <p>Search, sort, filter, and pager controls then refresh the table in place without a full page load.
 The plain links and forms stay as the no-JS fallback.</p>
 <p>Panel wires the bulk checkbox column when the resource opts in with <code>deletable() -&gt; true</code> (GH #226:
-chrome is opt-in, and the flag pairs with <code>can_delete</code>). Bulk delete asks first: the bulk bar’s
+chrome is opt-in, and the flag pairs with <code>can_view</code> + <code>can_delete</code>). The column then follows those
+predicates per record (GH #235): a row either one refuses renders its checkbox <code>disabled</code>
+with the reason as its accessible label, so select-all never submits a key the handler would refuse
+the whole batch over. Bulk delete asks first: the bulk bar’s
 button opens an alert dialog that names how many rows are selected, and its confirm control is the
 only thing carrying the <code>confirm=1</code> the handler requires — a POST without that marker is a 400, so
 the safeguard does not depend on the script that opens the dialog (GH #184).</p>

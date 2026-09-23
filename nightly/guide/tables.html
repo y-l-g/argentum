@@ -35,7 +35,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-33e17d5b.js";
+            window.path_to_searchindex_js = "searchindex-9b791b76.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-da1679ae.js"></script>
@@ -245,7 +245,10 @@ reflects what the caller may receive. <code>?bom=1</code> opts into an Excel BOM
 <p>Search, sort, filter, and pager controls then refresh the table in place without a full page load.
 The plain links and forms stay as the no-JS fallback.</p>
 <p>Panel wires the bulk checkbox column when the resource opts in with <code>deletable() -&gt; true</code> (GH #226:
-chrome is opt-in, and the flag pairs with <code>can_delete</code>). Bulk delete asks first: the bulk bar’s
+chrome is opt-in, and the flag pairs with <code>can_view</code> + <code>can_delete</code>). The column then follows those
+predicates per record (GH #235): a row either one refuses renders its checkbox <code>disabled</code>
+with the reason as its accessible label, so select-all never submits a key the handler would refuse
+the whole batch over. Bulk delete asks first: the bulk bar’s
 button opens an alert dialog that names how many rows are selected, and its confirm control is the
 only thing carrying the <code>confirm=1</code> the handler requires — a POST without that marker is a 400, so
 the safeguard does not depend on the script that opens the dialog (GH #184).</p>
