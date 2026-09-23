@@ -18,8 +18,14 @@ topcoat fmt && git diff --exit-code
 cargo check --locked --manifest-path benchmarks/argentum/Cargo.toml
 cargo clippy --locked --manifest-path benchmarks/argentum/Cargo.toml --all-targets -- -D warnings
 cargo +1.98 check --workspace --locked
-node --test crates/argentum-ui/assets/*.test.js
+node --test crates/argentum-ui/assets/selects.test.js crates/argentum-ui/assets/bulk.test.js \
+  crates/argentum-ui/assets/dialog.test.js crates/argentum-ui/assets/mutation-submit.test.js \
+  examples/showcase/assets/media.test.js
 ```
+
+The asset suites are named rather than globbed, exactly as the CI `assets` job
+names them: a glob would silently shrink the run when a suite is renamed, while
+a missing path fails the job.
 
 Rules that catch the recurring failures:
 

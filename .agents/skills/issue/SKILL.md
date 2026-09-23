@@ -32,7 +32,7 @@ apply, say so explicitly rather than leaving it blank.
 ## Bug reports
 
 Report what you observed, not why you think it happened. A guess at the cause
-sends triage down the wrong path; diagnosing is the maintainer's job. The
+misdirects triage; diagnosing is the maintainer's job. The
 reproducer is the single most useful part of the report.
 
 ## Labels

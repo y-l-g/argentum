@@ -14,11 +14,6 @@ the issue reference in the subject: `<type>(<scope>): <description> (#123)`.
 PR titles follow the same format (enforced by the `semantic-pr` workflow) since
 the title becomes the landed commit.
 
-## Characters
-
-Plain ASCII only, per [`PROSE.md`](../../../docs/dev/PROSE.md): `-`/`--` not an
-em dash, `->` not a Unicode arrow, `...` not an ellipsis.
-
 ## Be succinct
 
 Maintainers already know Argentum and Rust. State what changed and why; skip

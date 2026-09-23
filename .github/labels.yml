@@ -2,7 +2,8 @@
 #
 # This file is the source of truth for repository labels. It is synced by
 # `.github/workflows/labels.yml`. Update this file — not the GitHub UI —
-# when adding or changing labels.
+# when adding or changing labels. Keep the descriptions identical to the
+# meanings in `docs/dev/LABELS.md`.
 #
 # See `docs/dev/LABELS.md` for the labeling scheme and how each label
 # should be used.
@@ -12,48 +13,48 @@
   description: "Something is not working."
   color: "d73a4a"
 - name: enhancement
-  description: "New feature or request"
+  description: "A new feature or a change to the public API."
   color: "a2eeef"
 - name: upstream
-  description: "Missing/unstable upstream Toasty or Topcoat API"
+  description: "Missing or unstable upstream Toasty or Topcoat API."
   color: "1d76db"
 
 # Triage roles. One at a time; a maintainer sets and replaces them.
 - name: needs-triage
-  description: "Maintainer needs to evaluate this issue"
+  description: "Maintainer needs to evaluate this issue."
   color: "fbca04"
 - name: needs-info
-  description: "Waiting on reporter for more information"
+  description: "Waiting on the reporter for more information."
   color: "d4c5f9"
 - name: ready-for-agent
-  description: "Fully specified, ready for an AFK agent"
+  description: "Fully specified, ready for an AFK agent."
   color: "0e8a16"
 - name: ready-for-human
-  description: "Requires human implementation"
+  description: "Requires human implementation."
   color: "b60205"
 
 # Applied by a maintainer.
 - name: accessibility
-  description: "Barrier affecting people with disabilities"
+  description: "Barrier affecting people with disabilities."
   color: "f143ab"
 - name: documentation
-  description: "Improvements or additions to documentation"
+  description: "Improvements or additions to documentation."
   color: "0075ca"
 - name: duplicate
-  description: "This issue or pull request already exists"
+  description: "This issue or pull request already exists."
   color: "cfd3d7"
 - name: good first issue
-  description: "Good for newcomers"
+  description: "Good for newcomers."
   color: "7057ff"
 - name: help wanted
-  description: "Extra attention is needed"
+  description: "Extra attention is needed."
   color: "008672"
 - name: invalid
-  description: "This doesn't seem right"
+  description: "This does not seem right."
   color: "e4e669"
 - name: question
-  description: "Further information is requested"
+  description: "Further information is requested."
   color: "d876e3"
 - name: wontfix
-  description: "This will not be worked on"
+  description: "This will not be worked on."
   color: "ffffff"

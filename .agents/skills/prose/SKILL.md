@@ -13,6 +13,8 @@ The rules below are the ones agents miss most often.
 
 - Vocabulary and domain terms: `CONTEXT.md`.
 - Decisions: `docs/adr/`.
+- Prospective API designs: `docs/dev/design/`.
+- Upstream API freshness: `docs/dev/upstream-notes.md`.
 - User guide: `docs/guide/` (mdBook); `README.md` is the short entry point.
 - Contributor specs (commits, prose, labels, testing): `docs/dev/`.
 - Agent tracker notes: `docs/agents/`.
@@ -28,5 +30,3 @@ commit subjects stay under 100 characters per `COMMITS.md`.
 - Write in plain English. No fancy sentence structure.
 - Document the current state only; never reference previous iterations ("this
   used to be A but is now B"). History belongs in a commit message or an ADR.
-- Use only ASCII characters in both code and documentation: `->` instead of a
-  Unicode arrow, `...` instead of an ellipsis. Avoid em dashes entirely.

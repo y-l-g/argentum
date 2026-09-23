@@ -18,7 +18,8 @@ title format on every pull request, since the title becomes the squashed commit.
 ## Types
 
 `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `perf`, `chore`, `build`,
-`ci`, `revert`.
+`ci`, `revert`. Keep this list in sync with the `types` in
+`.github/workflows/semantic-pr.yml`.
 
 ## Subject
 

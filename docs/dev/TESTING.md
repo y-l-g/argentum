@@ -20,7 +20,7 @@ contract tests, and the JavaScript suites under `crates/argentum-ui/assets/`.
   text, the button label).
 - If a test is useless, delete it. A test that passes on nearly any page, or
   that pins today's rendering choice against the documented roadmap, proves
-  nothing and fights the feature it anticipates.
+  nothing and constrains the planned feature.
 
 ## Where tests live
 

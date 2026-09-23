@@ -31,6 +31,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
+          # Keep the type list in sync with docs/dev/COMMITS.md.
           types: |
             feat
             fix
@@ -43,7 +44,7 @@ jobs:
             ci
             chore
             revert
-          requireScope: false
+          requireScope: true
           # Lowercase subject per COMMITS.md, plus the mandatory issue
           # reference suffix: `(#123)` or `(#205, #219)`.
           subjectPattern: ^(?![A-Z]).*\(#[\d,\s#]+\)$

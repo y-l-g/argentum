@@ -6,7 +6,8 @@
     "Lockfile-maintenance PRs: do not automerge — sync benchmarks/argentum/Cargo.lock in the same commit before merging."
   ],
   "lockFileMaintenance": {
-    "enabled": true
+    "enabled": true,
+    "automerge": false
   },
   "packageRules": [
     {

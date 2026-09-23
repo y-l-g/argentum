@@ -3,8 +3,9 @@
 Small fixes, documentation corrections, and tests can go straight to a pull request. For a new
 feature or a public-API change, open an issue first and describe the problem: redirecting a
 design is cheaper than redirecting a patch. A change that reshapes `Panel`, `Resource`, `Table`,
-`Schema`, or the policy/tenancy seams additionally needs an accepted design document under
-[`docs/dev/design/`](docs/dev/design/) before the implementation lands. Read
+`Schema`, or the policy/tenancy seams is a good candidate for a design document under
+[`docs/dev/design/`](docs/dev/design/) first, on a trial basis: open the design, land it
+without implementation, then implement once it is accepted. Read
 [`AGENTS.md`](AGENTS.md) before your first change; it holds the rules this document expands.
 
 ## Fork and branch

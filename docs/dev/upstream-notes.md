@@ -14,4 +14,5 @@ the pinned checkout, never from memory.
 - When the pinned rev changes, re-verify the claims that cited it.
 
 For temporary live-editing against a local checkout, add an uncommitted
-`[patch]` section redirecting to `../topcoat` / `../toasty` (see ADR-0003).
+`[patch]` section redirecting to `../topcoat` / `../toasty`, as the pin-policy
+comment in the root `Cargo.toml` describes.
