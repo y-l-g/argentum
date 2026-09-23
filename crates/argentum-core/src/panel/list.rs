@@ -220,8 +220,8 @@ pub(crate) fn resource_list<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
             return Ok(resource_list_live::<R>(cx, table, state, title, list_path));
         }
 
-        // First content: the skeleton table
-        // (`Table::render_skeleton_normalized`), while the rows load below.
+        // The skeleton table (`Table::render_skeleton_normalized`) streams
+        // while the rows load below.
         // The load catches its own errors: post-stream
         // the status line is fixed, so a failed load must render the branded
         // ErrorState inside the region instead of truncating the body.
@@ -1811,7 +1811,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn streamed_list_renders_error_state_when_load_fails() {
+    async fn list_renders_error_state_when_load_fails() {
         use topcoat::router::Body;
 
         #[derive(Debug, toasty::Model, Clone)]
@@ -1862,13 +1862,16 @@ mod tests {
             .build()
             .expect("panel builds");
 
-        // A tampered `?after=` cursor fails to decode inside the streamed
-        // region (GH #79): the page has already streamed with status 200, so
-        // the failure must render the branded ErrorState in place — not
-        // truncate the stream. This test binary declares no `#[layout]`, so
-        // the body is the page fragment stream: page header and toolbar are
-        // the "shell still stands" evidence, and the swap payload must be
-        // complete (the document-level wrap is proven by the layout tests).
+        // A tampered `?after=` cursor fails to decode inside the list load
+        // (GH #79): the load resolves the error view without pending, so
+        // suspense renders it in the initial paint with status 200 — the
+        // skeleton streams only while a load pends, and a fast failure
+        // answers with no streamed region and no swap payload. The branded
+        // ErrorState still answers the failed load in place (no 500, no
+        // empty state), and the retry link drops the cursor that broke the
+        // load. This test binary declares no `#[layout]`, so the body is
+        // the page fragment: the page header is the "shell still stands"
+        // evidence (the document-level wrap is proven by the layout tests).
         let response = router
             .handle(
                 http::Request::builder()
@@ -1891,20 +1894,15 @@ mod tests {
             body.contains(">Subscribers</h1>"),
             "page header must survive the failure: {body}"
         );
+        // A load that fails before pending renders in place: no skeleton,
+        // no streamed region.
         assert!(
-            body.contains("Email"),
-            "column header must survive the failure: {body}"
+            !body.contains("topcoat::region::start"),
+            "a fast failure must not open a streamed region: {body}"
         );
         assert!(
             body.contains("Couldn't load Subscribers"),
-            "error state must render in the streamed region: {body}"
-        );
-        // The swap payload arrives complete: topcoat streams swap templates
-        // plus the swap script, and a truncated body would cut both.
-        assert!(
-            body.contains("</template><script>topcoat.swap"),
-            "error-state swap payload must be complete: {}",
-            &body[body.len().saturating_sub(300)..]
+            "error state must render in place: {body}"
         );
         assert!(
             !body.contains("No records yet"),

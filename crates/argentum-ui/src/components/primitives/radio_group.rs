@@ -1,17 +1,15 @@
-// SYNC: topcoat-ui-registry@0.8.1 sha256:e39c3ac299eb6b26ff9c6a710a654c3ff6f02bca10abd89ac4b925e6d7ea895a — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
+// SYNC: topcoat-ui-registry@0.8.1 sha256:cdc2833428c28897c5b35be5ce2b3583aefaf5dcd7b894d5316c4f9db6d97479 — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
 use topcoat::{
     Result,
     view::{Attributes, Child, StaticClass, View, class, component, view},
 };
 
-/// A radio group component: a set of options of which one can be picked.
+/// A container for options that allow one selection.
 ///
-/// The group is a container; what ties its options together is the `name`
-/// they share, which is how the browser knows to let go of one when another
-/// is picked. Give every [`radio_group_item`] in the group the same `name`,
-/// and the one that starts out picked a `checked` attribute. The `attrs`
-/// (such as `class`) are forwarded to the underlying `<div>`; a `class` among
-/// them is appended to the computed classes.
+/// Give each `radio_group_item` the same `name` attribute to form the selection group.
+/// Set `checked` on the initially selected item. `attrs` are forwarded to the outer
+/// `<div>`, with extra classes added to its classes.
+/// Name the group with `aria-label` or `aria-labelledby` in `attrs`.
 ///
 /// ```ignore
 /// view! {
@@ -43,14 +41,7 @@ pub async fn radio_group(
     })
 }
 
-/// The classes for the native `<input type="radio">` inside a
-/// [`radio_group_item`].
-///
-/// The native glyph is suppressed with `appearance-none` so the component can
-/// draw its own dot, which keeps the control looking the same across
-/// browsers. The circle matches the input control's border, and
-/// picking it recolors the ring rather than filling it, which leaves room for
-/// the dot inside.
+/// Classes for the radio input and its selected border.
 const RADIO: StaticClass = class!(
     "peer size-4 shrink-0 appearance-none rounded-full border border-border \
      bg-background transition-colors outline-none checked:border-primary \
@@ -64,11 +55,10 @@ const DOT: StaticClass = class!(
      opacity-0 transition-opacity peer-checked:opacity-100",
 );
 
-/// One option of a [`radio_group`]: a themed native `<input type="radio">`.
+/// A native radio input styled as a group option.
 ///
-/// The `attrs` (such as `name`, `value`, `checked`, or `disabled`) are
-/// forwarded to the `<input>`; a `class` among them is appended to the
-/// wrapping element's classes. Pair it with a `label` naming the option.
+/// Pair it with a label. Classes in `attrs` apply to the wrapper, while other
+/// attributes go on the `<input>`.
 #[component]
 pub async fn radio_group_item(#[default] mut attrs: Attributes) -> Result<impl View> {
     // The dot cannot be drawn by the `<input>` itself, which renders no

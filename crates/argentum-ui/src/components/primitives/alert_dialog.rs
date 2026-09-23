@@ -1,4 +1,4 @@
-// SYNC: topcoat-ui-registry@0.8.1 sha256:b8a681fc907446e13f2165f310d7b6bb10cd4d81bcc433b42ffcbcb862e915bc — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
+// SYNC: topcoat-ui-registry@0.8.1 sha256:59329070384145eceb1ac54aab6143862415024a10d461892395c11bf927db38 — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
 use topcoat::{
     Result,
     runtime::Expr,
@@ -7,22 +7,14 @@ use topcoat::{
 
 use super::dialog::dialog;
 
-/// An alert dialog component: a dialog interrupting the page for an answer it
-/// will not go on without.
+/// A dialog that asks the user to respond to an important message.
 ///
-/// It is the [`dialog`] with the role that says so, which is what has
-/// assistive technology announce it as a question rather than as another
-/// panel. Everything else is the dialog's: build the inside out of
-/// [`dialog_content`](super::dialog::dialog_content),
-/// [`dialog_header`](super::dialog::dialog_header) and the rest, and give the
-/// footer the choice to make. Leave out any way of closing it that is not one
-/// of the answers, since a reader who dismisses the question is left where
-/// they started.
+/// Build its content with the dialog components and provide actions for answering or
+/// cancelling. It uses `role="alertdialog"` and has the same focus and dismissal
+/// requirements as [`dialog`].
 ///
-/// Naming the panel for assistive technology takes an `aria-labelledby` among
-/// the `attrs` pointing at the title, and an `aria-describedby` pointing at
-/// the description. The `attrs` are otherwise forwarded to the underlying
-/// `<dialog>`.
+/// Pass `aria-labelledby` and `aria-describedby` in `attrs`, pointing to the title and
+/// description IDs. Other attributes are forwarded to the `<dialog>`.
 ///
 /// ```ignore
 /// view! {

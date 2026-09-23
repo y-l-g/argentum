@@ -403,7 +403,7 @@ impl Panel {
     }
 
     /// Build the [`Router`], discovering all `#[page]` / `#[layout]` / `#[shard]`
-    /// items linked into the binary, mounting the browser-runtime routes
+    /// items linked into the binary, mounting the browser-runtime layer
     /// (`RouterBuilderRuntimeExt::runtime`, required by `runtime::script`),
     /// installing the `Db` and the panel navigation on the `app_context`,
     /// registering each declared resource's list page, and pointing the
@@ -481,7 +481,6 @@ impl Panel {
         crate::auth::assert_models_registered(&db, &auth);
         let mut builder = Router::builder()
             .discover()
-            .runtime()
             .cookies()
             // Form bodies (urlencoded buffered, multipart streamed) share one
             // cap (GH #90): without this layer Topcoat's 2 MiB default would
@@ -577,7 +576,11 @@ impl Panel {
                 builder = builder.app_context(LoginHint(hint));
             }
         }
-        Ok(builder.build())
+        // The runtime layer registers last, outside every other pathless
+        // layer: a page re-run is a marked POST the layer rewrites into a
+        // GET for the page's own URL, and the layers it wraps must receive
+        // the rewritten GET rather than the discarded POST.
+        Ok(builder.runtime().build())
     }
 }
 
@@ -989,14 +992,15 @@ mod tests {
             .expect("panel builds");
 
         // The list page denies by default (default-deny policy → 403). A
-        // POST through the runtime's page-rerun route rewrites into a GET
-        // for the page, so it reaches the handler and reports 403; without
-        // `.runtime()` on the builder there would be no such route (404).
-        // (Topcoat #391: `runtime::script` requires these routes.)
+        // POST carrying the runtime marker rewrites into a GET for the
+        // page's own URL, so it reaches the handler and reports 403;
+        // without `.runtime()` on the builder the marked POST never becomes
+        // a page GET. (Topcoat's `runtime::script` requires this layer.)
         let request = http::Request::builder()
             .method(http::Method::POST)
-            .uri("/_topcoat/runtime/pages/admin/dummies")
+            .uri("/admin/dummies")
             .header("content-type", "application/json")
+            .header(&topcoat::runtime::RUNTIME_HEADER, "true")
             .body(Body::from("{}".to_owned()))
             .unwrap();
         let response = router.handle(request).await;

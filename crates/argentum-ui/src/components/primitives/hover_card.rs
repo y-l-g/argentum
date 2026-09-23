@@ -1,21 +1,14 @@
-// SYNC: topcoat-ui-registry@0.8.1 sha256:a4cfcb51a2b5f8d887e5a03bef008c42518ef5cc90d562418c0ec0cf8d73855d — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
+// SYNC: topcoat-ui-registry@0.8.1 sha256:37484ded8b331803afb1532ec9f4824311495daef5ffbe14a7ae1cff0c7a6990 — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
 use topcoat::{
     Result,
     view::{Attributes, Child, StaticClass, View, class, component, view},
 };
 
-/// A hover card component: a card of detail about its trigger, shown while
-/// the trigger is hovered or focused.
+/// Extra information shown when its trigger is hovered or focused.
 ///
-/// Where a tooltip carries a few words, a hover card carries a view: the
-/// person behind a mention, the project behind a link. Child nodes are the
-/// trigger and the [`hover_card_content`] holding that view.
-///
-/// The card waits before it appears, so that passing the cursor over the
-/// trigger on the way somewhere else does not summon it, and waits again
-/// before it goes, so that the way to it is not a race. What is in it is
-/// detail, not the only copy of anything: a reader who never hovers, and one
-/// on a touch screen, will not see it.
+/// Pass the trigger and a `hover_card_content` panel as children. The panel appears and
+/// disappears after a short delay to avoid flickering as the pointer moves. Keep
+/// essential information available elsewhere, since touch users may not see the card.
 ///
 /// ```ignore
 /// view! {
@@ -43,18 +36,8 @@ pub async fn hover_card(
     })
 }
 
-/// The classes for the [`hover_card_content`] panel.
-///
-/// The panel is a raised surface like the card's, dropped below the trigger
-/// and aligned to its left edge. It sets its own background and text color,
-/// so it reads the same over anything it covers, and it takes pointer events,
-/// unlike a tooltip's bubble: a hover card can hold a link worth following.
-///
-/// The delay before it fades in and out is what keeps it from flickering as
-/// the cursor passes by. The visibility that keeps it out of the way in
-/// between is named in the transition with `allow-discrete`, since it has no
-/// in-between values; naming both properties one by one is what makes that
-/// work, as `all` does not carry the visibility along.
+/// Classes for the panel below the trigger. Delayed opacity and visibility transitions
+/// let the pointer reach the panel before it closes.
 const PANEL: StaticClass = class!(
     "invisible absolute top-full left-0 z-50 mt-2 w-64 rounded-lg border \
      border-border bg-popover p-4 text-popover-foreground opacity-0 shadow-sm \
