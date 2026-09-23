@@ -28,6 +28,11 @@ What to know:
   `TextInput`, GH #184).
 - `required` defaults to the column nullability. Use `.optional()` to opt out. A bare `Select` over a
   non-nullable FK rejects `""` inline instead of failing at the driver.
+- `email()` applies the `email_address` grammar at the form edge: a text domain needs two labels
+  (`a@b` and `a@b..c` are refused), a display name is a header rather than an address, and the whole
+  address is capped at 254 octets (RFC 5321 §4.5.3.1.3). A quoted local part
+  (`"a b"@example.com`), a unicode address (`用户@例え.jp`) and a bracketed domain literal
+  (`a@[127.0.0.1]`) pass.
 - **A non-`String` column binds through `TextInput::typed`** (GH #192):
   `TextInput::typed::<Post, i64>(Post::fields().post_stats().word_count())` renders the value's
   `Display`, parses the submission through the type's own `FromStr`, and refuses what it cannot parse
