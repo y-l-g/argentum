@@ -35,7 +35,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-44233982.js";
+            window.path_to_searchindex_js = "searchindex-baba99e0.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-da1679ae.js"></script>
@@ -208,6 +208,17 @@ ASCII-case-insensitive on SQLite and case-sensitive on PostgreSQL. <code>sortabl
 <li>The URL is the state: <code>?q=</code>, <code>?sort=</code>, <code>?dir=</code>, <code>?after=</code>, <code>?before=</code>, <code>?filters=</code>, <code>?group_by=</code>
 parse into <code>TableState</code>. Pagination is cursor based; Toasty appends the PK tie-breaker internally
 so cursors stay deterministic.</li>
+<li>Columns render in a fixed layout (<code>table-fixed</code>): a column’s width is the one its header declares, not
+the widest cell on the current page, so filtering, sorting or paging never re-measures the columns.
+Widths are percentages of the table, so what a table declares is a share of its container rather than a
+length that can outgrow it. The default follows the column’s kind: a field column
+(<code>TextColumn::r#for</code>) declares nothing and takes what the declared columns leave, a computed column
+(<code>TextColumn::computed</code>) claims a share (10% nominally). The chrome columns — bulk selection, row
+actions — claim shares too, and the kind defaults scale down together when their total would leave the
+field columns less than 40% of the table. <code>TextColumn::width(ColumnWidth::..)</code> overrides either; an
+explicit <code>Rem</code> does not shrink with the table, so a table narrower than its lengths leaves the field
+columns no space at all. The width is emitted as an inline <code>style</code> — Tailwind generates only the class
+literals it finds in source — and a value wider than its column truncates with an ellipsis.</li>
 <li>Computed columns render only. They do not affect search or sort.</li>
 </ul>
 <p>Filters:</p>

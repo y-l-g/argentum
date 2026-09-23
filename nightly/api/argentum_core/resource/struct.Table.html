@@ -19,7 +19,7 @@ variants, which spreadsheets treat as formulas even when the payload
 does not start the raw cell (GH #145) — opens as text, not a live
 spreadsheet formula. Buffers the whole page as one <code>String</code>; the export
 handler streams <a href="struct.Table.html#method.csv_header" title="method argentum_core::resource::Table::csv_header"><code>Self::csv_header</code></a> and <a href="struct.Table.html#method.csv_row" title="method argentum_core::resource::Table::csv_row"><code>Self::csv_row</code></a> instead.</p>
-</div></details></div></details><details class="toggle implementors-toggle" open><summary><section id="impl-Table%3CM%3E-1" class="impl"><a class="src rightside" href="../../src/argentum_core/resource/table/render.rs.html#38-1809">Source</a><a href="#impl-Table%3CM%3E-1" class="anchor">§</a><h3 class="code-header">impl&lt;M&gt; <a class="struct" href="struct.Table.html" title="struct argentum_core::resource::Table">Table</a>&lt;M&gt;</h3></section></summary><div class="impl-items"><details class="toggle method-toggle" open><summary><section id="method.render" class="method"><a class="src rightside" href="../../src/argentum_core/resource/table/render.rs.html#58-67">Source</a><h4 class="code-header">pub async fn <a href="#method.render" class="fn">render</a>&lt;'a&gt;(
+</div></details></div></details><details class="toggle implementors-toggle" open><summary><section id="impl-Table%3CM%3E-1" class="impl"><a class="src rightside" href="../../src/argentum_core/resource/table/render.rs.html#81-1965">Source</a><a href="#impl-Table%3CM%3E-1" class="anchor">§</a><h3 class="code-header">impl&lt;M&gt; <a class="struct" href="struct.Table.html" title="struct argentum_core::resource::Table">Table</a>&lt;M&gt;</h3></section></summary><div class="impl-items"><details class="toggle method-toggle" open><summary><section id="method.render" class="method"><a class="src rightside" href="../../src/argentum_core/resource/table/render.rs.html#101-110">Source</a><h4 class="code-header">pub async fn <a href="#method.render" class="fn">render</a>&lt;'a&gt;(
     &amp;self,
     cx: &amp;'a Cx,
     page: <a class="struct" href="struct.TablePage.html" title="struct argentum_core::resource::TablePage">TablePage</a>&lt;M&gt;,
@@ -39,7 +39,7 @@ colors, no <code>ac-*</code>.</p>
 <h5 id="errors"><a class="doc-anchor" href="#errors">§</a>Errors</h5>
 <p>Errors when the table has no row key (<a href="struct.Table.html#method.id" title="method argentum_core::resource::Table::id"><code>Self::id</code></a>) or no columns —
 row identity is not optional, and neither is something to show.</p>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.render_with_state" class="method"><a class="src rightside" href="../../src/argentum_core/resource/table/render.rs.html#80-92">Source</a><h4 class="code-header">pub async fn <a href="#method.render_with_state" class="fn">render_with_state</a>&lt;'a&gt;(
+</div></details><details class="toggle method-toggle" open><summary><section id="method.render_with_state" class="method"><a class="src rightside" href="../../src/argentum_core/resource/table/render.rs.html#123-135">Source</a><h4 class="code-header">pub async fn <a href="#method.render_with_state" class="fn">render_with_state</a>&lt;'a&gt;(
     &amp;self,
     cx: &amp;'a Cx,
     page: <a class="struct" href="struct.TablePage.html" title="struct argentum_core::resource::TablePage">TablePage</a>&lt;M&gt;,
@@ -56,7 +56,7 @@ the page’s state (or shard args rebuilt via
 directly needs no knowledge of <code>NormalizedState</code>; a caller that
 already normalized once per request goes through
 <code>Self::render_normalized</code> instead (GH #224).</p>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.render_live_with_state" class="method"><a class="src rightside" href="../../src/argentum_core/resource/table/render.rs.html#123-136">Source</a><h4 class="code-header">pub async fn <a href="#method.render_live_with_state" class="fn">render_live_with_state</a>&lt;'a&gt;(
+</div></details><details class="toggle method-toggle" open><summary><section id="method.render_live_with_state" class="method"><a class="src rightside" href="../../src/argentum_core/resource/table/render.rs.html#166-179">Source</a><h4 class="code-header">pub async fn <a href="#method.render_live_with_state" class="fn">render_live_with_state</a>&lt;'a&gt;(
     &amp;self,
     cx: &amp;'a Cx,
     page: <a class="struct" href="struct.TablePage.html" title="struct argentum_core::resource::TablePage">TablePage</a>&lt;M&gt;,
@@ -75,7 +75,7 @@ still navigates as before.</p>
 outside the region a rerun swaps, rendered once by the page that owns
 the signals, so a caller rendering only through this method renders
 <a href="struct.Table.html#method.render_delete_dialog" title="method argentum_core::resource::Table::render_delete_dialog"><code>Self::render_delete_dialog</code></a> itself to keep the <code>?delete=</code> fallback.</p>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.render_delete_dialog" class="method"><a class="src rightside" href="../../src/argentum_core/resource/table/render.rs.html#758-765">Source</a><h4 class="code-header">pub async fn <a href="#method.render_delete_dialog" class="fn">render_delete_dialog</a>&lt;'a&gt;(
+</div></details><details class="toggle method-toggle" open><summary><section id="method.render_delete_dialog" class="method"><a class="src rightside" href="../../src/argentum_core/resource/table/render.rs.html#823-830">Source</a><h4 class="code-header">pub async fn <a href="#method.render_delete_dialog" class="fn">render_delete_dialog</a>&lt;'a&gt;(
     &amp;self,
     cx: &amp;'a Cx,
     state: &amp;<a class="struct" href="struct.TableState.html" title="struct argentum_core::resource::TableState">TableState</a>,
@@ -101,14 +101,14 @@ cancel hook and the trigger wiring need <code>assets/dialog.js</code>
 (<code>argentum_ui::DIALOG_JS</code>), emitted by <code>Panel::render_document</code> on every
 document with shell assets (see ADR-0014). The dialog primitives are
 vendored under the ADR-0007 sync guard so they carry no note themselves.</p>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.render_skeleton" class="method"><a class="src rightside" href="../../src/argentum_core/resource/table/render.rs.html#862-871">Source</a><h4 class="code-header">pub async fn <a href="#method.render_skeleton" class="fn">render_skeleton</a>&lt;'a&gt;(&amp;self, cx: &amp;'a Cx) -&gt; Result&lt;BoxView&lt;'a&gt;&gt;<div class="where">where
+</div></details><details class="toggle method-toggle" open><summary><section id="method.render_skeleton" class="method"><a class="src rightside" href="../../src/argentum_core/resource/table/render.rs.html#927-936">Source</a><h4 class="code-header">pub async fn <a href="#method.render_skeleton" class="fn">render_skeleton</a>&lt;'a&gt;(&amp;self, cx: &amp;'a Cx) -&gt; Result&lt;BoxView&lt;'a&gt;&gt;<div class="where">where
     M: Model,</div></h4></section></summary><div class="docblock"><p>The skeleton placeholder table — three pulsing rows under the real
 column header. This is the [<code>suspense</code>] fallback for tables whose rows
 stream in. Wrapped in the same <code>data-boundary</code> region as the real table
 so the markup shape matches when the swap arrives.
 Carries <code>aria-busy</code> while loading plus toolbar/pager pulse placeholders
 (GH #98) so the streamed chrome lands without a layout shift.</p>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.render_live_search_bar" class="method"><a class="src rightside" href="../../src/argentum_core/resource/table/render.rs.html#1037-1048">Source</a><h4 class="code-header">pub async fn <a href="#method.render_live_search_bar" class="fn">render_live_search_bar</a>&lt;'a&gt;(
+</div></details><details class="toggle method-toggle" open><summary><section id="method.render_live_search_bar" class="method"><a class="src rightside" href="../../src/argentum_core/resource/table/render.rs.html#1101-1112">Source</a><h4 class="code-header">pub async fn <a href="#method.render_live_search_bar" class="fn">render_live_search_bar</a>&lt;'a&gt;(
     &amp;self,
     cx: &amp;'a Cx,
     state: &amp;<a class="struct" href="struct.TableState.html" title="struct argentum_core::resource::TableState">TableState</a>,
@@ -127,7 +127,7 @@ term is a new result set). The shard re-renders in place (GH #151).</p>
 <p>Public so a page owning its own signals can render the same toolbar
 above its own shard (the showcase demos, GH #154 §2); resource lists
 reach it through <code>panel::resource_list_live</code>.</p>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.render_live_filter_bar" class="method"><a class="src rightside" href="../../src/argentum_core/resource/table/render.rs.html#1147-1161">Source</a><h4 class="code-header">pub async fn <a href="#method.render_live_filter_bar" class="fn">render_live_filter_bar</a>&lt;'a&gt;(
+</div></details><details class="toggle method-toggle" open><summary><section id="method.render_live_filter_bar" class="method"><a class="src rightside" href="../../src/argentum_core/resource/table/render.rs.html#1211-1225">Source</a><h4 class="code-header">pub async fn <a href="#method.render_live_filter_bar" class="fn">render_live_filter_bar</a>&lt;'a&gt;(
     &amp;self,
     cx: &amp;'a Cx,
     state: &amp;<a class="struct" href="struct.TableState.html" title="struct argentum_core::resource::TableState">TableState</a>,
