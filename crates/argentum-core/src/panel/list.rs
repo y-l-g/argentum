@@ -16,7 +16,7 @@ use topcoat::{
 
 use super::{enforce_auth, enforce_tenant, list_url};
 use crate::resource::{
-    Resource, Table, TableChrome, TablePage, TableSignals, TableState, create_page_url,
+    Resource, RowActions, Table, TableChrome, TablePage, TableSignals, TableState, create_page_url,
 };
 
 /// Retry link for a failed streamed table load (GH #110).
@@ -68,6 +68,14 @@ pub(crate) fn declared_chrome<R: Resource>(cx: &Cx) -> TableChrome {
 /// actions always answer 403. A resource that wants them declares the flag and
 /// the matching policy predicate together; see [`Resource::deletable`].
 ///
+/// The flags are the coarse gate; the per-*record* gate rides the same call
+/// (GH #235). The table's row policy is wired from the resource's predicates,
+/// each action paired with exactly what its route checks: `can_view` for View,
+/// `can_view` + `can_update` for Edit (GH #86), `can_view` + `can_delete` for
+/// Delete and the bulk checkbox (GH #168). A row the predicate refuses renders
+/// no link and a disabled checkbox, while the handler keeps its all-or-nothing
+/// check as the safety net for a hand-crafted POST.
+///
 /// `live` selects the shard variant: the swapped region is everything except
 /// the toolbar the page owns eagerly (the live host owns those slots, so swaps
 /// must never nest invocations or duplicate inputs), hence the shard forces
@@ -79,6 +87,19 @@ pub(crate) fn wire_table_actions<R: Resource>(cx: &Cx, live: bool) -> Table<R::M
     if live {
         table = table.search(false).filter_bar(false);
     }
+    // `Cx` is Arc-backed and `Clone`, so the projection owns one: the policy
+    // outlives the request borrow without copying request state.
+    let policy_cx = cx.clone();
+    table = table.row_actions(move |record| {
+        // Read once: every route pairs its own predicate with `can_view`, so a
+        // record that cannot be viewed allows no action (GH #168).
+        let view = R::can_view(&policy_cx, record);
+        RowActions {
+            view,
+            edit: view && R::can_update(&policy_cx, record),
+            delete: view && R::can_delete(&policy_cx, record),
+        }
+    });
     let chrome = declared_chrome::<R>(cx);
     if chrome.delete {
         table = table
@@ -1129,12 +1150,20 @@ mod tests {
             fn deletable() -> bool {
                 false
             }
-            // GH #226: chrome is opt-in, so the writable half of this test
-            // declares the flag as well as the predicates that honour it.
+            // GH #226/#235: chrome is opt-in, so the writable half of this test
+            // declares the flag *and* the predicates that honour it — the row
+            // policy mirrors the edit route's own `can_view` + `can_update`
+            // check, so a flag beside default-deny predicates renders no link.
             fn editable() -> bool {
                 true
             }
             fn can_view_any(_cx: &Cx) -> bool {
+                true
+            }
+            fn can_view(_cx: &Cx, _record: &Dummy) -> bool {
+                true
+            }
+            fn can_update(_cx: &Cx, _record: &Dummy) -> bool {
                 true
             }
             fn can_create(_cx: &Cx) -> bool {
@@ -1195,14 +1224,15 @@ mod tests {
     /// GH #226: chrome is opt-in, so a list whose rows the policy denies renders
     /// no Edit link — the acceptance test for the flipped `editable()` default.
     ///
-    /// Before the flip this resource (which never mentions `editable()` or
-    /// `deletable()`) shipped an `/edit` link per row while `can_update`
-    /// answered the untouched default-deny: told they may act, then told they
-    /// may not. The row assertion comes first so the negative assertions below
-    /// cannot pass vacuously; the route assertion then records the one agreeing
-    /// instance this seam can give — a whole-resource flag beside a
-    /// whole-resource default-deny predicate. It is not a general guarantee: a
-    /// per-record predicate still leaves a link the route refuses.
+    /// This resource never mentions `editable()` or `deletable()`, so no prefix
+    /// is wired and its `can_update` (untouched default-deny) is never
+    /// consulted: the coarse whole-resource flag alone withholds the chrome.
+    /// GH #235 covers the other half — a resource that opts in *and* denies a
+    /// row per record — by wiring `can_update` into the table's row policy.
+    ///
+    /// The row assertion comes first so the negative assertions below cannot
+    /// pass vacuously; the route assertion then records the route's own answer
+    /// for the row the list never links.
     #[tokio::test]
     async fn denied_rows_render_no_edit_chrome() {
         use crate::resource::Resource;

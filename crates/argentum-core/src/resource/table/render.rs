@@ -19,7 +19,7 @@ use super::super::state::{
     TablePage, TableSignals, TableState, bulk_delete_url, delete_action_url, group_header_dom_id,
     row_dom_id, row_edit_url, row_view_url,
 };
-use super::{GroupKey, NormalizedState, RowKey, Table};
+use super::{GroupKey, NormalizedState, RowActions, RowKey, Table};
 
 /// Keystroke-quiet delay before a live search input reloads the table
 /// (GH #172, ~150-250ms): `assets/live-search.js` waits this long after the
@@ -28,6 +28,12 @@ use super::{GroupKey, NormalizedState, RowKey, Table};
 /// write is an ordinary signal write, so Topcoat's abort-in-flight
 /// coalescing still applies to the resulting rerun.
 pub(crate) const LIVE_SEARCH_DEBOUNCE_MS: u32 = 200;
+
+/// The accessible reason a bulk checkbox disabled by the per-row policy carries
+/// (GH #235): the row's `Delete` is denied, so selecting it could only produce
+/// a batch the handler refuses. Read aloud by a screen reader in place of the
+/// checkbox's usual "Select row" label, and offered as the pointer tooltip too.
+pub(crate) const DENIED_ROW_REASON: &str = "You cannot delete this row";
 
 impl<M> Table<M> {
     /// Render the table for the given loaded page.
@@ -267,6 +273,7 @@ impl<M> Table<M> {
                             let view_for_row = row.view_url.clone();
                             let edit_for_row = row.edit_url.clone();
                             let open_for_row = row.delete_url.clone();
+                            let selectable_for_row = row.selectable;
                             let row_dom_id = row_dom_id(&key_for_row);
                             if let Some(header) = row.group_header.clone() {
                                 table_row(
@@ -283,14 +290,27 @@ impl<M> Table<M> {
                             table_row(
                                 attrs: attributes! { id=(row_dom_id) },
                                 if with_bulk {
-                                    table_cell(
-                                        <input
-                                            type="checkbox"
-                                            value=(key_for_select)
-                                            aria-label="Select row"
-                                            data-row-select=""
-                                        >
-                                    )
+                                    if selectable_for_row {
+                                        table_cell(
+                                            <input
+                                                type="checkbox"
+                                                value=(key_for_select)
+                                                aria-label="Select row"
+                                                data-row-select=""
+                                            >
+                                        )
+                                    } else {
+                                        table_cell(
+                                            <input
+                                                type="checkbox"
+                                                value=(key_for_select)
+                                                aria-label=(DENIED_ROW_REASON)
+                                                title=(DENIED_ROW_REASON)
+                                                data-row-select=""
+                                                disabled=""
+                                            >
+                                        )
+                                    }
                                 }
                                 for cell in &row.cells {
                                     table_cell((cell.clone()))
@@ -509,6 +529,14 @@ impl<M> Table<M> {
     /// `record_id` can only be empty on chromeless tables (guarded by the
     /// caller), which render no URLs and no bulk column to read it.
     ///
+    /// The chrome prefixes say which links the table *can* render; the
+    /// [`Table::row_actions`] policy says which of them *this* record may use
+    /// (GH #235). A denied action emits no URL, so the row renders no link —
+    /// the same decision the handler takes, from the same predicate — and a row
+    /// denied `delete` carries `selectable: false`, which renders its bulk
+    /// checkbox disabled. The policy is consulted only when a prefix is wired,
+    /// so a table with no chrome costs no per-record predicate call.
+    ///
     /// The delete URL's shared parameters are encoded once for the whole page
     /// (GH #205): the filter transport is the expensive half of the
     /// projection, and rebuilding it per row is work a client can inflate with
@@ -540,12 +568,20 @@ impl<M> Table<M> {
             .delete_prefix
             .as_ref()
             .map(|_| state.row_url_base(path));
+        let gated = self.delete_prefix.is_some()
+            || self.edit_prefix.is_some()
+            || self.view_prefix.is_some();
         let mut row_data: Vec<RowView> = page
             .rows
             .iter()
             .map(|row| {
                 let key = row_key(row);
                 let record_id = record_key.map(|f| f(row)).unwrap_or_default();
+                let actions = if gated {
+                    self.actions_for(row)
+                } else {
+                    RowActions::ALL
+                };
                 let cells: Vec<String> = self
                     .columns
                     .iter()
@@ -554,13 +590,16 @@ impl<M> Table<M> {
                 let edit_url = self
                     .edit_prefix
                     .as_ref()
+                    .filter(|_| actions.edit)
                     .map(|prefix| row_edit_url(prefix, &record_id));
                 let view_url = self
                     .view_prefix
                     .as_ref()
+                    .filter(|_| actions.view)
                     .map(|prefix| row_view_url(prefix, &record_id));
                 let delete_url = delete_url_base
                     .as_ref()
+                    .filter(|_| actions.delete)
                     .map(|base| base.delete_dialog(&record_id));
                 RowView {
                     key,
@@ -569,6 +608,7 @@ impl<M> Table<M> {
                     view_url,
                     edit_url,
                     delete_url,
+                    selectable: actions.delete,
                     group: group_key.map(|group| group(row)),
                     group_header: None,
                 }
@@ -1727,6 +1767,11 @@ struct RowView {
     view_url: Option<String>,
     edit_url: Option<String>,
     delete_url: Option<String>,
+    /// Whether the row's bulk checkbox is enabled (GH #235): a row the
+    /// [`Table::row_actions`] policy denies `delete` renders it `disabled`, so
+    /// `bulk.js` never lets it into the selection transport and select-all
+    /// cannot ship a batch the handler refuses wholesale.
+    selectable: bool,
     /// The row's group label, when `?group_by=` named the declared group
     /// (GH #219). Carried on every row so the page-local shim can order by it.
     group: Option<String>,
@@ -2157,6 +2202,133 @@ mod tests {
         assert!(
             !html.contains("data-row-select") && !html.contains("data-bulk-form"),
             "plain table must not render bulk chrome in {html}"
+        );
+    }
+
+    #[tokio::test]
+    async fn denied_rows_render_no_links_and_a_disabled_checkbox() {
+        // GH #235: the row policy gates the chrome per record, so a row the
+        // resource refuses renders no Edit/Delete link and a bulk checkbox a
+        // user cannot check — the rendered affordance and the route agree.
+        let cx = CxTestBuilder::new().build();
+        let ada = User {
+            id: uuid::Uuid::new_v4(),
+            name: "Ada".to_string(),
+        };
+        let ken = User {
+            id: uuid::Uuid::new_v4(),
+            name: "Ken".to_string(),
+        };
+        let ken_id = ken.id.to_string();
+        let ada_id = ada.id.to_string();
+        let policy_table = Table::<User>::r#for(&cx)
+            .id(|u| u.id.to_string())
+            .pk(|u| u.id.to_string())
+            .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()))
+            .with_delete("/admin/users".to_string())
+            .with_edit("/admin/users".to_string())
+            .with_view("/admin/users".to_string())
+            .with_bulk_delete(true)
+            .row_actions(|u: &User| RowActions {
+                view: true,
+                edit: u.name != "Ken",
+                delete: u.name != "Ken",
+            });
+        let page: TablePage<User> = vec![ada, ken].into();
+        let html = policy_table
+            .render(&cx, page)
+            .await
+            .unwrap()
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
+        // The allowed row keeps all three links and an enabled checkbox.
+        assert!(
+            html.contains(&format!("href=\"/admin/users/{ada_id}/edit\""))
+                && html.contains(&format!("href=\"/admin/users/{ada_id}\""))
+                && html.contains(&format!("href=\"?delete={ada_id}\"")),
+            "the allowed row must keep its View/Edit/Delete links, got {html}"
+        );
+        // The denied row keeps only the View link its policy allows: no Edit
+        // link and no delete dialog opener.
+        assert!(
+            html.contains(&format!("href=\"/admin/users/{ken_id}\""))
+                && !html.contains(&format!("/admin/users/{ken_id}/edit"))
+                && !html.contains(&format!("delete={ken_id}")),
+            "the denied row must render no Edit/Delete link, got {html}"
+        );
+        // Its checkbox is present (the transport shape is unchanged) but
+        // disabled, carrying the reason as its accessible label.
+        let ken_at = html
+            .find(&format!("value=\"{ken_id}\""))
+            .unwrap_or_else(|| panic!("missing the denied row's checkbox in {html}"));
+        let tag_start = html[..ken_at].rfind("<input").expect("its opening tag");
+        let tag_end = html[tag_start..].find('>').expect("the tag's end");
+        let tag = &html[tag_start..tag_start + tag_end];
+        assert!(
+            tag.contains("data-row-select"),
+            "the denied row keeps the bulk checkbox marker, got {tag}"
+        );
+        assert!(
+            tag.contains("disabled=\"\""),
+            "the denied row's checkbox must be disabled, got {tag}"
+        );
+        assert!(
+            tag.contains(&format!("aria-label=\"{DENIED_ROW_REASON}\""))
+                && tag.contains(&format!("title=\"{DENIED_ROW_REASON}\"")),
+            "the denied row's checkbox must carry the reason, got {tag}"
+        );
+        // The allowed row's checkbox is not disabled, so the assertion above
+        // is not passing on every row.
+        let ada_at = html
+            .find(&format!("value=\"{ada_id}\""))
+            .expect("Ada's box");
+        let ada_start = html[..ada_at].rfind("<input").expect("its opening tag");
+        let ada_end = html[ada_start..].find('>').expect("the tag's end");
+        let ada_tag = &html[ada_start..ada_start + ada_end];
+        assert!(
+            !ada_tag.contains("disabled") && ada_tag.contains("aria-label=\"Select row\""),
+            "the allowed row's checkbox must stay enabled, got {ada_tag}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_chromeless_table_never_consults_the_row_policy() {
+        // GH #235: the policy is consulted only where chrome is wired, so a
+        // resource that declares no chrome keeps its list page free of
+        // per-record predicate calls — the coarse `TableChrome` gate is intact.
+        let cx = CxTestBuilder::new().build();
+        let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counted = calls.clone();
+        let policy_table = Table::<User>::r#for(&cx)
+            .id(|u| u.id.to_string())
+            .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()))
+            .row_actions(move |_: &User| {
+                counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                RowActions::ALL
+            });
+        let page: TablePage<User> = vec![User {
+            id: uuid::Uuid::new_v4(),
+            name: "Ada".to_string(),
+        }]
+        .into();
+        let html = policy_table
+            .render(&cx, page)
+            .await
+            .unwrap()
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
+        assert!(
+            html.contains("Ada"),
+            "the table must still render its row, got {html}"
+        );
+        assert_eq!(
+            calls.load(std::sync::atomic::Ordering::SeqCst),
+            0,
+            "a table with no action prefix must not call the row policy"
         );
     }
 

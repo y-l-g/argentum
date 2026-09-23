@@ -42,7 +42,7 @@ pub use state::{Sort, TablePage, TableSignals, TableState};
 #[cfg(test)]
 pub(crate) use state::{filters_param_encodes, reset_filters_param_encodes};
 pub(crate) use table::TableChrome;
-pub use table::{GroupDef, GroupKey, OrderMode, RowKey, Table};
+pub use table::{GroupDef, GroupKey, OrderMode, RowActions, RowKey, RowPolicy, Table};
 
 use naming::{kebab_case, pluralize, type_short_name};
 
@@ -68,17 +68,20 @@ use naming::{kebab_case, pluralize, type_short_name};
 ///   [`bulk_delete_records`](Self::bulk_delete_records)) default to an error
 ///   naming the type, so a resource that never implemented delete answers
 ///   "delete not implemented for …" instead of writing nothing quietly.
-/// - **Opt-in chrome**: [`deletable`](Self::deletable) and
+/// - **Opt-in chrome, gated per record**: [`deletable`](Self::deletable) and
 ///   [`editable`](Self::editable) default to `false`, so a resource that never
 ///   mentions them renders no Edit or Delete affordance and cannot advertise an
 ///   action its default-deny predicate refuses. A resource that wants the chrome
 ///   declares the flag *and* the matching policy predicate (`can_delete` for
-///   `deletable`, `can_view` + `can_update` for `editable`) — but the flag is
-///   whole-resource while those predicates take a record, so a row-level rule
-///   still leaves a rendered link the route answers 403 (GH #226). That gap is
-///   inherent to the seam. Only [`viewed`](Self::viewed) is per-record exact,
-///   because it is derived from the declared [`view`](Self::view) schema rather
-///   than declared beside it.
+///   `deletable`, `can_view` + `can_update` for `editable`). The flag is the
+///   whole-resource gate; the predicates are applied per row, because the panel
+///   wires them into the table's row policy ([`Table::row_actions`], GH #235):
+///   a row `can_update` refuses renders no Edit link, and a row `can_delete`
+///   refuses renders no Delete link and a disabled bulk checkbox. A row-level
+///   rule therefore narrows the chrome instead of leaving a control the route
+///   answers 403. [`viewed`](Self::viewed) is per-record exact the same way,
+///   derived from the declared [`view`](Self::view) schema rather than declared
+///   beside it.
 /// - **Default-deny is untouched**: every `can_*` still defaults to `false`, so
 ///   an unconfigured resource exposes no data and no mutation.
 pub trait Resource: Sized + Send + Sync + 'static {
@@ -103,18 +106,20 @@ pub trait Resource: Sized + Send + Sync + 'static {
     /// Whether the current user may view the given record.
     ///
     /// Checked on the edit page (GET), the edit POST (which requires both
-    /// `can_view` and `can_update`, GH #86), per row in CSV export, and on
-    /// each record behind a relationship `Select`'s options (GH #108). Note
+    /// `can_view` and `can_update`, GH #86), per row in CSV export, on each
+    /// record behind a relationship `Select`'s options (GH #108), and on the
+    /// list page as the per-row gate of every action link (GH #235: the View
+    /// link, and the `can_view` half of Edit and Delete). Note
     /// both hooks default-deny: a resource used as a relationship target
     /// must allow `can_view_any` **and** `can_view` (overriding one does not
     /// imply the other). The list page deliberately checks only
-    /// `can_view_any` (GH #86): `can_view` is an in-memory Rust predicate
-    /// that cannot run in SQL, and filtering rows after cursor pagination
-    /// would mislabel pages (holes, wrong Next/Prev). Row-level visibility
-    /// that must hold on the list belongs in [`Self::query`] (ADR-0002),
-    /// which every loader — list, edit, delete, bulk, export — funnels
-    /// through *inside* [`scoped_query`], so the tenant half of the scope is
-    /// applied after the override rather than by it (GH #223).
+    /// `can_view_any` for *membership* (GH #86): `can_view` is an in-memory
+    /// Rust predicate that cannot run in SQL, and filtering rows after cursor
+    /// pagination would mislabel pages (holes, wrong Next/Prev). Row-level
+    /// visibility that must hold on the list belongs in [`Self::query`]
+    /// (ADR-0002), which every loader — list, edit, delete, bulk, export —
+    /// funnels through *inside* [`scoped_query`], so the tenant half of the
+    /// scope is applied after the override rather than by it (GH #223).
     fn can_view(_cx: &Cx, _record: &Self::Model) -> bool {
         false
     }
@@ -143,17 +148,14 @@ pub trait Resource: Sized + Send + Sync + 'static {
     /// Chrome is opt-in (GH #226): the default renders no Delete button, no
     /// bulk bar and no confirmation dialog, because server policy
     /// ([`can_delete`](Self::can_delete), default-deny) would answer 403 to
-    /// every one of them. Override to `true` alongside `can_delete` so the
-    /// affordance and the route agree wherever the predicate is
-    /// whole-resource.
+    /// every one of them. Override to `true` alongside `can_delete`.
     ///
-    /// Where `can_delete` is per-record the two cannot agree in general: this
-    /// flag has no record to consult, so a row the caller may not delete still
-    /// renders the control and the POST answers 403. That is the seam, not a
-    /// bug, and nothing can enforce the pairing —
-    /// [`Panel::build`](crate::panel::Panel::build) has no record to call
-    /// `can_delete` with, and Rust cannot distinguish an overridden method from
-    /// a defaulted one.
+    /// This flag is the whole-resource gate; `can_delete` is applied per row
+    /// (GH #235). The panel wires the predicate into the table's row policy, so
+    /// a row it refuses renders no Delete link and a disabled bulk checkbox —
+    /// the affordance narrows with the rule instead of leaving a control the
+    /// POST answers 403 to. The handler keeps its all-or-nothing check as the
+    /// safety net for a hand-crafted POST.
     fn deletable() -> bool {
         false
     }
@@ -163,12 +165,11 @@ pub trait Resource: Sized + Send + Sync + 'static {
     /// Chrome is opt-in (GH #226): the default renders no `Edit` link per row,
     /// because server policy ([`can_view`](Self::can_view) +
     /// [`can_update`](Self::can_update), both default-deny) would answer 403 to
-    /// the edit GET. Override to `true` alongside those predicates so the
-    /// affordance and the route agree wherever they are whole-resource.
+    /// the edit GET. Override to `true` alongside those predicates.
     ///
-    /// The same per-record gap as [`Self::deletable`] applies: with a row-level
-    /// `can_update`, a row the caller may not edit still renders the link and
-    /// the edit GET answers 403.
+    /// The same per-row rule as [`Self::deletable`] applies (GH #235): the
+    /// panel wires `can_view` + `can_update` into the table's row policy, so a
+    /// row the caller may not edit renders no link, matching the edit GET.
     fn editable() -> bool {
         false
     }

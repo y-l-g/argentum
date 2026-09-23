@@ -63,7 +63,9 @@ the framework ANDs on, derived from the model's `tenant_id` by default and decla
 resource when its rows inherit their tenant, GH #223; a gated resource that supplies neither is
 refused at `Panel::build`, GH #231), the table, the form, the record's string projection for
 edit/view hydration (`hydrate_form_values(cx, record)`), the view (GH #187), navigation entry, and
-policy. One Model → one Resource; its routes (list/create/view/edit/delete) come from the Panel
+policy — the `can_*` predicates, which the panel applies per record to the list's action chrome
+through the table's row policy (GH #235). One Model → one Resource; its routes
+(list/create/view/edit/delete) come from the Panel
 registration, not a `pages()` declaration. A resource that declares no `view` has no detail page:
 `viewed()` is derived from the schema, not declared beside it, so the route's answer and the row's
 `View` link cannot disagree.
@@ -92,6 +94,16 @@ Toasty exposes instance→PK extraction, and render errors without it — never 
 is two projections: the `Table::id` display key (keyed diffs, DOM ids) and the `Table::pk` record
 key (edit/delete URLs, bulk checkbox values), resolved by handlers as the typed PK — action chrome
 without `pk` is a render error, not a silent 404 (GH #168).
+
+Row chrome is gated twice. The `with_*` prefixes decide which affordances the table declares at all,
+and `TableChrome` is the whole-resource declaration behind them (GH #226); the table's **row
+policy** (`Table::row_actions`) decides which of them each loaded record may use (GH #235). The
+panel wires the policy from the resource's `can_view`/`can_update`/`can_delete`, each action paired
+with the predicates its route checks (GH #86, GH #168), so a refused row renders no Edit/Delete link
+and a **disabled** bulk checkbox labelled with the reason. A table that declares no policy renders
+every wired action (`RowActions::ALL`), and a table with no chrome never consults one — the
+whole-resource gate is unchanged. The handler's all-or-nothing check stays as the safety net for a
+hand-crafted POST, which is why a denied row must never reach the selection transport.
 
 A `live_search(true)` table hands its chrome to the page's `TableSignals`: the shard's tracked
 reads re-render the table in place when search, sort, filters, or pagination write a signal
@@ -177,10 +189,12 @@ row/bulk chrome that promises these actions is opt-in to match (GH #226):
 `Resource::editable`/`deletable` default to `false`, so a resource that never declares them renders no
 Edit or Delete affordance and its default-deny predicates are never contradicted. A resource that opts
 in declares the flag beside the predicate it promises — `can_view` + `can_update` for the Edit link,
-`can_delete` for row and bulk Delete — but the flag is whole-resource while those predicates take a
-record, so a row-level rule still renders a link for a row the route refuses (the showcase's
-SSO-guarded user is the worked example). Only `Resource::viewed` is per-record exact, because it is
-derived from the declared `view` schema rather than declared beside it. Nothing enforces the
+`can_delete` for row and bulk Delete — and the panel applies those predicates per row through the
+table's row policy (GH #235): a refused row renders no link, and a delete-refused row a **disabled**
+bulk checkbox labelled with the reason, so select-all ships only rows the handler accepts. The
+chrome narrows with the rule instead of contradicting it, and the handler's all-or-nothing check
+stays as the safety net for a hand-crafted POST. `Resource::viewed` is per-record exact the same
+way, derived from the declared `view` schema rather than declared beside it. Nothing enforces the
 pairing: `can_update`/`can_delete` need a record, so no `Panel::build` call has one to check, and
 Rust cannot tell an overridden method from a defaulted one — a chrome flag beside a row-level
 predicate is a legitimate configuration, not a detectable mistake.
@@ -193,11 +207,12 @@ A **chrome switch**, not a policy predicate: `Resource::editable()` decides whet
 `Edit` link renders (GH #162). Defaults to `false` — chrome is opt-in (GH #226), matching the
 default-deny predicates in `Policy`, so a resource that never declares it renders no Edit
 affordance. A resource that opts in overrides it to `true` alongside the predicate it promises
-(`can_view` + `can_update` for the edit link). It grants nothing: the edit GET and POST always
-require `can_view` + `can_update`, and the routes exist whether or not the link renders. Because
-the flag is whole-resource while those predicates take a record, a row-level rule can still render
-a link for a row the route refuses. The two disagreeing (chrome shown, policy denying) is a bug,
-not a configuration.
+(`can_view` + `can_update` for the edit link), which the panel then applies per record (GH #235):
+a row those predicates refuse renders no link. It grants nothing: the edit GET and POST always
+require `can_view` + `can_update`, and the routes exist whether or not the link renders. The
+coarse flag and a row-level predicate are a legitimate pair — the flag decides whether the column
+exists, the predicate decides which rows fill it — while chrome shown for a row the route refuses
+is a bug, not a configuration.
 
 _Avoid_: Writable, Mutable, can_edit
 
@@ -206,9 +221,12 @@ _Avoid_: Writable, Mutable, can_edit
 A **chrome switch**, not a policy predicate: `Resource::deletable()` decides whether the row Delete
 button and the bulk checkbox column render (GH #96). Defaults to `false` — chrome is opt-in
 (GH #226), matching the default-deny `can_delete`, so a resource that never declares it renders no
-Delete affordance. A resource that opts in overrides it to `true` alongside `can_delete`. It
-grants nothing: `delete_record`/`bulk_delete_records` re-check `can_delete` on the loaded record
-inside the handler's transaction, and the routes exist whether or not the chrome renders.
+Delete affordance. A resource that opts in overrides it to `true` alongside `can_delete`, which
+the panel then applies per record (GH #235): a row the predicate refuses renders no Delete link and
+a **disabled** bulk checkbox labelled with the reason, so select-all cannot ship a key the handler's
+all-or-nothing check refuses. It grants nothing: `delete_record`/`bulk_delete_records` re-check
+`can_delete` on the loaded record inside the handler's transaction, and the routes exist whether or
+not the chrome renders.
 
 _Avoid_: Destroyable, Removable, can_delete
 

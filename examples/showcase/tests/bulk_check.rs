@@ -237,8 +237,136 @@ async fn bulk_bar_renders_checkboxes_with_row_keys() {
     );
 }
 
+/// GH #235: select-all over the seeded roster. Every row renders a checkbox,
+/// but Ken's is disabled — the SSO guard denies his delete — so the browser's
+/// select-all collects the other seven and the handler deletes them, instead of
+/// refusing the whole batch over the one row the resource protects.
 #[tokio::test]
-async fn bulk_delete_partial_deny_aborts() {
+async fn select_all_skips_the_denied_row_and_deletes_the_rest() {
+    let db = seeded_db().await;
+    let router = router(db.clone());
+    let client = demo_client(&router, &db).await;
+    let csrf = uuid::Uuid::new_v4().to_string();
+    let mut db_q = db.clone();
+    let users = User::all().exec(&mut db_q).await.unwrap();
+    let before = users.len();
+    let ken = users
+        .iter()
+        .find(|u| u.name == "Ken Thompson")
+        .expect("the seeded SSO-managed row");
+    assert!(
+        before > 1,
+        "the roster needs rows beyond Ken for the batch to prove a deletion"
+    );
+
+    let html = body_string(client.get("/admin/users").await).await;
+    // The rendered chrome is the fix: the denied row links no delete dialog and
+    // its checkbox is disabled, carrying the reason as its accessible label.
+    assert!(
+        !html.contains(&format!("delete={}", ken.id)),
+        "the denied row must render no Delete link, got {html}"
+    );
+    let ken_tag = input_tag_with_value(&html, &ken.id.to_string());
+    assert!(
+        ken_tag.contains("disabled"),
+        "the denied row's checkbox must be disabled, got {ken_tag}"
+    );
+    assert!(
+        ken_tag.contains("You cannot delete this row"),
+        "the disabled checkbox must carry the reason, got {ken_tag}"
+    );
+
+    // What select-all ships: exactly the boxes `bulk.js` would check.
+    let ids = selectable_row_ids(&html);
+    assert_eq!(
+        ids.len(),
+        before - 1,
+        "select-all must offer every row but Ken's, got {ids:?}"
+    );
+    assert!(
+        !ids.contains(&ken.id.to_string()),
+        "the denied key must not be selectable, got {ids:?}"
+    );
+
+    let resp = client
+        .csrf(&csrf)
+        .post_form(
+            "/admin/users/bulk-delete",
+            format!("ids={}&confirm=1&csrf_token={csrf}", ids.join(",")),
+        )
+        .await;
+    assert_eq!(
+        resp.status(),
+        303,
+        "select-all over the roster must not 403, got {}",
+        resp.status()
+    );
+    assert_eq!(
+        user_count(&db).await,
+        1,
+        "every allowed row must be deleted, leaving Ken"
+    );
+    let mut db_check = db.clone();
+    let remaining = User::all().exec(&mut db_check).await.unwrap();
+    assert_eq!(remaining.len(), 1, "only the denied row survives");
+    assert_eq!(remaining[0].name, "Ken Thompson");
+}
+
+/// The opening `<input …>` tag whose `value` attribute is `value`.
+///
+/// Attributes render in no guaranteed order (topcoat#122), so callers assert on
+/// the whole tag rather than on a single attribute's position.
+fn input_tag_with_value(html: &str, value: &str) -> String {
+    let at = html
+        .find(&format!("value=\"{value}\""))
+        .unwrap_or_else(|| panic!("missing an input with value {value} in {html}"));
+    let start = html[..at].rfind("<input").expect("its opening tag");
+    input_tag_at(&html[start..])
+}
+
+/// The `<input …>` tag `html` starts with, up to the `>` that closes it.
+fn input_tag_at(html: &str) -> String {
+    let mut quoted = false;
+    for (offset, byte) in html.bytes().enumerate() {
+        match byte {
+            b'"' => quoted = !quoted,
+            b'>' if !quoted => return html[..offset].to_string(),
+            _ => {}
+        }
+    }
+    panic!("unterminated <input> tag in {html}");
+}
+
+/// The row ids the page offers for bulk selection, in document order: every
+/// `data-row-select` checkbox a user can check. A row the per-record policy
+/// denies delete renders `disabled` (GH #235), and `bulk.js`'s `boxesIn` skips
+/// exactly those — so this is what select-all ships.
+fn selectable_row_ids(html: &str) -> Vec<String> {
+    let mut ids = Vec::new();
+    let mut rest = html;
+    while let Some(at) = rest.find("data-row-select") {
+        let start = rest[..at]
+            .rfind("<input")
+            .expect("the marker's opening tag");
+        let tag = input_tag_at(&rest[start..]);
+        if !tag.contains("disabled") {
+            let value_at = tag.find("value=\"").expect("a checkbox value");
+            let after = &tag[value_at + "value=\"".len()..];
+            let end = after.find('"').expect("a closed value");
+            ids.push(after[..end].to_string());
+        }
+        rest = &rest[at + 1..];
+    }
+    ids
+}
+
+/// The server-side safety net, after GH #235 moved the visible decision into
+/// the row policy: a hand-crafted POST naming a row the resource refuses is
+/// still 403. The check is all-or-nothing (GH #168: `can_view` then
+/// `can_delete` on every row, before any write), so the batch aborts with zero
+/// deletions — which is why the rendered checkbox must never offer that row.
+#[tokio::test]
+async fn bulk_delete_hand_crafted_partial_deny_is_refused() {
     use argentum_core::{Resource, Schema, Table, TextColumn, TextInput};
 
     #[derive(Debug, toasty::Model, Clone)]
