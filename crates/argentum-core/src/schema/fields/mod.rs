@@ -23,8 +23,8 @@ use topcoat::{Result, context::Cx, view::*};
 /// Two shapes, because the difference is content, not styling: prose wraps
 /// mid-word never, and an identifier (a stored path, an address) has no spaces
 /// to break at, so it breaks anywhere and sets in mono. A `bool` parameter
-/// carried the same decision until it read as validation metadata at a call
-/// site.
+/// reads as validation metadata at a call site, so the two shapes are the
+/// `ValueKind` enum.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ValueKind {
     /// Wrapping text: a title, a body, a description.
@@ -231,7 +231,7 @@ mod test_support {
         );
         // FileUpload's lens type only binds non-nullable `String` columns
         // (a nullable field is `Option<String>`), so its required default is
-        // always on today; the nullability walk keeps it correct if the lens
+        // always on; the nullability walk keeps it correct if the lens
         // widens upstream (#183).
     }
 }

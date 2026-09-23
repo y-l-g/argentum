@@ -80,9 +80,11 @@ impl TextInput {
     /// schema instead, so the leaf arrives as its **flattened storage column**
     /// (`seo_title`) — the name the form posts and the record fn reads.
     ///
-    /// An embedded leaf is never `required` by default: every column under an
-    /// embedded step is storage-nullable, since only the matching enum variant
-    /// writes one. Opt in with [`.required()`](Self::required).
+    /// An embedded leaf is never `required` by default: the resolver reports
+    /// `nullable=true` by binding policy, since only the matching enum variant
+    /// writes a variant payload column. That is the binding default, not a
+    /// storage fact — the flattened column of a required embedded struct is
+    /// `NOT NULL`. Opt in with [`.required()`](Self::required).
     ///
     /// Without a `Db` in context (a bare `CxTestBuilder`) this behaves exactly
     /// like `Self::r#for` and rejects the traversal lens loudly, so a test
@@ -155,9 +157,11 @@ impl TextInput {
     /// resolving through the request's app schema exactly as
     /// `Self::r#for_context` does (GH #185).
     ///
-    /// A leaf under an embedded step is never required by default: every column
-    /// below one is storage-nullable, since only the matching enum variant
-    /// writes it. Opt in with [`.required()`](Self::required).
+    /// A leaf under an embedded step is never required by default: the resolver
+    /// reports `nullable=true` by binding policy, since only the matching enum
+    /// variant writes a variant payload column. That is the binding default,
+    /// not a storage fact — the flattened column of a required embedded struct
+    /// is `NOT NULL`. Opt in with [`.required()`](Self::required).
     pub fn typed_context<M, T>(cx: &Cx, path: toasty::stmt::Path<M, T>) -> Self
     where
         M: toasty::schema::Model,

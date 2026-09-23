@@ -72,9 +72,11 @@
 //!
 //! # What a derived control declares
 //!
-//! Every leaf under an embedded step is storage-nullable — only the matching
-//! variant writes a column — so a derived control is **not required** by
-//! default, which is what the hand-written forms spelled `.optional()` for. A
+//! Every leaf under an embedded step is **not required** by default — the
+//! resolver reports `nullable=true` by binding policy, since only the matching
+//! variant writes a variant payload column — which is what the hand-written
+//! forms spelled `.optional()` for. That is the binding default, not a storage
+//! fact: the flattened column of a required embedded struct is `NOT NULL`. A
 //! leaf that must be present says so on the field's type or the app marks the
 //! control in its own layout.
 

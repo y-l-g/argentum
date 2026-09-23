@@ -266,8 +266,10 @@ async fn the_flattened_name_participates_in_allow_list_and_validation() {
         schema.unknown_keys(&values)
     );
 
-    // An embedded leaf is storage-nullable, so it is optional by default: an
-    // absent value must not fail the submit.
+    // An embedded leaf is never required by default (binding policy: the
+    // resolver reports `nullable=true` even though a required embedded
+    // struct's flattened column is `NOT NULL`): an absent value must not fail
+    // the submit.
     let mut only_title = HashMap::new();
     only_title.insert("title".to_string(), "Top".to_string());
     assert!(

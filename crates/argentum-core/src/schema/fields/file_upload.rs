@@ -35,7 +35,7 @@ impl FileUpload {
     /// Create a `FileUpload` bound to the given field lens.
     ///
     /// Required defaults from the lens's nullability (GH #100, GH #147),
-    /// same as `TextInput`/`Select`. Today the `String` lens type only binds
+    /// same as `TextInput`/`Select`. The `String` lens type only binds
     /// non-nullable columns (`Option<String>` fields do not typecheck), so
     /// the default is always required and `.optional()` is the form-level
     /// opt-out; the nullability walk stays correct if the lens widens
@@ -57,7 +57,7 @@ impl FileUpload {
         self
     }
 
-    /// Opt out of the required default (GH #147): today `r#for` only binds
+    /// Opt out of the required default (GH #147): `r#for` only binds
     /// non-nullable `String` columns (an `Option<String>` field is
     /// `Path<M, Option<String>>` and does not typecheck), so the default is
     /// always required and this is the only way to treat a required-backed
