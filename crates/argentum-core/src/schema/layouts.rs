@@ -225,11 +225,14 @@ impl Grid {
 /// Repeater — nested Schema repeated as a group (in-memory for v1, no DB array).
 ///
 /// v1 honesty (GH #73): this is a single-entry group, not a multi-row repeater —
-/// one titled card with its nested schema once, no add/remove UI, no JS, no
+/// one titled fieldset with its nested schema once, no add/remove UI, no JS, no
 /// indexed field names (`tags[0]`). Indexed multi-entry semantics, per-entry
 /// validation, and hydration via split/join or a real relation are deferred.
 /// `required` means "the inner fields must not all be empty" and its error is
 /// keyed by label and rendered inline (GH #78).
+///
+/// The fieldset keeps its border while `Group` and `Tabs` draw none (GH #239):
+/// it delimits repeated rows, whereas a `Section` groups a page's sections.
 #[derive(Debug)]
 pub struct Repeater {
     pub(crate) label: String,
@@ -399,11 +402,10 @@ fn repeater_error_id(label: &str) -> String {
 
 /// Tabs — layout primitive for tabbed content (in-memory for v1, no JS).
 ///
-/// Static `div` grouping for v1 (GH #73): looks like tabs, behaves as stacked
-/// sections until tab JS lands. Documented, not a placeholder bug. The
-/// container is layout-only (GH #239): a flex column carrying the vertical
-/// rhythm, with no border, background or padding — `Section` is the only
-/// container that draws a card.
+/// Static `div` grouping for v1 (GH #73): a stacked column until tab JS lands.
+/// Documented, not a placeholder bug. The container is layout-only (GH #239): a
+/// flex column carrying the vertical rhythm, with no border, background or
+/// padding — `Section` is the only container that draws a card.
 #[derive(Debug)]
 pub struct Tabs {
     pub(crate) children: Option<Schema>,
@@ -456,7 +458,9 @@ mod tests {
     /// The `<div>` nesting depth at the first occurrence of `marker` in `html`,
     /// the outermost `<div>` counting as 1.
     fn div_depth_of(html: &str, marker: &str) -> usize {
-        let at = html.find(marker).expect("the marker");
+        let at = html
+            .find(marker)
+            .unwrap_or_else(|| panic!("the rendered markup carries no {marker}: {html}"));
         let mut depth = 0usize;
         for tag in html[..at].split('<').skip(1) {
             if tag
@@ -529,11 +533,15 @@ mod tests {
             html.contains("name=\"name\""),
             "missing child field in {html}"
         );
-        // GH #238: the child sits inside the card's content wrapper, one level
-        // below the header — never a direct child of the card, where it would
-        // be flush against the title. The wrapper's gap is a class and class
-        // literals are not asserted (GH #216); that the wrapper exists is
-        // structure, so it is stated as nesting rather than as a class.
+        // GH #238: the field sits one `<div>` deeper than the title text, inside
+        // `card_content` — the sibling of `card_header` that carries the gap, so
+        // never a direct child of the card, where it would be flush against the
+        // title. The title text's depth is 2 only because `card_title` renders
+        // an `<h3>`; a `<div>` title would sit at the field's own depth and this
+        // comparison would have to anchor on the header element instead. The
+        // wrapper's gap is a class and class literals are not asserted
+        // (GH #216); that the wrapper exists is structure, so it is stated as
+        // nesting rather than as a class.
         assert!(
             div_depth_of(&html, "data-slot=\"field\"") > div_depth_of(&html, "Account"),
             "the section's child must sit in a content wrapper below its title, got {html}"
