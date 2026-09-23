@@ -93,34 +93,32 @@ impl Resource for UserResource {
     }
 
     fn form(_cx: &Cx) -> Schema {
-        // Profile grouped in the shipped Tabs container (GH #220: one layout
-        // seam, no twin), around a real section rather than a throwaway demo
-        // page.
+        // One section, one card: a single-child `Tabs` wrapper would be a
+        // layout container with nothing to lay out (GH #239). `Tabs` earns its
+        // place on `posts/create`, where it groups the upload and tags blocks.
         Schema::new(
-            Tabs::new().schema(
-                Section::new("Profile").schema((
-                    TextInput::r#for(User::fields().name()).placeholder("Ada Lovelace"),
-                    TextInput::r#for(User::fields().email())
-                        .email()
-                        .unique()
-                        .placeholder("ada@example.com"),
-                    // Static-options Select (the non-relationship kind): role
-                    // vocabulary with presence defaulting from the column.
-                    Select::r#for(User::fields().role())
-                        .options(vec!["admin".to_string(), "member".to_string()])
-                        .label("Role")
-                        .optional(),
-                    // Bool lens via static options: the shipped Field set has no
-                    // checkbox, so Active renders as a Yes/No select.
-                    Select::r#for(User::fields().active())
-                        .options_with_labels(vec![
-                            ("true".to_string(), "Active".to_string()),
-                            ("false".to_string(), "Inactive".to_string()),
-                        ])
-                        .label("Active")
-                        .optional(),
-                )),
-            ),
+            Section::new("Profile").schema((
+                TextInput::r#for(User::fields().name()).placeholder("Ada Lovelace"),
+                TextInput::r#for(User::fields().email())
+                    .email()
+                    .unique()
+                    .placeholder("ada@example.com"),
+                // Static-options Select (the non-relationship kind): role
+                // vocabulary with presence defaulting from the column.
+                Select::r#for(User::fields().role())
+                    .options(vec!["admin".to_string(), "member".to_string()])
+                    .label("Role")
+                    .optional(),
+                // Bool lens via static options: the shipped Field set has no
+                // checkbox, so Active renders as a Yes/No select.
+                Select::r#for(User::fields().active())
+                    .options_with_labels(vec![
+                        ("true".to_string(), "Active".to_string()),
+                        ("false".to_string(), "Inactive".to_string()),
+                    ])
+                    .label("Active")
+                    .optional(),
+            )),
         )
     }
 

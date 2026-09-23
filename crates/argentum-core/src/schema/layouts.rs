@@ -59,11 +59,19 @@ impl Section {
                 card(
                     attrs: attributes! { class=(extra.clone()) },
                     card_header(card_title((title)))
-                    card_content((child_view))
+                    card_content(
+                        attrs: attributes! { class="flex flex-col gap-6" },
+                        (child_view)
+                    )
                 )
             }
             .boxed())
         } else {
+            // Header-only on purpose: the card is `flex flex-col gap-5`, so an
+            // empty `card_content` would be a zero-height flex item that still
+            // takes a gap slot and adds 20px below the title for nothing
+            // (GH #238). The gap-6 class rides `card_content` only where there
+            // are children to space.
             Ok(view! {
                 cx =>
                 card(
@@ -392,9 +400,10 @@ fn repeater_error_id(label: &str) -> String {
 /// Tabs — layout primitive for tabbed content (in-memory for v1, no JS).
 ///
 /// Static `div` grouping for v1 (GH #73): looks like tabs, behaves as stacked
-/// sections until tab JS lands. Documented, not a placeholder bug. The no-JS
-/// chrome — a bordered column wrapping the children — lives here rather than in
-/// a separate container type, which `Tabs` was the only user of (GH #228).
+/// sections until tab JS lands. Documented, not a placeholder bug. The
+/// container is layout-only (GH #239): a flex column carrying the vertical
+/// rhythm, with no border, background or padding — `Section` is the only
+/// container that draws a card.
 #[derive(Debug)]
 pub struct Tabs {
     pub(crate) children: Option<Schema>,
@@ -417,19 +426,9 @@ impl Tabs {
     ) -> Result<BoxView<'a>> {
         if let Some(schema) = &self.children {
             let child_view = schema.render_source(cx, source).await?;
-            Ok(view! {
-                cx =>
-                <div class="flex flex-col gap-4 border border-border rounded-md p-4">
-                    (child_view)
-                </div>
-            }
-            .boxed())
+            Ok(view! { cx => <div class="flex flex-col gap-4">(child_view)</div> }.boxed())
         } else {
-            Ok(view! {
-                cx =>
-                <div class="flex flex-col gap-4 border border-border rounded-md p-4"></div>
-            }
-            .boxed())
+            Ok(view! { cx => <div class="flex flex-col gap-4"></div> }.boxed())
         }
     }
 }
@@ -453,6 +452,25 @@ mod tests {
     fn cx() -> Cx {
         CxTestBuilder::new().build()
     }
+
+    /// The `<div>` nesting depth at the first occurrence of `marker` in `html`,
+    /// the outermost `<div>` counting as 1.
+    fn div_depth_of(html: &str, marker: &str) -> usize {
+        let at = html.find(marker).expect("the marker");
+        let mut depth = 0usize;
+        for tag in html[..at].split('<').skip(1) {
+            if tag
+                .strip_prefix("div")
+                .is_some_and(|rest| rest.starts_with([' ', '>']))
+            {
+                depth += 1;
+            } else if tag.starts_with("/div") {
+                depth = depth.saturating_sub(1);
+            }
+        }
+        depth
+    }
+
     #[derive(Debug, toasty::Model)]
     struct DummyUser {
         #[key]
@@ -510,6 +528,15 @@ mod tests {
         assert!(
             html.contains("name=\"name\""),
             "missing child field in {html}"
+        );
+        // GH #238: the child sits inside the card's content wrapper, one level
+        // below the header — never a direct child of the card, where it would
+        // be flush against the title. The wrapper's gap is a class and class
+        // literals are not asserted (GH #216); that the wrapper exists is
+        // structure, so it is stated as nesting rather than as a class.
+        assert!(
+            div_depth_of(&html, "data-slot=\"field\"") > div_depth_of(&html, "Account"),
+            "the section's child must sit in a content wrapper below its title, got {html}"
         );
     }
 
