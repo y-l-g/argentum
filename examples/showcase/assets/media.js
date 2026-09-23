@@ -6,9 +6,12 @@
 // its name for anything else — and the clear control drops it again.
 //
 // The clear control is a **reset button**, which is what makes the no-JS
-// fallback real: the browser empties the file input by resetting the form, and
-// this script only removes the preview it drew. With JavaScript off there is no
-// preview to leave behind, and the input still clears.
+// fallback real: with the script off, the browser resets the form and the file
+// input empties. With the script on, the control clears the file input itself
+// and cancels that reset — a reset would also drop the owner the user picked,
+// and losing a choice nobody asked to lose is not what "clear the file" means.
+// So: without the script the whole form resets; with it, only the file and its
+// preview go.
 //
 // Document-level delegation (like bulk.js and variant.js), so markup swapped in
 // later needs no re-installation. The preview is the browser's own object URL,
@@ -63,11 +66,17 @@ function install() {
   document.addEventListener('click', (event) => {
     const control = event.target.closest && event.target.closest('[data-media-clear]');
     if (!control) return;
-    // The control resets the form itself — the browser empties the file input —
-    // so the click must not be cancelled. All the script owns is the preview.
     const form = control.form;
     const input = form && form.querySelector('[data-media-file]');
-    if (input) clearPreview(input);
+    // No file input in reach: leave the control to the browser, which resets
+    // the form the markup declared it in.
+    if (!input) return;
+    // The control is a reset button, so this cancels the reset and empties the
+    // file input itself. The rest of the form — the owner picker above all —
+    // keeps what the user chose.
+    event.preventDefault();
+    input.value = '';
+    clearPreview(input);
   });
 }
 

@@ -1,6 +1,6 @@
 # Media library: a polymorphic `medias` table in the showcase
 
-Date: 2026-09-23 — Status: accepted
+Date: 2026-09-23 — Status: accepted — Amended: none
 
 ## Decision
 
@@ -45,16 +45,28 @@ upload form; `POST /admin/media` parses the multipart body, stores the bytes thr
 Neither seam fits: a `Table` column projects a `String`, so it cannot render a thumbnail, and the
 `Schema` tree has no node for a stored file's preview. The page parses its own form for the same
 reason, which is also why it verifies the CSRF token itself (`csrf::verify`, GH #99) and reduces the
-client filename to a basename before the store sees it — the store takes the basename again rather
-than trusting a caller to have done it (GH #90).
+client filename to a basename before the store sees it. The store applies that same rule itself
+rather than trusting a caller (GH #90), so the row's `filename` is exactly the name the store
+writes, bar its `{uuid}-` prefix, and the length cap leaves room for that prefix inside the
+255-byte filename limit.
+
+**The store's return value is a URL, so it is percent-encoded.** The framework renders what the
+store returns verbatim as the file's link (GH #242), and a client filename is arbitrary bytes: an
+unencoded `cover #1.png` becomes `cover ` plus a fragment, a `%22` — what Chrome sends for a quote —
+decodes back to a quote the file on disk does not carry, and a trailing space disappears in URL
+parsing. `DirUploader` encodes the name as one path segment (RFC 3986 unreserved kept, everything
+else `%XX`), so every name a browser can send resolves back to its bytes. The media library's page
+and the framework's `FileUpload` share this store, so both links are fixed together.
 
 **The rich upload UX is the app's, and its no-JS fallback is a reset button.** The page renders the
 file input, a preview region (`data-media-preview`), and an × (`data-media-clear`) that is a
-`type="reset"` control: a browser empties the file input by resetting the form, with no script at
-all. `examples/showcase/assets/media.js` adds the preview — an `<img>` from an object URL for an
-`image/*` file, the file's name otherwise, the URL revoked when the preview is replaced or cleared
-— and drops the preview when the reset control is clicked. It never cancels that click: the reset
-is what empties the input, and the script owns only what it drew.
+`type="reset"` control. With no script the browser resets the form: the file input empties, which is
+the fallback, and so does everything else in the form — the owner picker included, since a reset is
+what the markup declares. `examples/showcase/assets/media.js` narrows that: it empties the file
+input and the preview itself and cancels the reset, so a file clear keeps the owner the user picked.
+The script draws the preview in the first place — an `<img>` from an object URL for an `image/*`
+file, the file's name otherwise, the URL revoked when the preview is replaced or cleared — and a
+form with no file input in reach keeps the browser's reset rather than swallowing the click.
 
 The script is the **app's asset**, declared as `MEDIA_JS` and linked `defer`red by the page rather
 than added to the shell's set. ADR-0014 owns the scripts `argentum-ui` ships — the document emits
@@ -74,10 +86,11 @@ page, so nothing here reads or rewrites the bytes after the store returns.
 ## Consequences
 
 - `examples/showcase/tests/media_check.rs` covers the upload path (a row tied to its owner, the
-  store's URL fetched back, a basename that cannot climb out of the served directory), the
-  thumbnail/link split, the reset control, and the refusals (a dangling owner, a missing CSRF
-  token, a tenantless request). `examples/showcase/assets/media.test.js` covers the script, and
-  CI's `assets` job runs it.
+  store's URL fetched back, a basename that cannot climb out of the served directory, filenames a
+  URL would otherwise break — `#`, a space, `%22`, `%`, a trailing space), one owner's rows and not
+  another's, the thumbnail/link split, the reset control, and the refusals (a dangling owner, a
+  missing CSRF token, a tenantless request). `examples/showcase/assets/media.test.js` covers the
+  script, and CI's `assets` job runs it.
 - The library lists one tenant's rows — the uploader's. A user-owned row is not scoped by its owner,
   because the showcase's users are global; the row's own `tenant_id` is what the page filters on.
 - The list is one unpaginated query: a `Table` paginates, and this page is not one. A library that

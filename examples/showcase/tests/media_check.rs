@@ -30,6 +30,17 @@ async fn published_post(db: &toasty::Db) -> Post {
         .expect("the seed publishes one post")
 }
 
+/// The seeded draft: a second owner of the same kind as [`published_post`].
+async fn draft_post(db: &toasty::Db) -> Post {
+    let mut db = db.clone();
+    Post::filter(Post::fields().title().eq("Second Post".to_string()))
+        .first()
+        .exec(&mut db)
+        .await
+        .expect("query the draft seed post")
+        .expect("the seed creates the Second Post draft")
+}
+
 /// How many media rows the database holds.
 async fn media_count(db: &toasty::Db) -> usize {
     let mut db = db.clone();
@@ -162,6 +173,44 @@ async fn an_upload_creates_a_row_tied_to_its_owner() {
         .expect("collect the served file")
         .to_bytes();
     assert_eq!(bytes.as_ref(), PAYLOAD.as_bytes());
+}
+
+#[tokio::test]
+async fn a_lookup_returns_one_owners_rows_and_not_every_row_of_that_kind() {
+    let db = full_db().await;
+    let router = router_with_app_uploads(db.clone());
+    // Two owners of the same kind: the pair's second half is what tells them
+    // apart, so a lookup that dropped `owner_id` would hand one owner the
+    // other's rows — the leak ADR-0021 makes the app responsible for.
+    let first = published_post(&db).await;
+    let second = draft_post(&db).await;
+    assert_ne!(first.id, second.id);
+
+    let first_owner = MediaOwner::Post(first.id);
+    let second_owner = MediaOwner::Post(second.id);
+    upload(&router, &db, first_owner, "first.png", "image/png", PAYLOAD).await;
+    upload(
+        &router,
+        &db,
+        second_owner,
+        "second.png",
+        "image/png",
+        PAYLOAD,
+    )
+    .await;
+
+    let mut db_q = db.clone();
+    let on_first = media_for_owner(&mut db_q, first_owner).await.unwrap();
+    let mut db_q = db.clone();
+    let on_second = media_for_owner(&mut db_q, second_owner).await.unwrap();
+
+    assert_eq!(on_first.len(), 1, "one row per owner, not two");
+    assert_eq!(on_second.len(), 1, "one row per owner, not two");
+    assert_eq!(on_first[0].owner_id, first.id);
+    assert_eq!(on_second[0].owner_id, second.id);
+    assert_eq!(on_first[0].filename, "first.png");
+    assert_eq!(on_second[0].filename, "second.png");
+    assert_ne!(on_first[0].id, on_second[0].id);
 }
 
 #[tokio::test]
@@ -375,6 +424,69 @@ async fn a_client_filename_is_stored_as_a_basename_inside_the_served_directory()
         "{} must be inside the served directory",
         row.path
     );
+}
+
+#[tokio::test]
+async fn a_filename_that_would_break_the_url_still_fetches_back() {
+    let db = full_db().await;
+    let router = router_with_app_uploads(db.clone());
+    let post = published_post(&db).await;
+    let owner = MediaOwner::Post(post.id);
+    let client = demo_client(&router, &db).await;
+
+    // Every name here reaches the store as the browser sent it, and every one
+    // must come back: `#` would start a fragment, a space would end the URL,
+    // `%22` is what Chrome sends for a quote, and a `%` would decode to
+    // something the file on disk is not named.
+    for (sent, recorded) in [
+        ("cover #1.png", "cover #1.png"),
+        (
+            "quote%22 onerror=%22boom.png",
+            "quote%22 onerror=%22boom.png",
+        ),
+        ("100%.png", "100%.png"),
+        ("trailing .png ", "trailing .png"),
+    ] {
+        let csrf = uuid::Uuid::new_v4().to_string();
+        let response = post_upload(&client, owner, sent, "image/png", PAYLOAD, Some(&csrf)).await;
+        assert!(
+            response.status().is_redirection(),
+            "{sent:?} must save, got {}",
+            response.status()
+        );
+
+        let mut db_q = db.clone();
+        let rows = media_for_owner(&mut db_q, owner).await.unwrap();
+        let row = rows
+            .iter()
+            .find(|row| row.filename == recorded)
+            .unwrap_or_else(|| panic!("no row recorded {recorded:?} for {sent:?}"));
+        assert!(
+            !row.path.contains(['#', '"', ' ']),
+            "{sent:?} stored a path that is not one URL segment: {}",
+            row.path
+        );
+
+        let response = client.get(&row.path).await;
+        assert_eq!(
+            response.status(),
+            200,
+            "{} must resolve to the stored bytes",
+            row.path
+        );
+        let bytes = response
+            .into_body()
+            .collect()
+            .await
+            .expect("collect the served file")
+            .to_bytes();
+        assert_eq!(
+            bytes.as_ref(),
+            PAYLOAD.as_bytes(),
+            "{} served the wrong bytes",
+            row.path
+        );
+    }
 }
 
 #[tokio::test]

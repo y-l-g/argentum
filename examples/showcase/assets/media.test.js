@@ -10,9 +10,11 @@
 // What the cases protect:
 // * the preview decision: an `image/*` file draws a thumbnail, anything else
 //   draws its name, and nothing selected empties the region;
-// * the clear control is a reset button, so the click handler must leave the
-//   event alone — the browser is what empties the file input — and only drop
-//   the preview the script drew;
+// * the clear control clears the file input and the preview **without**
+//   resetting the form: the owner the user picked has to survive a file clear,
+//   which is why the script cancels the reset the markup's button would
+//   otherwise perform. With the script off that reset is the no-JS fallback,
+//   and ADR-0021 records both paths;
 // * the object URL is revoked when the preview is replaced or cleared, so a
 //   page left open does not pin the file's bytes.
 
@@ -39,6 +41,7 @@ function widget() {
   };
   const input = {
     files: [],
+    value: '',
     matches: (selector) => selector === '[data-media-file]',
     form: null,
   };
@@ -165,13 +168,14 @@ test('replacing a preview revokes the object URL it was showing', () => {
 
 // --- the clear control -------------------------------------------------------
 
-test('the clear control drops the preview and leaves the reset to the browser', () => {
+test('the clear control empties the file and cancels the form reset', () => {
   const urls = stubObjectUrls();
   try {
     const { region, input, control } = widget();
     const document = standInDocument();
     const { showPreview } = load(document);
     input.files = [{ name: 'cover.png', type: 'image/png' }];
+    input.value = 'C:\\fakepath\\cover.png';
     showPreview(input);
     assert.equal(region.hidden, false);
 
@@ -185,12 +189,36 @@ test('the clear control drops the preview and leaves the reset to the browser', 
 
     assert.equal(
       cancelled,
-      0,
-      'the reset is what empties the input, so the click must not cancel it',
+      1,
+      'the reset is cancelled: it would also drop the owner the user picked',
     );
+    assert.equal(input.value, '', 'the file input is emptied by the script');
     assert.equal(region.hidden, true, 'the preview goes');
     assert.deepEqual(region.children, []);
     assert.deepEqual(urls.revoked, ['blob:cover.png'], 'and its object URL is revoked');
+  } finally {
+    urls.restore();
+  }
+});
+
+test('a clear control with no file input in reach keeps the browser reset', () => {
+  const urls = stubObjectUrls();
+  try {
+    const document = standInDocument();
+    load(document);
+    // A form the widget cannot find its input in: the click must fall through
+    // to the reset the markup declared, not be swallowed.
+    const control = { form: { querySelector: () => null } };
+
+    let cancelled = 0;
+    fire(document, 'click', {
+      target: {
+        closest: (selector) => (selector === '[data-media-clear]' ? control : null),
+      },
+      preventDefault: () => (cancelled += 1),
+    });
+
+    assert.equal(cancelled, 0, 'the browser still resets the form');
   } finally {
     urls.restore();
   }

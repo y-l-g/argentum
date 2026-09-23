@@ -314,7 +314,9 @@ per Panel (`Panel::uploads`), discovered on the app_context wherever a `FileUplo
 object store is an app-level dependency, not a per-field declaration.
 `store(filename, bytes) -> Result<String, String>` receives the part's already-sanitized basename
 and its content (bounded by the 10 MiB form cap) and returns the value the record stores, which the
-framework renders verbatim as a link to the file (GH #242). A refusal (`Err(reason)`) is an inline
+framework renders verbatim as a link to the file (GH #242) — so what it returns is a URL the
+browser can fetch, percent-encoded by the store when the client filename carries anything outside
+the unreserved set. A refusal (`Err(reason)`) is an inline
 field error — `"<Label> could not be uploaded: <reason>"` — because a rejected upload is user input,
 not infrastructure. With no
 uploader installed the sanitized basename is stored, and the bytes are drained rather than
@@ -327,7 +329,7 @@ served directory is **public** (ADR-0017): those URLs answer whoever asks, with 
 the auth gate covers exactly the panel prefix and the runtime prefix (ADR-0013) and a served
 directory sits outside both. An app that needs protected files owns that route itself.
 
-_Avoid_: FileStore, Attachment, Media library, Blob store
+_Avoid_: FileStore, Attachment, Blob store
 
 ### Media asset
 

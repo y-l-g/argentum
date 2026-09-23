@@ -31,7 +31,7 @@ use topcoat::{
     view::{BoxView, View, ViewExt, attributes, view},
 };
 
-use crate::app::{DirUploader, PostResource, UserResource, upload_dir};
+use crate::app::{DirUploader, PostResource, UserResource, basename, upload_dir};
 use crate::models::{MediaAsset, Post, User};
 
 /// Where the media library lives: the page, the upload route, and the form's
@@ -63,9 +63,6 @@ const OWNER_FIELD: &str = "owner";
 
 /// The upload form's file field.
 const FILE_FIELD: &str = "file";
-
-/// The longest client filename the library keeps, in characters (GH #90).
-const MAX_FILENAME_CHARS: usize = 255;
 
 /// The record a media row belongs to (GH #248): the typed half of the
 /// polymorphic pair.
@@ -270,10 +267,12 @@ async fn media_page(cx: &Cx) -> Result<impl View> {
                                             data-media-file=""
                                         }
                                     )
-                                    // The × is a reset control, not a script: the
-                                    // browser empties the file input with JavaScript
-                                    // off, and `media.js` only drops the preview it
-                                    // drew beside it.
+                                    // The × is a reset control: with no script
+                                    // the browser resets the form and the file
+                                    // input empties; `media.js` empties the input
+                                    // and the preview itself and cancels that
+                                    // reset, so a file clear keeps the owner the
+                                    // user picked (ADR-0021).
                                     argentum_ui::button(
                                         variant: argentum_ui::ButtonVariant::Outline,
                                         size: argentum_ui::ButtonSize::Sm,
@@ -387,6 +386,8 @@ async fn upload(cx: &Cx, mut multipart: Multipart) -> Result<SeeOther> {
         .and_then(|value| MediaOwner::parse(value))
         .ok_or_else(|| bad_request("Choose an owner before uploading."))?;
     let part = file.ok_or_else(|| bad_request("Choose a file before uploading."))?;
+    // The name the row records and the store writes: one rule, so the row's
+    // `filename` and the file on disk cannot disagree (GH #90).
     let filename = basename(&part.filename);
     if filename.is_empty() || part.bytes.is_empty() {
         return Err(bad_request("Choose a file before uploading.").into());
@@ -401,9 +402,10 @@ async fn upload(cx: &Cx, mut multipart: Multipart) -> Result<SeeOther> {
     // The app's own store, pointed at the directory the panel serves: the
     // `Uploader` `Panel::uploads` installs lives on the app context for the
     // framework's form parser and is not readable from a page, so the page
-    // builds the same store from the same configuration.
+    // builds the same store from the same configuration. What it returns is
+    // the row's `path` verbatim — a URL that resolves back to these bytes.
     let path = DirUploader::new(upload_dir())
-        .store(&part.filename, &part.bytes)
+        .store(&filename, &part.bytes)
         .await
         .map_err(bad_request)?;
     toasty::create!(MediaAsset {
@@ -474,18 +476,6 @@ fn owner_label(
     }
 }
 
-/// The client filename reduced to a basename (GH #90, GH #248).
-///
-/// The framework sanitizes the filenames its own form parser hands an
-/// [`Uploader`]; this page parses its own multipart body, so it does the same
-/// job before the name reaches the store or the row: strip directory
-/// components, drop control characters, trim, and cap the length.
-fn basename(raw: &str) -> String {
-    let base = raw.rsplit(['/', '\\']).next().unwrap_or(raw);
-    let clean: String = base.chars().filter(|c| !c.is_control()).collect();
-    clean.trim().chars().take(MAX_FILENAME_CHARS).collect()
-}
-
 /// Whether an uploaded part is an image, from the content type the browser sent
 /// with it (GH #248).
 ///
@@ -530,20 +520,6 @@ mod tests {
         for value in ["", "post", "post:", ":7", "author:7", "post:not-a-uuid"] {
             assert_eq!(MediaOwner::parse(value), None, "{value:?}");
         }
-    }
-
-    #[test]
-    fn a_client_filename_is_reduced_to_a_basename() {
-        assert_eq!(basename("../../etc/passwd"), "passwd");
-        assert_eq!(basename("/abs/path/cover.png"), "cover.png");
-        assert_eq!(basename("C:\\fakepath\\cover.png"), "cover.png");
-        assert_eq!(basename("  cover.png  "), "cover.png");
-        assert_eq!(basename("cover\u{7}.png"), "cover.png");
-        assert_eq!(basename("   "), "");
-        assert_eq!(
-            basename(&"a".repeat(300)).chars().count(),
-            MAX_FILENAME_CHARS
-        );
     }
 
     #[test]
