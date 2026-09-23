@@ -15,16 +15,20 @@
 //   content replaces it wholesale.
 //
 // The mutation response is a whole list page, and the client never morphs it
-// into the live document: markup inserted that way is never hydrated (the
-// runtime hydrates only what its own units render), and the response renders
-// the bare list URL while a live table's state lives in its signals. Driving
-// the shard keeps one renderer — the server — for both halves.
+// into the live document. The response renders the bare list URL while a live
+// table's state lives in its signals and its page-owned toolbar, so a region
+// taken from it would show a different result set than the controls around it;
+// and markup a plain script inserts carries no bindings until the next shard
+// rerun, which re-hydrates the range it morphs. Driving the shard keeps one
+// renderer — the server — for both halves.
 //
 // Failure paths are the browser's. A POST the server answers itself (4xx/5xx)
 // wrote nothing — the handlers check before the write and roll back on any
 // failure — so the form is handed back and the browser shows the same
 // response a no-JS POST would. A request that never completes leaves the
-// outcome unknown, so the page reloads instead of guessing.
+// outcome unknown, and a redirect that was followed is a write that landed
+// even when the list render behind it failed: both reload the page rather
+// than post the delete a second time.
 //
 // Without JavaScript none of this runs: the same form POSTs and 303s.
 //
@@ -108,11 +112,13 @@ function swapTargets(doc) {
 // The row a row-delete form targets: the control that opened the dialog
 // carries this record's POST target (dialog.js copies it onto the form), and
 // on a live page the dialog itself sits outside the table, so the trigger is
-// where the row is still reachable from.
-function rowOf(form) {
+// where the row is still reachable from. The search stays inside the form's
+// own region, so a page rendering the same resource twice cannot match the
+// other table's row.
+function rowOf(form, region) {
   const action = form.getAttribute('action');
-  if (!action) return null;
-  const trigger = Array.from(document.querySelectorAll('[data-row-delete-action]'))
+  if (!action || !region) return null;
+  const trigger = Array.from(region.querySelectorAll('[data-row-delete-action]'))
     .find((el) => el.getAttribute('data-row-delete-action') === action);
   return trigger ? trigger.closest('tr') : null;
 }
@@ -151,7 +157,12 @@ async function send(form, action, submitter) {
   // response's markup to close (by dropping `open`) strands the document
   // inert, so nothing can be focused at all.
   const dialog = form.closest('dialog') || form.querySelector('dialog');
-  const row = rowOf(form);
+  // The table this form belongs to. A page can render two (bulk.js scopes
+  // itself per table the same way), and a delete in one must not read the
+  // other's region, refresh control or bulk wire.
+  const root = form.closest('[data-table-root]');
+  const region = root ? root.closest('[data-boundary="table"]') : null;
+  const row = rowOf(form, region);
   const index = row ? Array.from(row.parentElement.children).indexOf(row) : -1;
   if (submitter) submitter.disabled = true;
 
@@ -170,10 +181,10 @@ async function send(form, action, submitter) {
     return;
   }
 
-  // The POST answered itself rather than redirecting: the server refused or
-  // failed the write, and nothing was written. Hand the form back so the
+  // No redirect was followed, so the POST answered itself: the server refused
+  // or failed the write, and nothing was written. Hand the form back so the
   // browser shows that response exactly as a no-JS POST does.
-  if (!response.redirected || !response.ok) {
+  if (!response.redirected) {
     if (submitter) submitter.disabled = false;
     form.submit();
     return;
@@ -182,11 +193,17 @@ async function send(form, action, submitter) {
   // live page the dialog survives the rerun, and a disabled Delete would make
   // the next row's delete a dead click.
   if (submitter) submitter.disabled = false;
+  // The redirect was followed, so the delete committed. A list render that
+  // failed behind it is not a reason to post the delete again: reload and let
+  // the reader see the state the server actually holds.
+  if (!response.ok) {
+    window.location.reload();
+    return;
+  }
 
   const doc = new DOMParser().parseFromString(await response.text(), 'text/html');
   const { table, toasts } = swapTargets(doc);
-  const region = document.querySelector('[data-boundary="table"]');
-  const revision = document.querySelector('[data-table-revision]');
+  const revision = root ? root.querySelector('[data-table-revision]') : null;
   // Nothing to update in place: a response the page cannot place is a page
   // the reader should be looking at.
   if (!region || (!revision && !table)) {
@@ -196,7 +213,7 @@ async function send(form, action, submitter) {
   // The selection the write removed, and the wire it leaves behind. Read now,
   // not at submit time: every submit listener has run by the time the response
   // lands, so this is the batch the form actually carried.
-  const transport = document.querySelector('form[data-bulk-form] input[name="ids"]');
+  const transport = region.querySelector('form[data-bulk-form] input[name="ids"]');
   const removed = removedKeys(form, action);
   const wire =
     transport && removed.length > 0
@@ -218,7 +235,7 @@ async function send(form, action, submitter) {
     url.searchParams.delete('delete');
     url.searchParams.delete('open');
     window.history.replaceState(window.history.state, '', url);
-    afterRegionChange(region, () => focusAfter(index));
+    afterRegionChange(region, () => focusAfter(region, index));
   } else {
     region.replaceChildren(
       ...Array.from(table.childNodes).map((node) => document.importNode(node, true)),
@@ -226,11 +243,11 @@ async function send(form, action, submitter) {
     // The response's transport carries the server's empty wire: re-apply the
     // pruned one so a row delete does not clear the rest of the selection.
     writeSelection(
-      document.querySelector('form[data-bulk-form] input[name="ids"]'),
+      region.querySelector('form[data-bulk-form] input[name="ids"]'),
       wire,
     );
     window.history.replaceState(window.history.state, '', response.url);
-    focusAfter(index);
+    focusAfter(region, index);
   }
 }
 
@@ -260,10 +277,10 @@ function dismiss(dialog) {
 // Focus where the deleted row stood: the row that took its place, else the
 // last row, else the bulk trigger. The table is the reader's context, and the
 // control that opened the dialog is usually the element that just left. The
-// table is looked up again here — both paths have replaced or morphed it by
-// the time this runs.
-function focusAfter(index) {
-  const tbody = document.querySelector('[data-boundary="table"] tbody');
+// region is the element captured at submit time — both paths keep it and
+// replace or morph what is inside it.
+function focusAfter(region, index) {
+  const tbody = region.querySelector('tbody');
   const rows = tbody ? Array.from(tbody.children) : [];
   const target = index >= 0 ? rows[Math.min(index, rows.length - 1)] : null;
   const control =
@@ -275,7 +292,7 @@ function focusAfter(index) {
         target.querySelector(
           'a[href], button:not([disabled]), input:not([type="hidden"]):not([disabled])',
         ))) ||
-    document.querySelector('[data-bulk-confirm-trigger]');
+    region.querySelector('[data-bulk-confirm-trigger]');
   if (control) control.focus();
 }
 

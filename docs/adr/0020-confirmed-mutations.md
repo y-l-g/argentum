@@ -36,8 +36,7 @@ is no binding, no handler, and no shard (pinned by
 `a_static_table_renders_no_runtime_bindings_at_all`). The control's presence is therefore the page's
 own answer to "can this table refresh in place?", and the client needs no other test.
 
-**The client never morphs the response into the live document.** Two properties make that path
-unsound, and both are load-bearing:
+**The client never morphs the response into the live document.** The reason is state, not markup:
 
 - **The response renders the bare list URL, the page keeps its live state.** A delete 303s to
   `list_url(cx, slug)` — prefix and slug, no query (`panel/actions.rs`). A live table's query state
@@ -46,18 +45,20 @@ unsound, and both are load-bearing:
   `dir`, `cursor` and `group_by` are registry-only) nor reset them. Morphing the region would leave
   a table showing page 1 unfiltered under a toolbar still reading `?q=ada`, and the next shard rerun
   would snap the table back to the query the toolbar no longer shows.
-- **Nothing the client inserts is hydrated.** The runtime hydrates only what its own units render
-  (`topcoat-runtime`'s `hydrate` is not reachable from a plain script, and the runtime exposes no
-  morph API), so a hand-written morph would keep matched elements and silently downgrade every node
-  it inserts — sort links, pager links, the bulk transport — to their href fallback. A later shard
-  rerun would keep those nodes (its morph pairs by tag), so the degradation would outlive the
-  mutation.
+
+A hand-written morph would also start its inserted nodes unbound — the runtime exposes no morph or
+hydrate entry point, so a sort or pager link a morph inserts falls back to its `href` until the next
+rerun, which re-hydrates the whole range it morphs (`ShardUnit.insert` morphs and then hydrates;
+`hydrate` re-attaches every `data-topcoat-on:*` handler it walks). That is a transient downgrade, not
+a reason to reject the morph; the state above is.
 
 **Failure paths stay the browser's.** A POST the server answers itself (4xx/5xx) wrote nothing — the
 handlers verify CSRF and confirmation and check policy before opening the write, and any failure
 rolls the transaction back — so the client hands the form back with `form.submit()` and the browser
-shows the same response a no-JS POST would, at the same URL. A request that never completes leaves
-the outcome unknown, so the page reloads instead of guessing.
+shows the same response a no-JS POST would, at the same URL. Two cases reload instead, because
+posting again would be a second write: a request that never completes (the outcome is unknown) and a
+redirect that was followed but whose list render failed (the delete committed; only the render behind
+it did not).
 
 **What the swap preserves.** The URL keeps the state the table still holds; only the dialog's own
 `delete`/`open` parameters are dropped (a static table mirrors the response URL, whose state its
@@ -76,10 +77,13 @@ the shard's wire arguments and `TableSignals` are unchanged, and a mutation carr
 in addition to the POST it always made. `mutation-submit.js` joins the shell assets (ADR-0014) with
 `data-mutation-submit`, `data-table-revision`, `data-boundary` and `data-sonner-toaster` as its hook
 contract, and its pure decisions — which region a response hands over, which keys a write removed,
-which submits it answers — are covered by `node --test`. The panel's own resource tables are live
-(`Table::live_search`), so the in-place path is the shard path; the replacement path is what a
-`live_search(false)` table gets, and no shipped showcase page exercises it end to end.
+which submits it answers — are covered by `node --test`. `Table::live_search` defaults to false, so
+the shard path is the one a resource opts into: all four showcase resources do, and every other
+table — a downstream app's included — takes the wholesale replacement, which is exercised only by
+suppressing the control on a live page.
 
 A page that renders a live table without a shard around it (`Table::render_live_with_state`, GH #154
 §2) carries the same control, but its dependency attaches to the page unit instead: writing it
-re-runs the page, not a shard.
+re-runs the page, not a shard. That rerun re-renders the whole document, and its morph drops the
+toast the client just inserted — the response carries none (the flash was consumed), and the toast
+sits before the toaster shard's start marker, outside the content the morph keeps.

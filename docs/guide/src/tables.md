@@ -79,6 +79,9 @@ only thing carrying the `confirm=1` the handler requires — a POST without that
 the safeguard does not depend on the script that opens the dialog (GH #184).
 
 Row delete asks first too, and the dialog opens in place (GH #233): the row control names the
-table's one dialog and carries that record's POST target, so a delete costs the confirmed POST
-alone. Cancel is a button, so dismissing never navigates; the control's `?delete=<key>` href stays
-as the no-JS fallback, which renders the same dialog open with the action already set.
+table's one dialog and carries that record's POST target. Confirming it needs no navigation
+(GH #234): the client follows the POST's 303, mounts the flash toast the handler set, and refreshes
+the table through the shard — a delete costs the confirmed POST, the list render behind the redirect
+(whose body is discarded except the toast) and one `table_search` request. Cancel is a button, so
+dismissing never navigates; the control's `?delete=<key>` href stays as the no-JS fallback, which
+renders the same dialog open with the action already set.
