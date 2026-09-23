@@ -1,10 +1,11 @@
 //! The public blog (GH #247): `/blog` and `/blog/{id}` answer with no session,
 //! a draft is invisible on both, and the pages query the model directly.
 //!
-//! Every request here goes through [`TestClient::new`], which attaches no
-//! cookie and no tenant — the point of the suite. The panel request in the
-//! first test is the control: the same router still gates `/admin`, so a 200 on
-//! `/blog` is the blog being public rather than the gate being off.
+//! Every anonymous request here goes through [`TestClient::new`], which attaches
+//! no cookie and no tenant — the point of the suite. The one signed-in client
+//! proves a session changes nothing, and the panel request in the first test is
+//! the control: the same router still gates `/admin`, so a 200 on `/blog` is the
+//! blog being public rather than the gate being off.
 
 use showcase::app::router_for_tests as router;
 use showcase::models::{Author, DEMO_TENANT, Media, Post, PostStats, Publication, Seo};
@@ -38,12 +39,14 @@ fn post_path(post: &Post) -> String {
     format!("/blog/{}", post.id)
 }
 
-/// Create a published post carrying `title` and `excerpt`, written by `author`.
+/// Create a published post carrying `title` and `excerpt`, written by `author`,
+/// dated `created_at`.
 async fn create_published(
     db: &toasty::Db,
     index: u128,
     title: &str,
     excerpt: &str,
+    created_at: &str,
     author: &Author,
 ) {
     let mut db = db.clone();
@@ -54,7 +57,7 @@ async fn create_published(
         body: format!("Body of {title}."),
         status: "published".to_string(),
         featured: false,
-        created_at: jiff::Timestamp::now(),
+        created_at: created_at.parse::<jiff::Timestamp>().expect("a timestamp"),
         image_path: String::new(),
         tags: String::new(),
         seo: Seo {
@@ -79,6 +82,11 @@ async fn create_published(
     .await
     .expect("create a published post");
 }
+
+/// The seed's one published post is dated 2024-01-15, so these two bracket it:
+/// `older` is after it and `newer` is after that.
+const OLDER: &str = "2024-03-01T09:00:00Z";
+const NEWER: &str = "2024-05-01T09:00:00Z";
 
 #[tokio::test]
 async fn blog_list_and_detail_are_public() {
@@ -301,6 +309,7 @@ async fn the_list_carries_every_published_post_and_its_author() {
             index,
             &format!("Public Post {index}"),
             &format!("Excerpt {index}"),
+            OLDER,
             &author,
         )
         .await;
@@ -322,6 +331,71 @@ async fn the_list_carries_every_published_post_and_its_author() {
     assert!(
         html.contains(&author.name),
         "the list must name every post's author: {html}"
+    );
+}
+
+#[tokio::test]
+async fn a_post_with_no_description_renders_no_empty_excerpt() {
+    // The excerpt is guarded, so a published post whose SEO description is
+    // empty renders no empty paragraph. Asserted structurally — an empty
+    // element, not the class it would carry.
+    let db = full_db().await;
+    let router = router(db.clone());
+    let mut db_q = db.clone();
+    let author = Author::all()
+        .first()
+        .exec(&mut db_q)
+        .await
+        .expect("query an author")
+        .expect("the seed creates authors");
+    create_published(&db, 0, "Bare Post", "", OLDER, &author).await;
+
+    let response = TestClient::new(&router).get("/blog").await;
+    assert_eq!(response.status(), 200);
+    let html = body_string(response).await;
+    assert!(
+        html.contains("Bare Post"),
+        "the post must still be listed: {html}"
+    );
+    assert!(
+        !html.contains("></p>"),
+        "a post with no description must render no empty paragraph: {html}"
+    );
+}
+
+#[tokio::test]
+async fn the_list_orders_posts_newest_first() {
+    // The order is `created_at` descending. The seed's one published post is
+    // dated 2024-01-15, so two more bracket it and the whole list is pinned.
+    let db = full_db().await;
+    let router = router(db.clone());
+    let mut db_q = db.clone();
+    let author = Author::all()
+        .first()
+        .exec(&mut db_q)
+        .await
+        .expect("query an author")
+        .expect("the seed creates authors");
+    create_published(&db, 0, "Older Post", "Older excerpt", OLDER, &author).await;
+    create_published(&db, 1, "Newer Post", "Newer excerpt", NEWER, &author).await;
+
+    let response = TestClient::new(&router).get("/blog").await;
+    assert_eq!(response.status(), 200);
+    let html = body_string(response).await;
+
+    let seeded = published_post(&db).await;
+    let position = |title: &str| {
+        html.find(title)
+            .unwrap_or_else(|| panic!("the list must carry {title}: {html}"))
+    };
+    let newer = position("Newer Post");
+    let older = position("Older Post");
+    let seed = position(&seeded.title);
+    assert!(
+        newer < older && older < seed,
+        "the list must read newest first: Newer Post at {newer}, Older Post at {older}, \
+         {} at {seed}: {html}",
+        seeded.title
     );
 }
 

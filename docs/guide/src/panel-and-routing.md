@@ -81,8 +81,16 @@ async fn blog() -> Result<impl View> {
 A public page renders its own document: `Panel::render_document` and `Panel::layout_shell` are the
 admin shell, so the layout carries the head — `topcoat::dev::script()`,
 `topcoat::runtime::script()`, `topcoat::font::link(font: …)` and
-`<link rel="stylesheet" href=(tailwind::stylesheet!())>` — the same way the panel's shell does.
+`<link rel="stylesheet" href=(tailwind::stylesheet!())>` — the same way the panel's shell does. The
+runtime script, the font and the stylesheet are `Asset` URLs, and an `Asset` panics where no asset
+config is registered, so a router built without `.assets(..)` — a markup test, say — needs a layout
+that leaves them out: the panel's shell drops back to `topcoat::dev::script()` and its theme script
+in that case, and a layout takes the same fallback by guarding on
+`try_app_context::<AssetConfig>(cx).is_some()`.
 
 The panel's resource loaders are panel-scoped (auth, tenancy, chrome), so a public page queries the
 model directly: `Post::filter(Post::fields().status().eq("published".to_string()))`, with an explicit
-`.include(..)` for every relation the page reads. See [Data access](./data-access.md).
+`.include(..)` for every relation the page reads. See [Data access](./data-access.md). The framework
+scopes a `Resource`'s loaders, not a page's own query, so app code that loads rows outside those
+loaders calls `scoped_query` — a public page in a multi-tenant app states its tenant predicate in the
+query it writes (ADR-0002).

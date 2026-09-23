@@ -146,9 +146,13 @@ async fn page(cx: &Cx) -> Result<impl View> {
                                 " · "
                                 (post.created_at.strftime("%Y-%m-%d").to_string())
                             </p>
-                            <p class="mt-3 text-muted-foreground">
-                                (&post.seo.description)
-                            </p>
+                            // Guarded like the detail page's: a post with no
+                            // description renders no empty paragraph.
+                            if !post.seo.description.is_empty() {
+                                <p class="mt-3 text-muted-foreground">
+                                    (&post.seo.description)
+                                </p>
+                            }
                         </article>
                     </li>
                 }
