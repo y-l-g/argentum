@@ -35,7 +35,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-85783bc2.js";
+            window.path_to_searchindex_js = "searchindex-23a43a66.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-da1679ae.js"></script>
@@ -214,6 +214,59 @@ default. Omit <code>dark_mode</code> and the panel starts light.</p>
 <p>The panel owns the URL of each resource’s list page and resolves a resource’s sidebar entry to
 <code>{prefix}/{slug}</code>; the resource owns the label and the ordering. See
 <a href="./resources.html">Resources</a> for the <code>navigation()</code> override.</p>
+<h2 id="public-pages"><a class="header" href="#public-pages">Public pages</a></h2>
+<p>A public page is an app-level <code>#[page]</code> outside the panel prefix. The auth gate installs two layers
+— the panel prefix and <code>/_topcoat/runtime</code> — and a layer wraps only the routes under its path
+prefix, so no route under another prefix is gated. Route discovery is link-time over the binary, so
+the <code>discover()</code> call inside <code>Panel::build</code> collects these pages with no router change:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>use topcoat::{
+    Result,
+    router::{Slot, layout, page},
+    tailwind,
+    view::{View, view},
+};
+
+// The layout path is a prefix: `/blog` wraps `/blog` and `/blog/{id}`, and
+// nothing else. A layout at `/` would wrap `/admin` too.
+#[layout("/blog")]
+async fn blog_layout(slot: Slot&lt;'_&gt;) -&gt; Result&lt;impl View&gt; {
+    Ok(view! {
+        &lt;!DOCTYPE html&gt;
+        &lt;html&gt;
+            &lt;head&gt;
+                topcoat::dev::script()
+                topcoat::runtime::script()
+                &lt;link rel="stylesheet" href=(tailwind::stylesheet!())&gt;
+            &lt;/head&gt;
+            &lt;body&gt;
+                (slot)
+            &lt;/body&gt;
+        &lt;/html&gt;
+    })
+}
+
+#[page("/blog")]
+async fn blog() -&gt; Result&lt;impl View&gt; {
+    Ok(view! { "Posts" })
+}
+<span class="boring">}</span></code></pre>
+<p>A public page renders its own document: <code>Panel::render_document</code> and <code>Panel::layout_shell</code> are the
+admin shell, so the layout carries the head — <code>topcoat::dev::script()</code>,
+<code>topcoat::runtime::script()</code>, <code>topcoat::font::link(font: …)</code> and
+<code>&lt;link rel="stylesheet" href=(tailwind::stylesheet!())&gt;</code> — the same way the panel’s shell does. The
+runtime script, the font and the stylesheet are <code>Asset</code> URLs, and an <code>Asset</code> panics where no asset
+config is registered, so a router built without <code>.assets(..)</code> — a markup test, say — needs a layout
+that leaves them out: the panel’s shell drops back to <code>topcoat::dev::script()</code> and its theme script
+in that case, and a layout takes the same fallback by guarding on
+<code>try_app_context::&lt;AssetConfig&gt;(cx).is_some()</code>.</p>
+<p>The panel’s resource loaders are panel-scoped (auth, tenancy, chrome), so a public page queries the
+model directly: <code>Post::filter(Post::fields().status().eq("published".to_string()))</code>, with an explicit
+<code>.include(..)</code> for every relation the page reads. See <a href="./data-access.html">Data access</a>. The framework
+scopes a <code>Resource</code>’s loaders, not a page’s own query, so app code that loads rows outside those
+loaders calls <code>scoped_query</code> — a public page in a multi-tenant app states its tenant predicate in the
+query it writes (ADR-0002).</p>
 
                     </main>
 
