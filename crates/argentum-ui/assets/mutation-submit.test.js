@@ -26,6 +26,7 @@ const {
   pruneWire,
   removedKeys,
   swapTargets,
+  tableRootFor,
   wireFrom,
   wireOf,
 } = require(SCRIPT);
@@ -79,6 +80,50 @@ test('a form naming neither removes nothing', () => {
   // Pruning nothing keeps a selection the write did not touch; guessing here
   // would clear a selection the reader still holds.
   assert.deepEqual(removedKeys(formWith({}), '/admin/users/bulk-delete'), []);
+});
+
+// --- which table a form belongs to ------------------------------------------
+
+// A node stand-in whose `closest` answers the selectors a case gives it.
+const closestOf = (answers) => ({
+  closest: (selector) => answers[selector] || null,
+});
+
+test('a form inside a table belongs to that table', () => {
+  const own = closestOf({});
+  const form = closestOf({ '[data-table-root]': own });
+  assert.equal(tableRootFor(form, '/admin/users/ada/delete'), own);
+});
+
+test('a row confirm outside every table finds its table through its control', () => {
+  // The row dialog is page-owned and sits outside the region, so the form has
+  // no table ancestor: the control that opened it (carrying the same POST
+  // target) is what names the table.
+  const root = closestOf({});
+  const trigger = {
+    getAttribute: (name) =>
+      name === 'data-row-delete-action' ? '/admin/users/ada/delete' : null,
+    closest: (selector) => (selector === '[data-table-root]' ? root : null),
+  };
+  global.document = { querySelectorAll: () => [trigger] };
+  try {
+    const form = closestOf({});
+    assert.equal(tableRootFor(form, '/admin/users/ada/delete'), root);
+  } finally {
+    delete global.document;
+  }
+});
+
+test('a form whose control is gone belongs to no table', () => {
+  // A stale action (the row was re-rendered away) must not fall back to the
+  // document: the client then leaves the page alone instead of touching the
+  // wrong table.
+  global.document = { querySelectorAll: () => [] };
+  try {
+    assert.equal(tableRootFor(closestOf({}), '/admin/users/ada/delete'), null);
+  } finally {
+    delete global.document;
+  }
 });
 
 // --- the selection wire -----------------------------------------------------

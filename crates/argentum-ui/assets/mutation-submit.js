@@ -109,18 +109,36 @@ function swapTargets(doc) {
   };
 }
 
-// The row a row-delete form targets: the control that opened the dialog
-// carries this record's POST target (dialog.js copies it onto the form), and
-// on a live page the dialog itself sits outside the table, so the trigger is
-// where the row is still reachable from. The search stays inside the form's
-// own region, so a page rendering the same resource twice cannot match the
-// other table's row.
+// The control that opened a row-delete form's dialog: it carries this record's
+// POST target, which dialog.js copies onto the form, so the target is what
+// names the control back.
+function triggerFor(action) {
+  if (!action) return null;
+  return (
+    Array.from(document.querySelectorAll('[data-row-delete-action]')).find(
+      (el) => el.getAttribute('data-row-delete-action') === action,
+    ) || null
+  );
+}
+
+// The table a mutation form belongs to. The bulk form lives inside its table;
+// the row confirm lives in the dialog the page owns, outside every table, so
+// its table is the one holding the control that opened it. Scoping here is
+// what keeps a page rendering two tables from reading the other one's region,
+// refresh control or bulk wire.
+function tableRootFor(form, action) {
+  const own = form.closest('[data-table-root]');
+  if (own) return own;
+  const trigger = triggerFor(action);
+  return trigger ? trigger.closest('[data-table-root]') : null;
+}
+
+// The row a row-delete form targets, found through the same control, so a page
+// rendering the same resource twice cannot match the other table's row.
 function rowOf(form, region) {
-  const action = form.getAttribute('action');
-  if (!action || !region) return null;
-  const trigger = Array.from(region.querySelectorAll('[data-row-delete-action]'))
-    .find((el) => el.getAttribute('data-row-delete-action') === action);
-  return trigger ? trigger.closest('tr') : null;
+  const trigger = triggerFor(form.getAttribute('action'));
+  if (!trigger || !region || !region.contains(trigger)) return null;
+  return trigger.closest('tr');
 }
 
 // The next revision token. Monotonic per page load, so the write always
@@ -157,10 +175,9 @@ async function send(form, action, submitter) {
   // response's markup to close (by dropping `open`) strands the document
   // inert, so nothing can be focused at all.
   const dialog = form.closest('dialog') || form.querySelector('dialog');
-  // The table this form belongs to. A page can render two (bulk.js scopes
-  // itself per table the same way), and a delete in one must not read the
-  // other's region, refresh control or bulk wire.
-  const root = form.closest('[data-table-root]');
+  // The table this form belongs to (bulk.js scopes itself per table the same
+  // way), its region, and the row the delete came from.
+  const root = tableRootFor(form, action);
   const region = root ? root.closest('[data-boundary="table"]') : null;
   const row = rowOf(form, region);
   const index = row ? Array.from(row.parentElement.children).indexOf(row) : -1;
@@ -321,6 +338,14 @@ if (typeof document !== 'undefined') install();
 // loaded through `asset!`, so it cannot be an ES module. The guard keeps the
 // browser branch inert.
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { deletedKey, pruneWire, removedKeys, swapTargets, wireFrom, wireOf };
+  module.exports = {
+    deletedKey,
+    pruneWire,
+    removedKeys,
+    swapTargets,
+    tableRootFor,
+    wireFrom,
+    wireOf,
+  };
 }
 })();
