@@ -14,14 +14,12 @@ cargo run -p showcase
 
 `crates/argentum-core` is the framework. `examples/showcase` is the runnable admin, the reference
 for panel and resource declarations, and the home of the integration tests (`cargo test -p
-showcase`); the JavaScript unit tests are `node --test
-crates/argentum-ui/assets/selects.test.js` and `node --test
-crates/argentum-ui/assets/bulk.test.js`.
+showcase`); the JavaScript unit tests are `node --test crates/argentum-ui/assets/*.test.js`.
 
 ## The gate set
 
-CI runs these eight commands. Run the ones covering your change before pushing,
-and all eight before merging.
+CI runs these nine commands. Run the ones covering your change before pushing,
+and all nine before merging.
 
 1. `cargo test --workspace --locked`
 2. `cargo clippy --workspace --all-targets --locked -- -D warnings`
@@ -31,6 +29,7 @@ and all eight before merging.
 6. `cargo check --locked --manifest-path benchmarks/argentum/Cargo.toml`
 7. `cargo clippy --locked --manifest-path benchmarks/argentum/Cargo.toml --all-targets -- -D warnings`
 8. `cargo +1.98 check --workspace --locked`
+9. `node --test crates/argentum-ui/assets/*.test.js`
 
 Gate 3 keeps the opt-out auth feature compiling: `auth` is on by default in
 `argentum-core`, and `default-features = false` stays a working escape hatch
