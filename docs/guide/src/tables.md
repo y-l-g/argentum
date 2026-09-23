@@ -29,6 +29,13 @@ Notes:
 - The URL is the state: `?q=`, `?sort=`, `?dir=`, `?after=`, `?before=`, `?filters=`, `?group_by=`
   parse into `TableState`. Pagination is cursor based; Toasty appends the PK tie-breaker internally
   so cursors stay deterministic.
+- Columns render in a fixed layout (`table-fixed`): a column's width is the one its header declares, not
+  the widest cell on the current page, so filtering, sorting or paging never re-measures the columns.
+  The default follows the column's kind: a field column (`TextColumn::r#for`) takes a share of the free
+  width, a computed column (`TextColumn::computed`) is a narrow fixed column.
+  `TextColumn::width(ColumnWidth::..)` overrides either. The width is emitted as an inline `style` —
+  Tailwind generates only the class literals it finds in source — and a value wider than its column
+  truncates with an ellipsis.
 - Computed columns render only. They do not affect search or sort.
 
 Filters:

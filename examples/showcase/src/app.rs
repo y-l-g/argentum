@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use argentum_core::{
-    Brand, DateFilter, FileUpload, Grid, Group, IncludeNeeds, Panel, RelationColumn,
+    Brand, ColumnWidth, DateFilter, FileUpload, Grid, Group, IncludeNeeds, Panel, RelationColumn,
     RelationColumns, Repeater, Resource, Schema, Section, Select, SelectFilter, Table, Tabs,
     TernaryFilter, TextColumn, TextInput, Textarea, Uploader, VariantFilter, read_embedded,
     render_relation, require_tenant, scoped_query, submitted, tenant_id, write_embedded,
@@ -631,10 +631,17 @@ impl Resource for PostResource {
                 TextColumn::r#for(Post::fields().title(), |p: &Post| p.title.clone())
                     .searchable()
                     .sortable(),
-                TextColumn::r#for(Post::fields().status(), |p: &Post| p.status.clone()),
+                // GH #240: a status is narrow by content, not by kind — `r#for`
+                // binds a `String` field, which the framework cannot tell from
+                // a title. Featured and Comments below keep the `computed`
+                // default (narrow).
+                TextColumn::r#for(Post::fields().status(), |p: &Post| p.status.clone())
+                    .width(ColumnWidth::Narrow),
                 TextColumn::computed("Featured", |p: &Post| {
                     if p.featured { "Yes" } else { "No" }.to_string()
                 }),
+                // The other override direction: a computed column that holds a
+                // name is body text, so it takes a share of the free width.
                 TextColumn::computed("Author", |p: &Post| {
                     // Loud on missing includes (GH #101): a silent "-" reads
                     // as data. The list/export loaders include author when
@@ -650,6 +657,7 @@ impl Resource for PostResource {
                         p.author.get().name.clone()
                     }
                 })
+                .width(ColumnWidth::Wide)
                 .needs(["author"]),
                 TextColumn::computed("Comments", |p: &Post| {
                     debug_assert!(
@@ -1203,6 +1211,9 @@ impl Resource for CommentResource {
                         c.post.get().title.clone()
                     }
                 })
+                // GH #240: a post title is body text, not the narrow badge a
+                // computed column defaults to.
+                .width(ColumnWidth::Wide)
                 .needs(["post"]),
             ))
             .paginate(25)

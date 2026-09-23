@@ -126,7 +126,9 @@ A typed projection of a Model field (or a computed value) displayed in a Table r
 through a lens-bound closure where typos fail at compile time. `searchable`/`sortable` map to
 Toasty predicates and order_by; computed columns render values but declare none. A column whose
 projection reads a relation declares it with `needs(..)`, and the CSV export's narrowed query is
-built from those declarations (GH #177, ADR-0018). `TextColumn` is the only column type; Badge,
+built from those declarations (GH #177, ADR-0018). A column declares its width in the table's
+fixed layout with `width(ColumnWidth::..)`, defaulting by kind: a field column takes a share of the
+free width, a computed column is narrow (GH #240). `TextColumn` is the only column type; Badge,
 Number and the rest remain spec-level.
 
 _Avoid_: Field (in table context), Cell, Attribute

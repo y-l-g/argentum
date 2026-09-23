@@ -14,6 +14,7 @@ use topcoat::icon::icon;
 use topcoat::runtime::Event;
 use topcoat::{Result, view::*};
 
+use super::super::ColumnWidth;
 use super::super::filter::Filter;
 use super::super::state::{
     TablePage, TableSignals, TableState, bulk_delete_url, delete_action_url, group_header_dom_id,
@@ -34,6 +35,12 @@ pub(crate) const LIVE_SEARCH_DEBOUNCE_MS: u32 = 200;
 /// a batch the handler refuses. Read aloud by a screen reader in place of the
 /// checkbox's usual "Select row" label, and offered as the pointer tooltip too.
 pub(crate) const DENIED_ROW_REASON: &str = "You cannot delete this row";
+
+/// The width the bulk-selection column declares (GH #240): one checkbox plus
+/// the cell's `p-3` padding. `table-fixed` splits the free width equally
+/// between the columns that declare none, so an undeclared checkbox column
+/// would sit as wide as the title beside it.
+const BULK_COLUMN_WIDTH: ColumnWidth = ColumnWidth::Rem(3);
 
 impl<M> Table<M> {
     /// Render the table for the given loaded page.
@@ -252,6 +259,16 @@ impl<M> Table<M> {
         // headers and the pager exist solely on rows pages: an empty page
         // renders the honest empty cell instead (its pager would be empty
         // anyway, and grouping an empty page yields no headers).
+        //
+        // The declared widths are a property of the columns, not of the row,
+        // so they are resolved once here: the same CSS for every row, and a
+        // `for` whose expression names `self.columns` would carry the table's
+        // borrow into the view (GH #240).
+        let cell_widths: Vec<_> = self
+            .columns
+            .iter()
+            .map(|col| col.column_width().css())
+            .collect();
         let mut pager_views: Vec<BoxView<'_>> = Vec::new();
         let body: BoxView<'_> = if page.rows.is_empty() {
             let empty_cell = self
@@ -260,6 +277,7 @@ impl<M> Table<M> {
             view! {
                 cx =>
                 table(
+                    attrs: attributes! { class="table-fixed" },
                     (head)
                     (empty_cell)
                 )
@@ -281,7 +299,13 @@ impl<M> Table<M> {
                 .unwrap_or_default();
             view! {
                 cx =>
+                // The table-level layout is a static class: Tailwind sees the
+                // literal, and the decision carries no per-column value. Each
+                // column's width, which does, rides the `th`/`td` inline
+                // `style` (GH #240). Fixed layout is what stops a filter or a
+                // page change from re-measuring the columns.
                 table(
+                    attrs: attributes! { class="table-fixed" },
                     (head)
                     table_body(
                         #[key(row.key.as_str())]
@@ -332,8 +356,20 @@ impl<M> Table<M> {
                                         )
                                     }
                                 }
-                                for cell in &row.cells {
-                                    table_cell((cell.clone()))
+                                // `row.cells` is built column-for-column, so the
+                                // zip pairs each cell with the column that owns
+                                // its width (GH #240). The cell repeats the
+                                // width its header declares and truncates:
+                                // under the table's fixed layout a value wider
+                                // than the column clips to an ellipsis instead
+                                // of stretching the column. `truncate` is a
+                                // static class, which Tailwind does generate —
+                                // only the per-column width has to be data.
+                                for (cell, width) in row.cells.iter().zip(&cell_widths) {
+                                    table_cell(
+                                        attrs: attributes! { class="truncate" style=(width.as_deref()) },
+                                        (cell.clone())
+                                    )
                                 }
                                 if view_for_row.is_some()
                                     || edit_for_row.is_some()
@@ -906,6 +942,7 @@ impl<M> Table<M> {
                     <div class="animate-pulse rounded-md bg-foreground/10 h-9 w-64"></div>
                 </div>
                 table(
+                    attrs: attributes! { class="table-fixed" },
                     (head)
                     table_body(
                         #[key(i)]
@@ -1700,6 +1737,12 @@ impl<M> Table<M> {
         let mut heads: Vec<BoxView<'_>> = Vec::with_capacity(self.columns.len());
         for col in &self.columns {
             let label = col.label().to_string();
+            // The declared width rides the header cell's inline `style`
+            // (GH #240): a Tailwind class assembled at render would emit no
+            // CSS, because Tailwind only generates the literals it finds in
+            // source. A wide column declares nothing and takes a share of what
+            // the fixed columns leave.
+            let width = col.column_width().css();
             // A static preview renders plain labels: no link to an interaction
             // the page does not honor (GH #151).
             let sortable = col.is_sortable();
@@ -1775,7 +1818,7 @@ impl<M> Table<M> {
                 view! {
                     cx =>
                     table_head(
-                        attrs: attributes! { class=(head_class) aria-sort=(aria_sort) },
+                        attrs: attributes! { class=(head_class) aria-sort=(aria_sort) style=(width) },
                         (header)
                     )
                 }
@@ -1783,14 +1826,39 @@ impl<M> Table<M> {
             );
         }
         if with_actions {
-            heads.push(view! { cx => table_head("Actions") }.boxed());
+            // The row links are chrome, not a declared column, but they need a
+            // width all the same: `table-fixed` splits the free width equally
+            // between the columns that declare none, so an auto Actions column
+            // next to a title would be too narrow for three links. The count is
+            // what the table knows; the widths are a static set (GH #240).
+            let links = usize::from(self.view_prefix.is_some())
+                + usize::from(self.edit_prefix.is_some())
+                + usize::from(self.delete_prefix.is_some());
+            let width = match links {
+                2 => ColumnWidth::Rem(12),
+                3.. => ColumnWidth::Rem(16),
+                _ => ColumnWidth::Rem(8),
+            };
+            heads.push(
+                view! {
+                    cx =>
+                    table_head(attrs: attributes! { style=(width.css()) }, "Actions")
+                }
+                .boxed(),
+            );
         }
         Ok(view! {
             cx =>
             table_header(
                 table_row(
                     if with_bulk {
+                        // The checkbox column is the same size for every table:
+                        // one checkbox plus the cell's padding. The header row
+                        // is the row `table-fixed` measures, so the chrome
+                        // columns declare their width here and their `td`s
+                        // declare none (GH #240).
                         table_head(
+                            attrs: attributes! { style=(BULK_COLUMN_WIDTH.css()) },
                             <input
                                 type="checkbox"
                                 aria-label="Select all rows"
@@ -1855,7 +1923,7 @@ struct GroupHeader {
 mod tests {
     use super::*;
     use crate::resource::{
-        DateFilter, SelectFilter, Sort, TernaryFilter, TextColumn, VariantFilter,
+        ColumnWidth, DateFilter, SelectFilter, Sort, TernaryFilter, TextColumn, VariantFilter,
     };
     use std::collections::HashMap;
     use topcoat::context::CxTestBuilder;
@@ -1940,6 +2008,13 @@ mod tests {
         html.rsplit('<')
             .find(|chunk| chunk.contains(label))
             .unwrap_or_else(|| panic!("missing {label} link in {html}"))
+    }
+
+    /// The `<table …>` opening tag of a rendered table, without its children.
+    fn table_tag(html: &str) -> &str {
+        let start = html.find("<table").expect("the table element");
+        let end = html[start..].find('>').expect("its tag end") + start;
+        &html[start..end]
     }
 
     #[tokio::test]
@@ -2070,6 +2145,103 @@ mod tests {
                 row.title
             );
         }
+    }
+
+    /// GH #240: the table lays out fixed, and a declared column width reaches
+    /// the header cell and every row's cell as data — an inline `style`, never
+    /// a Tailwind class built at render.
+    #[tokio::test]
+    async fn table_lays_out_fixed_and_emits_declared_column_widths() {
+        let cx = CxTestBuilder::new().build();
+        let width_table = Table::<Task>::r#for(&cx).id(|t| t.id.to_string()).columns((
+            // A field-backed column defaults to `Wide`: it declares no
+            // width and takes a share of what the fixed columns leave.
+            TextColumn::r#for(Task::fields().title(), |t: &Task| t.title.clone()),
+            // A computed column defaults to `Narrow`, overridden here.
+            TextColumn::computed("Status", |t: &Task| t.status.clone())
+                .width(ColumnWidth::Percent(30)),
+        ));
+        let page: TablePage<Task> = vec![Task {
+            id: uuid::Uuid::new_v4(),
+            title: "Ada".to_string(),
+            status: "draft".to_string(),
+            featured: false,
+            created_at: jiff::Timestamp::now(),
+        }]
+        .into();
+        let html = width_table
+            .render(&cx, page)
+            .await
+            .unwrap()
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
+        // The fixed layout is this change's contract and a class is its only
+        // transport (GH #240's Done-when names `table-fixed`), so it is
+        // asserted here; the paint classes stay the showcase's business
+        // (GH #216/#136).
+        let tag = table_tag(&html);
+        assert!(
+            tag.contains("table-fixed"),
+            "the table must lay out fixed, got {tag}"
+        );
+        // The declared width is data on the header and on the row's cell: one
+        // declaration, two carriers.
+        assert_eq!(
+            html.matches("style=\"width: 30%\"").count(),
+            2,
+            "the declared width must reach the th and the td, got {html}"
+        );
+        // The wide column declares nothing: an absent attribute, not a
+        // generated class.
+        assert_eq!(
+            html.matches("style=\"width").count(),
+            2,
+            "only the declared column carries a width, got {html}"
+        );
+    }
+
+    /// GH #240: the chrome columns declare a width, because `table-fixed`
+    /// splits the free width equally between the columns that declare none —
+    /// an undeclared checkbox column would sit as wide as the title beside it,
+    /// and an undeclared Actions column too narrow for its row links.
+    #[tokio::test]
+    async fn chrome_columns_declare_their_widths() {
+        let cx = CxTestBuilder::new().build();
+        let chrome_table = Table::<User>::r#for(&cx)
+            .id(|u| u.id.to_string())
+            .pk(|u| u.id.to_string())
+            .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()))
+            .with_delete("/admin/users".to_string())
+            .with_edit("/admin/users".to_string())
+            .with_view("/admin/users".to_string())
+            .with_bulk_delete(true);
+        let page: TablePage<User> = vec![User {
+            id: uuid::Uuid::new_v4(),
+            name: "Ada".to_string(),
+        }]
+        .into();
+        let html = chrome_table
+            .render(&cx, page)
+            .await
+            .unwrap()
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
+        // The header row is the row `table-fixed` measures, so the chrome
+        // columns declare their width there: one declaration each.
+        assert_eq!(
+            html.matches("style=\"width: 3rem\"").count(),
+            1,
+            "the checkbox column must declare its width, got {html}"
+        );
+        assert_eq!(
+            html.matches("style=\"width: 16rem\"").count(),
+            1,
+            "the three-link Actions column must declare its width, got {html}"
+        );
     }
 
     #[tokio::test]
@@ -3090,6 +3262,10 @@ mod tests {
             html.contains("aria-hidden"),
             "skeleton must hold chrome placeholders, got {html}"
         );
+        // The skeleton and the swapped table must declare the same layout, or
+        // the swap re-measures the columns (GH #240): comparing the two
+        // opening tags states that without pinning a class literal.
+        let skeleton_table = table_tag(&html).to_string();
         // The swap payload is the table itself, under the same boundary region.
         let rows = vec![User {
             id: uuid::Uuid::nil(),
@@ -3110,6 +3286,11 @@ mod tests {
         assert!(
             html.contains("Ada"),
             "swap payload must be rows, got {html}"
+        );
+        assert_eq!(
+            table_tag(&html),
+            skeleton_table,
+            "the swapped table must declare the skeleton's layout (GH #240), got {html}"
         );
     }
 
