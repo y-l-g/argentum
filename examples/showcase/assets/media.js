@@ -46,7 +46,6 @@ function showPreview(input) {
     const image = document.createElement('img');
     image.src = url;
     image.alt = file.name;
-    image.className = 'size-12 rounded-md border border-border object-cover';
     region.appendChild(image);
     region.dataset.objectUrl = url;
   } else {

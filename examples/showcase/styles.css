@@ -116,4 +116,11 @@
   body {
     @apply bg-background font-sans text-foreground;
   }
+
+  /* The media library's upload preview (GH #248): `media.js` draws the `<img>`
+     from the chosen file, and the app's stylesheet is what sizes it — the
+     script owns the behavior, this file owns the appearance (ADR-0006). */
+  [data-media-preview] img {
+    @apply size-12 rounded-md border border-border object-cover;
+  }
 }
