@@ -357,6 +357,7 @@ pub const ASSET_FILES: &[(&str, &str)] = &[
     ("selects.js", "SELECTS_JS"),
     ("variant.js", "VARIANT_JS"),
     ("notifications.js", "NOTIFICATION_JS"),
+    ("mutation-submit.js", "MUTATION_SUBMIT_JS"),
 ];
 
 /// One hook-contract entry (GH #152, ADR-0014): `js` must appear in the
@@ -561,6 +562,29 @@ pub const ASSET_HOOKS: &[AssetHook] = &[
         asset: "notifications.js",
         js: "dataset.mounted",
         rust: "data-mounted",
+    },
+    // The confirmed mutation (GH #234): the marker both delete confirms carry,
+    // the live table's refresh control, the region the response's table
+    // replaces, and the toaster the response's toast mounts into.
+    AssetHook {
+        asset: "mutation-submit.js",
+        js: "data-mutation-submit",
+        rust: "data-mutation-submit",
+    },
+    AssetHook {
+        asset: "mutation-submit.js",
+        js: "data-table-revision",
+        rust: "data-table-revision",
+    },
+    AssetHook {
+        asset: "mutation-submit.js",
+        js: "data-boundary",
+        rust: "data-boundary",
+    },
+    AssetHook {
+        asset: "mutation-submit.js",
+        js: "data-sonner-toaster",
+        rust: "data-sonner-toaster",
     },
 ];
 

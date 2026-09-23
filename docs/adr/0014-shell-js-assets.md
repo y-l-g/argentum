@@ -4,10 +4,11 @@ Date: 2026-09-18 — Status: accepted — Amended: 2026-09-19, 2026-09-22, 2026-
 
 ## Decision
 
-**Ownership.** `crates/argentum-ui/assets/` holds nine hand-written JS assets (`sidebar.js`,
+**Ownership.** `crates/argentum-ui/assets/` holds ten hand-written JS assets (`sidebar.js`,
 `theme.js`, `dialog.js`, `bulk.js`, `filters.js`, `live-search.js`, `selects.js`, `variant.js`,
-`notifications.js`; `selects.test.js`, `bulk.test.js` and `dialog.test.js` are the Node tests, not
-shipped — ~44 KB unminified, ~18 KB gzipped summed per asset, with no build or minify step). They
+`notifications.js`, `mutation-submit.js`; `selects.test.js`, `bulk.test.js`, `dialog.test.js` and
+`mutation-submit.test.js` are the Node tests, not shipped — ~58 KB unminified, ~23 KB gzipped
+summed per asset, with no build or minify step). They
 are declared as `Asset` constants in
 `crates/argentum-ui/src/lib.rs` and emitted by `Panel::render_document` in `argentum-core` on every
 document with `ShellAssets`, including the login page, where all but `theme.js`'s backstop apply are
@@ -18,10 +19,10 @@ paint.
 Per-component `<script>` tags stay out: duplicate execution stacks document listeners, and the runtime
 does not manage script lifecycles in swapped content.
 
-**All-load policy.** Every document with `ShellAssets` loads all nine scripts. `render_document`
+**All-load policy.** Every document with `ShellAssets` loads all ten scripts. `render_document`
 receives an opaque `BoxView` and `layout_shell` a lazy `Slot`, so nothing at document level can
 observe what was rendered; scoping emission to page content needs a new declaration API, and it would
-not shrink the bundle because all nine handles stay referenced. The "hook ⇒ script" guarantee
+not shrink the bundle because all ten handles stay referenced. The "hook ⇒ script" guarantee
 therefore holds only for documents rendered through `render_document` with `ShellAssets` configured:
 a `Panel` built without `.shell_assets(..)` renders sidebar/toaster hooks with no scripts, as do apps
 using `argentum-ui` components directly.
@@ -43,6 +44,7 @@ The list is attribute hooks only — structural selectors (`.relative`, `pre cod
 | `selects.js` | `data-select-filterable`, `data-options-filter` (searchable `Select`) | Filter input inert; plain select keeps working |
 | `variant.js` | `data-variant-select`, `data-variant-of`, `data-variant` (embedded enum groups) | Every variant's group renders; nothing the server parses is lost |
 | `notifications.js` | `data-sonner-toast`, `data-close-button`, `data-mounted` (toaster) | Toasts stay visible until the next navigation |
+| `mutation-submit.js` | `data-mutation-submit` (row + bulk confirms), `data-table-revision` (live table), `data-boundary` (table region), `data-sonner-toaster` (shell) | Both confirms POST and 303; the table updates with a full page load |
 
 **No-build stance.** No `package.json`, no lint/format config, no Node step in CI, no minification:
 the assets are small enough that a toolchain would cost more than it saves. Revisit with the all-load
@@ -60,6 +62,6 @@ are vendored primitives, so the note lives at the core render sites (the delete 
 
 ## Consequences
 
-`Panel::render_document` keeps emitting all nine tags, `defer`red; a new hook extends `ASSET_HOOKS`
+`Panel::render_document` keeps emitting all ten tags, `defer`red; a new hook extends `ASSET_HOOKS`
 with both sides in the same commit. `cargo xtask` still never touches `assets/` (ADR-0007 covers
 primitives only).

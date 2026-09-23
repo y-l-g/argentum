@@ -597,6 +597,38 @@ mod tests {
         // path renders rows and the live controls bound to the caller's
         // signals.
         let sig = |n: u8, v: &str| format!(r#"{{"t":"Signal","id":"{:032x}","v":"{v}"}}"#, n);
+        /// The signal id a rendered refresh control writes (GH #234): read
+        /// from the control's own `data-topcoat-on:change` handler, which is
+        /// the side that re-runs the shard. Locating it by offset from the
+        /// marker instead would read whatever payload happened to follow.
+        fn revision_signal_id(html: &str) -> &str {
+            const MARKER: &str = r#"id&quot;:&quot;"#;
+            let at = html
+                .find("data-table-revision")
+                .unwrap_or_else(|| panic!("the refresh control, got {html}"));
+            let tag_start = html[..at].rfind('<').expect("the control's opening tag");
+            // The tag runs to the next `<`: an attribute value escapes its own
+            // `>` (the handler's `=&gt;`), so the first `>` is not the tag's.
+            let next = html[tag_start + 1..]
+                .find('<')
+                .map(|i| tag_start + 1 + i)
+                .unwrap_or(html.len());
+            let tag = &html[tag_start..next];
+            let write = tag
+                .find("data-topcoat-on:change")
+                .unwrap_or_else(|| panic!("the control's write handler, got {tag}"));
+            let id_at = tag[write..]
+                .find(MARKER)
+                .unwrap_or_else(|| panic!("the handler's signal, got {tag}"))
+                + write
+                + MARKER.len();
+            let id = &tag[id_at..id_at + 32];
+            assert!(
+                id.chars().all(|c| c.is_ascii_hexdigit()),
+                "the handler must name a signal id, got {tag}"
+            );
+            id
+        }
         // Args are positional shard inputs: q, filters, sort, dir, the single
         // cursor wire (GH #166), group_by, and the bulk handle the table binds
         // its selection transport to.
@@ -678,6 +710,29 @@ mod tests {
         assert!(
             table_html.contains("data-topcoat-on:click") && table_html.contains("sort=name"),
             "live table must bind the sort link and keep its href, got {table_html}"
+        );
+        // GH #234: the shard's own refresh control. A mutation changes rows the
+        // tracked inputs do not describe, so the client writes this token and
+        // the shard re-runs. The write is only a re-run because the render read
+        // the signal: the control's own write handler and the dep marker must
+        // name the same id, and that id is not the bulk transport's.
+        assert!(
+            table_html.contains("data-table-revision")
+                && table_html.contains("data-topcoat-on:change"),
+            "the live table must carry the writable refresh control, got {table_html}"
+        );
+        let revision = revision_signal_id(&table_html);
+        assert_ne!(
+            revision, "00000000000000000000000000000007",
+            "the refresh control must not reuse the bulk transport's signal"
+        );
+        assert!(
+            table_html.contains(&format!(r#"::topcoat::dep("{revision}")"#)),
+            "the refresh control's signal must be a shard dependency, got {table_html}"
+        );
+        assert!(
+            table_html.contains("data-bulk-form") && table_html.contains("data-mutation-submit"),
+            "the bulk form must opt into the in-place path, got {table_html}"
         );
 
         // A direct context for the loader/cursor assertions below.

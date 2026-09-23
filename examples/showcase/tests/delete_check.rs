@@ -389,6 +389,49 @@ async fn delete_sso_managed_user_is_forbidden() {
     );
 }
 
+/// The in-place delete path is client-side only (GH #234): both confirms opt
+/// in through `data-mutation-submit`, and without JavaScript the markup is the
+/// ordinary POST it always was — same method, same action, same 303 the
+/// redirect test above pins.
+#[tokio::test]
+async fn delete_forms_opt_in_without_changing_the_post() {
+    let db = seeded_db().await;
+    let router = router(db.clone());
+    let client = demo_client(&router, &db).await;
+
+    let resp = client.get("/admin/users").await;
+    let html = body_string(resp).await;
+
+    let row_form = tag_with(&html, "data-row-delete-form");
+    assert!(
+        row_form.contains("method=\"post\"") && row_form.contains("data-mutation-submit"),
+        "the row confirm must stay a POST that opts into the client path, got {row_form}"
+    );
+    assert!(
+        !row_form.contains("action="),
+        "the closed row dialog takes its action from the row control, got {row_form}"
+    );
+
+    let bulk_form = tag_with(&html, "data-bulk-form");
+    assert!(
+        bulk_form.contains("method=\"post\"") && bulk_form.contains("data-mutation-submit"),
+        "the bulk confirm must stay a POST that opts into the client path, got {bulk_form}"
+    );
+    assert_eq!(
+        attr_value(bulk_form, "action"),
+        "/admin/users/bulk-delete",
+        "the bulk form posts to the batch route, got {bulk_form}"
+    );
+
+    // The confirmation the handlers require rides inside the form either way:
+    // the client path is an affordance, never the safeguard (GH #184).
+    assert_eq!(
+        html.matches("name=\"confirm\" value=\"1\"").count(),
+        2,
+        "both confirms must carry the marker the handlers require, got {html}"
+    );
+}
+
 /// The opening tag of the element carrying `marker`: from the nearest `<`
 /// before it to its closing `>`.
 fn tag_with<'a>(html: &'a str, marker: &str) -> &'a str {
