@@ -508,7 +508,7 @@ impl Resource for PostResource {
 
     /// The post's title, so the detail heading names the post rather than its
     /// record key (GH #241).
-    fn record_label(record: &Post) -> Option<String> {
+    fn record_label(_cx: &Cx, record: &Post) -> Option<String> {
         Some(record.title.clone())
     }
 
