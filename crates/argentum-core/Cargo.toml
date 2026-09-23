@@ -21,6 +21,10 @@ argentum-macros = { path = "../argentum-macros" }
 argentum-ui = { path = "../argentum-ui" }
 argon2 = { version = "0.6", optional = true }
 bytes = "1"
+# The email rule (GH #243). `default-features = false` matches how `lettre`
+# already pulls the crate in through `topcoat-mail`: the serde support is unused
+# here, and the lock keeps the entry it has.
+email_address = { version = "0.2", default-features = false }
 form_urlencoded = "1.2"
 heck = "0.5"
 http = "1"

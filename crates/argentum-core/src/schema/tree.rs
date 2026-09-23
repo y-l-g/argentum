@@ -11,6 +11,7 @@ use topcoat::{Result, context::Cx, view::*};
 use super::Schema;
 use super::fields::{FileUpload, Select, TextInput, Textarea};
 use super::layouts::{Grid, Group, Repeater, Section, Tabs};
+use super::validation::required_error;
 
 #[derive(Debug)]
 pub(crate) enum Node {
@@ -254,7 +255,7 @@ pub(crate) fn walk_repeater_absence(
                 if r.required && !inside_absent {
                     errors
                         .entry(r.label.clone())
-                        .or_insert_with(|| vec![format!("{} is required", r.label)]);
+                        .or_insert_with(|| vec![required_error(&r.label)]);
                 }
             }
             if let Some(child) = node.children() {

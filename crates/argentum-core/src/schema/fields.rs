@@ -17,14 +17,15 @@ use super::relationship::{
     related_record_check, related_records, related_records_search,
 };
 use super::tree::Mode;
+use super::validation::{Rules, TypedValue};
 
 /// How a read-only value is presented (GH #187).
 ///
 /// Two shapes, because the difference is content, not styling: prose wraps
 /// mid-word never, and an identifier (a stored path, an address) has no spaces
 /// to break at, so it breaks anywhere and sets in mono. A `bool` parameter
-/// carried the same decision until it read as validation metadata
-/// (`self.is_email`) at a call site.
+/// carried the same decision until it read as validation metadata at a call
+/// site.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ValueKind {
     /// Wrapping text: a title, a body, a description.
@@ -81,85 +82,6 @@ fn render_value_view<'a>(cx: &'a Cx, label: &str, value: BoxView<'a>) -> Result<
     .boxed())
 }
 
-/// A typed column's own spelling rules, for the typed constructors (GH #192).
-///
-/// The form edge is text: a control submits a `String`, so a column that is not
-/// a `String` needs a `Display` to render and a `FromStr` to read back. `NOUN`
-/// names the type in the error a user sees (`` `2024-13-01` is not a valid
-/// date ``), because "invalid" alone does not tell them what was expected.
-///
-/// Implemented for the types a panel actually binds rather than as a blanket
-/// over `FromStr`: a blanket would let a field declare a parse only to have no
-/// sensible message for it, and the set is small.
-pub trait TypedValue: std::fmt::Display + std::str::FromStr {
-    /// What this type is called in a validation error.
-    const NOUN: &'static str;
-}
-
-/// The integer types a typed leaf can bind (GH #191 widened this from the three
-/// GH #192 shipped): a derived embedded value classifies a field as a leaf by
-/// its type, so the set of leaf-capable types has to be the whole integer
-/// family rather than the ones the showcase happened to use.
-macro_rules! typed_whole_number {
-    ($($ty:ty),* $(,)?) => {
-        $(
-            impl TypedValue for $ty {
-                const NOUN: &'static str = "whole number";
-            }
-        )*
-    };
-}
-
-typed_whole_number!(
-    i8, i16, i32, i64, i128, isize, u8, u16, u32, u64, u128, usize
-);
-
-impl TypedValue for bool {
-    const NOUN: &'static str = "yes/no value";
-}
-
-impl TypedValue for f32 {
-    const NOUN: &'static str = "number";
-}
-
-impl TypedValue for f64 {
-    const NOUN: &'static str = "number";
-}
-
-impl TypedValue for uuid::Uuid {
-    const NOUN: &'static str = "identifier";
-}
-
-impl TypedValue for jiff::Timestamp {
-    const NOUN: &'static str = "timestamp";
-}
-
-/// How a typed field reads a submitted string back (GH #192).
-///
-/// A `String` field keeps the identity parser — store what was typed — so the
-/// untyped path stays byte-for-byte what it was. A typed field gets a parser
-/// that validates at the form edge and normalises through `Display`.
-type ValueParser = std::sync::Arc<dyn Fn(&str) -> Result<String, String> + Send + Sync>;
-
-/// The identity parser: text fields store the trimmed submission.
-fn identity_parser() -> ValueParser {
-    std::sync::Arc::new(|value: &str| Ok(value.to_string()))
-}
-
-/// The parser a typed field binds: reject what `T` cannot parse, and store what
-/// `T`'s own `Display` produces for it (GH #192).
-///
-/// Normalising through `Display` is the point, not a side effect: it is what
-/// makes an edit that never touched the field write back a value of the same
-/// shape it read, rather than an unreviewed re-spelling. A `jiff::Timestamp`
-/// submitted as `2024-01-02T03:04:05Z` is stored as that type's canonical form.
-fn typed_parser<T: TypedValue>() -> ValueParser {
-    std::sync::Arc::new(|value: &str| match value.parse::<T>() {
-        Ok(parsed) => Ok(parsed.to_string()),
-        Err(_) => Err(format!("`{value}` is not a valid {}", T::NOUN)),
-    })
-}
-
 /// Typed text field bound to a Toasty field lens. The lens is the single
 /// source of truth for the field name and type, so `TextInput::for(User::fields().name())`
 /// fails to compile if the column does not exist (ADR-0001).
@@ -168,26 +90,24 @@ pub struct TextInput {
     name: String,
     label: String,
     required: bool,
-    is_email: bool,
     unique: bool,
     placeholder: Option<String>,
-    /// How a submission becomes the stored value (GH #192): identity for a
-    /// `String` column, the type's own parse-and-`Display` for a typed one.
-    parser: ValueParser,
+    /// The email and typed-parse rules (GH #243), with their messages.
+    rules: Rules,
 }
 
 impl std::fmt::Debug for TextInput {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // The parser is a closure with no useful Debug; everything a reader
-        // needs is the field's identity.
+        // needs is the field's identity and which rules it declares.
         f.debug_struct("TextInput")
             .field("name", &self.name)
             .field("label", &self.label)
             .field("required", &self.required)
-            .field("is_email", &self.is_email)
+            .field("is_email", &self.rules.is_email())
             .field("unique", &self.unique)
             .field("placeholder", &self.placeholder)
-            .field("typed", &(std::sync::Arc::strong_count(&self.parser) > 0))
+            .field("typed", &self.rules.is_typed())
             .finish()
     }
 }
@@ -217,10 +137,9 @@ impl TextInput {
             // empty submit would die at the driver instead of failing
             // inline. Override with `.optional()` for nullable columns.
             required: !field.nullable(),
-            is_email: false,
             unique,
             placeholder: None,
-            parser: identity_parser(),
+            rules: Rules::new(),
         }
     }
 
@@ -250,10 +169,9 @@ impl TextInput {
             name: leaf.name,
             label: leaf.label,
             required: !leaf.nullable,
-            is_email: false,
             unique: false,
             placeholder: None,
-            parser: identity_parser(),
+            rules: Rules::new(),
         }
     }
 
@@ -300,10 +218,9 @@ impl TextInput {
             name: field.name.app_unwrap().to_string(),
             label: label_str,
             required: !field.nullable(),
-            is_email: false,
             unique: false,
             placeholder: None,
-            parser: typed_parser::<T>(),
+            rules: Rules::new().typed::<T>(),
         }
     }
 
@@ -324,10 +241,9 @@ impl TextInput {
             name: leaf.name,
             label: leaf.label,
             required: !leaf.nullable,
-            is_email: false,
             unique: false,
             placeholder: None,
-            parser: typed_parser::<T>(),
+            rules: Rules::new().typed::<T>(),
         }
     }
 
@@ -344,7 +260,7 @@ impl TextInput {
     }
 
     pub fn email(mut self) -> Self {
-        self.is_email = true;
+        self.rules.set_email();
         self
     }
 
@@ -417,88 +333,21 @@ impl TextInput {
         M::path_field::<String>(fid.index).eq(value)
     }
 
-    /// Validate a raw string value against the configured rules.
+    /// Validate a raw string value against the configured rules (GH #243).
     pub fn validate(&self, value: &str) -> Vec<String> {
-        let v = value.trim();
-        let mut errs = Vec::new();
-        // One presence rule, one predicate, shared with the render marker.
-        if self.is_required() && v.is_empty() {
-            errs.push(format!("{} is required", self.label));
-        }
-        // Stricter than naive split('@') check — approximates `validator` (GH #11).
-        if self.is_email && !v.is_empty() && !Self::is_valid_email(v) {
-            errs.push(format!("{} must be a valid email", self.label));
-        }
-        // The typed rule (GH #192) runs last and only on a value that is
-        // present: an empty submit is the presence rule's business, so a typed
-        // field that is optional accepts empty exactly as a text field does.
-        if !v.is_empty()
-            && errs.is_empty()
-            && let Err(message) = (self.parser)(v)
-        {
-            errs.push(message);
-        }
-        errs
+        self.rules.validate(&self.label, self.is_required(), value)
     }
 
     /// The stored spelling of a submission the caller has already validated
     /// (GH #192).
     ///
-    /// Identity for a text field, `T`'s `Display` for a typed one — so a value
-    /// the user left alone is written back in the shape the record fn wrote it,
-    /// not in whichever spelling the browser sent. Callers that have not
-    /// validated must not use this: it reports a failure rather than guessing.
+    /// The typed parse's `Display` for a typed field, the trimmed submission
+    /// for a text one — so a value the user left alone is written back in the
+    /// shape the record fn wrote it, not in whichever spelling the browser
+    /// sent. Callers that have not validated must not use this: it reports a
+    /// failure rather than guessing.
     pub(crate) fn normalize(&self, value: &str) -> Result<String, String> {
-        (self.parser)(value.trim())
-    }
-
-    fn is_valid_email(s: &str) -> bool {
-        // Accepted subset, specified (GH #100) — stricter than the original
-        // `split('@') && domain.contains('.')`, deliberately narrower than
-        // RFC 5322 (no quoted local parts, IP literals, or unicode):
-        // `local@domain` with exactly one `@`, no spaces, no `..`; local part
-        // 1–64 chars not starting/ending with `.`; domain of 2+ labels, each
-        // 1–63 chars, not starting/ending with `-`, containing no `_`; TLD
-        // (last label) at least 2 chars; 254 chars total.
-        if s.len() > 254 || s.contains(' ') || s.contains("..") {
-            return false;
-        }
-        let parts: Vec<&str> = s.split('@').collect();
-        if parts.len() != 2 {
-            return false;
-        }
-        let (local, domain) = (parts[0], parts[1]);
-        if local.is_empty()
-            || local.len() > 64
-            || domain.is_empty()
-            || local.starts_with('.')
-            || local.ends_with('.')
-            || domain.starts_with('.')
-            || domain.ends_with('.')
-            || domain.starts_with('-')
-            || domain.ends_with('-')
-        {
-            return false;
-        }
-        if !domain.contains('.') {
-            return false;
-        }
-        // each domain label must be non-empty and not start/end with '-'
-        let mut labels = 0;
-        let mut tld_len = 0;
-        for label in domain.split('.') {
-            labels += 1;
-            if label.is_empty()
-                || label.len() > 63
-                || label.starts_with('-')
-                || label.ends_with('-')
-                || label.contains('_')
-            {
-                return false;
-            }
-            tld_len = label.len();
-        }
-        labels >= 2 && tld_len >= 2
+        self.rules.normalize(value)
     }
 
     /// Static render: the create/edit path's control, with `value` rendered
@@ -520,7 +369,11 @@ impl TextInput {
         // (GH #189). `self.required` alone would do exactly that.
         let required = self.is_required();
         let placeholder = self.placeholder.clone();
-        let input_type = if self.is_email { "email" } else { "text" };
+        let input_type = if self.rules.is_email() {
+            "email"
+        } else {
+            "text"
+        };
         let has_error = !errors.is_empty();
         let error_text = errors.first().cloned().unwrap_or_default();
         let value_owned = value.map(|s| s.to_string());
@@ -929,12 +782,7 @@ impl Select {
 
     /// Validate a raw string value (required + empty). Existence is async via `validate_async`.
     pub fn validate(&self, value: &str) -> Vec<String> {
-        let v = value.trim();
-        let mut errs = Vec::new();
-        if self.required && v.is_empty() {
-            errs.push(format!("{} is required", self.label));
-        }
-        errs
+        Rules::new().validate(&self.label, self.required, value)
     }
 
     /// Async existence check: if relationship is configured and value non-empty, ensure it matches a loaded option.
@@ -1303,12 +1151,7 @@ impl Textarea {
     }
 
     pub fn validate(&self, value: &str) -> Vec<String> {
-        let v = value.trim();
-        let mut errs = Vec::new();
-        if self.required && v.is_empty() {
-            errs.push(format!("{} is required", self.label));
-        }
-        errs
+        Rules::new().validate(&self.label, self.required, value)
     }
 
     /// Static render: the same `field` family chrome as [`TextInput`], with the
@@ -1460,12 +1303,7 @@ impl FileUpload {
     }
 
     pub fn validate(&self, value: &str) -> Vec<String> {
-        let v = value.trim();
-        let mut errs = Vec::new();
-        if self.required && v.is_empty() {
-            errs.push(format!("{} is required", self.label));
-        }
-        errs
+        Rules::new().validate(&self.label, self.required, value)
     }
 
     pub(crate) async fn render_with<'a>(
@@ -2141,20 +1979,50 @@ mod tests {
         );
     }
 
+    /// The email rule is `email_address` (GH #243).
     #[test]
-    fn text_input_email_subset_edges() {
+    fn text_input_email_edges() {
         let input = TextInput::r#for(DummyUser::fields().email()).email();
-        // Accepted subset (GH #100).
-        for ok in ["a@b.com", "user+tag@sub.example.co", "Ada@Example.COM"] {
+        for ok in [
+            "a@b.com",
+            "user+tag@sub.example.co",
+            "Ada@Example.COM",
+            // A unicode local part and domain.
+            "用户@例え.jp",
+            // A quoted local part and a bracketed domain literal.
+            "\"a b\"@example.com",
+            "a@[IPv6:::1]",
+            // The crate's domain grammar, which accepts the local part's
+            // atext set in a label and a single-character TLD.
+            "user@my_host.com",
+            "a@b.c",
+        ] {
             assert!(input.validate(ok).is_empty(), "{ok} should pass");
         }
-        // Rejected: underscore host, single-char TLD, overlong parts.
+        // Rejected: a text domain without a dot, an empty label, a space, a
+        // display name, and parts over their own bound.
         for bad in [
-            "user@my_host.com".to_string(),
-            "a@b.c".to_string(),
+            "a@b".to_string(),
+            "a@b..c".to_string(),
+            "a b@c.com".to_string(),
+            "Ada Lovelace <ada@example.com>".to_string(),
+            "not-an-email".to_string(),
+            "a@".to_string(),
+            "a@b.c.".to_string(),
+            ".a@b.com".to_string(),
+            "a.@b.com".to_string(),
+            "a@@b.com".to_string(),
+            "a@-b.com".to_string(),
+            "a@b-.com".to_string(),
+            // An unquoted local part carrying a special, and a domain label
+            // ending on one.
+            "a,b@b.com".to_string(),
+            "a(b@b.com".to_string(),
+            "a@b!.com".to_string(),
             format!("{}@b.com", "a".repeat(65)),
             format!("a@{}.com", "b".repeat(64)),
-            // 255 chars total, every part individually valid (GH #100).
+            // 255 octets: every part fits its own bound, the address does not
+            // fit RFC 5321 §4.5.3.1.3.
             format!(
                 "{}@{}.{}.{}",
                 "a".repeat(64),
@@ -2162,11 +2030,20 @@ mod tests {
                 "c".repeat(63),
                 "d".repeat(62)
             ),
-            "\"a b\"@example.com".to_string(),
-            "a@b..com".to_string(),
         ] {
             assert!(!input.validate(&bad).is_empty(), "{bad} should fail");
         }
+    }
+
+    /// An empty submit is the presence rule's business: the email rule skips
+    /// it, and presence reports first (GH #243).
+    #[test]
+    fn email_rule_leaves_an_empty_value_to_presence() {
+        let input = TextInput::r#for(DummyUser::fields().email())
+            .required()
+            .email();
+        assert_eq!(input.validate(""), vec!["Email is required".to_string()]);
+        assert_eq!(input.validate("   "), vec!["Email is required".to_string()]);
     }
 
     /// `Select`/`FileUpload` follow the same required-default as `TextInput`

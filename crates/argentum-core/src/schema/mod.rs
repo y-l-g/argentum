@@ -19,12 +19,13 @@ mod lenses;
 mod pk;
 mod relationship;
 mod tree;
+mod validation;
 
 pub use embedded::{
     EmbeddedForm, EnumSpec, discriminant_select, enum_spec, leaf_key, parse_leaf, read_embedded,
     submitted, write_embedded,
 };
-pub use fields::{FileUpload, Select, TextInput, Textarea, TypedValue};
+pub use fields::{FileUpload, Select, TextInput, Textarea};
 pub use layouts::{Grid, Group, Repeater, Section, Tabs};
 pub use lenses::FieldLens;
 pub(crate) use lenses::{capitalize, lens_field, lens_field_unique, lens_label};
@@ -35,6 +36,7 @@ pub use tree::IntoSchema;
 pub(crate) use tree::{
     Mode, Node, RenderSource, for_each_field, validate_leaf, walk_repeater_absence,
 };
+pub use validation::TypedValue;
 
 use std::collections::{HashMap, HashSet};
 
