@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-0a17a315.js";
+            window.path_to_searchindex_js = "searchindex-05601bbf.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-da1679ae.js"></script>
@@ -639,6 +639,16 @@ other way round (ADR-0016):</p>
 and one outside the tenant are the same 404, while <code>can_view</code> denial is a 403 — and adds a <code>View</code>
 link beside <code>Edit</code> on each row. A resource with no <code>view</code> declaration has no page and no link, and
 the route answers 404 rather than rendering an empty shell.</p>
+<p>The heading is the record’s label when the resource declares one:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>fn record_label(cx: &amp;Cx, record: &amp;Post) -&gt; Option&lt;String&gt; {
+    Some(record.title.clone())
+}
+<span class="boring">}</span></code></pre>
+<p>The default returns <code>None</code>, and the heading is then <code>{navigation_label} {id}</code> — the page’s name and
+the URL’s record key. A label is display text, not a key: two records may share one, so it does not
+replace <code>Table::id</code>, which must stay injective within a page for keyed diffs (GH #241).</p>
 <ul>
 <li><strong>Read-only is not a disabled form.</strong> Fields render labels and stored values:
 <code>TextInput</code>/<code>Textarea</code> show text, <code>Select</code> shows the option label the form offered (or the stored
