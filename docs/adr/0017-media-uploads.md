@@ -1,6 +1,6 @@
-# Media uploads: an app-level `Uploader`, a clear control, and a preview
+# Media uploads: an app-level `Uploader` and a clear control
 
-Date: 2026-09-22 — Status: accepted — Amended: 2026-09-22
+Date: 2026-09-22 — Status: accepted — Amended: 2026-09-22, 2026-09-23
 
 ## Decision
 
@@ -20,8 +20,14 @@ discarding. **A refusal is user input, not infrastructure:** `Err(reason)` rende
 submitted values — the framework owns the sentence, the uploader owns the reason, and the reason is
 printed to the user, so never a driver message or a path. **The framework stores the returned string
 verbatim and renders it verbatim:** the field still binds a `String`, the record fn's contract is
-unchanged, and the preview is a suffix check — an image extension renders an `<img>` (with a size cap;
-thumbnails imply an image pipeline the framework does not have), anything else a link to the file.
+unchanged, and a stored value renders as a link to the file — on the edit form and on the detail
+page. The field reads no extension and owns no image pipeline, so it neither previews a path nor
+guesses a URL convention (GH #242).
+
+**The primitive stops at the file input.** A thumbnail in the stored row, an × that clears the input
+without JavaScript, drag-and-drop and upload progress are media-library work, tracked by GH #248:
+they need the app's own media table and its own assets, and a generic `String`-bound field is the
+wrong place to guess them.
 
 **The clear control is a declared transport key.** `FileUpload` renders a `clear_<field>` checkbox
 whenever a value is stored, alongside the hint that an empty file input keeps what is there.
@@ -48,7 +54,7 @@ fails validation is unreferenced, not wrong, and a store with a real write cost 
 ## Consequences
 
 - An app that never installs an `Uploader` is unaffected: the sanitized basename is stored, and the
-  stored value renders as a link or an image.
+  stored value renders as a link to the file.
 - A cleared upload empties the stored value, not the bytes: the framework cannot delete from a store
   it does not know. An app that wants the bytes gone acts on the empty value its record fn receives.
 - A rejected store drops the submitted value rather than blanking it, which is why the edit handler
@@ -57,6 +63,6 @@ fails validation is unreferenced, not wrong, and a store with a real write cost 
 - The showcase demonstrates the whole path: `DirUploader` writes into a served directory, the record
   stores the returned URL, and the URL fetches the bytes back (GH #188).
 - `argentum-core` enables topcoat's `fs` feature, which upstream's directory route lives behind, and
-  both lockfiles carry the crates it pulls. Image handling beyond a preview (transcoding, thumbnails,
-  dimensions) and storage drivers stay out of scope: the trait is the seam, drivers are the app's
-  business.
+  both lockfiles carry the crates it pulls. Image handling (thumbnails, transcoding, dimensions) and
+  storage drivers stay out of scope: the field links a stored path, and the trait is the seam for the
+  bytes.

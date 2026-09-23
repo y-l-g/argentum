@@ -117,7 +117,7 @@ Done:
 Next:
 
 - Widgets and infolists: stats overview, charts, global search
-- Image handling beyond the preview (thumbnails, transcoding, dimensions)
+- Image handling: thumbnails, transcoding, dimensions
 - Documented production migrations
 
 Non-goals for v1:

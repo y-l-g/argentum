@@ -291,10 +291,9 @@ per Panel (`Panel::uploads`), discovered on the app_context wherever a `FileUplo
 object store is an app-level dependency, not a per-field declaration.
 `store(filename, bytes) -> Result<String, String>` receives the part's already-sanitized basename
 and its content (bounded by the 10 MiB form cap) and returns the value the record stores, which the
-framework renders verbatim: an image preview when the path ends in an image extension, a link to
-the file otherwise. A refusal (`Err(reason)`) is an inline field error —
-`"<Label> could not be uploaded: <reason>"` — because a rejected upload is user input, not
-infrastructure. With no
+framework renders verbatim as a link to the file (GH #242). A refusal (`Err(reason)`) is an inline
+field error — `"<Label> could not be uploaded: <reason>"` — because a rejected upload is user input,
+not infrastructure. With no
 uploader installed the sanitized basename is stored, and the bytes are drained rather than
 buffered. A stored value renders a `clear_<field>` checkbox (a framework transport key, stripped
 before any record fn, GH #148); clearing does not waive `required`, so a record that must keep a

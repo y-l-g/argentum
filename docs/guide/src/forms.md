@@ -82,15 +82,15 @@ Select::r#for(Post::fields().author_id())
   name and the content (bounded by the cap) and returns the value the record stores; a refusal is an
   inline error (`"<Label> could not be uploaded: <reason>"`), not a 500. With no uploader installed
   the sanitized basename is stored — the default — and the bytes are drained rather than buffered.
-- The stored path renders as the file it names: an image preview when it ends in an image extension,
-  a link to the file otherwise — no URL convention is invented, and `Panel::serve_dir(path, dir)`
-  mounts the directory an upload store writes to. A served directory is **public** (ADR-0017): its
-  URLs answer whoever asks, with no session, because the auth gate covers only the panel prefix and
-  `/_topcoat/runtime` (ADR-0013) and a served directory is mounted outside both. An app that needs
-  protected files owns that route itself. Every stored value also offers a `clear_<field>` checkbox
-  ("Remove the current file"), the one control that means "remove" rather than "keep"; an empty file
-  input still means keep. Clearing does not waive `required` — a resource whose records may lose
-  their file declares `.optional()`.
+- The stored path renders as a link to the file, on the edit form and on the detail page (GH #242):
+  the framework reads no extension and renders what the app stored, inventing no URL convention.
+  `Panel::serve_dir(path, dir)` mounts the directory an upload store writes to. A served directory is
+  **public** (ADR-0017): its URLs answer whoever asks, with no session, because the auth gate covers
+  only the panel prefix and `/_topcoat/runtime` (ADR-0013) and a served directory is mounted outside
+  both. An app that needs protected files owns that route itself. Every stored value also offers a
+  `clear_<field>` checkbox ("Remove the current file"), the one control that means "remove" rather
+  than "keep"; an empty file input still means keep. Clearing does not waive `required` — a resource
+  whose records may lose their file declares `.optional()`.
 - `Repeater` is a single-entry group. An all-empty group is skipped, so its inner required fields do
   not fail the submit. A `required` repeater yields one label-keyed error; a partially filled group
   still enforces inner `required`.

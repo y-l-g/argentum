@@ -34,9 +34,9 @@ replace `Table::id`, which must stay injective within a page for keyed diffs (GH
 
 - **Read-only is not a disabled form.** Fields render labels and stored values:
   `TextInput`/`Textarea` show text, `Select` shows the option label the form offered (or the stored
-  value when no option matches, a relationship key included), `FileUpload` shows the stored path and
-  previews a stored image (GH #188), and layout blocks keep their structure. No control, no CSRF
-  field, no validation slot.
+  value when no option matches, a relationship key included), `FileUpload` shows the stored path as a
+  link to the file (GH #242), and layout blocks keep their structure. No control, no CSRF field, no
+  validation slot.
 - **Values come from `hydrate_form_values`**, the same projection the edit form hydrates, so a field
   that renders in the form renders here.
 - **Related rows** render through `view_relations(cx, record)`, the page's second half:
