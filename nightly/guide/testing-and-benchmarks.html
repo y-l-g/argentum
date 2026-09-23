@@ -35,7 +35,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-9b791b76.js";
+            window.path_to_searchindex_js = "searchindex-2994a509.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-da1679ae.js"></script>
@@ -186,15 +186,16 @@
 <p>The showcase has integration tests per area (list, create, edit, delete, bulk, filters, tenancy,
 uploads, export, auth) under <code>examples/showcase/tests/</code>.</p>
 <pre><code class="language-sh">cargo test -p showcase
-node --test crates/argentum-ui/assets/selects.test.js   # the one JS unit test
+node --test crates/argentum-ui/assets/*.test.js   # the shell asset suites
 cargo run --manifest-path benchmarks/argentum/Cargo.toml -- --bench
 ./benchmarks/scripts/bench.sh
 </code></pre>
 <p>The shell scripts under <code>crates/argentum-ui/assets/</code> are plain browser scripts loaded through
-<code>asset!</code>, so they have no build step and no test runner. <code>selects.js</code> splits its one pure decision
-(<code>matchingOptions</code>) out and guards the rest behind <code>install()</code> so that single function can be
-unit-tested on Node’s built-in runner (GH #184); everything else in those files is covered by the
-Rust-side markup assertions and manual checks.</p>
+<code>asset!</code>, so they have no build step and no runner of their own. Each carries a guarded
+<code>module.exports</code> at the bottom so Node’s built-in runner can reach it: <code>selects.test.js</code> covers the
+combobox filter rule (GH #184), the hide-and-drop-<code>required</code> wiring (GH #236, GH #249) and the
+single wiring pass (GH #237), and <code>bulk.test.js</code> covers the selection helpers and the disabled-box
+skip (GH #235). The Rust-side markup assertions cover what the scripts leave alone.</p>
 <p>Budget: 50-row list with 2 preloaded relations renders under 40ms p50 on local SQLite. <strong>This is a
 target, not a gate</strong> (GH #171): the harness prints it “for reference only; UNGATED” and never
 PASS/FAILs on it, and <code>benchmarks/results/</code> is gitignored, so no committed number exists on a fresh
