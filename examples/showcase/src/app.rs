@@ -22,8 +22,12 @@ use crate::models::{
     Author, BLOCKED_TENANT, Comment, Media, Post, PostStats, Publication, Seo, User,
 };
 
-/// The theme's sans font, pulled from Fontsource and self-hosted as a Topcoat asset.
-const GEIST: Font = fontsource_font!(GEIST, host: Asset);
+/// The theme's sans font, pulled from Fontsource and self-hosted as a Topcoat
+/// asset.
+///
+/// `pub(crate)` so the public blog's layout links the same font as the admin
+/// shell (GH #247): one document contract, one typeface.
+pub(crate) const GEIST: Font = fontsource_font!(GEIST, host: Asset);
 
 // ---------------------------------------------------------------------------
 // Resource — single Model → Resource, see CONTEXT.md
