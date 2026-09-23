@@ -25,6 +25,12 @@
 //   Without JS the input is inert and the plain select keeps working (stored
 //   value kept, relation cannot be changed past the cap).
 //
+// The server renders both controls so the field works without this script;
+// with it, the native `<select>` is hidden once the combobox over it is wired
+// (GH #236). Hiding is display only: the select stays in the markup as the
+// submitted value carrier, and `partsOf` still resolves it as a descendant of
+// `[data-select-filterable]`.
+//
 // Document-level delegation (like bulk.js) so streamed/shard swaps that
 // replace form markup need no re-installation.
 
@@ -119,14 +125,6 @@ function matchingOptions(options, needle, limit) {
   return rows;
 }
 
-// Exposed for the Node test in `assets/selects.test.js` (there is no JS test
-// runner in this workspace, and this file must stay a plain browser script
-// loaded by `asset!`, so it cannot be an ES module). Guarded, so the browser
-// branch is inert.
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { matchingOptions, MAX_LIST_ITEMS };
-}
-
 // The parts of the combobox, resolved from either the filter or the list.
 function partsOf(node) {
   const combo = node.closest('[data-options-combobox]');
@@ -218,6 +216,46 @@ function activeItem(list) {
     list.querySelector('[role="option"][aria-selected="true"]')
     || list.querySelector('[role="option"]')
   );
+}
+
+// --- the control the combobox replaces ---------------------------------------
+
+// Whether the script hides the native `<select>` behind its combobox.
+//
+// All four parts must resolve: a field whose markup is incomplete keeps a
+// visible control rather than losing the only one it has. Hiding is display
+// only — the select stays in the markup as the submitted value carrier, and
+// `partsOf` still resolves it as a descendant of `[data-select-filterable]`.
+//
+// A hidden control is barred from constraint validation, so a `required`
+// select no longer fails the browser's own check; the server's required check
+// is what enforces it.
+function shouldHideNativeSelect({ combo, filter, list, select }) {
+  return Boolean(combo && filter && list && select);
+}
+
+// The element carrying the replaced control: the native `<select>`'s own
+// wrapper when the select primitive renders one — the chevron lives there, and
+// hiding the `<select>` alone would leave it behind — and the `<select>`
+// itself otherwise. Never the field wrapper: the combobox, the overflow hint,
+// and the error message live inside it.
+function nativeControl({ wrap, select }) {
+  const parent = select.parentElement;
+  return parent && parent !== wrap ? parent : select;
+}
+
+function hideNativeSelect(parts) {
+  if (!shouldHideNativeSelect(parts)) return;
+  nativeControl(parts).hidden = true;
+}
+
+// Hide the control behind every wired combobox in `root`, or in the document.
+// A swap replaces the field markup wholesale, so the pass runs again for the
+// nodes that arrive later (see `install`).
+function applyHiddenSelects(root) {
+  (root || document).querySelectorAll('[data-options-filter]').forEach((filter) => {
+    hideNativeSelect(partsOf(filter));
+  });
 }
 
 // --- wiring ------------------------------------------------------------------
@@ -333,114 +371,21 @@ function install() {
       }
     },
     true,
-  );document.addEventListener('input', (e) => {
-    if (!e.target.closest('[data-options-filter]')) return;
-    const parts = partsOf(e.target);
-    if (!parts.select) return;
-    const needle = parts.filter.value.trim();
-    const field = parts.wrap.getAttribute('data-options-field');
-    const server = parts.wrap.getAttribute('data-options-server') === 'true';
-    if (server && field) {
-      messageRow(parts.list, 'Searching…');
-      parts.wrap.dataset.optionsSearching = 'true';
-      const prevTimer = serverTimers.get(parts.filter);
-      if (prevTimer) clearTimeout(prevTimer);
-      const timer = setTimeout(async () => {
-        serverTimers.delete(parts.filter);
-        await serverSearch(parts.filter, parts.wrap, parts.select, field, needle);
-        delete parts.wrap.dataset.optionsSearching;
-        renderList(partsOf(parts.filter));
-      }, 200);
-      serverTimers.set(parts.filter, timer);
-      return;
-    }
-    renderList(parts);
-  });
-
-  // Entering the field opens the list, so the filter shows what it is filtering.
-  document.addEventListener('focusin', (e) => {
-    if (!e.target.closest('[data-options-filter]')) return;
-    renderList(partsOf(e.target));
-  });
-
-  // Picking a row: `mousedown` + preventDefault so the input keeps focus and the
-  // click is not lost to a blur before it lands.
-  document.addEventListener('mousedown', (e) => {
-    const item = e.target.closest('[data-options-list] [role="option"]');
-    if (!item) return;
-    e.preventDefault();
-    const parts = partsOf(item);
-    if (!parts.select) return;
-    chooseOption(parts, optionFor(parts.select, item.dataset.value));
-  });
-
-  // Arrows move through the list, Enter picks, Escape closes. Focus stays in the
-  // input, which is what makes typing-to-narrow continuous.
-  document.addEventListener('keydown', (e) => {
-    if (!e.target.closest('[data-options-filter]')) return;
-    const parts = partsOf(e.target);
-    if (!parts.select || !parts.list) return;
-    if (parts.list.hidden) {
-      if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        renderList(parts);
-      }
-      return;
-    }
-    const items = Array.from(parts.list.querySelectorAll('[role="option"]'));
-    if (items.length === 0) return;
-    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-      e.preventDefault();
-      const current = items.indexOf(activeItem(parts.list));
-      const step = e.key === 'ArrowDown' ? 1 : -1;
-      const next = items[(current + step + items.length) % items.length];
-      items.forEach((item) => item.setAttribute('aria-selected', 'false'));
-      next.setAttribute('aria-selected', 'true');
-      next.scrollIntoView({ block: 'nearest' });
-    } else if (e.key === 'Enter') {
-      e.preventDefault();
-      const item = activeItem(parts.list);
-      chooseOption(parts, item && optionFor(parts.select, item.dataset.value));
-    } else if (e.key === 'Escape') {
-      closeList(parts.combo);
-    }
-  });
-
-  // Tab away: close. Captured, because `focusout` does not bubble usefully here.
-  document.addEventListener(
-    'focusout',
-    (e) => {
-      const combo = e.target.closest && e.target.closest('[data-options-combobox]');
-      if (!combo || combo.contains(e.relatedTarget)) return;
-      closeList(combo);
-    },
-    true,
   );
 
-  // A click outside the field closes its list, so it never outlives the field.
-  document.addEventListener('click', (e) => {
-    document.querySelectorAll('[data-options-combobox]').forEach((combo) => {
-      if (!combo.contains(e.target)) closeList(combo);
-    });
-  });
-
-  // A server fetch replaces the whole option set *after* the list was rendered,
-  // so re-render when it lands — but only while the user is still in the field,
-  // or an unrelated `change` would pop the list open.
-  document.addEventListener(
-    'change',
-    (e) => {
-      const select = e.target.closest && e.target.closest('[data-select-filterable] select');
-      if (!select) return;
-      const wrap = select.closest('[data-select-filterable]');
-      if (!wrap || wrap.dataset.optionsSearching === 'true') return;
-      const parts = partsOf(select);
-      if (parts.filter && document.activeElement === parts.filter) {
-        renderList(parts);
-      }
-    },
-    true,
-  );
+  // The hide pass runs on install and again for markup that arrives later: a
+  // swap replaces the field without a page load, and no `load` or
+  // `DOMContentLoaded` fires for it.
+  applyHiddenSelects();
+  if (typeof MutationObserver !== 'undefined' && document.documentElement) {
+    new MutationObserver((records) => {
+      records.forEach((record) => {
+        record.addedNodes.forEach((node) => {
+          if (node.nodeType === 1) applyHiddenSelects(node);
+        });
+      });
+    }).observe(document.documentElement, { childList: true, subtree: true });
+  }
 }
 
 if (typeof document !== 'undefined') install();
@@ -450,5 +395,5 @@ if (typeof document !== 'undefined') install();
 // loaded through `asset!`, so it cannot be an ES module. The guard keeps the
 // browser branch inert.
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { matchingOptions, MAX_LIST_ITEMS };
+  module.exports = { matchingOptions, MAX_LIST_ITEMS, shouldHideNativeSelect };
 }

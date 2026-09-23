@@ -1,22 +1,144 @@
-// Unit test for the one pure decision in `selects.js` (GH #184).
+// Unit tests for `selects.js` (GH #184, GH #236, GH #237).
 //
 // There is no JS test runner in this workspace — the assets are plain browser
 // scripts loaded through `asset!` — so this runs on Node's built-in runner and
-// reaches the function through the guarded `module.exports` at the bottom of
-// the script:
+// reaches the script through the guarded `module.exports` at the bottom of the
+// script:
 //
 //     cargo test -p argentum-ui            # renders and Rust-side assertions
 //     node --test crates/argentum-ui/assets/selects.test.js
 //
-// What it protects: the reason GH #184 was filed is that a filter appeared to
-// work and did not. The matching rule is therefore pinned directly, including
-// the two easy mistakes — case sensitivity and letting the placeholder eat the
-// cap.
+// What the cases protect:
+// * the matching rule GH #184 filed the list for, including the two easy
+//   mistakes — case sensitivity and letting the placeholder eat the cap;
+// * the hide decision behind GH #236: the native `<select>` leaves the display
+//   only when the combobox that replaces it is wired, and stays the submitted
+//   value carrier either way;
+// * the single wiring pass behind GH #237. The document stand-in below records
+//   the listeners `install()` registers and fires them the way a browser does
+//   — every listener for the type, in registration order — so a duplicated
+//   wiring block shows up as two `change` events per activation and two rows
+//   moved per arrow key.
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { matchingOptions, MAX_LIST_ITEMS } = require('./selects.js');
+const SCRIPT = require.resolve('./selects.js');
+
+// --- a document stand-in -----------------------------------------------------
+
+// `selects.js` is a plain browser script: `install()` reads `document` from the
+// global scope and every handler is document-delegated, so the stand-in has to
+// be in place before the script is required. It is only as wide as the script
+// needs: each node answers the selectors `partsOf` and the listbox read.
+function standInDocument(filters) {
+  const byType = new Map();
+  return {
+    activeElement: null,
+    documentElement: null,
+    addEventListener(type, handler) {
+      if (!byType.has(type)) byType.set(type, []);
+      byType.get(type).push(handler);
+    },
+    querySelectorAll(selector) {
+      return selector === '[data-options-filter]' ? filters : [];
+    },
+    // Every listener for `type`, in registration order: firing them all is what
+    // a browser does for one event.
+    listeners(type) {
+      return byType.get(type) || [];
+    },
+    types() {
+      return Array.from(byType.keys());
+    },
+  };
+}
+
+// Load a fresh copy of the script against `document`. A fresh copy re-runs
+// `install()`, so each case gets its own listener set and its own initial hide
+// pass.
+function load(document) {
+  global.document = document;
+  delete require.cache[SCRIPT];
+  return require(SCRIPT);
+}
+
+// A searchable field as the server renders it: the combobox (a filter input
+// over a listbox) beside the select primitive's wrapper `<span>`, which holds
+// the native `<select>` and the chevron.
+function searchableField() {
+  const options = [
+    { value: '', textContent: '-- Select --' },
+    { value: 'pk-ada', textContent: 'Ada Author' },
+    { value: 'pk-alan', textContent: 'Alan Author' },
+  ];
+  const rows = options.slice(1).map((option) => {
+    const attrs = { role: 'option', 'aria-selected': 'false' };
+    return {
+      dataset: { value: option.value },
+      textContent: option.textContent,
+      getAttribute: (name) => (name in attrs ? attrs[name] : null),
+      setAttribute: (name, value) => {
+        attrs[name] = value;
+      },
+      scrollIntoView() {},
+    };
+  });
+
+  const combo = {};
+  const wrap = {};
+  const filter = {
+    value: '',
+    closest: (selector) =>
+      selector === '[data-options-filter]' ? filter
+        : selector === '[data-options-combobox]' ? combo
+          : selector === '[data-select-filterable]' ? wrap
+            : null,
+  };
+  const list = {
+    hidden: false,
+    querySelector: (selector) => {
+      if (selector === '[role="option"][aria-selected="true"]') {
+        return rows.find((row) => row.getAttribute('aria-selected') === 'true') || null;
+      }
+      return selector === '[role="option"]' ? rows[0] || null : null;
+    },
+    querySelectorAll: (selector) => (selector === '[role="option"]' ? rows : []),
+    replaceChildren: () => rows.splice(0),
+    appendChild: (row) => rows.push(row),
+  };
+  combo.querySelector = (selector) =>
+    selector === '[data-options-filter]' ? filter
+      : selector === '[data-options-list]' ? list
+        : null;
+  const select = {
+    value: '',
+    options,
+    events: [],
+    dispatchEvent(event) {
+      this.events.push(event);
+      return true;
+    },
+  };
+  // The primitive's wrapper `<span>`, which draws the chevron.
+  const control = { hidden: false };
+  select.parentElement = control;
+  wrap.querySelector = (selector) => (selector === 'select' ? select : null);
+  wrap.getAttribute = () => null;
+  wrap.dataset = {};
+  rows.forEach((row) => {
+    row.closest = (selector) =>
+      selector === '[data-options-list] [role="option"]' ? row
+        : selector === '[data-options-combobox]' ? combo
+          : selector === '[data-select-filterable]' ? wrap
+            : null;
+  });
+  return { combo, wrap, filter, list, select, control, rows };
+}
+
+// The matching cases are pure; a document with no fields is enough to load the
+// script.
+const { matchingOptions, MAX_LIST_ITEMS, shouldHideNativeSelect } = load(standInDocument([]));
 
 const PLACEHOLDER = { value: '', label: '-- Select --', selected: false };
 const ada = { value: 'pk-ada', label: 'Ada Author', selected: false };
@@ -77,4 +199,78 @@ test('selection state rides along, so the list can mark the current choice', () 
 
 test('no match yields an empty list, which the caller reports as such', () => {
   assert.deepEqual(labels('zzz'), []);
+});
+
+// --- GH #236: the native select behind the combobox --------------------------
+
+test('the native select is hidden only when the combobox over it is wired', () => {
+  const wired = { combo: {}, wrap: {}, filter: {}, list: {}, select: {} };
+  assert.equal(shouldHideNativeSelect(wired), true);
+  // A field the script cannot drive keeps the only control it has: no
+  // combobox at all is a plain, non-searchable select.
+  for (const part of ['combo', 'filter', 'list', 'select']) {
+    assert.equal(
+      shouldHideNativeSelect({ ...wired, [part]: null }),
+      false,
+      `must not hide without ${part}`,
+    );
+  }
+});
+
+test('a wired field hides the replaced control, not the field', () => {
+  const world = searchableField();
+  load(standInDocument([world.filter]));
+  // The chevron rides in the select primitive's wrapper, so that wrapper is
+  // what leaves the display; hiding the `<select>` alone would leave it.
+  assert.equal(world.control.hidden, true, 'the replaced control leaves the display');
+  assert.notEqual(world.wrap.hidden, true, 'the field wrapper keeps the combobox');
+  assert.equal(world.select.options.length, 3, 'the select stays the value carrier');
+});
+
+test('a plain select is left visible', () => {
+  const world = searchableField();
+  load(standInDocument([]));
+  assert.notEqual(world.control.hidden, true, 'nothing replaces a select with no combobox');
+});
+
+// --- GH #237: one wiring pass -------------------------------------------------
+
+test('every document listener is registered once', () => {
+  const world = searchableField();
+  const document = standInDocument([world.filter]);
+  load(document);
+  assert.deepEqual(
+    document.types().sort().map((type) => `${type}:${document.listeners(type).length}`),
+    ['change:1', 'click:1', 'focusin:1', 'focusout:1', 'input:1', 'keydown:1', 'mousedown:1'],
+    'one listener per type, so one wiring block',
+  );
+});
+
+test('an activation dispatches one change', () => {
+  const world = searchableField();
+  const document = standInDocument([world.filter]);
+  load(document);
+  // Picking a row: the mousedown handler writes the choice onto the select and
+  // announces it. A second wiring block would run it twice.
+  document.listeners('mousedown').forEach((handler) => {
+    handler({ target: world.rows[0], preventDefault() {} });
+  });
+  assert.equal(world.select.events.length, 1, 'one change per activation');
+  assert.equal(world.select.events[0].type, 'change');
+  assert.equal(world.select.value, 'pk-ada');
+});
+
+test('an arrow key advances one row', () => {
+  const world = searchableField();
+  const document = standInDocument([world.filter]);
+  load(document);
+  // No row starts selected, so `activeItem` is the first: one ArrowDown lands
+  // on the second. A second wiring block re-reads the live `aria-selected` and
+  // advances again, to the third.
+  document.listeners('keydown').forEach((handler) => {
+    handler({ key: 'ArrowDown', target: world.filter, preventDefault() {} });
+  });
+  const selected = world.rows.filter((row) => row.getAttribute('aria-selected') === 'true');
+  assert.equal(selected.length, 1, 'one row per arrow key');
+  assert.equal(selected[0].dataset.value, 'pk-alan', 'the row after the first');
 });
