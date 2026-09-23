@@ -36,14 +36,18 @@ jobs:
   # The shell assets are plain browser scripts loaded through `asset!`: no build
   # step, no dependencies, nothing to install, and the runner's Node runs them
   # as-is. A job of its own keeps a JS failure attributable to the assets and
-  # off the Rust job's critical path. The glob runs every `*.test.js` beside the
-  # scripts it covers.
+  # off the Rust job's queue. Both suites are named rather than globbed: a glob
+  # would silently shrink the run when a suite is renamed, while a missing path
+  # fails the job.
   assets:
     name: assets
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - run: node --test crates/argentum-ui/assets/*.test.js
+      - run: >-
+          node --test
+          crates/argentum-ui/assets/selects.test.js
+          crates/argentum-ui/assets/bulk.test.js
 
   clippy:
     name: clippy
