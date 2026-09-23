@@ -60,7 +60,7 @@ function allBoxesIn(root) {
 // Every selector below reads the page through this, so a denied box is invisible
 // to select-all, to the tri-state header, and to the transport alike.
 function boxesIn(root) {
-  return allBoxesIn(root);
+  return allBoxesIn(root).filter((box) => !box.disabled);
 }
 
 // The new selection: what this page now has checked, plus the keys selected on
