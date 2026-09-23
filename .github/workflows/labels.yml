@@ -1,0 +1,27 @@
+name: Sync labels
+
+# `.github/labels.yml` is the source of truth for repository labels
+# (see `docs/dev/LABELS.md` for the scheme). Update that file — not the
+# GitHub UI — when adding or changing labels.
+# Modeled on tokio-rs/toasty's labels workflow.
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - .github/labels.yml
+      - .github/workflows/labels.yml
+  workflow_dispatch:
+
+permissions:
+  issues: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: crazy-max/ghaction-github-labeler@v6
+        with:
+          yaml-file: .github/labels.yml
+          skip-delete: true

@@ -14,8 +14,8 @@ ADRs, code comments, PR descriptions, issue bodies, and commit bodies.
 - Prefer concrete examples to description: show the call, the output, or the
   error.
 - Cut fluff. Every sentence carries information.
-- No buzzwords or business jargon ("leverage", "synergy", "stakeholders",
-  "deliverables").
+- No buzzwords or business jargon ("leverage", "synergy", "paradigm",
+  "stakeholders", "deliverables", "action items").
 - No weasel words: "very", "really", "quite", "somewhat".
 - No dramatic terms ("critical", "crucial", "vital") unless something actually
   breaks.
@@ -47,5 +47,6 @@ produced the code.
 - Vocabulary and domain terms: `CONTEXT.md`
 - Decisions: `docs/adr/`
 - User guide: `docs/guide/` (mdBook); `README.md` is the short entry point
-- Contributor specs — commits, prose, labels: `docs/dev/`
+- Contributor specs — commits, prose, labels, testing: `docs/dev/`
+- Prospective API designs: `docs/dev/design/`; upstream API freshness: `docs/dev/upstream-notes.md`
 - Issue bodies: the templates in `.github/ISSUE_TEMPLATE/`

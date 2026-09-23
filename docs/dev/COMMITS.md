@@ -11,9 +11,24 @@ subject — it is what links the history back to the tracker.
 <type>(<scope>): <description> (#123)
 ```
 
+No line of the commit message is longer than 100 characters. This keeps messages
+readable on GitHub and in git tools. The `semantic-pr` workflow enforces the
+title format on every pull request, since the title becomes the squashed commit.
+
 ## Types
 
-`feat`, `fix`, `docs`, `refactor`, `test`, `perf`, `chore`, `build`, `ci`.
+`feat`, `fix`, `docs`, `style`, `refactor`, `test`, `perf`, `chore`, `build`,
+`ci`, `revert`. Keep this list in sync with the `types` in
+`.github/workflows/semantic-pr.yml`.
+
+## Subject
+
+The subject is a succinct description of the change:
+
+- imperative, present tense: "add" not "added" nor "adds"
+- begins with a lowercase letter
+- no trailing period
+- ends with the issue reference `(#123)`
 
 ## Scope
 

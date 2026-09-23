@@ -129,7 +129,8 @@ crates/argentum-core/src/
   panel/      mod, list, forms, actions, detail, search, shell, headers
   resource/   mod, table/{mod,render,export}, column, state, filter, relation,
               navigation, naming, commit
-  schema/     mod, fields, layouts, lenses, tree, relationship, embedded, pk
+  schema/     mod, fields, layouts, lenses, tree, relationship, embedded, pk,
+              validation
   auth, csrf, cursor, db, notification, query_term, tenancy, upload
 ```
 
