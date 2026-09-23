@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-2994a509.js";
+            window.path_to_searchindex_js = "searchindex-85783bc2.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-da1679ae.js"></script>
@@ -540,6 +540,11 @@ error contract, a <code>&lt;textarea&gt;</code> control instead, and no <code>un
 <code>TextInput</code>, GH #184).</li>
 <li><code>required</code> defaults to the column nullability. Use <code>.optional()</code> to opt out. A bare <code>Select</code> over a
 non-nullable FK rejects <code>""</code> inline instead of failing at the driver.</li>
+<li><code>email()</code> applies the <code>email_address</code> grammar at the form edge: a text domain needs two labels
+(<code>a@b</code> and <code>a@b..c</code> are refused), a display name is a header rather than an address, and the whole
+address is capped at 254 octets (RFC 5321 §4.5.3.1.3). A quoted local part
+(<code>"a b"@example.com</code>), a unicode address (<code>用户@例え.jp</code>) and a bracketed domain literal
+(<code>a@[127.0.0.1]</code>) pass.</li>
 <li><strong>A non-<code>String</code> column binds through <code>TextInput::typed</code></strong> (GH #192):
 <code>TextInput::typed::&lt;Post, i64&gt;(Post::fields().post_stats().word_count())</code> renders the value’s
 <code>Display</code>, parses the submission through the type’s own <code>FromStr</code>, and refuses what it cannot parse
