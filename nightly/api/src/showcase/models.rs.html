@@ -198,4 +198,45 @@
 <a href=#198 id=198 data-nosnippet>198</a>    <span class="attr">#[belongs_to(key = post_id, references = id)]
 <a href=#199 id=199 data-nosnippet>199</a>    </span><span class="kw">pub </span>post: Deferred&lt;Post&gt;,
 <a href=#200 id=200 data-nosnippet>200</a>}
+<a href=#201 id=201 data-nosnippet>201</a>
+<a href=#202 id=202 data-nosnippet>202</a><span class="doccomment">/// One stored file in the media library (GH #248) — the `medias` table.
+<a href=#203 id=203 data-nosnippet>203</a>///
+<a href=#204 id=204 data-nosnippet>204</a>/// **`owner_type`/`owner_id` are a polymorphic pair.** A media row names the
+<a href=#205 id=205 data-nosnippet>205</a>/// record it belongs to without a foreign key, because that record is a `Post`
+<a href=#206 id=206 data-nosnippet>206</a>/// or a `User` and Toasty's typed relations express one target table. So there
+<a href=#207 id=207 data-nosnippet>207</a>/// is no `#[belongs_to]` here and no `#[has_many]` on either owner: the
+<a href=#208 id=208 data-nosnippet>208</a>/// database enforces nothing, [`crate::media`] checks the owner exists before
+<a href=#209 id=209 data-nosnippet>209</a>/// it writes, and deleting an owner leaves its media rows dangling rather than
+<a href=#210 id=210 data-nosnippet>210</a>/// cascading. ADR-0021 records the tradeoff.
+<a href=#211 id=211 data-nosnippet>211</a>///
+<a href=#212 id=212 data-nosnippet>212</a>/// The name is `MediaAsset`, not `Media` or `Attachment`: `Media` is the
+<a href=#213 id=213 data-nosnippet>213</a>/// embedded enum on `Post` — an image/video *description* in the post's own
+<a href=#214 id=214 data-nosnippet>214</a>/// columns, with no bytes and no owner — and "Attachment" is only the label
+<a href=#215 id=215 data-nosnippet>215</a>/// over that value's controls in the post form. `CONTEXT.md` keeps the three
+<a href=#216 id=216 data-nosnippet>216</a>/// apart.
+<a href=#217 id=217 data-nosnippet>217</a></span><span class="attr">#[derive(Debug, Clone, toasty::Model)]
+<a href=#218 id=218 data-nosnippet>218</a>#[table = <span class="string">"medias"</span>]
+<a href=#219 id=219 data-nosnippet>219</a>#[index(owner_type, owner_id)]
+<a href=#220 id=220 data-nosnippet>220</a></span><span class="kw">pub struct </span>MediaAsset {
+<a href=#221 id=221 data-nosnippet>221</a>    <span class="attr">#[key]
+<a href=#222 id=222 data-nosnippet>222</a>    #[auto]
+<a href=#223 id=223 data-nosnippet>223</a>    </span><span class="kw">pub </span>id: uuid::Uuid,
+<a href=#224 id=224 data-nosnippet>224</a>    <span class="doccomment">/// The tenant that uploaded the file, like every other showcase row
+<a href=#225 id=225 data-nosnippet>225</a>    /// (GH #87): the library lists one tenant's media.
+<a href=#226 id=226 data-nosnippet>226</a>    </span><span class="attr">#[index]
+<a href=#227 id=227 data-nosnippet>227</a>    </span><span class="kw">pub </span>tenant_id: uuid::Uuid,
+<a href=#228 id=228 data-nosnippet>228</a>    <span class="doccomment">/// Which table `owner_id` names: [`crate::media::OWNER_POST`] or
+<a href=#229 id=229 data-nosnippet>229</a>    /// [`crate::media::OWNER_USER`].
+<a href=#230 id=230 data-nosnippet>230</a>    </span><span class="kw">pub </span>owner_type: String,
+<a href=#231 id=231 data-nosnippet>231</a>    <span class="kw">pub </span>owner_id: uuid::Uuid,
+<a href=#232 id=232 data-nosnippet>232</a>    <span class="doccomment">/// What the app's [`Uploader`](argentum_core::Uploader) returned, stored
+<a href=#233 id=233 data-nosnippet>233</a>    /// verbatim and rendered as the URL the file is served at (GH #188).
+<a href=#234 id=234 data-nosnippet>234</a>    </span><span class="kw">pub </span>path: String,
+<a href=#235 id=235 data-nosnippet>235</a>    <span class="doccomment">/// The client's filename, a basename, for display.
+<a href=#236 id=236 data-nosnippet>236</a>    </span><span class="kw">pub </span>filename: String,
+<a href=#237 id=237 data-nosnippet>237</a>    <span class="doccomment">/// `"image"` or `"file"` — the app's own kind, from the uploaded part's
+<a href=#238 id=238 data-nosnippet>238</a>    /// content type. It decides whether a row renders a thumbnail or a link.
+<a href=#239 id=239 data-nosnippet>239</a>    </span><span class="kw">pub </span>kind: String,
+<a href=#240 id=240 data-nosnippet>240</a>    <span class="kw">pub </span>created_at: Timestamp,
+<a href=#241 id=241 data-nosnippet>241</a>}
 </code></pre></div></section></main></body></html>
