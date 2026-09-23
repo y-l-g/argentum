@@ -24,7 +24,7 @@ use topcoat::context::{Cx, app_context, try_app_context, try_request_context};
 use topcoat::router::{
     Body, Layer, LayerFuture, Next, Path, PathBuf, RouteFuture,
     error::{forbidden, redirect, unauthorized},
-    request::{method, uri},
+    request::{method, original_headers, original_method, uri},
     response::IntoResponse,
 };
 use topcoat::session::{self, RouterBuilderSessionExt, SessionConfig, TokenHash};
@@ -364,7 +364,8 @@ pub fn current_user(cx: &Cx) -> Option<CurrentUser> {
 /// Require an authenticated, panel-permitted user.
 ///
 /// Answers per request kind (ADR-0013): pages redirect to the login route
-/// with a same-origin-relative `next`, runtime endpoints and non-GET requests
+/// with a same-origin-relative `next`, runtime endpoints, non-GET requests,
+/// and page re-runs (marked POSTs the runtime layer rewrites into GETs)
 /// answer 401, and an authenticated user without panel access answers 403.
 pub fn require_authenticated(cx: &Cx) -> topcoat::Result<CurrentUser> {
     if let Some(user) = current_user(cx) {
@@ -380,7 +381,14 @@ pub fn require_authenticated(cx: &Cx) -> topcoat::Result<CurrentUser> {
 fn unauthenticated_error(cx: &Cx) -> topcoat::Error {
     let path = uri(cx).path();
     let page_method = matches!(*method(cx), http::Method::GET | http::Method::HEAD);
-    if path.starts_with(RUNTIME_PREFIX) || !page_method {
+    // A page re-run reaches the gate as a rewritten GET: Topcoat's runtime
+    // layer rewrites the browser's marked POST into a GET for the page's own
+    // URL. The original request tells it apart from a plain page load, so a
+    // logged-out re-run answers 401 like any other non-page request instead
+    // of redirecting into the login page.
+    let rerun = !matches!(*original_method(cx), http::Method::GET | http::Method::HEAD)
+        && original_headers(cx).get(&topcoat::runtime::RUNTIME_HEADER) == Some(&RERUN_MARKER);
+    if path.starts_with(RUNTIME_PREFIX) || !page_method || rerun {
         unauthorized().into()
     } else {
         redirect(login_url_with_next(cx)).into()
@@ -589,7 +597,8 @@ impl Layer for AuthGate {
                 // is answered above (GH #146).
                 Some(_) => Err(forbidden().into()),
                 // Pages redirect to the login route with a validated `next`;
-                // runtime endpoints and non-GET requests answer 401.
+                // runtime endpoints, non-GET requests, and page re-runs
+                // answer 401.
                 None => Err(unauthenticated_error(cx)),
             }
         })
@@ -847,6 +856,10 @@ async fn render_login_page<'a>(
 /// The runtime prefix whose unauthenticated requests answer 401 instead of a
 /// redirect.
 pub(crate) const RUNTIME_PREFIX: &str = "/_topcoat/runtime";
+
+/// The runtime-header value marking a page re-run POST (`true`, per Topcoat's
+/// page-rerun protocol).
+static RERUN_MARKER: http::HeaderValue = http::HeaderValue::from_static("true");
 
 /// Fail loudly at startup when a required shipped model is missing from the
 /// app's `Db` (ADR-0013): the table is never pushed, and the first login

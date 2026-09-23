@@ -1,18 +1,11 @@
-// SYNC: topcoat-ui-registry@0.8.1 sha256:11bf66efb11267ac530d66ac438c46289084c0fbbe3895079eb716c0a92caed4 — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
+// SYNC: topcoat-ui-registry@0.8.1 sha256:6741fe1cf51bea5cfe0d0c8d25548e452661d9017529a7163bc5b60ce725a8d5 — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
 use topcoat::{
     Result,
     view::{Attributes, Child, StaticClass, View, class, component, view},
 };
 
-/// The classes for the [`label`] element.
-///
-/// The label lays out its content in a centered row, so an inline icon or a
-/// wrapped control lines up with the text. It dims and stops receiving
-/// pointer events when its control is disabled: a wrapped control is matched
-/// with `has-[:disabled]`, a preceding sibling control marked `peer` with
-/// `peer-disabled`, and a control inside a preceding `peer` wrapper with
-/// `peer-has-[:disabled]`. A control immediately after the label is matched
-/// with `has-[+:disabled]`.
+/// Classes that align label content and reflect the disabled state of a nearby or
+/// nested control.
 const LABEL: StaticClass = class!(
     "flex items-center gap-2 text-sm leading-none font-medium select-none \
      peer-disabled:pointer-events-none peer-disabled:opacity-50 \
@@ -21,12 +14,11 @@ const LABEL: StaticClass = class!(
      has-[:disabled]:pointer-events-none has-[:disabled]:opacity-50",
 );
 
-/// A caption for a form control, rendered as a `<label>`.
+/// A label for a form control.
 ///
-/// Associate it with a control either by wrapping the control or by pointing
-/// a `for` attribute at the control's `id`. The `attrs` (such as `class` or
-/// `for`) are forwarded to the underlying `<label>`; a `class` among them is
-/// appended to the computed classes. Child nodes become the label's content.
+/// Wrap the control or pass a `for` attribute matching its `id`. Pass the label text as
+/// children. `attrs` are forwarded to the `<label>`, with extra classes added to its
+/// classes.
 ///
 /// ```ignore
 /// view! {

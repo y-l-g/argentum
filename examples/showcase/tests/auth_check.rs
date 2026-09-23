@@ -16,14 +16,18 @@ use crate::common::{
 };
 
 /// A runtime (page re-run) POST, optionally carrying a session cookie.
+///
+/// Page re-runs are same-URL POSTs carrying Topcoat's runtime marker: the
+/// runtime layer rewrites them into a GET for the page's own URL.
 async fn runtime_post(
     router: &topcoat::router::Router,
     session: Option<&str>,
 ) -> http::Response<Body> {
     let mut request = http::Request::builder()
         .method(http::Method::POST)
-        .uri("/_topcoat/runtime/pages/admin/users")
-        .header(http::header::CONTENT_TYPE, "application/json");
+        .uri("/admin/users")
+        .header(http::header::CONTENT_TYPE, "application/json")
+        .header(&topcoat::runtime::RUNTIME_HEADER, "true");
     if let Some(session) = session {
         request = request.header(COOKIE, format!("{SESSION_COOKIE}={session}"));
     }
@@ -321,8 +325,9 @@ async fn unauthenticated_panel_pages_redirect_to_login_with_validated_next() {
 async fn unauthenticated_runtime_requests_answer_401_not_a_redirect() {
     let db = full_db().await;
     let router = router(db);
-    // The gate covers the whole `/_topcoat/runtime` prefix (shards, page
-    // re-runs, procedures); page re-runs are the endpoint this binary mounts.
+    // The gate covers the panel prefix and the `/_topcoat/runtime` prefix
+    // (shards, procedures); page re-runs are marked POSTs to the page's own
+    // URL, which the gate answers 401 while logged out.
     assert_eq!(
         runtime_post(&router, None).await.status(),
         401,

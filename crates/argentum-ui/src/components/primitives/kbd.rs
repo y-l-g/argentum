@@ -1,27 +1,20 @@
-// SYNC: topcoat-ui-registry@0.8.1 sha256:223bf54a88d522e30eb857aabb929a825951acfca0ac1280dd91f59ccce5c6b1 — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
+// SYNC: topcoat-ui-registry@0.8.1 sha256:6ba351e9bb3574fc5e945abc6b4d97ee3d0403788e2efe103c978445f4ffd559 — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
 use topcoat::{
     Result,
     view::{Attributes, Child, StaticClass, View, class, component, view},
 };
 
-/// The classes for a [`kbd`] key cap.
-///
-/// The key is drawn like a physical cap: a tinted, hairline-bordered box just
-/// wide enough for its label, and at least as wide as it is tall so that a
-/// single character stays square. Browsers set a monospace family on `<kbd>`,
-/// which `font-sans` takes back so the label matches the surrounding text.
+/// Classes that draw a key label in a bordered box.
 const KBD: StaticClass = class!(
     "inline-flex h-5 w-fit min-w-5 shrink-0 items-center justify-center gap-1 \
      rounded-sm border border-border bg-foreground/5 px-1.5 font-sans text-xs font-medium \
      text-muted-foreground",
 );
 
-/// A keyboard key component: a `<kbd>` drawn as a key cap.
+/// A keyboard key label rendered as `<kbd>`.
 ///
-/// Child nodes become the key's label, a character or a key name. The `attrs`
-/// (such as `class`) are forwarded to the `<kbd>`; a `class` among them is
-/// appended to the computed classes. Group several keys of a shortcut with
-/// [`kbd_group`].
+/// Pass the key name as children and use [`kbd_group`] for a shortcut with several
+/// keys. `attrs` are forwarded to the `<kbd>`, with extra classes added to its classes.
 ///
 /// ```ignore
 /// view! {
@@ -36,10 +29,7 @@ pub async fn kbd(
     Ok(view! { <kbd class=(class!(KBD, attrs.remove("class"))) (attrs)>(child)</kbd> })
 }
 
-/// A row of [`kbd`] keys making up one shortcut.
-///
-/// The keys keep an even gap and stay on one line, so a chord reads as a
-/// single unit next to the action it triggers.
+/// A row of key labels for one keyboard shortcut. The keys stay on one line.
 #[component]
 pub async fn kbd_group(
     #[default] mut attrs: Attributes,

@@ -1,15 +1,11 @@
-// SYNC: topcoat-ui-registry@0.8.1 sha256:058b7cf87e15056c6e8a351ac51bf561d3304c80051be1378c4f03b439abd55c — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
+// SYNC: topcoat-ui-registry@0.8.1 sha256:8f1d824fcc2ed9efceac672630d3b09eada9079b706144112d97fc98f613a5b5 — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
 use topcoat::{
     Result,
     view::{Attributes, Child, StaticClass, View, class, component, view},
 };
 
-/// The classes for the [`textarea`] control.
-///
-/// The text size, radius, and focus ring match the input control.
-/// `field-sizing-content` lets the control grow with its content, from the
-/// two-line minimum height; browsers without support keep the fixed minimum
-/// and scroll.
+/// Classes for a textarea that grows with its content. Browsers without content sizing
+/// support keep the minimum height and scroll.
 const TEXTAREA: StaticClass = class!(
     "field-sizing-content min-h-16 w-full rounded-lg border border-border \
      bg-transparent px-3 py-2 text-sm transition-colors outline-none \
@@ -19,15 +15,12 @@ const TEXTAREA: StaticClass = class!(
      focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50",
 );
 
-/// A multi-line text input component.
+/// A text input for multiple lines.
 ///
-/// The `attrs` (such as `name`, `placeholder`, `rows`, `disabled`, or event
-/// handlers) are forwarded to the underlying `<textarea>`; a `class` among
-/// them is appended to the computed classes. Child nodes become the control's
-/// initial value. The textarea fills its container, so size it through the
-/// container or with a width class; it grows with its content from a
-/// two-line minimum.
-/// Set `aria-invalid="true"` to use the error border and focus ring.
+/// Pass the initial value as children. `attrs` are forwarded to the `<textarea>`, with
+/// extra classes added to its classes. It fills its container and grows with its
+/// content where the browser supports this. Set `aria-invalid="true"` to show the error
+/// border and focus ring.
 ///
 /// ```ignore
 /// view! {

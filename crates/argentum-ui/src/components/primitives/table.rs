@@ -1,17 +1,13 @@
-// SYNC: topcoat-ui-registry@0.8.1 sha256:9d081f6368b26ab9b244a0cbd5c2a920b749354be77338889f58b0951f269a64 — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
+// SYNC: topcoat-ui-registry@0.8.1 sha256:a6b8a367f9d26d918521375a64e51ef88ca2e3854edd2a091a63ecf0e2cb09d6 — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
 use topcoat::{
     Result,
     view::{Attributes, Child, View, class, component, view},
 };
 
-/// A table component: rows and columns of related data.
+/// A table inside a horizontally scrollable container.
 ///
-/// The table is wrapped in a scrolling container, so a table wider than its
-/// surroundings scrolls sideways on its own instead of stretching the page.
-/// Child nodes are the table's sections: a [`table_header`], a
-/// [`table_body`], and optionally a [`table_footer`] and a [`table_caption`].
-/// The `attrs` (such as `class`) are forwarded to the `<table>` itself; a
-/// `class` among them is appended to the computed classes.
+/// Pass table sections as children. `attrs` are forwarded to the `<table>`, with extra
+/// classes added to its classes.
 ///
 /// ```ignore
 /// view! {
@@ -64,10 +60,7 @@ pub async fn table_header(
     })
 }
 
-/// The main section of a [`table`], holding its rows of data.
-///
-/// The last row's rule is dropped, so the table ends on its own edge rather
-/// than on a line.
+/// The body of a table, containing data rows.
 #[component]
 pub async fn table_body(
     #[default] mut attrs: Attributes,
@@ -102,10 +95,7 @@ pub async fn table_footer(
     })
 }
 
-/// One row of a [`table`], in any of its sections.
-///
-/// The row is ruled off from the next one and tints on hover, so the eye can
-/// follow it across wide tables.
+/// A table row with a separator and hover styling.
 #[component]
 pub async fn table_row(
     #[default] mut attrs: Attributes,
@@ -160,7 +150,7 @@ pub async fn table_cell(
     })
 }
 
-/// A line under a [`table`] saying what it holds.
+/// A caption describing the table.
 #[component]
 pub async fn table_caption(
     #[default] mut attrs: Attributes,

@@ -1,16 +1,15 @@
-// SYNC: topcoat-ui-registry@0.8.1 sha256:124c08867ae6ca52a8be3205eb1dbcf2a807dd1c6cab7dc2a47d043a34e44cce — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
+// SYNC: topcoat-ui-registry@0.8.1 sha256:77506179aea385b0507bf9ddae18f7df19ca59e7e755b9f69f0f57c5e75c5c61 — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
 use topcoat::{
     Result,
     icon::{icon, iconify::iconify_icon},
     view::{Attributes, Length, View, attributes, class, component, view},
 };
 
-/// A spinner component: a spinning loader icon for pending states.
+/// An animated icon for work in progress.
 ///
-/// The spinner is `1em` square by default, so it scales with the surrounding
-/// text and sits inline next to it; pass `size` to set the dimensions
-/// explicitly. The `attrs` (such as `class`) are forwarded to the underlying
-/// `<svg>`; a `class` among them is appended to the computed classes.
+/// The default size is `1em`, matching the surrounding text. Pass `size` to choose
+/// other dimensions and `label` to describe the work to assistive technology. `attrs`
+/// are forwarded to the `<svg>`, with extra classes added to its classes.
 ///
 /// ```ignore
 /// view! {
