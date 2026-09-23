@@ -37,3 +37,60 @@ default. Omit `dark_mode` and the panel starts light.
 The panel owns the URL of each resource's list page and resolves a resource's sidebar entry to
 `{prefix}/{slug}`; the resource owns the label and the ordering. See
 [Resources](./resources.md) for the `navigation()` override.
+
+## Public pages
+
+A public page is an app-level `#[page]` outside the panel prefix. The auth gate installs two layers
+— the panel prefix and `/_topcoat/runtime` — and a layer wraps only the routes under its path
+prefix, so no route under another prefix is gated. Route discovery is link-time over the binary, so
+the `discover()` call inside `Panel::build` collects these pages with no router change:
+
+```rust
+use topcoat::{
+    Result,
+    router::{Slot, layout, page},
+    tailwind,
+    view::{View, view},
+};
+
+// The layout path is a prefix: `/blog` wraps `/blog` and `/blog/{id}`, and
+// nothing else. A layout at `/` would wrap `/admin` too.
+#[layout("/blog")]
+async fn blog_layout(slot: Slot<'_>) -> Result<impl View> {
+    Ok(view! {
+        <!DOCTYPE html>
+        <html>
+            <head>
+                topcoat::dev::script()
+                topcoat::runtime::script()
+                <link rel="stylesheet" href=(tailwind::stylesheet!())>
+            </head>
+            <body>
+                (slot)
+            </body>
+        </html>
+    })
+}
+
+#[page("/blog")]
+async fn blog() -> Result<impl View> {
+    Ok(view! { "Posts" })
+}
+```
+
+A public page renders its own document: `Panel::render_document` and `Panel::layout_shell` are the
+admin shell, so the layout carries the head — `topcoat::dev::script()`,
+`topcoat::runtime::script()`, `topcoat::font::link(font: …)` and
+`<link rel="stylesheet" href=(tailwind::stylesheet!())>` — the same way the panel's shell does. The
+runtime script, the font and the stylesheet are `Asset` URLs, and an `Asset` panics where no asset
+config is registered, so a router built without `.assets(..)` — a markup test, say — needs a layout
+that leaves them out: the panel's shell drops back to `topcoat::dev::script()` and its theme script
+in that case, and a layout takes the same fallback by guarding on
+`try_app_context::<AssetConfig>(cx).is_some()`.
+
+The panel's resource loaders are panel-scoped (auth, tenancy, chrome), so a public page queries the
+model directly: `Post::filter(Post::fields().status().eq("published".to_string()))`, with an explicit
+`.include(..)` for every relation the page reads. See [Data access](./data-access.md). The framework
+scopes a `Resource`'s loaders, not a page's own query, so app code that loads rows outside those
+loaders calls `scoped_query` — a public page in a multi-tenant app states its tenant predicate in the
+query it writes (ADR-0002).

@@ -13,6 +13,7 @@ mod common;
 
 mod admin;
 mod auth_check;
+mod blog_check;
 mod bulk_check;
 mod comments_check;
 mod create_check;
