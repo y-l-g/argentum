@@ -55,21 +55,18 @@ use syn::DeriveInput;
 ///
 /// The discriminant column decides, in this order:
 ///
-/// 1. a discriminant the submission **names** — always wins, and one the enum
-///    does not declare is refused loudly rather than read as some other
-///    variant;
-/// 2. otherwise (the create form, a hand-written POST) the first variant, in
-///    declaration order, with a **payload of its own** submitted — a
-///    `#[shared(..)]` column belongs to several variants and so never selects
-///    one;
+/// 1. a discriminant the submission **names** — always wins, and one the enum does not declare is
+///    refused loudly rather than read as some other variant;
+/// 2. otherwise (the create form, a hand-written POST) the first variant, in declaration order,
+///    with a **payload of its own** submitted — a `#[shared(..)]` column belongs to several
+///    variants and so never selects one;
 /// 3. otherwise the first variant.
 ///
 /// # Per-field overrides
 ///
-/// - `#[form(label = "Canonical URL")]` — the control's label (default: the
-///   field name, humanized).
-/// - `#[form(textarea)]` / `#[form(textarea, rows = 3)]` — a multi-line control
-///   for a `String` leaf, and its height.
+/// - `#[form(label = "Canonical URL")]` — the control's label (default: the field name, humanized).
+/// - `#[form(textarea)]` / `#[form(textarea, rows = 3)]` — a multi-line control for a `String`
+///   leaf, and its height.
 ///
 /// Anything else in `#[form(..)]` is a compile error.
 ///

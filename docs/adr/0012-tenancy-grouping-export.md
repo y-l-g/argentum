@@ -20,8 +20,9 @@ page-local sum would be a misleading number for exactly the large tables aggrega
 a sum waits for upstream `GROUP BY` (#118), at which point `Table::group_by` can delegate without
 changing resources.
 
-**Export.** `Table::to_csv(&TablePage)` generates RFC4180 (header + rows, quoting when a value holds
-`,`, `"` or a newline). `Panel` owns a per-resource `GET {prefix}/{slug}/export` route that serves
+**Export.** `Table::csv_header` and `Table::csv_row` generate RFC4180 fragments (header + rows,
+quoting when a value holds `,`, `"` or a newline). `Panel` owns a per-resource
+`GET {prefix}/{slug}/export` route that serves
 `text/csv` with a sanitized `Content-Disposition: attachment; filename="..."`. The loader walks the
 filtered, sorted query in cursor chunks (GH #172), so a 10k-row export holds one chunk plus one CSV
 fragment, and the cap counts **viewable** rows: visibility is applied before the cap (GH #145). Its

@@ -5,10 +5,11 @@
 
 use argentum_core::auth::{AdminUser, AuthSession};
 use http::header::{COOKIE, LOCATION};
-use showcase::app::router_for_tests as router;
-use showcase::models::{DEMO_ADMIN_EMAIL, DEMO_ADMIN_PASSWORD};
-use topcoat::context::CxTestBuilder;
-use topcoat::router::Body;
+use showcase::{
+    app::router_for_tests as router,
+    models::{DEMO_ADMIN_EMAIL, DEMO_ADMIN_PASSWORD},
+};
+use topcoat::{context::CxTestBuilder, router::Body};
 
 use crate::common::{
     SESSION_COOKIE, TestClient, body_string, form_body, full_db, input_value, login, login_next,

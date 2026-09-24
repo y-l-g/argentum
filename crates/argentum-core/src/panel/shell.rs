@@ -4,23 +4,23 @@
 //! `argentum-ui`, Topcoat's view and runtime, and the notification and
 //! [`NavigationItem`] types — never on the [`Resource`] trait.
 
-use super::{Panel, PanelPrefix};
-
 use http::header::COOKIE;
-use topcoat::icon::icon;
-use topcoat::runtime::{Event, Signal, signal};
-use topcoat::view::internal::ThenView;
 use topcoat::{
     Result,
     asset::Asset,
     context::{Cx, try_request_context},
     font::Font,
+    icon::icon,
     router::Slot,
-    view::{BoxView, Child, HoistView, View, ViewExt, attributes, view},
+    runtime::{Event, Signal, signal},
+    view::{BoxView, Child, HoistView, View, ViewExt, attributes, internal::ThenView, view},
 };
 
-use crate::notification::{LiveToast, live_toast, live_toaster, take_notification};
-use crate::resource::NavigationItem;
+use super::{Panel, PanelPrefix};
+use crate::{
+    notification::{LiveToast, live_toast, live_toaster, take_notification},
+    resource::NavigationItem,
+};
 
 /// Branding for the admin shell (panel header + sidebar header).
 #[derive(Debug, Clone)]
@@ -425,8 +425,7 @@ impl Panel {
     /// bundle exists. Errors from the page slot propagate unchanged when the
     /// document view is resolved.
     pub async fn layout_shell<'a>(cx: &'a Cx, slot: Slot<'a>) -> Result<impl View + 'a> {
-        use topcoat::context::try_app_context;
-        use topcoat::router::request::uri;
+        use topcoat::{context::try_app_context, router::request::uri};
         let current = uri(cx).path().to_string();
         // Prefer declarative nav_items from Panel::resource, fallback to Home.
         let nav_items = try_app_context::<Vec<NavigationItem>>(cx)
@@ -533,9 +532,9 @@ mod tests {
 
     #[tokio::test]
     async fn layout_shell_renders_a_complete_document() {
+        use topcoat::{context::CxTestBuilder, view::view};
+
         use crate::resource::{NavTarget, NavigationItem};
-        use topcoat::context::CxTestBuilder;
-        use topcoat::view::view;
 
         let (parts, ()) = http::Request::builder()
             .uri("/admin/users")
@@ -577,9 +576,9 @@ mod tests {
 
     #[tokio::test]
     async fn shell_escapes_brand_name_and_logo() {
+        use topcoat::{context::CxTestBuilder, view::view};
+
         use crate::resource::{NavTarget, NavigationItem};
-        use topcoat::context::CxTestBuilder;
-        use topcoat::view::view;
 
         // Attribute-injection safety rests on `view!` escaping (GH #102):
         // lock it with a hostile brand on both render paths (header + sidebar).
@@ -742,10 +741,9 @@ mod tests {
 
     /// Render the shell once with a flash cookie carrying `enc`.
     async fn shell_html_with_flash(enc: &str) -> String {
+        use topcoat::{context::CxTestBuilder, cookie::CookieJarCell, view::view};
+
         use crate::resource::{NavTarget, NavigationItem};
-        use topcoat::context::CxTestBuilder;
-        use topcoat::cookie::CookieJarCell;
-        use topcoat::view::view;
 
         let mut parts = http::Request::builder()
             .uri("/admin/users")
@@ -783,9 +781,9 @@ mod tests {
     async fn sidebar_orders_custom_items_by_sort_key() {
         // GH #102: `order: -1` interleaves a custom item above the
         // resources; ties keep declaration order.
+        use topcoat::{context::CxTestBuilder, view::view};
+
         use crate::resource::{NavTarget, NavigationItem};
-        use topcoat::context::CxTestBuilder;
-        use topcoat::view::view;
 
         let (parts, ()) = http::Request::builder()
             .uri("/admin/users")
@@ -827,9 +825,9 @@ mod tests {
         // GH #136: structure/aria only — pixel Token/Tailwind classes live in
         // the showcase (`admin_resource_list_page_serve_seeded_users`), so a
         // restyle does not fail core without a behavior change.
+        use topcoat::{context::CxTestBuilder, view::view};
+
         use crate::resource::{NavTarget, NavigationItem};
-        use topcoat::context::CxTestBuilder;
-        use topcoat::view::view;
 
         let cx = CxTestBuilder::new().build();
         let cx_ref = &cx;
@@ -921,8 +919,7 @@ mod tests {
     /// (invalid HTML, and landmark navigation lists both).
     #[tokio::test]
     async fn shell_has_a_single_main_landmark() {
-        use topcoat::context::CxTestBuilder;
-        use topcoat::view::view;
+        use topcoat::{context::CxTestBuilder, view::view};
 
         let cx = CxTestBuilder::new().build();
         let cx_ref = &cx;
@@ -952,8 +949,7 @@ mod tests {
     /// mobile trigger there is unreachable and the sheet needs its own.
     #[tokio::test]
     async fn sidebar_sheet_header_carries_a_mobile_close_button() {
-        use topcoat::context::CxTestBuilder;
-        use topcoat::view::view;
+        use topcoat::{context::CxTestBuilder, view::view};
 
         let cx = CxTestBuilder::new().build();
         let cx_ref = &cx;
@@ -986,9 +982,9 @@ mod tests {
         // GH #160: the toaster renders an `<ol>`, which permits only
         // `li`/`script`/`template` children — with no flash notification and
         // no live toast, neither slot may strand a `<span>` in the list.
+        use topcoat::{context::CxTestBuilder, view::view};
+
         use crate::resource::NavigationItem;
-        use topcoat::context::CxTestBuilder;
-        use topcoat::view::view;
 
         let cx = CxTestBuilder::new().build();
         let cx_ref = &cx;
@@ -1048,9 +1044,9 @@ mod tests {
         // initial value, so the first paint matches the last choice; from
         // hydration on, the browser owns the state (assets/sidebar.js mirrors
         // it back).
+        use topcoat::{context::CxTestBuilder, view::view};
+
         use crate::resource::{NavTarget, NavigationItem};
-        use topcoat::context::CxTestBuilder;
-        use topcoat::view::view;
 
         let (parts, ()) = http::Request::builder()
             .uri("/admin/users")

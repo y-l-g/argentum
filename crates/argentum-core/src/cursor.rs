@@ -416,8 +416,9 @@ fn hex_decode(token: &str) -> Result<Vec<u8>> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use toasty_core::stmt::ValueRecord;
+
+    use super::*;
 
     fn round_trip(value: Value) {
         let token = encode(&value).expect("encode");

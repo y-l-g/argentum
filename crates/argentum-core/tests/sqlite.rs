@@ -80,10 +80,10 @@ async fn create_and_query_users() {
 /// only disagrees with the database if the `#[unique]` index compares
 /// case-insensitively. Two measurements pin the answer for this configuration:
 ///
-/// 1. The `eq` probe finds the row by its exact stored value, so the probe and
-///    the index look at equality the same way.
-/// 2. `Alice@example.com` inserts *beside* `alice@example.com`, so the index
-///    treats the two as distinct values.
+/// 1. The `eq` probe finds the row by its exact stored value, so the probe and the index look at
+///    equality the same way.
+/// 2. `Alice@example.com` inserts *beside* `alice@example.com`, so the index treats the two as
+///    distinct values.
 ///
 /// Together: SQLite's default `BINARY` collation is case- and accent-sensitive,
 /// which is exactly what the panel promises — the constraint can reject a
@@ -104,9 +104,8 @@ async fn unique_collation_matches_the_app_side_probe() {
     .await
     .expect("create Alice");
 
-    // 1. The probe's `eq` finds the stored value exactly: the same comparison
-    //    the index makes, so a duplicate the probe reports is one the index
-    //    would refuse too.
+    // 1. The probe's `eq` finds the stored value exactly: the same comparison the index makes, so a
+    //    duplicate the probe reports is one the index would refuse too.
     let exact = User::all()
         .filter(User::fields().email().eq("alice@example.com"))
         .exec(&mut db)
@@ -114,8 +113,8 @@ async fn unique_collation_matches_the_app_side_probe() {
         .expect("probe by exact value");
     assert_eq!(exact.len(), 1, "the probe must find the stored value");
 
-    // 2. A case variant is a different value for the index as well: it stores
-    //    beside Alice, so the probe not flagging it is not a missed duplicate.
+    // 2. A case variant is a different value for the index as well: it stores beside Alice, so the
+    //    probe not flagging it is not a missed duplicate.
     toasty::create!(User {
         name: "Alice (cased)",
         email: "Alice@example.com",

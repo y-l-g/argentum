@@ -32,15 +32,13 @@ use topcoat::{Result, context::Cx};
 /// have defaults — none of them fail-closed in the abstract, each the answer
 /// that keeps a source declaring nothing honest:
 ///
-/// - [`can_view_any`](Self::can_view_any) and [`can_view`](Self::can_view)
-///   deny — the default-deny policy `Resource` also declares.
-/// - [`search_expr`](Self::search_expr) and [`order_by`](Self::order_by)
-///   answer `None`: no narrowing (the D1a bounded-head fallback) and no
-///   ordering.
-/// - [`requires_tenant`](Self::requires_tenant) is `false` — no tenant gate,
-///   the default-open declaration `Resource` also makes.
-/// - [`slug`](Self::slug) falls back to the type name, which only reaches the
-///   log fields.
+/// - [`can_view_any`](Self::can_view_any) and [`can_view`](Self::can_view) deny — the default-deny
+///   policy `Resource` also declares.
+/// - [`search_expr`](Self::search_expr) and [`order_by`](Self::order_by) answer `None`: no
+///   narrowing (the D1a bounded-head fallback) and no ordering.
+/// - [`requires_tenant`](Self::requires_tenant) is `false` — no tenant gate, the default-open
+///   declaration `Resource` also makes.
+/// - [`slug`](Self::slug) falls back to the type name, which only reaches the log fields.
 ///
 /// # Why it is public
 ///
@@ -303,19 +301,17 @@ where
 /// hook until a real caller needs it.
 ///
 /// * Empty/blank `q` → bounded head (same cap as [`related_records`]).
-/// * `q` non-empty but `search_expr` is `None` (no searchable columns) →
-///   fallback to the hard-cap path (D1a): unfiltered bounded load, `Overflow`
-///   when over the cap. Non-searchable selects use the hard-cap path.
-/// * Filtered fetch carries `limit(MAX+1)` and fails with `Overflow` past the
-///   cap instead of scanning the table — one bounded round-trip per keystroke
-///   burst, never the whole table.
-/// * Policy mirrors the base load: `can_view_any` + tenant gate fail closed
-///   (`Denied`), rows filter through `can_view` before labels.
-/// * `q` is clamped to [`crate::query_term::MAX_QUERY_TERM`] chars (same bound
-///   as `?q=`), trimmed.
-/// * One bounded round-trip per call, never the whole table; not memoized
-///   (`q` is unbounded per keystroke, and the endpoint serves one field and
-///   one term per request, so sharing would only grow the per-request cache).
+/// * `q` non-empty but `search_expr` is `None` (no searchable columns) → fallback to the hard-cap
+///   path (D1a): unfiltered bounded load, `Overflow` when over the cap. Non-searchable selects use
+///   the hard-cap path.
+/// * Filtered fetch carries `limit(MAX+1)` and fails with `Overflow` past the cap instead of
+///   scanning the table — one bounded round-trip per keystroke burst, never the whole table.
+/// * Policy mirrors the base load: `can_view_any` + tenant gate fail closed (`Denied`), rows filter
+///   through `can_view` before labels.
+/// * `q` is clamped to [`crate::query_term::MAX_QUERY_TERM`] chars (same bound as `?q=`), trimmed.
+/// * One bounded round-trip per call, never the whole table; not memoized (`q` is unbounded per
+///   keystroke, and the endpoint serves one field and one term per request, so sharing would only
+///   grow the per-request cache).
 pub(crate) async fn related_records_search<R>(
     cx: &Cx,
     q: String,
@@ -385,12 +381,11 @@ pub(crate) enum RelatedCheck {
 /// Membership in the bounded set cannot validate overflowed selects (the full
 /// set exceeds the cap), so validate the submitted value directly: parse via
 /// `pk_eq_expr`, fetch through the tenant-scoped query, then `can_view`.
-/// * `Denied` when `can_view_any` fails or tenant is missing (maps to
-///   "not available").
+/// * `Denied` when `can_view_any` fails or tenant is missing (maps to "not available").
 /// * `LoadFailed` on driver failure (maps to retry).
 /// * `Ok(FoundViewable/FoundHidden/NotFound)` otherwise.
-/// * Single targeted round-trip per call, not memoized (one value per
-///   validation; sharing would only grow the per-request cache).
+/// * Single targeted round-trip per call, not memoized (one value per validation; sharing would
+///   only grow the per-request cache).
 pub(crate) async fn related_record_check<R>(
     cx: &Cx,
     value: String,
@@ -432,12 +427,13 @@ where
 #[cfg(test)]
 mod tests {
     use toasty::stmt::{List, Query};
-    use topcoat::context::{Cx, CxTestBuilder};
-
-    use crate::schema::{FieldLens, Mode, Select};
+    use topcoat::{
+        context::{Cx, CxTestBuilder},
+        view::*,
+    };
 
     use super::*;
-    use topcoat::view::*;
+    use crate::schema::{FieldLens, Mode, Select};
     /// Related-source fixtures shared by the option-policy tests (GH #108).
     ///
     /// Each one implements only the [`OptionSource`] surface its test reads —

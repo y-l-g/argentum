@@ -235,8 +235,9 @@ async fn delete_404_for_missing_or_wrong_tenant() {
 /// not reach the delete either.
 #[tokio::test]
 async fn forged_delete_runs_no_record_query() {
-    use argentum_core::{Resource, Schema, Table, TextColumn, TextInput};
     use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use argentum_core::{Resource, Schema, Table, TextColumn, TextInput};
 
     // Every load (find_by_key, the tx fetch) starts from `scoped_query`,
     // which calls the resource's `query` — so a counter on that override

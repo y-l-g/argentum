@@ -71,8 +71,10 @@ pub async fn error_state(
 
 #[cfg(test)]
 mod tests {
-    use topcoat::context::CxTestBuilder;
-    use topcoat::view::{ViewExt, attributes};
+    use topcoat::{
+        context::CxTestBuilder,
+        view::{ViewExt, attributes},
+    };
 
     use super::*;
 

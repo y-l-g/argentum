@@ -21,6 +21,8 @@ mod relationship;
 mod tree;
 mod validation;
 
+use std::collections::{HashMap, HashSet};
+
 pub use embedded::{
     EmbeddedForm, EnumSpec, discriminant_select, enum_spec, leaf_key, parse_leaf, read_embedded,
     submitted, write_embedded,
@@ -32,15 +34,12 @@ pub(crate) use lenses::{capitalize, lens_field, lens_field_unique, lens_label};
 pub(crate) use pk::{pk_eq_expr, pk_in_expr, pk_is_composite};
 pub(crate) use relationship::OptionLoadError;
 pub use relationship::{MAX_RELATIONSHIP_OPTIONS, OptionSource};
+use topcoat::{Result, context::Cx, view::*};
 pub use tree::IntoSchema;
 pub(crate) use tree::{
     Mode, Node, RenderSource, for_each_field, validate_leaf, walk_repeater_absence,
 };
 pub use validation::TypedValue;
-
-use std::collections::{HashMap, HashSet};
-
-use topcoat::{Result, context::Cx, view::*};
 
 /// The container that composes layout blocks.
 #[derive(Debug, Default)]
@@ -266,14 +265,6 @@ impl Schema {
         })
     }
 
-    /// Every [`Textarea`] this schema declares, keyed by field name.
-    pub fn textareas(&self) -> HashMap<String, Textarea> {
-        self.leaves(|n| match n {
-            Node::Textarea(f) => Some((f.field_name(), (**f).clone())),
-            _ => None,
-        })
-    }
-
     /// Every [`Select`] this schema declares, keyed by field name.
     pub fn select_inputs(&self) -> HashMap<String, Select> {
         self.leaves(|n| match n {
@@ -369,7 +360,8 @@ impl Schema {
                 let val = values.get(&name).map(|s| s.as_str()).unwrap_or("");
                 if !val.trim().is_empty() {
                     let async_errs = sel.validate_async(cx, val).await;
-                    // validate_async returns required errs plus existence; we already did required, so filter.
+                    // validate_async returns required errs plus existence; we already did required,
+                    // so filter.
                     let existence_errs: Vec<String> = async_errs
                         .into_iter()
                         .filter(|e| !e.contains("is required"))

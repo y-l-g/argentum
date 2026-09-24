@@ -51,24 +51,19 @@
 //!
 //! # What is not covered
 //!
-//! - A `#[document]` **inside** an embedded value: its fields share one column,
-//!   so there is no per-field binding, and the walk refuses rather than hand one
-//!   column back for several fields. Leaf binding of a document still works
-//!   (GH #185).
+//! - A `#[document]` **inside** an embedded value: its fields share one column, so there is no
+//!   per-field binding, and the walk refuses rather than hand one column back for several fields.
+//!   Leaf binding of a document still works (GH #185).
 //! - A relation inside an embedded value: relations are not stored in the row.
-//! - An embedded enum nested **inside an enum variant**: value resolution starts
-//!   at a model root, and a variant-rooted path addresses one variant's leaf
-//!   (which leaf binding does handle). Nesting inside *structs* works at any
-//!   depth.
-//! - The variant **control** is a `Select` over the discriminant column
-//!   ([`discriminant_select`]), one option per variant — submitting the value
-//!   the column stores, reading as the variant's name — and each variant's
-//!   payload renders inside a `Group` marked with that variant's value, so the
-//!   client can show the chosen variant alone (GH #191). The grouping is the
-//!   derive's, the marker is
-//!   [`Group::variant`](crate::schema::Group::variant), and the toggle is
-//!   `assets/variant.js`; with JavaScript off every group renders, which is
-//!   what the panel has always done.
+//! - An embedded enum nested **inside an enum variant**: value resolution starts at a model root,
+//!   and a variant-rooted path addresses one variant's leaf (which leaf binding does handle).
+//!   Nesting inside *structs* works at any depth.
+//! - The variant **control** is a `Select` over the discriminant column ([`discriminant_select`]),
+//!   one option per variant — submitting the value the column stores, reading as the variant's name
+//!   — and each variant's payload renders inside a `Group` marked with that variant's value, so the
+//!   client can show the chosen variant alone (GH #191). The grouping is the derive's, the marker
+//!   is [`Group::variant`](crate::schema::Group::variant), and the toggle is `assets/variant.js`;
+//!   with JavaScript off every group renders, which is what the panel has always done.
 //!
 //! # What a derived control declares
 //!
@@ -85,8 +80,7 @@ use std::collections::HashMap;
 use toasty::stmt::Path;
 use topcoat::context::Cx;
 
-use crate::schema::Select;
-use crate::schema::lenses::FieldResolver;
+use crate::schema::{Select, lenses::FieldResolver};
 
 /// The resolver for this request, with the one failure a value binding cannot
 /// fall back from: no app schema means no columns.

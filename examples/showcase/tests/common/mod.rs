@@ -5,14 +5,15 @@
 
 #![allow(dead_code)]
 
-use argentum_core::Resource;
-use argentum_core::Tenant;
+use argentum_core::{Resource, Tenant};
 use http::header::{CONTENT_TYPE, COOKIE};
 use http_body_util::BodyExt;
 use showcase::models::{DEMO_ADMIN_EMAIL, DEMO_ADMIN_PASSWORD, create_admin, seed, seed_phase2};
 use toasty::Db;
-use topcoat::context::Cx;
-use topcoat::router::{Body, Router};
+use topcoat::{
+    context::Cx,
+    router::{Body, Router},
+};
 
 /// A fresh in-memory `Db` carrying the **full** showcase model set, schema
 /// pushed and no rows — the one place the model list is written (GH #217).
@@ -367,8 +368,7 @@ pub async fn login<'a>(router: &'a Router, email: &str, password: &str) -> TestC
 /// password verification, which is the point: ~110 tests re-authenticated to
 /// get an authenticated client, at ~0.4s each.
 pub async fn mint_session(db: &Db, email: &str) -> String {
-    use std::fmt::Write as _;
-    use std::time::SystemTime;
+    use std::{fmt::Write as _, time::SystemTime};
 
     use argentum_core::auth::{AdminUser, AuthSession, SESSION_LIFETIME};
     use topcoat::session::Token;

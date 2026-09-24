@@ -17,8 +17,10 @@
 //! (#139), not a hand-rolled one.
 
 use subtle::ConstantTimeEq;
-use topcoat::context::{Cx, try_request_context};
-use topcoat::cookie::{Cookie, CookieJarCell, Cookies, cookies};
+use topcoat::{
+    context::{Cx, try_request_context},
+    cookie::{Cookie, CookieJarCell, Cookies, cookies},
+};
 
 /// Cookie carrying the CSRF token (`__Host-` prefix: `Secure` + `Path=/` +
 /// no `Domain` are required by the prefix contract, GH #149).
@@ -120,8 +122,9 @@ fn is_valid_token(value: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use topcoat::context::CxTestBuilder;
+
+    use super::*;
 
     fn cx_with_cookie(value: Option<&str>) -> Cx {
         let mut parts = http::Request::builder()

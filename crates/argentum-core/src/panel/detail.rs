@@ -7,17 +7,14 @@
 //! policy,
 //! and answers the same 404 for an unknown or out-of-scope id.
 
-use topcoat::view::internal::ThenView;
 use topcoat::{
     context::Cx,
     router::{Body, error::not_found, path_param_segment},
-    view::{BoxView, HoistView, ViewExt, view},
+    view::{BoxView, HoistView, ViewExt, internal::ThenView, view},
 };
 
-use super::actions::load_viewable;
-use super::{enforce_auth, enforce_tenant, list_url};
-use crate::db::db;
-use crate::resource::Resource;
+use super::{actions::load_viewable, enforce_auth, enforce_tenant, list_url};
+use crate::{db::db, resource::Resource};
 
 /// Detail page GET (GH #187).
 ///
@@ -88,8 +85,9 @@ fn detail_title<R: Resource>(cx: &Cx, record: &R::Model, id: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use topcoat::context::CxTestBuilder;
+
+    use super::*;
 
     #[derive(Debug, Clone, toasty::Model)]
     struct Note {

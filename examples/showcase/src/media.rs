@@ -31,8 +31,10 @@ use topcoat::{
     view::{BoxView, View, ViewExt, attributes, view},
 };
 
-use crate::app::{DirUploader, PostResource, UserResource, basename, upload_dir};
-use crate::models::{MediaAsset, Post, User};
+use crate::{
+    app::{DirUploader, PostResource, UserResource, basename, upload_dir},
+    models::{MediaAsset, Post, User},
+};
 
 /// Where the media library lives: the page, the upload route, and the form's
 /// own action.

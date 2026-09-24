@@ -7,58 +7,63 @@
 pub mod components;
 pub mod icons;
 
-// Primitives — verbatim mirror of `topcoat-ui-registry`, synced via
-// `cargo xtask sync-topcoat-ui` (ADR-0007). Re-exported at the crate root for
-// ergonomic `argentum_ui::card` etc.; edit the registry, not these.
-pub use components::primitives::alert::{AlertVariant, alert, alert_description, alert_title};
-pub use components::primitives::alert_dialog::alert_dialog;
-pub use components::primitives::button::{ButtonSize, ButtonVariant, button, button_variants};
-pub use components::primitives::card::{
-    card, card_content, card_description, card_footer, card_header, card_title,
-};
-pub use components::primitives::checkbox::checkbox;
-pub use components::primitives::dialog::{
-    dialog, dialog_content, dialog_description, dialog_footer, dialog_header, dialog_title,
-};
-pub use components::primitives::field::{
-    FieldLegendVariant, FieldOrientation, field, field_content, field_description, field_error,
-    field_group, field_label, field_legend, field_separator, field_set, field_title,
-};
-pub use components::primitives::input::input;
-pub use components::primitives::label::label;
-pub use components::primitives::pagination::{
-    pagination, pagination_content, pagination_ellipsis, pagination_item, pagination_link,
-    pagination_next, pagination_previous,
-};
-pub use components::primitives::select::select;
-pub use components::primitives::separator::{SeparatorOrientation, separator};
-pub use components::primitives::sheet::{SheetSide, sheet, sheet_content};
-pub use components::primitives::sidebar::{
-    SidebarCollapsible, SidebarMenuButtonSize, SidebarMenuButtonVariant, SidebarSide,
-    SidebarVariant, sidebar, sidebar_content, sidebar_footer, sidebar_group, sidebar_group_action,
-    sidebar_group_content, sidebar_group_label, sidebar_header, sidebar_input, sidebar_inset,
-    sidebar_menu, sidebar_menu_action, sidebar_menu_badge, sidebar_menu_button,
-    sidebar_menu_button_variants, sidebar_menu_item, sidebar_menu_skeleton, sidebar_menu_sub,
-    sidebar_menu_sub_button, sidebar_menu_sub_item, sidebar_provider, sidebar_rail,
-    sidebar_separator, sidebar_trigger,
-};
-pub use components::primitives::skeleton::skeleton;
-pub use components::primitives::table::{
-    table, table_body, table_caption, table_cell, table_footer, table_head, table_header, table_row,
-};
-pub use components::primitives::textarea::textarea;
-// Composites — owned Argentum components (ADR-0007). Re-exported here for
-// ergonomic `argentum_ui::page` etc.; they live in `components/composites/`.
-pub use components::composites::error_state::error_state;
-pub use components::composites::page::{
-    page, page_content, page_description, page_header, page_title,
-};
-pub use components::composites::theme::theme_init_script;
-pub use components::composites::toast::{
-    toast, toast_close, toast_content, toast_description, toast_icon, toast_title, toaster,
+// Re-exported at the crate root for ergonomic `argentum_ui::card` etc. The
+// `primitives` half mirrors `topcoat-ui-registry` verbatim (sync with
+// `cargo xtask sync-topcoat-ui`, ADR-0007 — edit the registry, not these); the
+// `composites` half is owned Argentum code in `components/composites/`.
+pub use components::{
+    composites::{
+        error_state::error_state,
+        page::{page, page_content, page_description, page_header, page_title},
+        theme::theme_init_script,
+        toast::{
+            toast, toast_close, toast_content, toast_description, toast_icon, toast_title, toaster,
+        },
+    },
+    primitives::{
+        alert::{AlertVariant, alert, alert_description, alert_title},
+        alert_dialog::alert_dialog,
+        button::{ButtonSize, ButtonVariant, button, button_variants},
+        card::{card, card_content, card_description, card_footer, card_header, card_title},
+        checkbox::checkbox,
+        dialog::{
+            dialog, dialog_content, dialog_description, dialog_footer, dialog_header, dialog_title,
+        },
+        field::{
+            FieldLegendVariant, FieldOrientation, field, field_content, field_description,
+            field_error, field_group, field_label, field_legend, field_separator, field_set,
+            field_title,
+        },
+        input::input,
+        label::label,
+        pagination::{
+            pagination, pagination_content, pagination_ellipsis, pagination_item, pagination_link,
+            pagination_next, pagination_previous,
+        },
+        select::select,
+        separator::{SeparatorOrientation, separator},
+        sheet::{SheetSide, sheet, sheet_content},
+        sidebar::{
+            SidebarCollapsible, SidebarMenuButtonSize, SidebarMenuButtonVariant, SidebarSide,
+            SidebarVariant, sidebar, sidebar_content, sidebar_footer, sidebar_group,
+            sidebar_group_action, sidebar_group_content, sidebar_group_label, sidebar_header,
+            sidebar_input, sidebar_inset, sidebar_menu, sidebar_menu_action, sidebar_menu_badge,
+            sidebar_menu_button, sidebar_menu_button_variants, sidebar_menu_item,
+            sidebar_menu_skeleton, sidebar_menu_sub, sidebar_menu_sub_button,
+            sidebar_menu_sub_item, sidebar_provider, sidebar_rail, sidebar_separator,
+            sidebar_trigger,
+        },
+        skeleton::skeleton,
+        table::{
+            table, table_body, table_caption, table_cell, table_footer, table_head, table_header,
+            table_row,
+        },
+        textarea::textarea,
+    },
 };
 
-// Assets for shell JS — via `asset!` + `AssetBundle` + `topcoat::runtime::script()` (ADR-0009 / T28.5)
+// Assets for shell JS — via `asset!` + `AssetBundle` + `topcoat::runtime::script()` (ADR-0009 /
+// T28.5)
 pub const SIDEBAR_JS: topcoat::asset::Asset = topcoat::asset::asset!("../assets/sidebar.js");
 pub const THEME_JS: topcoat::asset::Asset = topcoat::asset::asset!("../assets/theme.js");
 pub const DIALOG_JS: topcoat::asset::Asset = topcoat::asset::asset!("../assets/dialog.js");

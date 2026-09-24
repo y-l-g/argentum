@@ -6,7 +6,8 @@ fn main() {
     println!("cargo:rerun-if-changed=src/**/*.rs");
     println!("cargo:rerun-if-changed=../../crates/argentum-core/src/**/*.rs");
     println!("cargo:rerun-if-changed=../../crates/argentum-ui/src/**/*.rs");
-    // Try to build Tailwind; on failure (e.g. offline) create empty fallback so `cargo test` stays green.
+    // Try to build Tailwind; on failure (e.g. offline) create empty fallback so `cargo test` stays
+    // green.
     match argentum_ui::tailwind_build() {
         Ok(_) => {}
         Err(e) => {

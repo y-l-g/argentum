@@ -11,8 +11,7 @@
 use std::collections::HashMap;
 
 use toasty::stmt::{List, Query};
-use topcoat::Result;
-use topcoat::context::Cx;
+use topcoat::{Result, context::Cx};
 
 use crate::schema::Schema;
 
@@ -25,13 +24,11 @@ mod relation;
 mod state;
 mod table;
 
-#[cfg(test)]
-pub(crate) use crate::query_term::MAX_QUERY_TERM;
-pub(crate) use crate::query_term::clamp_query_term;
 pub use column::{ColumnWidth, IncludeNeeds, IntoColumns, TextColumn};
 pub(crate) use commit::run_after_commit;
 pub use commit::{Committed, Mutation};
 pub use filter::{DateFilter, Filter, IntoFilters, SelectFilter, TernaryFilter, VariantFilter};
+use naming::{kebab_case, pluralize, type_short_name};
 pub use navigation::{NavTarget, NavigationItem};
 pub use relation::{IntoRelationColumns, RelationColumn, RelationColumns, render_relation};
 pub(crate) use state::{
@@ -44,7 +41,9 @@ pub(crate) use state::{filters_param_encodes, reset_filters_param_encodes};
 pub(crate) use table::TableChrome;
 pub use table::{GroupDef, GroupKey, OrderMode, RowActions, RowKey, RowPolicy, Table};
 
-use naming::{kebab_case, pluralize, type_short_name};
+#[cfg(test)]
+pub(crate) use crate::query_term::MAX_QUERY_TERM;
+pub(crate) use crate::query_term::clamp_query_term;
 
 /// Maps one Toasty `Model` to its admin UI.
 ///
@@ -54,37 +53,29 @@ use naming::{kebab_case, pluralize, type_short_name};
 /// declares a [`Model`](Self::Model) — and an omission must therefore fail
 /// loudly rather than silently:
 ///
-/// - **Checked at [`Panel::build`](crate::panel::Panel::build)**, which returns
-///   `Err` naming the type: the table must be renderable
-///   ([`table`](Self::table) declares columns and a row key) and, where
-///   [`can_create`](Self::can_create) allows it, the
-///   [`form`](Self::form) must declare fields. `table`, `form` and `can_create`
-///   are declarations: they must not need request-scoped context, because the
-///   panel calls them once at boot with the app's values and no request.
-/// - **Loud at request time**: the record fns
-///   ([`create_record`](Self::create_record),
-///   [`update_record`](Self::update_record),
-///   [`delete_record`](Self::delete_record),
-///   [`bulk_delete_records`](Self::bulk_delete_records)) default to an error
-///   naming the type, so a resource that never implemented delete answers
-///   "delete not implemented for …" instead of writing nothing quietly.
+/// - **Checked at [`Panel::build`](crate::panel::Panel::build)**, which returns `Err` naming the
+///   type: the table must be renderable ([`table`](Self::table) declares columns and a row key)
+///   and, where [`can_create`](Self::can_create) allows it, the [`form`](Self::form) must declare
+///   fields. `table`, `form` and `can_create` are declarations: they must not need request-scoped
+///   context, because the panel calls them once at boot with the app's values and no request.
+/// - **Loud at request time**: the record fns ([`create_record`](Self::create_record),
+///   [`update_record`](Self::update_record), [`delete_record`](Self::delete_record),
+///   [`bulk_delete_records`](Self::bulk_delete_records)) default to an error naming the type, so a
+///   resource that never implemented delete answers "delete not implemented for …" instead of
+///   writing nothing quietly.
 /// - **Opt-in chrome, gated per record**: [`deletable`](Self::deletable) and
-///   [`editable`](Self::editable) default to `false`, so a resource that never
-///   mentions them renders no Edit or Delete affordance and cannot advertise an
-///   action its default-deny predicate refuses. A resource that wants the chrome
-///   declares the flag *and* the matching policy predicates (`can_view` +
-///   `can_delete` for `deletable`, `can_view` + `can_update` for `editable`).
-///   The flag is the
-///   whole-resource gate; the predicates are applied per row, because the panel
-///   wires them into the table's row policy ([`Table::row_actions`], GH #235):
-///   a row `can_update` refuses renders no Edit link, and a row `can_delete`
-///   refuses renders no Delete link and a disabled bulk checkbox. A row-level
-///   rule therefore narrows the chrome instead of leaving a control the route
-///   answers 403. [`viewed`](Self::viewed) is per-record exact the same way,
-///   derived from the declared [`view`](Self::view) schema rather than declared
-///   beside it.
-/// - **Default-deny is untouched**: every `can_*` still defaults to `false`, so
-///   an unconfigured resource exposes no data and no mutation.
+///   [`editable`](Self::editable) default to `false`, so a resource that never mentions them
+///   renders no Edit or Delete affordance and cannot advertise an action its default-deny predicate
+///   refuses. A resource that wants the chrome declares the flag *and* the matching policy
+///   predicates (`can_view` + `can_delete` for `deletable`, `can_view` + `can_update` for
+///   `editable`). The flag is the whole-resource gate; the predicates are applied per row, because
+///   the panel wires them into the table's row policy ([`Table::row_actions`], GH #235): a row
+///   `can_update` refuses renders no Edit link, and a row `can_delete` refuses renders no Delete
+///   link and a disabled bulk checkbox. A row-level rule therefore narrows the chrome instead of
+///   leaving a control the route answers 403. [`viewed`](Self::viewed) is per-record exact the same
+///   way, derived from the declared [`view`](Self::view) schema rather than declared beside it.
+/// - **Default-deny is untouched**: every `can_*` still defaults to `false`, so an unconfigured
+///   resource exposes no data and no mutation.
 pub trait Resource: Sized + Send + Sync + 'static {
     /// The persisted model this resource administers.
     ///
@@ -364,22 +355,19 @@ pub trait Resource: Sized + Send + Sync + 'static {
     ///
     /// # What an override must keep
     ///
-    /// - **The non-tenant scope of [`Self::query`].** This is the same
-    ///   soft-delete/row-level seam (ADR-0002), and the export is a reader like
-    ///   any other: an override that drops that half exports other rows. The
-    ///   *tenant* half is not the override's to keep — the framework ANDs it
-    ///   onto what this returns, exactly as it does for [`Self::query`]
-    ///   (GH #223), so a gated export is scoped whether or not the override
-    ///   re-states the filter.
-    /// - **Whatever the policy path reads.** The export's visibility scan calls
-    ///   [`Self::can_view`] on every row of both passes, before any cell is
-    ///   written, so a `can_view` that reads a relation needs that relation
-    ///   included even though no column declared it — include it
-    ///   unconditionally in the narrowed branch. Reading an un-included
-    ///   relation panics in `Deferred::get`.
-    /// - **Every name a column declared.** A declared name with no matching
-    ///   include renders an unloaded relation, which the column's `is_unloaded`
-    ///   guard (ADR-0011) reports in test builds instead of a silent `"-"`.
+    /// - **The non-tenant scope of [`Self::query`].** This is the same soft-delete/row-level seam
+    ///   (ADR-0002), and the export is a reader like any other: an override that drops that half
+    ///   exports other rows. The *tenant* half is not the override's to keep — the framework ANDs
+    ///   it onto what this returns, exactly as it does for [`Self::query`] (GH #223), so a gated
+    ///   export is scoped whether or not the override re-states the filter.
+    /// - **Whatever the policy path reads.** The export's visibility scan calls [`Self::can_view`]
+    ///   on every row of both passes, before any cell is written, so a `can_view` that reads a
+    ///   relation needs that relation included even though no column declared it — include it
+    ///   unconditionally in the narrowed branch. Reading an un-included relation panics in
+    ///   `Deferred::get`.
+    /// - **Every name a column declared.** A declared name with no matching include renders an
+    ///   unloaded relation, which the column's `is_unloaded` guard (ADR-0011) reports in test
+    ///   builds instead of a silent `"-"`.
     fn export_query(cx: &Cx, _needs: &IncludeNeeds) -> toasty::stmt::Query<List<Self::Model>> {
         Self::query(cx)
     }
@@ -392,20 +380,17 @@ pub trait Resource: Sized + Send + Sync + 'static {
     ///
     /// `true` means two things, and the second is GH #223:
     ///
-    /// 1. **The gate.** Every handler 403s when the request carries no tenant,
-    ///    instead of leaking unscoped rows or minting nil-tenant orphans
-    ///    (#87's tenantless-create rejection, unchanged).
-    /// 2. **The scope.** Every loader ANDs `tenant_id = <request tenant>` onto
-    ///    the resource's base query, deriving the column from the model's own
-    ///    schema — see [`scoped_query`] and [`Self::tenant_scope`]. A gated
-    ///    resource is therefore never unscoped because an override forgot to
-    ///    re-state the filter, and it is never unscoped because the derivation
-    ///    failed either: the model must declare a `tenant_id` UUID column, or
-    ///    the resource must declare its own predicate in
-    ///    [`Self::tenant_scope`], and a gated resource that does neither is
-    ///    refused by [`Panel::build`](crate::Panel::build) at boot (GH #231) —
-    ///    the declaration is checkable without a request — rather than serving
-    ///    rows unscoped or failing per request.
+    /// 1. **The gate.** Every handler 403s when the request carries no tenant, instead of leaking
+    ///    unscoped rows or minting nil-tenant orphans (#87's tenantless-create rejection,
+    ///    unchanged).
+    /// 2. **The scope.** Every loader ANDs `tenant_id = <request tenant>` onto the resource's base
+    ///    query, deriving the column from the model's own schema — see [`scoped_query`] and
+    ///    [`Self::tenant_scope`]. A gated resource is therefore never unscoped because an override
+    ///    forgot to re-state the filter, and it is never unscoped because the derivation failed
+    ///    either: the model must declare a `tenant_id` UUID column, or the resource must declare
+    ///    its own predicate in [`Self::tenant_scope`], and a gated resource that does neither is
+    ///    refused by [`Panel::build`](crate::Panel::build) at boot (GH #231) — the declaration is
+    ///    checkable without a request — rather than serving rows unscoped or failing per request.
     ///
     /// A resource that must genuinely serve more than the request tenant — a
     /// deliberate cross-tenant view — declares `false` and scopes in
@@ -669,17 +654,15 @@ pub trait Resource: Sized + Send + Sync + 'static {
 ///
 /// # Errors
 ///
-/// - A gated resource and no tenant in `cx` → 403, the same fail-closed answer
-///   the handler gate gives (GH #87).
-/// - A gated resource that supplies no tenant predicate — no discoverable
-///   `tenant_id` UUID column, no [`Resource::tenant_scope`] override → an
-///   error naming the resource and the model. [`Panel::build`](crate::Panel::build)
-///   refuses that declaration at boot (GH #231), so this is the backstop for a
-///   predicate that exists but is `None` for the request's tenant, and for app
-///   code that calls this outside a panel. It is deliberately **not** a
-///   fallback to the unscoped query: discovery is by name, and a silent miss
-///   would be exactly the leak [`Resource::requires_tenant`] exists to
-///   prevent.
+/// - A gated resource and no tenant in `cx` → 403, the same fail-closed answer the handler gate
+///   gives (GH #87).
+/// - A gated resource that supplies no tenant predicate — no discoverable `tenant_id` UUID column,
+///   no [`Resource::tenant_scope`] override → an error naming the resource and the model.
+///   [`Panel::build`](crate::Panel::build) refuses that declaration at boot (GH #231), so this is
+///   the backstop for a predicate that exists but is `None` for the request's tenant, and for app
+///   code that calls this outside a panel. It is deliberately **not** a fallback to the unscoped
+///   query: discovery is by name, and a silent miss would be exactly the leak
+///   [`Resource::requires_tenant`] exists to prevent.
 ///
 /// # When to call this
 ///
@@ -744,16 +727,14 @@ pub(crate) fn apply_tenant_scope<R: Resource>(
 ///
 /// A resource answers the loaders here, so the loaders never name `Resource`:
 ///
-/// - [`scoped_query`](crate::schema::OptionSource::scoped_query) — the one
-///   required method — forwards to [`scoped_query`], so an option load inherits
-///   the tenant gate and the framework's derived tenant predicate exactly as
-///   every other loader does (GH #223). It is deliberately not
-///   [`Resource::query`], which on a gated resource is the *tenant-unscoped*
-///   base.
+/// - [`scoped_query`](crate::schema::OptionSource::scoped_query) — the one required method —
+///   forwards to [`scoped_query`], so an option load inherits the tenant gate and the framework's
+///   derived tenant predicate exactly as every other loader does (GH #223). It is deliberately not
+///   [`Resource::query`], which on a gated resource is the *tenant-unscoped* base.
 /// - the policy predicates and the tenant declaration forward unchanged.
-/// - the search expression and the default ordering come from the resource's
-///   declared [`table`](Resource::table), which is where "the option search
-///   searches the related resource's searchable columns" lives (GH #150).
+/// - the search expression and the default ordering come from the resource's declared
+///   [`table`](Resource::table), which is where "the option search searches the related resource's
+///   searchable columns" lives (GH #150).
 impl<R: Resource> crate::schema::OptionSource for R {
     type Model = R::Model;
 
@@ -788,9 +769,10 @@ impl<R: Resource> crate::schema::OptionSource for R {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use toasty::Db;
     use topcoat::context::CxTestBuilder;
+
+    use super::*;
 
     #[derive(Debug, Clone, toasty::Model)]
     struct User {

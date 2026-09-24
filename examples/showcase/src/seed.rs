@@ -1,10 +1,9 @@
 //! The showcase's demo rows: the users the panel lists, the two admin
 //! accounts, and the phase-2 authors, posts and comments.
 
+use argentum_core::auth::{AdminUser, hash_password};
 use jiff::Timestamp;
 use toasty::Db;
-
-use argentum_core::auth::{AdminUser, hash_password};
 
 use crate::models::{
     Author, Comment, Credit, Media, Post, PostStats, Poster, Publication, Seo, User,
@@ -241,8 +240,10 @@ pub async fn create_admin(
 /// this string, at the shipped parameters, and the login tests still exercise
 /// that. Only the *hashing* is memoised, and only in this demo seeder.
 fn memoized_password_hash(password: &str) -> String {
-    use std::collections::HashMap;
-    use std::sync::{Mutex, OnceLock};
+    use std::{
+        collections::HashMap,
+        sync::{Mutex, OnceLock},
+    };
 
     static HASHES: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
     HASHES
@@ -279,7 +280,8 @@ fn filler_embedded(index: usize) -> (Seo, Publication, Media, PostStats) {
     )
 }
 
-/// Seed Phase 2 relation data (Authors + Posts + Comments) — call only when DB was built with all models.
+/// Seed Phase 2 relation data (Authors + Posts + Comments) — call only when DB was built with all
+/// models.
 ///
 /// The two original rows keep their identity (filter/group/export tests pin
 /// them); the four extra posts are drafts with `featured = false` so the

@@ -1,9 +1,8 @@
-use toasty::Db;
-
 use showcase::{
     app::router,
     models::{seed, seed_phase2},
 };
+use toasty::Db;
 
 #[tokio::main]
 async fn main() {

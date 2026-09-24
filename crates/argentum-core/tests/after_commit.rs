@@ -14,9 +14,10 @@ use argentum_core::{
 };
 use http::header::{CONTENT_TYPE, COOKIE, LOCATION};
 use toasty::Db;
-use topcoat::context::Cx;
-use topcoat::router::response::Response;
-use topcoat::router::{Body, Router};
+use topcoat::{
+    context::Cx,
+    router::{Body, Router, response::Response},
+};
 use uuid::Uuid;
 
 #[derive(Debug, toasty::Model, Clone)]

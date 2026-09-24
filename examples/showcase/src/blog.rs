@@ -26,9 +26,11 @@ use topcoat::{
     view::{View, class, view},
 };
 
-use crate::app::GEIST;
-use crate::media::{MediaOwner, media_file_view, media_for_owner};
-use crate::models::{Author, Post};
+use crate::{
+    app::GEIST,
+    media::{MediaOwner, media_file_view, media_for_owner},
+    models::{Author, Post},
+};
 
 /// The status a post carries once it is visible to the public.
 const PUBLISHED: &str = "published";

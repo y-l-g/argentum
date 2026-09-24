@@ -3,13 +3,16 @@
 //! gated over it, and a full login round-trip runs through `Router::handle`.
 //! This is the "bring your own user table" path ADR-0013 promises.
 
-use argentum_core::auth::{AuthFuture, Authenticator, CurrentUser};
-use argentum_core::{Auth, Panel, Resource, Table, TextColumn};
+use argentum_core::{
+    Auth, Panel, Resource, Table, TextColumn,
+    auth::{AuthFuture, Authenticator, CurrentUser},
+};
 use http::header::{COOKIE, LOCATION, SET_COOKIE};
 use toasty::Db;
-use topcoat::context::Cx;
-use topcoat::router::response::Response;
-use topcoat::router::{Body, Router};
+use topcoat::{
+    context::Cx,
+    router::{Body, Router, response::Response},
+};
 use uuid::Uuid;
 
 /// A custom user table — deliberately not `AdminUser`.

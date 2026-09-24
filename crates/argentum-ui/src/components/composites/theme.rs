@@ -62,8 +62,7 @@ pub async fn theme_init_script(default_dark: bool) -> Result<impl View> {
 
 #[cfg(test)]
 mod tests {
-    use topcoat::context::CxTestBuilder;
-    use topcoat::view::ViewExt;
+    use topcoat::{context::CxTestBuilder, view::ViewExt};
 
     use super::*;
 

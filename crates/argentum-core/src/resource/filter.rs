@@ -253,7 +253,8 @@ impl<M> VariantFilter<M>
 where
     M: toasty::schema::Model,
 {
-    /// Convenience alias so call sites read `VariantFilter::for("vehicule", "Véhicule", vec![...])`.
+    /// Convenience alias so call sites read `VariantFilter::for("vehicule", "Véhicule",
+    /// vec![...])`.
     pub fn r#for(
         name: impl Into<String>,
         label: impl Into<String>,
@@ -413,8 +414,9 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use toasty::Db;
+
+    use super::*;
 
     #[derive(Debug, Clone, toasty::Model)]
     struct Task {

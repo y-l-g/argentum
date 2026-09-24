@@ -4,10 +4,14 @@ use argentum_ui::{
 };
 use topcoat::{Result, context::Cx, view::*};
 
-use super::super::lenses::{FieldResolver, lens_field, lens_field_unique, lens_label};
-use super::super::tree::Mode;
-use super::super::validation::{Rules, TypedValue};
-use super::{ValueKind, render_value};
+use super::{
+    super::{
+        lenses::{FieldResolver, lens_field, lens_field_unique, lens_label},
+        tree::Mode,
+        validation::{Rules, TypedValue},
+    },
+    ValueKind, render_value,
+};
 
 /// Typed text field bound to a Toasty field lens. The lens is the single
 /// source of truth for the field name and type, so `TextInput::for(User::fields().name())`
@@ -116,11 +120,10 @@ impl TextInput {
     /// not compile either. What it adds is the value's spelling rule:
     ///
     /// - the control renders the value's `Display`;
-    /// - a submission that `T` cannot parse is an **inline field error** naming
-    ///   the offending input (`` `2024-13-01` is not a valid timestamp ``), not
-    ///   a 500 and not a silent default;
-    /// - what is stored is `T`'s own `Display` of the parsed value, so a value
-    ///   re-submitted unchanged is written back in the same shape it was read.
+    /// - a submission that `T` cannot parse is an **inline field error** naming the offending input
+    ///   (`` `2024-13-01` is not a valid timestamp ``), not a 500 and not a silent default;
+    /// - what is stored is `T`'s own `Display` of the parsed value, so a value re-submitted
+    ///   unchanged is written back in the same shape it was read.
     ///
     /// The record fn still receives `String`s: the panel's value map is
     /// text-keyed, and a typed field is a *validated* string, not a second
@@ -366,11 +369,14 @@ impl TextInput {
 mod tests {
     use std::collections::HashMap;
 
+    use super::{
+        super::{
+            Select,
+            test_support::{DummyUser, NullableRef, cx},
+        },
+        *,
+    };
     use crate::schema::Schema;
-
-    use super::super::Select;
-    use super::super::test_support::{DummyUser, NullableRef, cx};
-    use super::*;
 
     #[tokio::test]
     async fn text_input_renders_with_label_and_ac_field() {

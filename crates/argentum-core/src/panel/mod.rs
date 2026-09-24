@@ -18,18 +18,9 @@ mod list;
 mod search;
 mod shell;
 
-#[cfg(feature = "auth")]
-pub(crate) use self::forms::parse_form_body;
-pub(crate) use self::search::table_search;
-pub use self::shell::{Brand, DarkMode};
+use std::{collections::HashMap, path::PathBuf};
 
-use std::collections::HashMap;
-use std::path::PathBuf;
-
-use toasty::Db;
-use toasty::schema::Model;
-use topcoat::router::Path;
-use topcoat::runtime::RouterBuilderRuntimeExt;
+use toasty::{Db, schema::Model};
 use topcoat::{
     Result,
     asset::{Asset, AssetConfig, RouterBuilderAssetExt},
@@ -37,19 +28,26 @@ use topcoat::{
     cookie::RouterBuilderCookieExt,
     font::Font,
     router::{
-        Body, PageFn, RouteFn, RouteFuture, Router, RouterBuilderDirectoryExt,
+        Body, PageFn, Path, RouteFn, RouteFuture, Router, RouterBuilderDirectoryExt,
         RouterBuilderDiscoverExt, error::redirect,
     },
+    runtime::RouterBuilderRuntimeExt,
 };
 
-use self::actions::{resource_bulk_delete, resource_delete, resource_export, resource_options};
-use self::detail::resource_view;
-use self::forms::{
-    MAX_FORM_BYTES, resource_create, resource_create_post, resource_edit, resource_edit_post,
+#[cfg(feature = "auth")]
+pub(crate) use self::forms::parse_form_body;
+pub(crate) use self::search::table_search;
+pub use self::shell::{Brand, DarkMode};
+use self::{
+    actions::{resource_bulk_delete, resource_delete, resource_export, resource_options},
+    detail::resource_view,
+    forms::{
+        MAX_FORM_BYTES, resource_create, resource_create_post, resource_edit, resource_edit_post,
+    },
+    list::{declared_chrome, resource_list},
+    search::{SearchFn, SearchRegistry, search_handler_for},
+    shell::ShellAssets,
 };
-use self::list::{declared_chrome, resource_list};
-use self::search::{SearchFn, SearchRegistry, search_handler_for};
-use self::shell::ShellAssets;
 use crate::resource::{
     BULK_DELETE_ROUTE_SEGMENT, CREATE_ROUTE_SEGMENT, DELETE_ROUTE_SEGMENT, EDIT_ROUTE_SEGMENT,
     NavigationItem, RECORD_ROUTE_PARAM, Resource,
@@ -884,8 +882,9 @@ pub(crate) fn panel_root_redirect(cx: &Cx, _body: Body) -> RouteFuture<'_> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use toasty::Db;
+
+    use super::*;
 
     /// GH #188: a served directory's path is a route pattern ending in a
     /// catch-all, and only that; everything else is a build error rather than
@@ -1012,8 +1011,7 @@ mod tests {
     /// first resource's slug via the redirect target.
     #[tokio::test]
     async fn panel_root_redirect_rechecks_auth_before_the_root_target() {
-        use topcoat::context::CxTestBuilder;
-        use topcoat::router::response::IntoResponse;
+        use topcoat::{context::CxTestBuilder, router::response::IntoResponse};
 
         // Enforced auth, no resolved user: the handler itself redirects to
         // login — and never reaches the `RootRedirect` read (absent here, so
@@ -1215,8 +1213,7 @@ mod tests {
     /// is what the rendered shell sorts by.
     #[test]
     fn panel_navigation_item_honours_override_order_with_prefix_adjusted_url() {
-        use crate::resource::NavigationItem;
-        use crate::resource::Resource;
+        use crate::resource::{NavigationItem, Resource};
 
         #[derive(Debug, toasty::Model, Clone)]
         struct Dummy {
@@ -1266,10 +1263,12 @@ mod tests {
     /// emit).
     #[tokio::test]
     async fn panel_sidebar_renders_overridden_navigation_order_first() {
-        use crate::resource::NavigationItem;
-        use crate::resource::Resource;
-        use topcoat::context::CxTestBuilder;
-        use topcoat::view::{ViewExt, view};
+        use topcoat::{
+            context::CxTestBuilder,
+            view::{ViewExt, view},
+        };
+
+        use crate::resource::{NavigationItem, Resource};
 
         #[derive(Debug, toasty::Model, Clone)]
         struct Dummy {
@@ -1539,8 +1538,10 @@ mod tests {
     /// a check the database does not back.
     #[tokio::test]
     async fn panel_build_rejects_a_unique_marker_without_a_unique_index() {
-        use crate::resource::{Resource, Table, TextColumn};
-        use crate::schema::{Schema, TextInput};
+        use crate::{
+            resource::{Resource, Table, TextColumn},
+            schema::{Schema, TextInput},
+        };
 
         #[derive(Debug, toasty::Model, Clone)]
         struct Subscriber {
@@ -1599,8 +1600,10 @@ mod tests {
     /// later cannot silently re-arm a check the database does not keep.
     #[tokio::test]
     async fn panel_build_rejects_an_unbacked_unique_marker_even_when_create_is_denied() {
-        use crate::resource::{Resource, Table, TextColumn};
-        use crate::schema::{Schema, TextInput};
+        use crate::{
+            resource::{Resource, Table, TextColumn},
+            schema::{Schema, TextInput},
+        };
 
         #[derive(Debug, toasty::Model, Clone)]
         struct Subscriber {
@@ -1656,8 +1659,10 @@ mod tests {
     /// documents) is not a false positive.
     #[tokio::test]
     async fn panel_build_accepts_unique_markers_with_a_backing_index() {
-        use crate::resource::{Resource, Table, TextColumn};
-        use crate::schema::{Schema, TextInput};
+        use crate::{
+            resource::{Resource, Table, TextColumn},
+            schema::{Schema, TextInput},
+        };
 
         #[derive(Debug, toasty::Model, Clone)]
         #[unique(tenant_id, email)]
@@ -1712,8 +1717,10 @@ mod tests {
     /// error state on every list page.
     #[tokio::test]
     async fn panel_build_rejects_action_chrome_without_a_record_key() {
-        use crate::resource::{Resource, Table, TextColumn};
-        use crate::schema::{Schema, TextInput};
+        use crate::{
+            resource::{Resource, Table, TextColumn},
+            schema::{Schema, TextInput},
+        };
 
         #[derive(Debug, toasty::Model, Clone)]
         struct Subscriber {

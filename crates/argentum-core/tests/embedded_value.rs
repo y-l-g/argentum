@@ -12,8 +12,10 @@ use std::collections::HashMap;
 use argentum_core::{
     EmbeddedForm, Schema, enum_spec, leaf_key, read_embedded, submitted, write_embedded,
 };
-use topcoat::context::{Cx, CxTestBuilder};
-use topcoat::view::ViewExt;
+use topcoat::{
+    context::{Cx, CxTestBuilder},
+    view::ViewExt,
+};
 
 #[derive(Debug, Clone, PartialEq, toasty::Embed, EmbeddedForm)]
 struct Seo {

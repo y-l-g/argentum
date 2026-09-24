@@ -1,5 +1,7 @@
-use showcase::app::router_for_tests as router;
-use showcase::models::{Author, Post};
+use showcase::{
+    app::router_for_tests as router,
+    models::{Author, Post},
+};
 
 use crate::common::{body_string, demo_client, find_href_with, full_db, row_titles};
 

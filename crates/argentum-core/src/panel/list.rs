@@ -5,13 +5,12 @@
 //! shard. Shared table helpers (`wire_table_actions`, `table_error_view`)
 //! keep the streamed page and the shard from drifting (GH #134).
 
-use topcoat::view::internal::ThenView;
 use topcoat::{
     Result,
     context::Cx,
     router::{Body, error::forbidden},
     runtime::Event,
-    view::{BoxView, HoistView, ViewExt, attributes, suspense, view},
+    view::{BoxView, HoistView, ViewExt, attributes, internal::ThenView, suspense, view},
 };
 
 use super::{enforce_auth, enforce_tenant, list_url};
@@ -419,10 +418,12 @@ pub(crate) async fn load_table_page<R: Resource>(
 
 #[cfg(test)]
 mod tests {
-    use super::super::Panel;
-    use super::super::table_search;
-    use super::*;
     use toasty::Db;
+
+    use super::{
+        super::{Panel, table_search},
+        *,
+    };
 
     /// The minimal table-backed model the list-chrome tests share (GH #217):
     /// `list_html` was declared twice with byte-identical bodies apart from one
@@ -484,9 +485,11 @@ mod tests {
         // GH #104: opt-in tables render the signal host (page bodies are
         // hoisted, so signals work there); the slug-dispatched shard serves
         // the table and 404s unknown paths.
-        use crate::resource::Resource;
-        use http_body_util::BodyExt;
         use std::collections::HashMap;
+
+        use http_body_util::BodyExt;
+
+        use crate::resource::Resource;
 
         #[derive(Debug, toasty::Model, Clone)]
         struct Dummy {
@@ -811,9 +814,11 @@ mod tests {
         // local until the debounce delay), the hidden transport carries the
         // bound `@change` write, and the GET form survives as the no-JS
         // fallback.
-        use crate::resource::Resource;
-        use http_body_util::BodyExt;
         use std::collections::HashMap;
+
+        use http_body_util::BodyExt;
+
+        use crate::resource::Resource;
 
         #[derive(Debug, toasty::Model, Clone)]
         struct Dummy {
@@ -910,9 +915,11 @@ mod tests {
 
     #[tokio::test]
     async fn read_only_resource_hides_delete_chrome() {
-        use crate::resource::Resource;
-        use http_body_util::BodyExt;
         use std::collections::HashMap;
+
+        use http_body_util::BodyExt;
+
+        use crate::resource::Resource;
 
         #[derive(Debug, toasty::Model, Clone)]
         struct Dummy {
@@ -1002,9 +1009,11 @@ mod tests {
         // GH #172: a resource list without `Table::paginate` fails loudly in
         // the table region instead of unbounded-loading the whole table — the
         // seeded row must not render, and the branded error state must.
-        use crate::resource::Resource;
-        use http_body_util::BodyExt;
         use std::collections::HashMap;
+
+        use http_body_util::BodyExt;
+
+        use crate::resource::Resource;
 
         #[derive(Debug, toasty::Model, Clone)]
         struct Dummy {
@@ -1083,8 +1092,9 @@ mod tests {
         // GH #172: the guard lives on the list path (`load_table_page`), not
         // the `None` branch itself — page-owned tables keep loading
         // unbounded through `Table::load` directly.
-        use crate::resource::{Table, TableState, TextColumn};
         use topcoat::context::CxTestBuilder;
+
+        use crate::resource::{Table, TableState, TextColumn};
 
         #[derive(Debug, Clone, toasty::Model)]
         struct Dummy {
@@ -1133,8 +1143,9 @@ mod tests {
     async fn list_header_renders_create_entry_point_when_allowed() {
         // GH #162 (Filament's List page `CreateAction` in the page header):
         // the Create link is eager page chrome, gated on `can_create`.
-        use crate::resource::Resource;
         use std::collections::HashMap;
+
+        use crate::resource::Resource;
 
         struct CreatableResource;
         impl Resource for CreatableResource {
@@ -1199,8 +1210,9 @@ mod tests {
         // GH #162: `editable()` is the `deletable()` (GH #96) counterpart for
         // the per-row Edit link — read-only resources hide it, writable ones
         // link each row to `{list}/{id}/edit`.
-        use crate::resource::Resource;
         use std::collections::HashMap;
+
+        use crate::resource::Resource;
 
         struct WritableResource;
         impl Resource for WritableResource {
@@ -1296,9 +1308,11 @@ mod tests {
     /// for the row the list never links.
     #[tokio::test]
     async fn denied_rows_render_no_edit_chrome() {
-        use crate::resource::Resource;
-        use http_body_util::BodyExt;
         use std::collections::HashMap;
+
+        use http_body_util::BodyExt;
+
+        use crate::resource::Resource;
 
         #[derive(Debug, toasty::Model, Clone)]
         struct Dummy {
@@ -1409,9 +1423,12 @@ mod tests {
     /// hand-written `row_actions` closure proves the renderer, not the wiring.
     #[tokio::test]
     async fn per_record_policy_narrows_the_wired_chrome() {
-        use crate::resource::Resource;
-        use crate::schema::{Schema, TextInput};
         use std::collections::HashMap;
+
+        use crate::{
+            resource::Resource,
+            schema::{Schema, TextInput},
+        };
 
         /// Chrome opted into for all three actions, with a policy that refuses
         /// one row per predicate so each half is separately visible.
@@ -1595,8 +1612,9 @@ mod tests {
 
     #[tokio::test]
     async fn tenant_gated_resource_fails_closed_without_tenant() {
-        use crate::resource::Resource;
         use std::collections::HashMap;
+
+        use crate::resource::Resource;
 
         #[derive(Debug, toasty::Model, Clone)]
         struct Dummy {
