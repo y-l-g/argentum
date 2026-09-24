@@ -35,7 +35,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-cc30482e.js";
+            window.path_to_searchindex_js = "searchindex-a56bad97.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-da1679ae.js"></script>
@@ -200,6 +200,12 @@ policy, and an app’s own <code>Content-Security-Policy</code> always wins — 
 <li>Redirects: <code>Err(redirect(..))</code> (307) for GETs, <code>Err(see_other(..))</code> (303 PRG) after mutations.
 Mid-stream they degrade to <code>window.location.replace</code>; streamed regions own their failure
 rendering. Wrap <code>Slot</code> in <code>error_boundary</code> for branded error pages.</li>
+<li>A served directory (<code>Panel::serve_dir</code>) shares the panel’s origin, so every file response the
+directory route serves carries <code>X-Content-Type-Options: nosniff</code>, a fixed sandboxing
+<code>Content-Security-Policy</code>, and <code>Content-Disposition: attachment</code> unless the file is a common raster
+image, audio/video or <code>text/plain</code>. An app that serves active documents mounts them on its own
+origin; the policy is not configurable. A 404 keeps Topcoat’s <code>text/plain</code> error page; a 405
+carries only <code>Allow</code> and an empty body. Neither carries user content.</li>
 </ul>
 
                     </main>
