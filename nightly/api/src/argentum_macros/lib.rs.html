@@ -55,33 +55,30 @@
 <a href=#55 id=55 data-nosnippet>55</a>///
 <a href=#56 id=56 data-nosnippet>56</a>/// The discriminant column decides, in this order:
 <a href=#57 id=57 data-nosnippet>57</a>///
-<a href=#58 id=58 data-nosnippet>58</a>/// 1. a discriminant the submission **names** — always wins, and one the enum
-<a href=#59 id=59 data-nosnippet>59</a>///    does not declare is refused loudly rather than read as some other
-<a href=#60 id=60 data-nosnippet>60</a>///    variant;
-<a href=#61 id=61 data-nosnippet>61</a>/// 2. otherwise (the create form, a hand-written POST) the first variant, in
-<a href=#62 id=62 data-nosnippet>62</a>///    declaration order, with a **payload of its own** submitted — a
-<a href=#63 id=63 data-nosnippet>63</a>///    `#[shared(..)]` column belongs to several variants and so never selects
-<a href=#64 id=64 data-nosnippet>64</a>///    one;
-<a href=#65 id=65 data-nosnippet>65</a>/// 3. otherwise the first variant.
+<a href=#58 id=58 data-nosnippet>58</a>/// 1. a discriminant the submission **names** — always wins, and one the enum does not declare is
+<a href=#59 id=59 data-nosnippet>59</a>///    refused loudly rather than read as some other variant;
+<a href=#60 id=60 data-nosnippet>60</a>/// 2. otherwise (the create form, a hand-written POST) the first variant, in declaration order,
+<a href=#61 id=61 data-nosnippet>61</a>///    with a **payload of its own** submitted — a `#[shared(..)]` column belongs to several
+<a href=#62 id=62 data-nosnippet>62</a>///    variants and so never selects one;
+<a href=#63 id=63 data-nosnippet>63</a>/// 3. otherwise the first variant.
+<a href=#64 id=64 data-nosnippet>64</a>///
+<a href=#65 id=65 data-nosnippet>65</a>/// # Per-field overrides
 <a href=#66 id=66 data-nosnippet>66</a>///
-<a href=#67 id=67 data-nosnippet>67</a>/// # Per-field overrides
-<a href=#68 id=68 data-nosnippet>68</a>///
-<a href=#69 id=69 data-nosnippet>69</a>/// - `#[form(label = "Canonical URL")]` — the control's label (default: the
-<a href=#70 id=70 data-nosnippet>70</a>///   field name, humanized).
-<a href=#71 id=71 data-nosnippet>71</a>/// - `#[form(textarea)]` / `#[form(textarea, rows = 3)]` — a multi-line control
-<a href=#72 id=72 data-nosnippet>72</a>///   for a `String` leaf, and its height.
-<a href=#73 id=73 data-nosnippet>73</a>///
-<a href=#74 id=74 data-nosnippet>74</a>/// Anything else in `#[form(..)]` is a compile error.
-<a href=#75 id=75 data-nosnippet>75</a>///
-<a href=#76 id=76 data-nosnippet>76</a>/// # Not covered
-<a href=#77 id=77 data-nosnippet>77</a>///
-<a href=#78 id=78 data-nosnippet>78</a>/// A `#[document]` **inside** an embedded value (its inner fields share one
-<a href=#79 id=79 data-nosnippet>79</a>/// column, so no per-field binding exists), a relation inside one, an embedded
-<a href=#80 id=80 data-nosnippet>80</a>/// enum nested **inside an enum variant** (value resolution starts at a model
-<a href=#81 id=81 data-nosnippet>81</a>/// root), and a tuple or unit struct.
-<a href=#82 id=82 data-nosnippet>82</a></span><span class="attr">#[proc_macro_derive(EmbeddedForm, attributes(form))]
-<a href=#83 id=83 data-nosnippet>83</a></span><span class="kw">pub fn </span>embedded_form(input: TokenStream) -&gt; TokenStream {
-<a href=#84 id=84 data-nosnippet>84</a>    <span class="kw">let </span>input = <span class="macro">syn::parse_macro_input!</span>(input <span class="kw">as </span>DeriveInput);
-<a href=#85 id=85 data-nosnippet>85</a>    embedded::expand(input)
-<a href=#86 id=86 data-nosnippet>86</a>}
+<a href=#67 id=67 data-nosnippet>67</a>/// - `#[form(label = "Canonical URL")]` — the control's label (default: the field name, humanized).
+<a href=#68 id=68 data-nosnippet>68</a>/// - `#[form(textarea)]` / `#[form(textarea, rows = 3)]` — a multi-line control for a `String`
+<a href=#69 id=69 data-nosnippet>69</a>///   leaf, and its height.
+<a href=#70 id=70 data-nosnippet>70</a>///
+<a href=#71 id=71 data-nosnippet>71</a>/// Anything else in `#[form(..)]` is a compile error.
+<a href=#72 id=72 data-nosnippet>72</a>///
+<a href=#73 id=73 data-nosnippet>73</a>/// # Not covered
+<a href=#74 id=74 data-nosnippet>74</a>///
+<a href=#75 id=75 data-nosnippet>75</a>/// A `#[document]` **inside** an embedded value (its inner fields share one
+<a href=#76 id=76 data-nosnippet>76</a>/// column, so no per-field binding exists), a relation inside one, an embedded
+<a href=#77 id=77 data-nosnippet>77</a>/// enum nested **inside an enum variant** (value resolution starts at a model
+<a href=#78 id=78 data-nosnippet>78</a>/// root), and a tuple or unit struct.
+<a href=#79 id=79 data-nosnippet>79</a></span><span class="attr">#[proc_macro_derive(EmbeddedForm, attributes(form))]
+<a href=#80 id=80 data-nosnippet>80</a></span><span class="kw">pub fn </span>embedded_form(input: TokenStream) -&gt; TokenStream {
+<a href=#81 id=81 data-nosnippet>81</a>    <span class="kw">let </span>input = <span class="macro">syn::parse_macro_input!</span>(input <span class="kw">as </span>DeriveInput);
+<a href=#82 id=82 data-nosnippet>82</a>    embedded::expand(input)
+<a href=#83 id=83 data-nosnippet>83</a>}
 </code></pre></div></section></main></body></html>

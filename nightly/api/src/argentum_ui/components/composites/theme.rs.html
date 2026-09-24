@@ -62,68 +62,67 @@
 <a href=#62 id=62 data-nosnippet>62</a>
 <a href=#63 id=63 data-nosnippet>63</a><span class="attr">#[cfg(test)]
 <a href=#64 id=64 data-nosnippet>64</a></span><span class="kw">mod </span>tests {
-<a href=#65 id=65 data-nosnippet>65</a>    <span class="kw">use </span>topcoat::context::CxTestBuilder;
-<a href=#66 id=66 data-nosnippet>66</a>    <span class="kw">use </span>topcoat::view::ViewExt;
-<a href=#67 id=67 data-nosnippet>67</a>
-<a href=#68 id=68 data-nosnippet>68</a>    <span class="kw">use super</span>::<span class="kw-2">*</span>;
-<a href=#69 id=69 data-nosnippet>69</a>
-<a href=#70 id=70 data-nosnippet>70</a>    <span class="kw">async fn </span>rendered(default_dark: bool) -&gt; String {
-<a href=#71 id=71 data-nosnippet>71</a>        <span class="kw">let </span>cx = CxTestBuilder::new().build();
-<a href=#72 id=72 data-nosnippet>72</a>        <span class="kw">let </span>cx_ref = <span class="kw-2">&amp;</span>cx;
-<a href=#73 id=73 data-nosnippet>73</a>        <span class="macro">view!</span> { cx_ref =&gt; theme_init_script(default_dark: default_dark) }
-<a href=#74 id=74 data-nosnippet>74</a>            .single()
-<a href=#75 id=75 data-nosnippet>75</a>            .<span class="kw">await
-<a href=#76 id=76 data-nosnippet>76</a>            </span>.unwrap()
-<a href=#77 id=77 data-nosnippet>77</a>            .render(<span class="kw-2">&amp;</span>cx)
-<a href=#78 id=78 data-nosnippet>78</a>    }
-<a href=#79 id=79 data-nosnippet>79</a>
-<a href=#80 id=80 data-nosnippet>80</a>    <span class="attr">#[tokio::test]
-<a href=#81 id=81 data-nosnippet>81</a>    </span><span class="kw">async fn </span>renders_blocking_head_script() {
-<a href=#82 id=82 data-nosnippet>82</a>        <span class="kw">let </span>html = rendered(<span class="bool-val">false</span>).<span class="kw">await</span>;
-<a href=#83 id=83 data-nosnippet>83</a>        <span class="macro">assert!</span>(
-<a href=#84 id=84 data-nosnippet>84</a>            html.starts_with(<span class="string">"&lt;script&gt;"</span>),
-<a href=#85 id=85 data-nosnippet>85</a>            <span class="string">"expected an inline script, got {html}"
-<a href=#86 id=86 data-nosnippet>86</a>        </span>);
-<a href=#87 id=87 data-nosnippet>87</a>        <span class="macro">assert!</span>(
-<a href=#88 id=88 data-nosnippet>88</a>            html.contains(<span class="string">"classList.add"</span>) &amp;&amp; html.contains(<span class="string">"classList.remove"</span>),
-<a href=#89 id=89 data-nosnippet>89</a>            <span class="string">"the pre-paint script must reconcile the class both ways (GH #184), got {html}"
-<a href=#90 id=90 data-nosnippet>90</a>        </span>);
-<a href=#91 id=91 data-nosnippet>91</a>    }
-<a href=#92 id=92 data-nosnippet>92</a>
-<a href=#93 id=93 data-nosnippet>93</a>    <span class="doccomment">/// The inline script must survive HTML escaping intact: character
-<a href=#94 id=94 data-nosnippet>94</a>    /// references are not decoded inside `&lt;script&gt;`, so an escaped `&amp;&amp;` would
-<a href=#95 id=95 data-nosnippet>95</a>    /// ship a broken program.
-<a href=#96 id=96 data-nosnippet>96</a>    </span><span class="attr">#[tokio::test]
-<a href=#97 id=97 data-nosnippet>97</a>    </span><span class="kw">async fn </span>script_body_carries_no_html_escapes() {
-<a href=#98 id=98 data-nosnippet>98</a>        <span class="kw">for </span>default_dark <span class="kw">in </span>[<span class="bool-val">true</span>, <span class="bool-val">false</span>] {
-<a href=#99 id=99 data-nosnippet>99</a>            <span class="kw">let </span>html = rendered(default_dark).<span class="kw">await</span>;
-<a href=#100 id=100 data-nosnippet>100</a>            <span class="macro">assert!</span>(
-<a href=#101 id=101 data-nosnippet>101</a>                !html.contains(<span class="string">"&amp;amp;"</span>) &amp;&amp; !html.contains(<span class="string">"&amp;lt;"</span>) &amp;&amp; !html.contains(<span class="string">"&amp;quot;"</span>),
-<a href=#102 id=102 data-nosnippet>102</a>                <span class="string">"inline theme script must not need HTML escaping, got {html}"
-<a href=#103 id=103 data-nosnippet>103</a>            </span>);
-<a href=#104 id=104 data-nosnippet>104</a>        }
-<a href=#105 id=105 data-nosnippet>105</a>    }
-<a href=#106 id=106 data-nosnippet>106</a>
-<a href=#107 id=107 data-nosnippet>107</a>    <span class="doccomment">/// GH #184: the server's build-time preference is only the fallback — it
-<a href=#108 id=108 data-nosnippet>108</a>    /// is interpolated for a visitor with no stored choice, and never widens
-<a href=#109 id=109 data-nosnippet>109</a>    /// the script's authority over a stored one.
-<a href=#110 id=110 data-nosnippet>110</a>    </span><span class="attr">#[tokio::test]
-<a href=#111 id=111 data-nosnippet>111</a>    </span><span class="kw">async fn </span>default_dark_is_the_fallback_only() {
-<a href=#112 id=112 data-nosnippet>112</a>        <span class="kw">let </span>dark = rendered(<span class="bool-val">true</span>).<span class="kw">await</span>;
-<a href=#113 id=113 data-nosnippet>113</a>        <span class="macro">assert!</span>(
-<a href=#114 id=114 data-nosnippet>114</a>            dark.contains(<span class="string">"t='dark'"</span>),
-<a href=#115 id=115 data-nosnippet>115</a>            <span class="string">"dark default must be interpolated as the fallback, got {dark}"
-<a href=#116 id=116 data-nosnippet>116</a>        </span>);
-<a href=#117 id=117 data-nosnippet>117</a>
-<a href=#118 id=118 data-nosnippet>118</a>        <span class="kw">let </span>light = rendered(<span class="bool-val">false</span>).<span class="kw">await</span>;
-<a href=#119 id=119 data-nosnippet>119</a>        <span class="macro">assert!</span>(
-<a href=#120 id=120 data-nosnippet>120</a>            light.contains(<span class="string">"t='light'"</span>),
-<a href=#121 id=121 data-nosnippet>121</a>            <span class="string">"light default must be interpolated as the fallback, got {light}"
-<a href=#122 id=122 data-nosnippet>122</a>        </span>);
-<a href=#123 id=123 data-nosnippet>123</a>        <span class="macro">assert!</span>(
-<a href=#124 id=124 data-nosnippet>124</a>            !light.contains(<span class="string">"t='dark'"</span>),
-<a href=#125 id=125 data-nosnippet>125</a>            <span class="string">"a light default must not interpolate dark, got {light}"
-<a href=#126 id=126 data-nosnippet>126</a>        </span>);
-<a href=#127 id=127 data-nosnippet>127</a>    }
-<a href=#128 id=128 data-nosnippet>128</a>}
+<a href=#65 id=65 data-nosnippet>65</a>    <span class="kw">use </span>topcoat::{context::CxTestBuilder, view::ViewExt};
+<a href=#66 id=66 data-nosnippet>66</a>
+<a href=#67 id=67 data-nosnippet>67</a>    <span class="kw">use super</span>::<span class="kw-2">*</span>;
+<a href=#68 id=68 data-nosnippet>68</a>
+<a href=#69 id=69 data-nosnippet>69</a>    <span class="kw">async fn </span>rendered(default_dark: bool) -&gt; String {
+<a href=#70 id=70 data-nosnippet>70</a>        <span class="kw">let </span>cx = CxTestBuilder::new().build();
+<a href=#71 id=71 data-nosnippet>71</a>        <span class="kw">let </span>cx_ref = <span class="kw-2">&amp;</span>cx;
+<a href=#72 id=72 data-nosnippet>72</a>        <span class="macro">view!</span> { cx_ref =&gt; theme_init_script(default_dark: default_dark) }
+<a href=#73 id=73 data-nosnippet>73</a>            .single()
+<a href=#74 id=74 data-nosnippet>74</a>            .<span class="kw">await
+<a href=#75 id=75 data-nosnippet>75</a>            </span>.unwrap()
+<a href=#76 id=76 data-nosnippet>76</a>            .render(<span class="kw-2">&amp;</span>cx)
+<a href=#77 id=77 data-nosnippet>77</a>    }
+<a href=#78 id=78 data-nosnippet>78</a>
+<a href=#79 id=79 data-nosnippet>79</a>    <span class="attr">#[tokio::test]
+<a href=#80 id=80 data-nosnippet>80</a>    </span><span class="kw">async fn </span>renders_blocking_head_script() {
+<a href=#81 id=81 data-nosnippet>81</a>        <span class="kw">let </span>html = rendered(<span class="bool-val">false</span>).<span class="kw">await</span>;
+<a href=#82 id=82 data-nosnippet>82</a>        <span class="macro">assert!</span>(
+<a href=#83 id=83 data-nosnippet>83</a>            html.starts_with(<span class="string">"&lt;script&gt;"</span>),
+<a href=#84 id=84 data-nosnippet>84</a>            <span class="string">"expected an inline script, got {html}"
+<a href=#85 id=85 data-nosnippet>85</a>        </span>);
+<a href=#86 id=86 data-nosnippet>86</a>        <span class="macro">assert!</span>(
+<a href=#87 id=87 data-nosnippet>87</a>            html.contains(<span class="string">"classList.add"</span>) &amp;&amp; html.contains(<span class="string">"classList.remove"</span>),
+<a href=#88 id=88 data-nosnippet>88</a>            <span class="string">"the pre-paint script must reconcile the class both ways (GH #184), got {html}"
+<a href=#89 id=89 data-nosnippet>89</a>        </span>);
+<a href=#90 id=90 data-nosnippet>90</a>    }
+<a href=#91 id=91 data-nosnippet>91</a>
+<a href=#92 id=92 data-nosnippet>92</a>    <span class="doccomment">/// The inline script must survive HTML escaping intact: character
+<a href=#93 id=93 data-nosnippet>93</a>    /// references are not decoded inside `&lt;script&gt;`, so an escaped `&amp;&amp;` would
+<a href=#94 id=94 data-nosnippet>94</a>    /// ship a broken program.
+<a href=#95 id=95 data-nosnippet>95</a>    </span><span class="attr">#[tokio::test]
+<a href=#96 id=96 data-nosnippet>96</a>    </span><span class="kw">async fn </span>script_body_carries_no_html_escapes() {
+<a href=#97 id=97 data-nosnippet>97</a>        <span class="kw">for </span>default_dark <span class="kw">in </span>[<span class="bool-val">true</span>, <span class="bool-val">false</span>] {
+<a href=#98 id=98 data-nosnippet>98</a>            <span class="kw">let </span>html = rendered(default_dark).<span class="kw">await</span>;
+<a href=#99 id=99 data-nosnippet>99</a>            <span class="macro">assert!</span>(
+<a href=#100 id=100 data-nosnippet>100</a>                !html.contains(<span class="string">"&amp;amp;"</span>) &amp;&amp; !html.contains(<span class="string">"&amp;lt;"</span>) &amp;&amp; !html.contains(<span class="string">"&amp;quot;"</span>),
+<a href=#101 id=101 data-nosnippet>101</a>                <span class="string">"inline theme script must not need HTML escaping, got {html}"
+<a href=#102 id=102 data-nosnippet>102</a>            </span>);
+<a href=#103 id=103 data-nosnippet>103</a>        }
+<a href=#104 id=104 data-nosnippet>104</a>    }
+<a href=#105 id=105 data-nosnippet>105</a>
+<a href=#106 id=106 data-nosnippet>106</a>    <span class="doccomment">/// GH #184: the server's build-time preference is only the fallback — it
+<a href=#107 id=107 data-nosnippet>107</a>    /// is interpolated for a visitor with no stored choice, and never widens
+<a href=#108 id=108 data-nosnippet>108</a>    /// the script's authority over a stored one.
+<a href=#109 id=109 data-nosnippet>109</a>    </span><span class="attr">#[tokio::test]
+<a href=#110 id=110 data-nosnippet>110</a>    </span><span class="kw">async fn </span>default_dark_is_the_fallback_only() {
+<a href=#111 id=111 data-nosnippet>111</a>        <span class="kw">let </span>dark = rendered(<span class="bool-val">true</span>).<span class="kw">await</span>;
+<a href=#112 id=112 data-nosnippet>112</a>        <span class="macro">assert!</span>(
+<a href=#113 id=113 data-nosnippet>113</a>            dark.contains(<span class="string">"t='dark'"</span>),
+<a href=#114 id=114 data-nosnippet>114</a>            <span class="string">"dark default must be interpolated as the fallback, got {dark}"
+<a href=#115 id=115 data-nosnippet>115</a>        </span>);
+<a href=#116 id=116 data-nosnippet>116</a>
+<a href=#117 id=117 data-nosnippet>117</a>        <span class="kw">let </span>light = rendered(<span class="bool-val">false</span>).<span class="kw">await</span>;
+<a href=#118 id=118 data-nosnippet>118</a>        <span class="macro">assert!</span>(
+<a href=#119 id=119 data-nosnippet>119</a>            light.contains(<span class="string">"t='light'"</span>),
+<a href=#120 id=120 data-nosnippet>120</a>            <span class="string">"light default must be interpolated as the fallback, got {light}"
+<a href=#121 id=121 data-nosnippet>121</a>        </span>);
+<a href=#122 id=122 data-nosnippet>122</a>        <span class="macro">assert!</span>(
+<a href=#123 id=123 data-nosnippet>123</a>            !light.contains(<span class="string">"t='dark'"</span>),
+<a href=#124 id=124 data-nosnippet>124</a>            <span class="string">"a light default must not interpolate dark, got {light}"
+<a href=#125 id=125 data-nosnippet>125</a>        </span>);
+<a href=#126 id=126 data-nosnippet>126</a>    }
+<a href=#127 id=127 data-nosnippet>127</a>}
 </code></pre></div></section></main></body></html>

@@ -71,78 +71,80 @@
 <a href=#71 id=71 data-nosnippet>71</a>
 <a href=#72 id=72 data-nosnippet>72</a><span class="attr">#[cfg(test)]
 <a href=#73 id=73 data-nosnippet>73</a></span><span class="kw">mod </span>tests {
-<a href=#74 id=74 data-nosnippet>74</a>    <span class="kw">use </span>topcoat::context::CxTestBuilder;
-<a href=#75 id=75 data-nosnippet>75</a>    <span class="kw">use </span>topcoat::view::{ViewExt, attributes};
-<a href=#76 id=76 data-nosnippet>76</a>
-<a href=#77 id=77 data-nosnippet>77</a>    <span class="kw">use super</span>::<span class="kw-2">*</span>;
+<a href=#74 id=74 data-nosnippet>74</a>    <span class="kw">use </span>topcoat::{
+<a href=#75 id=75 data-nosnippet>75</a>        context::CxTestBuilder,
+<a href=#76 id=76 data-nosnippet>76</a>        view::{ViewExt, attributes},
+<a href=#77 id=77 data-nosnippet>77</a>    };
 <a href=#78 id=78 data-nosnippet>78</a>
-<a href=#79 id=79 data-nosnippet>79</a>    <span class="attr">#[tokio::test]
-<a href=#80 id=80 data-nosnippet>80</a>    </span><span class="kw">async fn </span>error_state_renders_title_detail_and_styled_action() {
-<a href=#81 id=81 data-nosnippet>81</a>        <span class="kw">let </span>cx = CxTestBuilder::new().build();
-<a href=#82 id=82 data-nosnippet>82</a>        <span class="kw">let </span>cx_ref = <span class="kw-2">&amp;</span>cx;
-<a href=#83 id=83 data-nosnippet>83</a>        <span class="kw">let </span>action = <span class="macro">view!</span> { cx_ref =&gt; &lt;a href=<span class="string">"/admin/users"</span>&gt;<span class="string">"Retry"</span>&lt;/a&gt; }.boxed();
-<a href=#84 id=84 data-nosnippet>84</a>        <span class="kw">let </span>html = <span class="macro">view!</span> {
-<a href=#85 id=85 data-nosnippet>85</a>            cx_ref =&gt;
-<a href=#86 id=86 data-nosnippet>86</a>            error_state(
-<a href=#87 id=87 data-nosnippet>87</a>                title: <span class="string">"Couldn't load Users"</span>,
-<a href=#88 id=88 data-nosnippet>88</a>                detail: <span class="string">"Something went wrong while loading the records."</span>,
-<a href=#89 id=89 data-nosnippet>89</a>                action: <span class="prelude-val">Some</span>(action.into())
-<a href=#90 id=90 data-nosnippet>90</a>            )
-<a href=#91 id=91 data-nosnippet>91</a>        }
-<a href=#92 id=92 data-nosnippet>92</a>        .single()
-<a href=#93 id=93 data-nosnippet>93</a>        .<span class="kw">await
-<a href=#94 id=94 data-nosnippet>94</a>        </span>.unwrap()
-<a href=#95 id=95 data-nosnippet>95</a>        .render(<span class="kw-2">&amp;</span>cx);
-<a href=#96 id=96 data-nosnippet>96</a>
-<a href=#97 id=97 data-nosnippet>97</a>        <span class="macro">assert!</span>(
-<a href=#98 id=98 data-nosnippet>98</a>            html.contains(<span class="string">"Couldn't load Users"</span>),
-<a href=#99 id=99 data-nosnippet>99</a>            <span class="string">"title missing: {html}"
-<a href=#100 id=100 data-nosnippet>100</a>        </span>);
-<a href=#101 id=101 data-nosnippet>101</a>        <span class="macro">assert!</span>(
-<a href=#102 id=102 data-nosnippet>102</a>            html.contains(<span class="string">"Something went wrong while loading the records."</span>),
-<a href=#103 id=103 data-nosnippet>103</a>            <span class="string">"detail missing: {html}"
-<a href=#104 id=104 data-nosnippet>104</a>        </span>);
-<a href=#105 id=105 data-nosnippet>105</a>        <span class="comment">// The caller's action reaches the output intact (GH #216: the classes
-<a href=#106 id=106 data-nosnippet>106</a>        // that style it are paint; the href is the caller's own markup).
-<a href=#107 id=107 data-nosnippet>107</a>        </span><span class="macro">assert!</span>(
-<a href=#108 id=108 data-nosnippet>108</a>            html.contains(<span class="string">"Retry"</span>) &amp;&amp; html.contains(<span class="string">"href=\"/admin/users\""</span>),
-<a href=#109 id=109 data-nosnippet>109</a>            <span class="string">"caller action missing: {html}"
-<a href=#110 id=110 data-nosnippet>110</a>        </span>);
-<a href=#111 id=111 data-nosnippet>111</a>        <span class="comment">// Icon present; its colour is paint.
-<a href=#112 id=112 data-nosnippet>112</a>        </span><span class="macro">assert!</span>(html.contains(<span class="string">"&lt;svg"</span>), <span class="string">"icon missing: {html}"</span>);
-<a href=#113 id=113 data-nosnippet>113</a>    }
-<a href=#114 id=114 data-nosnippet>114</a>
-<a href=#115 id=115 data-nosnippet>115</a>    <span class="attr">#[tokio::test]
-<a href=#116 id=116 data-nosnippet>116</a>    </span><span class="kw">async fn </span>error_state_detail_is_optional_and_attrs_survive() {
-<a href=#117 id=117 data-nosnippet>117</a>        <span class="kw">let </span>cx = CxTestBuilder::new().build();
-<a href=#118 id=118 data-nosnippet>118</a>        <span class="kw">let </span>cx_ref = <span class="kw-2">&amp;</span>cx;
-<a href=#119 id=119 data-nosnippet>119</a>        <span class="kw">let </span>html = <span class="macro">view!</span> {
-<a href=#120 id=120 data-nosnippet>120</a>            cx_ref =&gt;
-<a href=#121 id=121 data-nosnippet>121</a>            error_state(
-<a href=#122 id=122 data-nosnippet>122</a>                title: <span class="string">"Couldn't load Users"</span>,
-<a href=#123 id=123 data-nosnippet>123</a>                attrs: <span class="macro">attributes!</span> { id=<span class="string">"load-error" </span>class=<span class="string">"my-class" </span>}
-<a href=#124 id=124 data-nosnippet>124</a>            )
-<a href=#125 id=125 data-nosnippet>125</a>        }
-<a href=#126 id=126 data-nosnippet>126</a>        .single()
-<a href=#127 id=127 data-nosnippet>127</a>        .<span class="kw">await
-<a href=#128 id=128 data-nosnippet>128</a>        </span>.unwrap()
-<a href=#129 id=129 data-nosnippet>129</a>        .render(<span class="kw-2">&amp;</span>cx);
-<a href=#130 id=130 data-nosnippet>130</a>
-<a href=#131 id=131 data-nosnippet>131</a>        <span class="macro">assert!</span>(
-<a href=#132 id=132 data-nosnippet>132</a>            html.contains(<span class="string">"Couldn't load Users"</span>),
-<a href=#133 id=133 data-nosnippet>133</a>            <span class="string">"title missing: {html}"
-<a href=#134 id=134 data-nosnippet>134</a>        </span>);
-<a href=#135 id=135 data-nosnippet>135</a>        <span class="comment">// No detail line: the title is the only `&lt;p&gt;` element the component
-<a href=#136 id=136 data-nosnippet>136</a>        // renders when `detail` is empty (GH #216: the muted colour that used
-<a href=#137 id=137 data-nosnippet>137</a>        // to stand in for this is paint). Spelled `&lt;p ` / `&lt;p&gt;` so the icon's
-<a href=#138 id=138 data-nosnippet>138</a>        // `&lt;path&gt;` cannot count as one.
-<a href=#139 id=139 data-nosnippet>139</a>        </span><span class="macro">assert_eq!</span>(
-<a href=#140 id=140 data-nosnippet>140</a>            html.matches(<span class="string">"&lt;p "</span>).count() + html.matches(<span class="string">"&lt;p&gt;"</span>).count(),
-<a href=#141 id=141 data-nosnippet>141</a>            <span class="number">1</span>,
-<a href=#142 id=142 data-nosnippet>142</a>            <span class="string">"no detail expected: {html}"
-<a href=#143 id=143 data-nosnippet>143</a>        </span>);
-<a href=#144 id=144 data-nosnippet>144</a>        <span class="macro">assert!</span>(html.contains(<span class="string">"id=\"load-error\""</span>), <span class="string">"attrs missing: {html}"</span>);
-<a href=#145 id=145 data-nosnippet>145</a>        <span class="macro">assert!</span>(html.contains(<span class="string">"my-class"</span>), <span class="string">"caller class missing: {html}"</span>);
-<a href=#146 id=146 data-nosnippet>146</a>    }
-<a href=#147 id=147 data-nosnippet>147</a>}
+<a href=#79 id=79 data-nosnippet>79</a>    <span class="kw">use super</span>::<span class="kw-2">*</span>;
+<a href=#80 id=80 data-nosnippet>80</a>
+<a href=#81 id=81 data-nosnippet>81</a>    <span class="attr">#[tokio::test]
+<a href=#82 id=82 data-nosnippet>82</a>    </span><span class="kw">async fn </span>error_state_renders_title_detail_and_styled_action() {
+<a href=#83 id=83 data-nosnippet>83</a>        <span class="kw">let </span>cx = CxTestBuilder::new().build();
+<a href=#84 id=84 data-nosnippet>84</a>        <span class="kw">let </span>cx_ref = <span class="kw-2">&amp;</span>cx;
+<a href=#85 id=85 data-nosnippet>85</a>        <span class="kw">let </span>action = <span class="macro">view!</span> { cx_ref =&gt; &lt;a href=<span class="string">"/admin/users"</span>&gt;<span class="string">"Retry"</span>&lt;/a&gt; }.boxed();
+<a href=#86 id=86 data-nosnippet>86</a>        <span class="kw">let </span>html = <span class="macro">view!</span> {
+<a href=#87 id=87 data-nosnippet>87</a>            cx_ref =&gt;
+<a href=#88 id=88 data-nosnippet>88</a>            error_state(
+<a href=#89 id=89 data-nosnippet>89</a>                title: <span class="string">"Couldn't load Users"</span>,
+<a href=#90 id=90 data-nosnippet>90</a>                detail: <span class="string">"Something went wrong while loading the records."</span>,
+<a href=#91 id=91 data-nosnippet>91</a>                action: <span class="prelude-val">Some</span>(action.into())
+<a href=#92 id=92 data-nosnippet>92</a>            )
+<a href=#93 id=93 data-nosnippet>93</a>        }
+<a href=#94 id=94 data-nosnippet>94</a>        .single()
+<a href=#95 id=95 data-nosnippet>95</a>        .<span class="kw">await
+<a href=#96 id=96 data-nosnippet>96</a>        </span>.unwrap()
+<a href=#97 id=97 data-nosnippet>97</a>        .render(<span class="kw-2">&amp;</span>cx);
+<a href=#98 id=98 data-nosnippet>98</a>
+<a href=#99 id=99 data-nosnippet>99</a>        <span class="macro">assert!</span>(
+<a href=#100 id=100 data-nosnippet>100</a>            html.contains(<span class="string">"Couldn't load Users"</span>),
+<a href=#101 id=101 data-nosnippet>101</a>            <span class="string">"title missing: {html}"
+<a href=#102 id=102 data-nosnippet>102</a>        </span>);
+<a href=#103 id=103 data-nosnippet>103</a>        <span class="macro">assert!</span>(
+<a href=#104 id=104 data-nosnippet>104</a>            html.contains(<span class="string">"Something went wrong while loading the records."</span>),
+<a href=#105 id=105 data-nosnippet>105</a>            <span class="string">"detail missing: {html}"
+<a href=#106 id=106 data-nosnippet>106</a>        </span>);
+<a href=#107 id=107 data-nosnippet>107</a>        <span class="comment">// The caller's action reaches the output intact (GH #216: the classes
+<a href=#108 id=108 data-nosnippet>108</a>        // that style it are paint; the href is the caller's own markup).
+<a href=#109 id=109 data-nosnippet>109</a>        </span><span class="macro">assert!</span>(
+<a href=#110 id=110 data-nosnippet>110</a>            html.contains(<span class="string">"Retry"</span>) &amp;&amp; html.contains(<span class="string">"href=\"/admin/users\""</span>),
+<a href=#111 id=111 data-nosnippet>111</a>            <span class="string">"caller action missing: {html}"
+<a href=#112 id=112 data-nosnippet>112</a>        </span>);
+<a href=#113 id=113 data-nosnippet>113</a>        <span class="comment">// Icon present; its colour is paint.
+<a href=#114 id=114 data-nosnippet>114</a>        </span><span class="macro">assert!</span>(html.contains(<span class="string">"&lt;svg"</span>), <span class="string">"icon missing: {html}"</span>);
+<a href=#115 id=115 data-nosnippet>115</a>    }
+<a href=#116 id=116 data-nosnippet>116</a>
+<a href=#117 id=117 data-nosnippet>117</a>    <span class="attr">#[tokio::test]
+<a href=#118 id=118 data-nosnippet>118</a>    </span><span class="kw">async fn </span>error_state_detail_is_optional_and_attrs_survive() {
+<a href=#119 id=119 data-nosnippet>119</a>        <span class="kw">let </span>cx = CxTestBuilder::new().build();
+<a href=#120 id=120 data-nosnippet>120</a>        <span class="kw">let </span>cx_ref = <span class="kw-2">&amp;</span>cx;
+<a href=#121 id=121 data-nosnippet>121</a>        <span class="kw">let </span>html = <span class="macro">view!</span> {
+<a href=#122 id=122 data-nosnippet>122</a>            cx_ref =&gt;
+<a href=#123 id=123 data-nosnippet>123</a>            error_state(
+<a href=#124 id=124 data-nosnippet>124</a>                title: <span class="string">"Couldn't load Users"</span>,
+<a href=#125 id=125 data-nosnippet>125</a>                attrs: <span class="macro">attributes!</span> { id=<span class="string">"load-error" </span>class=<span class="string">"my-class" </span>}
+<a href=#126 id=126 data-nosnippet>126</a>            )
+<a href=#127 id=127 data-nosnippet>127</a>        }
+<a href=#128 id=128 data-nosnippet>128</a>        .single()
+<a href=#129 id=129 data-nosnippet>129</a>        .<span class="kw">await
+<a href=#130 id=130 data-nosnippet>130</a>        </span>.unwrap()
+<a href=#131 id=131 data-nosnippet>131</a>        .render(<span class="kw-2">&amp;</span>cx);
+<a href=#132 id=132 data-nosnippet>132</a>
+<a href=#133 id=133 data-nosnippet>133</a>        <span class="macro">assert!</span>(
+<a href=#134 id=134 data-nosnippet>134</a>            html.contains(<span class="string">"Couldn't load Users"</span>),
+<a href=#135 id=135 data-nosnippet>135</a>            <span class="string">"title missing: {html}"
+<a href=#136 id=136 data-nosnippet>136</a>        </span>);
+<a href=#137 id=137 data-nosnippet>137</a>        <span class="comment">// No detail line: the title is the only `&lt;p&gt;` element the component
+<a href=#138 id=138 data-nosnippet>138</a>        // renders when `detail` is empty (GH #216: the muted colour that used
+<a href=#139 id=139 data-nosnippet>139</a>        // to stand in for this is paint). Spelled `&lt;p ` / `&lt;p&gt;` so the icon's
+<a href=#140 id=140 data-nosnippet>140</a>        // `&lt;path&gt;` cannot count as one.
+<a href=#141 id=141 data-nosnippet>141</a>        </span><span class="macro">assert_eq!</span>(
+<a href=#142 id=142 data-nosnippet>142</a>            html.matches(<span class="string">"&lt;p "</span>).count() + html.matches(<span class="string">"&lt;p&gt;"</span>).count(),
+<a href=#143 id=143 data-nosnippet>143</a>            <span class="number">1</span>,
+<a href=#144 id=144 data-nosnippet>144</a>            <span class="string">"no detail expected: {html}"
+<a href=#145 id=145 data-nosnippet>145</a>        </span>);
+<a href=#146 id=146 data-nosnippet>146</a>        <span class="macro">assert!</span>(html.contains(<span class="string">"id=\"load-error\""</span>), <span class="string">"attrs missing: {html}"</span>);
+<a href=#147 id=147 data-nosnippet>147</a>        <span class="macro">assert!</span>(html.contains(<span class="string">"my-class"</span>), <span class="string">"caller class missing: {html}"</span>);
+<a href=#148 id=148 data-nosnippet>148</a>    }
+<a href=#149 id=149 data-nosnippet>149</a>}
 </code></pre></div></section></main></body></html>
