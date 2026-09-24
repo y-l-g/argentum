@@ -597,4 +597,190 @@ mod tests {
             "cleared group_by signal must render no group headers: {table_html}"
         );
     }
+
+    /// Post one live-table shard rerun with an optional `Tenant` request
+    /// extension (GH #281).
+    ///
+    /// The first positional arg is the list path the registry is keyed by, so
+    /// the caller chooses the resource; the identity header is the one the
+    /// browser runtime sends.
+    async fn post_table_shard(
+        router: &topcoat::router::Router,
+        path: &str,
+        tenant: Option<uuid::Uuid>,
+    ) -> http::Response<Body> {
+        let sig = |n: u8, v: &str| format!(r#"{{"t":"Signal","id":"{:032x}","v":"{v}"}}"#, n);
+        let args = format!(
+            r#"["{path}",{}, {}, {}, {}, {}, {}, {}]"#,
+            sig(1, ""),
+            sig(2, ""),
+            sig(3, ""),
+            sig(4, ""),
+            sig(5, ""),
+            sig(6, ""),
+            sig(7, ""),
+        );
+        let request = http::Request::builder()
+            .method(http::Method::POST)
+            .uri(format!(
+                "/_topcoat/runtime/shards/{}",
+                topcoat::runtime::Shard::id(&table_search).as_str()
+            ))
+            .header(http::header::CONTENT_TYPE, "application/json")
+            .header(topcoat::router::request::IDENTITY_HEADER, "A".repeat(22))
+            .body(Body::from(format!(r#"{{"args":{args},"signals":{{}}}}"#)))
+            .unwrap();
+        let (mut parts, body) = request.into_parts();
+        if let Some(tenant) = tenant {
+            parts.extensions.insert(crate::tenancy::Tenant(tenant));
+        }
+        router.handle(http::Request::from_parts(parts, body)).await
+    }
+
+    /// The live-search shard re-checks the tenant and policy gates itself,
+    /// because page guards do not run on shard requests (GH #281): a gated
+    /// resource with no tenant must be refused instead of running an unscoped
+    /// query, a tenanted rerun must serve only that tenant's rows, and a
+    /// `can_view_any` denial is refused even with a tenant present.
+    #[tokio::test]
+    async fn live_shard_enforces_tenant_and_policy_gates() {
+        use std::collections::HashMap;
+
+        use http_body_util::BodyExt;
+
+        use crate::resource::Resource;
+
+        #[derive(Debug, Clone, toasty::Model)]
+        struct TenantDummy {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            #[index]
+            tenant_id: uuid::Uuid,
+            name: String,
+        }
+
+        struct TenantLive;
+        impl Resource for TenantLive {
+            type Model = TenantDummy;
+            fn slug() -> String {
+                "tenant-dummies".to_string()
+            }
+            fn requires_tenant() -> bool {
+                true
+            }
+            fn can_view_any(_cx: &Cx) -> bool {
+                true
+            }
+            fn can_view(_cx: &Cx, _record: &TenantDummy) -> bool {
+                true
+            }
+            fn table(cx: &Cx) -> crate::resource::Table<TenantDummy> {
+                crate::resource::Table::r#for(cx)
+                    .id(|d: &TenantDummy| d.id.to_string())
+                    .pk(|d: &TenantDummy| d.id.to_string())
+                    .columns(
+                        crate::resource::TextColumn::r#for(
+                            TenantDummy::fields().name(),
+                            |d: &TenantDummy| d.name.clone(),
+                        )
+                        .searchable()
+                        .sortable(),
+                    )
+                    .paginate(10)
+                    .live_search(true)
+            }
+            fn hydrate_form_values(_cx: &Cx, _record: &TenantDummy) -> HashMap<String, String> {
+                HashMap::new()
+            }
+        }
+
+        struct DeniedLive;
+        impl Resource for DeniedLive {
+            type Model = TenantDummy;
+            fn slug() -> String {
+                "denied-dummies".to_string()
+            }
+            fn requires_tenant() -> bool {
+                true
+            }
+            fn can_view_any(_cx: &Cx) -> bool {
+                false
+            }
+            fn table(cx: &Cx) -> crate::resource::Table<TenantDummy> {
+                crate::resource::Table::r#for(cx)
+                    .id(|d: &TenantDummy| d.id.to_string())
+                    .pk(|d: &TenantDummy| d.id.to_string())
+                    .columns(
+                        crate::resource::TextColumn::r#for(
+                            TenantDummy::fields().name(),
+                            |d: &TenantDummy| d.name.clone(),
+                        )
+                        .searchable()
+                        .sortable(),
+                    )
+                    .paginate(10)
+                    .live_search(true)
+            }
+            fn hydrate_form_values(_cx: &Cx, _record: &TenantDummy) -> HashMap<String, String> {
+                HashMap::new()
+            }
+        }
+
+        let tenant_a = uuid::Uuid::from_u128(1);
+        let tenant_b = uuid::Uuid::from_u128(2);
+        let mut db = Db::builder()
+            .models(toasty::models!(TenantDummy))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        for (tenant, name) in [(tenant_a, "Alpha"), (tenant_b, "Bravo")] {
+            toasty::create!(TenantDummy {
+                tenant_id: tenant,
+                name: name.to_string(),
+            })
+            .exec(&mut db)
+            .await
+            .unwrap();
+        }
+        let router = Panel::new("admin")
+            .app_context(db)
+            .resource::<TenantLive>()
+            .resource::<DeniedLive>()
+            .auth(crate::Auth::disabled())
+            .build()
+            .expect("panel builds");
+
+        let response = post_table_shard(&router, "/admin/tenant-dummies", None).await;
+        assert_eq!(
+            response.status(),
+            http::StatusCode::FORBIDDEN,
+            "a tenantless shard rerun must be refused"
+        );
+
+        let response = post_table_shard(&router, "/admin/tenant-dummies", Some(tenant_a)).await;
+        assert_eq!(
+            response.status(),
+            http::StatusCode::OK,
+            "a tenanted shard rerun must succeed"
+        );
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let table_html = String::from_utf8_lossy(&bytes).to_string();
+        assert!(
+            table_html.contains("Alpha"),
+            "the shard must render the tenant's own row: {table_html}"
+        );
+        assert!(
+            !table_html.contains("Bravo"),
+            "the shard must not render another tenant's row: {table_html}"
+        );
+
+        let response = post_table_shard(&router, "/admin/denied-dummies", Some(tenant_a)).await;
+        assert_eq!(
+            response.status(),
+            http::StatusCode::FORBIDDEN,
+            "a can_view_any denial must refuse the shard rerun"
+        );
+    }
 }
