@@ -174,10 +174,11 @@ async fn forged_posts_answer_403_and_change_nothing() {
 /// A forged login POST is refused before any credential work and mints no
 /// session (GH #281).
 ///
-/// The CSRF verify runs before the password is read, so a mismatch is a 403
-/// rather than a credential verdict, and a rejected attempt sets no session
-/// cookie. The regression it catches is a login handler that authenticates
-/// first and verifies the token (if at all) afterwards.
+/// The CSRF verify runs before the password is read, so a mismatched token and
+/// a missing `csrf_token` field are both 403 rather than a credential verdict,
+/// and a rejected attempt sets no session cookie. The regression it catches is
+/// a login handler that authenticates first and verifies the token (if at all)
+/// afterwards.
 #[tokio::test]
 async fn forged_login_answers_403_and_sets_no_session() {
     let db = full_db().await;
@@ -185,34 +186,40 @@ async fn forged_login_answers_403_and_sets_no_session() {
     let field = Uuid::new_v4().to_string();
     let cookie = Uuid::new_v4().to_string();
 
-    let resp = TestClient::new(&router)
-        .csrf(&cookie)
-        .post_form(
-            "/admin/login",
-            form_body(&[
-                ("email", DEMO_ADMIN_EMAIL),
-                ("password", DEMO_ADMIN_PASSWORD),
-                ("csrf_token", &field),
-            ]),
-        )
-        .await;
-    assert_eq!(
-        resp.status(),
-        403,
-        "a forged login must 403, got {}",
-        resp.status()
-    );
-    assert!(
-        session_cookie_value(&resp).is_none(),
-        "a forged login must set no session cookie"
-    );
+    for (submitted, label) in [
+        (Some(field.as_str()), "mismatched token"),
+        (None, "missing token"),
+    ] {
+        let mut pairs = vec![
+            ("email", DEMO_ADMIN_EMAIL),
+            ("password", DEMO_ADMIN_PASSWORD),
+        ];
+        if let Some(field) = submitted {
+            pairs.push(("csrf_token", field));
+        }
+        let resp = TestClient::new(&router)
+            .csrf(&cookie)
+            .post_form("/admin/login", form_body(&pairs))
+            .await;
+        assert_eq!(
+            resp.status(),
+            403,
+            "login {label}: a forged POST must 403, got {}",
+            resp.status()
+        );
+        assert!(
+            session_cookie_value(&resp).is_none(),
+            "login {label}: a forged login must set no session cookie"
+        );
+    }
 }
 
 /// A forged logout POST is refused and leaves the session usable (GH #281).
 ///
-/// The regression it catches is a logout that deletes the session row before
+/// Both a mismatched token and a missing `csrf_token` field must 403. The
+/// regression it catches is a logout that deletes the session row before
 /// verifying the token, or not at all: the presented session must survive the
-/// mismatched pair, which the follow-up authenticated GET proves.
+/// forged pair, which the follow-up authenticated GET proves.
 #[tokio::test]
 async fn forged_logout_answers_403_and_keeps_the_session() {
     let db = full_db().await;
@@ -221,16 +228,25 @@ async fn forged_logout_answers_403_and_keeps_the_session() {
     let field = Uuid::new_v4().to_string();
     let cookie = Uuid::new_v4().to_string();
 
-    let resp = client
-        .csrf(&cookie)
-        .post_form("/admin/logout", form_body(&[("csrf_token", &field)]))
-        .await;
-    assert_eq!(
-        resp.status(),
-        403,
-        "a forged logout must 403, got {}",
-        resp.status()
-    );
+    for (submitted, label) in [
+        (Some(field.as_str()), "mismatched token"),
+        (None, "missing token"),
+    ] {
+        let mut pairs: Vec<(&str, &str)> = Vec::new();
+        if let Some(field) = submitted {
+            pairs.push(("csrf_token", field));
+        }
+        let resp = client
+            .csrf(&cookie)
+            .post_form("/admin/logout", form_body(&pairs))
+            .await;
+        assert_eq!(
+            resp.status(),
+            403,
+            "logout {label}: a forged POST must 403, got {}",
+            resp.status()
+        );
+    }
     assert_eq!(
         client.get("/admin/posts").await.status(),
         200,
@@ -244,8 +260,10 @@ async fn forged_logout_answers_403_and_keeps_the_session() {
 ///
 /// `delete_404_for_an_unknown_id` pins the unknown-id half with a random UUID;
 /// this pins the wrong-tenant half with the token the browser would actually
-/// send, so an in-transaction reload that bypassed the tenant scope would fail
-/// here instead of deleting another tenant's row. The owner's own delete of the
+/// send. The edit POST 404s on its advisory, tenant-scoped load before it opens
+/// a transaction (`resource_edit_post`), so the in-transaction reload that
+/// repeats the scope is a second seam this test does not reach; the delete POST
+/// runs its scoped load inside the transaction. The owner's own delete of the
 /// same comment redirects, proving the 404s are the scope and not a dead route.
 #[tokio::test]
 async fn cross_tenant_edit_and_delete_404_and_touch_nothing() {
@@ -368,10 +386,27 @@ async fn cross_tenant_edit_and_delete_404_and_touch_nothing() {
             form_body(&[("confirm", "1"), ("csrf_token", &csrf)]),
         )
         .await;
-    assert!(
-        resp.status().is_redirection(),
-        "the owner's comment delete must redirect, got {}",
+    assert_eq!(
+        resp.status(),
+        303,
+        "the owner's comment delete must be a 303 PRG, got {}",
         resp.status()
+    );
+    assert_eq!(
+        resp.headers()
+            .get(LOCATION)
+            .and_then(|value| value.to_str().ok()),
+        Some("/admin/comments"),
+        "the owner's comment delete must redirect to the comments list"
+    );
+    let gone = Comment::filter(Comment::fields().id().eq(t1_comment.id))
+        .first()
+        .exec(&mut db_q)
+        .await
+        .unwrap();
+    assert!(
+        gone.is_none(),
+        "the owner's comment delete must remove the row"
     );
 }
 
@@ -448,8 +483,10 @@ async fn blocked_tenant_is_refused_on_every_read_route() {
 /// Anonymous requests are gated on every route shape (GH #281): reads redirect
 /// to the login page, mutations answer 401 and change nothing.
 ///
-/// `auth_check.rs` pins one GET and one POST; this enumerates the panel's read
-/// and mutation routes, so a route mounted without the gate is caught here.
+/// `auth_check.rs` asserts the exact `Location` for five list-page GETs; this
+/// enumerates the panel's record, form, export and option reads plus the
+/// mutation routes, with the same exact-`Location` and 401 answers, so a route
+/// mounted without the gate is caught here.
 #[tokio::test]
 async fn anonymous_requests_are_gated_on_every_route() {
     let db = full_db().await;
@@ -481,14 +518,13 @@ async fn anonymous_requests_are_gated_on_every_route() {
             "{path}: an anonymous read must redirect, got {}",
             resp.status()
         );
-        let location = resp
-            .headers()
-            .get(LOCATION)
-            .and_then(|value| value.to_str().ok())
-            .unwrap_or_default();
-        assert!(
-            location.starts_with("/admin/login"),
-            "{path}: must redirect to the login page, got {location}"
+        let expected = format!("/admin/login?{}", form_body(&[("next", &path)]));
+        assert_eq!(
+            resp.headers()
+                .get(LOCATION)
+                .and_then(|value| value.to_str().ok()),
+            Some(expected.as_str()),
+            "{path}: the redirect must carry the login route and the validated next"
         );
     }
 
