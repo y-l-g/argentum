@@ -483,10 +483,10 @@ async fn blocked_tenant_is_refused_on_every_read_route() {
 /// Anonymous requests are gated on every route shape (GH #281): reads redirect
 /// to the login page, mutations answer 401 and change nothing.
 ///
-/// `auth_check.rs` asserts the exact `Location` for five list-page GETs; this
-/// enumerates the panel's record, form, export and option reads plus the
-/// mutation routes, with the same exact-`Location` and 401 answers, so a route
-/// mounted without the gate is caught here.
+/// `auth_check.rs` asserts the exact `Location` for five panel GETs (four list
+/// pages and the create form); this enumerates the panel's record, form, export
+/// and option reads plus the mutation routes, with the same exact-`Location` and
+/// 401 answers, so a route mounted without the gate is caught here.
 #[tokio::test]
 async fn anonymous_requests_are_gated_on_every_route() {
     let db = full_db().await;
