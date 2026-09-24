@@ -23,6 +23,7 @@ mod detail_relation_check;
 mod edit_check;
 mod file_repeater_check;
 mod filter_check;
+mod gate_matrix_check;
 mod group_export_check;
 mod list_actions_check;
 mod media_check;
