@@ -526,6 +526,269 @@ async fn an_untouched_file_input_keeps_the_stored_path_and_a_chosen_one_replaces
     assert_eq!(docs(&db).await[0].cover, "/uploads/new.png");
 }
 
+/// GH #277: a url-encoded pair under a declared `FileUpload` name is text the
+/// client typed, not an upload. It is dropped before validation, so the
+/// required field is empty and nothing is written — the typed value never
+/// reaches the record and never renders as the file's link.
+#[tokio::test]
+async fn a_text_value_for_a_file_upload_is_not_stored_on_create() {
+    let db = seeded_db().await;
+    let router = router(db.clone(), Some(RecordingUploader::default()));
+    let csrf = new_csrf();
+    let body = format!("title=Notes&cover=javascript%3Aalert%281%29&csrf_token={csrf}");
+
+    let response = post(
+        &router,
+        "/admin/docs/create",
+        &csrf,
+        "application/x-www-form-urlencoded".to_string(),
+        body,
+    )
+    .await;
+    assert_eq!(
+        response.status(),
+        200,
+        "the form re-renders with the required error"
+    );
+    let html = body_string(response).await;
+    // The required error is attached to the upload field (its own error id),
+    // which is what proves the typed value was dropped rather than written.
+    assert!(
+        html.contains("cover-error"),
+        "the typed value leaves the required field empty: {html}"
+    );
+    assert!(
+        !html.contains("javascript"),
+        "the typed value must not survive into the re-rendered form: {html}"
+    );
+    assert!(
+        docs(&db).await.is_empty(),
+        "a client-typed upload value must not create the record"
+    );
+}
+
+/// GH #277: a multipart text part (no `filename`) under a declared
+/// `FileUpload` name is client-typed too. On edit the stored value is restored,
+/// so the forged value cannot replace the file the record names.
+#[tokio::test]
+async fn a_text_value_for_a_file_upload_keeps_the_stored_file_on_edit() {
+    let db = seeded_db().await;
+    let router = router(db.clone(), Some(RecordingUploader::default()));
+    let doc = seed_doc(&db, "Original", "/uploads/old.png", "spec.pdf").await;
+    let csrf = new_csrf();
+    let body = multipart_body(
+        "B",
+        &[
+            ("title", None, "Renamed"),
+            ("cover", None, "javascript:alert(1)"),
+            ("csrf_token", None, &csrf),
+        ],
+    );
+
+    let response = post_multipart(
+        &router,
+        &format!("/admin/docs/{}/edit", doc.id),
+        &csrf,
+        "B",
+        body,
+    )
+    .await;
+    assert_eq!(
+        response.status(),
+        303,
+        "the edit saves with the stored file kept"
+    );
+    let updated = docs(&db).await;
+    assert_eq!(
+        updated[0].title, "Renamed",
+        "the rest of the edit still applies"
+    );
+    assert_eq!(
+        updated[0].cover, "/uploads/old.png",
+        "a client-typed value must not replace the stored file"
+    );
+}
+
+/// GH #277 review: duplicate part names are last-write-wins, and the file-part
+/// set follows. A text part after a file part under the same name takes the
+/// name out of the set, so the typed value is dropped instead of stored. With
+/// no uploader nothing replaces the typed value, which is the case the bypass
+/// stored verbatim.
+#[tokio::test]
+async fn a_text_part_after_a_file_part_does_not_forge_a_value_on_create() {
+    let db = seeded_db().await;
+    let router = router(db.clone(), None::<RecordingUploader>);
+    let csrf = new_csrf();
+    let body = multipart_body(
+        "B",
+        &[
+            ("title", None, "Notes"),
+            ("cover", Some("cover.png"), "PNG-BYTES"),
+            ("cover", None, "javascript:alert(1)"),
+            ("csrf_token", None, &csrf),
+        ],
+    );
+
+    let response = post_multipart(&router, "/admin/docs/create", &csrf, "B", body).await;
+    assert_eq!(
+        response.status(),
+        200,
+        "the form re-renders with the required error"
+    );
+    let html = body_string(response).await;
+    assert!(
+        html.contains("cover-error"),
+        "the later text part leaves the field empty: {html}"
+    );
+    assert!(
+        !html.contains("javascript"),
+        "the typed value must not survive into the re-rendered form: {html}"
+    );
+    assert!(
+        docs(&db).await.is_empty(),
+        "the typed value must not create the record"
+    );
+}
+
+/// GH #277 review: the same duplicate-name bypass on edit, with an uploader
+/// installed. The later text part discards the staged bytes, so the uploader
+/// never sees the earlier file part and the record keeps the file it names.
+#[tokio::test]
+async fn a_text_part_after_a_file_part_keeps_the_stored_file_on_edit() {
+    let db = seeded_db().await;
+    let uploader = RecordingUploader::default();
+    let router = router(db.clone(), Some(uploader.clone()));
+    let doc = seed_doc(&db, "Original", "/uploads/old.png", "spec.pdf").await;
+    let csrf = new_csrf();
+    let body = multipart_body(
+        "B",
+        &[
+            ("title", None, "Renamed"),
+            ("cover", Some("new.png"), "NEW-BYTES"),
+            ("cover", None, "javascript:alert(1)"),
+            ("csrf_token", None, &csrf),
+        ],
+    );
+
+    let response = post_multipart(
+        &router,
+        &format!("/admin/docs/{}/edit", doc.id),
+        &csrf,
+        "B",
+        body,
+    )
+    .await;
+    assert_eq!(response.status(), 303, "the edit saves");
+    let updated = docs(&db).await;
+    assert_eq!(
+        updated[0].title, "Renamed",
+        "the rest of the edit still applies"
+    );
+    assert_eq!(
+        updated[0].cover, "/uploads/old.png",
+        "the stored file must survive the duplicate name"
+    );
+    assert!(
+        uploader.seen().is_empty(),
+        "the discarded file part must not reach the uploader"
+    );
+}
+
+/// GH #277 review: the duplicate-name bypass on edit with no uploader, where
+/// nothing replaces a stored typed value.
+#[tokio::test]
+async fn a_text_part_after_a_file_part_keeps_the_stored_file_without_an_uploader() {
+    let db = seeded_db().await;
+    let router = router(db.clone(), None::<RecordingUploader>);
+    let doc = seed_doc(&db, "Original", "/uploads/old.png", "spec.pdf").await;
+    let csrf = new_csrf();
+    let body = multipart_body(
+        "B",
+        &[
+            ("title", None, "Renamed"),
+            ("cover", Some("new.png"), "NEW-BYTES"),
+            ("cover", None, "javascript:alert(1)"),
+            ("csrf_token", None, &csrf),
+        ],
+    );
+
+    let response = post_multipart(
+        &router,
+        &format!("/admin/docs/{}/edit", doc.id),
+        &csrf,
+        "B",
+        body,
+    )
+    .await;
+    assert_eq!(response.status(), 303, "the edit saves");
+    assert_eq!(
+        docs(&db).await[0].cover,
+        "/uploads/old.png",
+        "the stored file must survive the duplicate name"
+    );
+}
+
+/// GH #277 review: the last part wins in the other order too — a file part
+/// after a text part under the same name is the upload.
+#[tokio::test]
+async fn a_file_part_after_a_text_part_wins_on_create() {
+    let db = seeded_db().await;
+    let router = router(db.clone(), Some(RecordingUploader::default()));
+    let csrf = new_csrf();
+    let body = multipart_body(
+        "B",
+        &[
+            ("title", None, "Notes"),
+            ("cover", None, "javascript:alert(1)"),
+            ("cover", Some("cover.png"), "PNG-BYTES"),
+            ("csrf_token", None, &csrf),
+        ],
+    );
+
+    let response = post_multipart(&router, "/admin/docs/create", &csrf, "B", body).await;
+    assert_eq!(response.status(), 303, "the last part is a file and wins");
+    let created = docs(&db).await;
+    assert_eq!(
+        created[0].cover, "/uploads/cover.png",
+        "the file part's value is what the record stores"
+    );
+}
+
+/// GH #277 review: a later file part whose name sanitizes to empty discards the
+/// bytes an earlier part staged, rather than letting the uploader store a file
+/// the last part did not name.
+#[tokio::test]
+async fn a_rejected_filename_after_a_file_part_discards_the_staged_bytes() {
+    let db = seeded_db().await;
+    let uploader = RecordingUploader::default();
+    let router = router(db.clone(), Some(uploader.clone()));
+    let csrf = new_csrf();
+    let body = multipart_body(
+        "B",
+        &[
+            ("title", None, "Notes"),
+            ("cover", Some("first.png"), "FIRST-BYTES"),
+            ("cover", Some(".."), "SECOND-BYTES"),
+            ("csrf_token", None, &csrf),
+        ],
+    );
+
+    let response = post_multipart(&router, "/admin/docs/create", &csrf, "B", body).await;
+    assert_eq!(
+        response.status(),
+        200,
+        "a rejected name leaves the required field empty"
+    );
+    assert!(
+        uploader.seen().is_empty(),
+        "the discarded file part must not reach the uploader"
+    );
+    assert!(
+        docs(&db).await.is_empty(),
+        "a rejected name must not create the record"
+    );
+}
+
 #[tokio::test]
 async fn clearing_an_optional_upload_empties_the_stored_path() {
     let db = seeded_db().await;

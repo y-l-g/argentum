@@ -2,8 +2,8 @@ use http::header::LOCATION;
 use showcase::{app::router_for_tests as router, models::User};
 
 use crate::common::{
-    assert_hydrate_keys_are_form_fields, body_string, demo_client, response_cookies, seeded_db,
-    set_cookie_header,
+    assert_hydrate_keys_are_form_fields, body_string, demo_client, multipart_body,
+    response_cookies, seeded_db, set_cookie_header,
 };
 
 #[tokio::test]
@@ -523,21 +523,41 @@ async fn post_create_keeps_the_variant_its_payload_names() {
     );
 
     let csrf = uuid::Uuid::new_v4().to_string();
+    // `image_path` is a required `FileUpload`, so the create carries a file
+    // part (GH #277); this router installs no uploader, so the sanitized
+    // basename is what the record stores.
+    let author_id = author.id.to_string();
+    let boundary = "----EditBoundary";
+    let body = multipart_body(
+        boundary,
+        &[
+            ("title", "Created Published"),
+            ("author_id", &author_id),
+            ("tags", ""),
+            ("body", "Body"),
+            ("status", "published"),
+            ("featured", "false"),
+            ("seo_title", "S"),
+            ("seo_description", "D"),
+            ("media", "1"),
+            ("media_url", "/i.jpg"),
+            ("media_alt", "alt"),
+            ("media_video_url", ""),
+            ("media_poster_url", ""),
+            ("media_poster_credit_author", ""),
+            ("media_poster_credit_licence", ""),
+            ("post_stats_word_count", "1"),
+            ("post_stats_read_minutes", "1"),
+            ("publication", ""),
+            ("publication_timestamp", "2026-03-01T00:00:00Z"),
+            ("publication_canonical_url", "https://example.com/new"),
+            ("csrf_token", &csrf),
+        ],
+        &[("image_path", "created.jpg", "FAKEBYTES")],
+    );
     let resp = client
         .csrf(&csrf)
-        .post_form(
-            "/admin/posts/create",
-            format!(
-                "title=Created+Published&author_id={}&image_path=created.jpg&tags=&body=Body&\
-                 status=published&featured=false&seo_title=S&seo_description=D&\
-                 media=1&media_url=/i.jpg&media_alt=alt&media_video_url=&\
-                 media_poster_url=&media_poster_credit_author=&media_poster_credit_licence=&\
-                 post_stats_word_count=1&post_stats_read_minutes=1&\
-                 publication=&publication_timestamp=2026-03-01T00:00:00Z&\
-                 publication_canonical_url=https%3A%2F%2Fexample.com%2Fnew&csrf_token={csrf}",
-                author.id
-            ),
-        )
+        .post_multipart("/admin/posts/create", boundary, body)
         .await;
     assert!(
         resp.status().is_redirection(),

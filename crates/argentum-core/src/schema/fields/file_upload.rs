@@ -137,7 +137,9 @@ impl FileUpload {
         };
         // The stored value as a link to the file it names (GH #242). Nothing
         // here guesses a URL convention — the app decides what it stores (the
-        // uploader's return value) and this renders it verbatim.
+        // uploader's return value) — and a value that is not a rooted path or
+        // an `http(s)` URL renders as text rather than as a clickable scheme
+        // (GH #277).
         let stored_display: Option<BoxView<'a>> =
             stored.map(|current| stored_upload_row(cx, current));
         Ok(view! {
@@ -226,6 +228,18 @@ fn stored_path(value: Option<&str>) -> Option<String> {
         .filter(|v| !v.is_empty())
 }
 
+/// Whether a stored value may become an `href` (GH #277): a rooted path
+/// (`/uploads/x.png`, not the scheme-relative `//host`) or an absolute
+/// `http(s)` URL. Anything else — a bare basename, `javascript:`, `data:` —
+/// renders as text: the framework stores what it is handed, so the render is
+/// where a scheme is refused.
+fn is_linkable(path: &str) -> bool {
+    let lower = path.trim_start().to_ascii_lowercase();
+    (lower.starts_with('/') && !lower.starts_with("//"))
+        || lower.starts_with("https://")
+        || lower.starts_with("http://")
+}
+
 /// The `Current: …` row a `FileUpload` shows for a stored value (GH #188).
 ///
 /// Takes the path by value: the rendered view has to outlive the field's
@@ -233,20 +247,31 @@ fn stored_path(value: Option<&str>) -> Option<String> {
 fn stored_upload_row<'a>(cx: &'a Cx, path: String) -> BoxView<'a> {
     // The link is the only way to reach the file, and the path is what it
     // says; each node owns its own copy of it.
-    let href = path.clone();
     let text = path.clone();
+    // A value that is not a safe URL renders as plain text (GH #277): the
+    // wrapper and the label stay, only the anchor goes.
+    let inner: BoxView<'a> = if is_linkable(&path) {
+        let href = path.clone();
+        view! {
+            cx =>
+            <a class="font-medium text-foreground underline" href=(href)>(text)</a>
+        }
+        .boxed()
+    } else {
+        view! { cx => <span class="font-medium text-foreground">(text)</span> }.boxed()
+    };
     view! {
         cx =>
         <div class="text-xs text-muted-foreground" data-file-current=(path)>
             "Current: "
-            <a class="font-medium text-foreground underline" href=(href)>(text)</a>
+            (inner)
         </div>
     }
     .boxed()
 }
 
 /// A `FileUpload` read rather than edited (GH #187): the label over the stored
-/// path, as a link to the file (GH #242).
+/// path, as a link to the file when it is one (GH #242, GH #277).
 ///
 /// The reader asks the same "is the stored value right?" question the editor
 /// asks, and following the link is how they answer it. `underline` is the
@@ -258,6 +283,12 @@ fn stored_upload_value<'a>(cx: &'a Cx, label: &str, value: Option<&str>) -> Resu
     let Some(path) = stored_path(value) else {
         return render_value(cx, label, value, ValueKind::Machine);
     };
+    // A value that is not a safe URL is not a link (GH #277): it renders
+    // through the same machine-value path an empty value takes, so the detail
+    // page shows the stored text without an `href` to click.
+    if !is_linkable(&path) {
+        return render_value(cx, label, Some(&path), ValueKind::Machine);
+    }
     let href = path.clone();
     let link = view! {
         cx =>
@@ -489,6 +520,56 @@ mod tests {
             !empty.contains("href="),
             "an empty stored value must not render a link, got {empty}"
         );
+    }
+
+    /// GH #277: a stored value becomes an `href` only when it is a rooted path
+    /// or an absolute `http(s)` URL. Every other spelling — a scheme such as
+    /// `javascript:` or `data:`, the scheme-relative `//host`, a bare basename
+    /// — renders as text in both the edit row and the detail value: the
+    /// framework stores what it is handed, so the render is where a scheme is
+    /// refused.
+    #[tokio::test]
+    async fn file_upload_links_only_a_rooted_or_http_url() {
+        let (cx, schema) = cx_and_doc_schema();
+        for refused in [
+            "javascript:alert(1)",
+            "JavaScript:alert(1)",
+            "data:text/html,x",
+            "//evil.example/x.png",
+            "report.pdf",
+        ] {
+            let edit = render_upload(&schema, &cx, Some(refused)).await;
+            assert!(
+                !edit.contains("href="),
+                "{refused} must not become a link on the form, got {edit}"
+            );
+            assert!(
+                edit.contains(&format!("data-file-current=\"{refused}\"")),
+                "{refused} must stay visible on the form, got {edit}"
+            );
+            let view = render_readonly_upload(&schema, &cx, Some(refused)).await;
+            assert!(
+                !view.contains("href="),
+                "{refused} must not become a link on the detail page, got {view}"
+            );
+            assert!(
+                view.contains(refused),
+                "{refused} must still render as text on the detail page, got {view}"
+            );
+        }
+
+        for linkable in ["/uploads/a.png", "https://cdn.example/a.png"] {
+            let edit = render_upload(&schema, &cx, Some(linkable)).await;
+            assert!(
+                tag_with(&edit, &format!("href=\"{linkable}\"")).starts_with("<a"),
+                "{linkable} must stay a link on the form, got {edit}"
+            );
+            let view = render_readonly_upload(&schema, &cx, Some(linkable)).await;
+            assert!(
+                tag_with(&view, &format!("href=\"{linkable}\"")).starts_with("<a"),
+                "{linkable} must stay a link on the detail page, got {view}"
+            );
+        }
     }
 
     /// GH #242: the stored path is opaque. A `.png` and a `.txt` render the

@@ -3,7 +3,7 @@
 //! Decoding helpers stay pure and request-free where possible so the size
 //! caps and filename sanitization are unit-testable at the boundary.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use topcoat::{
     Result,
@@ -39,6 +39,11 @@ pub(crate) struct FormParts {
     /// then the bytes could only be dropped and today's drain-and-discard
     /// (GH #90) is what keeps a large upload off the heap.
     pub(crate) files: HashMap<String, crate::upload::StagedUpload>,
+    /// Field names that arrived as a multipart part carrying a `filename`
+    /// (chosen or empty). Only these may set a `FileUpload` value (GH #277): a
+    /// text part or a url-encoded pair under the same name is client-typed, not
+    /// an upload.
+    pub(crate) file_part_names: HashSet<String>,
 }
 
 /// Helper: parse form bodies into a [`FormParts`] — `application/x-www-form-urlencoded`
@@ -79,6 +84,7 @@ pub(crate) async fn parse_form_body(cx: &Cx, body: Body) -> Result<FormParts, to
     Ok(FormParts {
         values: form_values_from_request_parts(content_type.as_deref(), bytes.as_ref())?,
         files: HashMap::new(),
+        file_part_names: HashSet::new(),
     })
 }
 
@@ -112,6 +118,7 @@ async fn parse_multipart_values(
     let mut out = FormParts {
         values: HashMap::new(),
         files: HashMap::new(),
+        file_part_names: HashSet::new(),
     };
     let mut bytes_seen = 0usize;
     let mut multipart = Multipart::from_request(cx, body).await?;
@@ -134,6 +141,11 @@ async fn parse_multipart_values(
         match filename {
             Some(f) if !f.is_empty() => {
                 let sanitized = sanitize_filename(&f);
+                // Duplicate part names are last-write-wins, bytes included: a
+                // later part replaces whatever an earlier one under the same
+                // name staged, so a name that sanitizes to empty cannot leave
+                // the earlier part's bytes behind (GH #277).
+                out.files.remove(&name);
                 // Bytes are staged only for a name the framework would persist
                 // (a rejected name sanitizes to empty, GH #149) and only when
                 // an uploader is installed to store them (GH #188). Otherwise
@@ -151,12 +163,21 @@ async fn parse_multipart_values(
                 } else {
                     read_bounded(&mut field, &mut bytes_seen, None).await?;
                 }
+                // A chosen file is the one thing that may set a `FileUpload`
+                // value (GH #277).
+                out.file_part_names.insert(name.clone());
                 out.values.insert(name, sanitized);
             }
             Some(_) => {
                 // Empty filename (no file chosen) → empty value so `required`
-                // validation fires instead of treating it as missing.
+                // validation fires instead of treating it as missing. It is
+                // still a file part (GH #277): the browser submits every file
+                // input, and "keep" on edit must not read as a forged text
+                // value. It chose no file, so it discards bytes an earlier part
+                // staged under the same name.
                 read_bounded(&mut field, &mut bytes_seen, None).await?;
+                out.files.remove(&name);
+                out.file_part_names.insert(name.clone());
                 out.values.insert(name, String::new());
             }
             None => {
@@ -164,6 +185,11 @@ async fn parse_multipart_values(
                 // same counter so the backstop sees the per-request total.
                 let text = field.text().await?;
                 count_form_bytes(&mut bytes_seen, text.len())?;
+                // A later text part under a name an earlier file part used
+                // takes the name out of the file-part set, so the drop removes
+                // the client-typed value instead of storing it (GH #277).
+                out.file_part_names.remove(&name);
+                out.files.remove(&name);
                 out.values.insert(name, text);
             }
         }
@@ -494,6 +520,22 @@ fn strip_transport_keys(schema: &crate::schema::Schema, values: &mut HashMap<Str
     });
 }
 
+/// Drop any value a declared `FileUpload` received from something other than a
+/// file part (GH #277). The field's value is the uploader's answer, the stored
+/// value (edit backfill), or empty (clear) — never text the client typed, which
+/// would reach the record and render as the file's link.
+fn drop_client_typed_uploads(
+    schema: &crate::schema::Schema,
+    file_part_names: &HashSet<String>,
+    values: &mut HashMap<String, String>,
+) {
+    for name in schema.file_uploads().keys() {
+        if !file_part_names.contains(name) {
+            values.remove(name);
+        }
+    }
+}
+
 /// App-side uniqueness check over the form's `unique()`-marked text inputs.
 ///
 /// Generic over every marked field — the previous version was hard-coded to
@@ -606,7 +648,16 @@ pub(crate) fn resource_create_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<
         crate::csrf::verify(cx, &parts.values)?;
         let schema = R::form(cx);
         reject_unknown_form_keys(&schema, &parts.values)?;
-        let FormParts { mut values, files } = parts;
+        let FormParts {
+            mut values,
+            files,
+            file_part_names,
+        } = parts;
+        // A declared `FileUpload` takes its value only from a file part
+        // (GH #277): a text part or a url-encoded pair under the same name is
+        // client-typed, not an upload, and would otherwise reach the record and
+        // render as the file's link.
+        drop_client_typed_uploads(&schema, &file_part_names, &mut values);
         // Uploaded bytes become stored paths before validation, and outside the
         // transaction below (GH #188): an upload is a side effect in another
         // system, so a rolled-back transaction must not have to undo it, and a
@@ -738,9 +789,18 @@ pub(crate) fn resource_edit_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_
         }
         let schema = R::form(cx);
         reject_unknown_form_keys(&schema, &parts.values)?;
-        let FormParts { mut values, files } = parts;
+        let FormParts {
+            mut values,
+            files,
+            file_part_names,
+        } = parts;
         // Unique check excludes this record's own unchanged values.
         let current = R::hydrate_form_values(cx, &advisory);
+        // A declared `FileUpload` takes its value only from a file part
+        // (GH #277): a text part or a url-encoded pair under the same name is
+        // client-typed, not an upload. The backfill below then restores the
+        // stored value, so a forged edit keeps the file it names.
+        drop_client_typed_uploads(&schema, &file_part_names, &mut values);
         // Store the chosen files first (GH #188): a stored path is the submit's
         // answer for that field, and a *rejected* store drops the submitted
         // name so the backfill below restores what is actually on disk —
@@ -1036,6 +1096,17 @@ mod tests {
             .build()
             .expect("panel builds");
         let csrf = uuid::Uuid::new_v4().to_string();
+        // `path` is a `FileUpload`, so it arrives as a file part (GH #277);
+        // `clear_path` and `csrf_token` are the transport keys under test.
+        let boundary = "----TransportBoundary";
+        let body = format!(
+            "--{b}\r\nContent-Disposition: form-data; name=\"title\"\r\n\r\nx\r\n\
+             --{b}\r\nContent-Disposition: form-data; name=\"path\"; filename=\"a.bin\"\r\nContent-Type: application/octet-stream\r\n\r\nBYTES\r\n\
+             --{b}\r\nContent-Disposition: form-data; name=\"clear_path\"\r\n\r\n1\r\n\
+             --{b}\r\nContent-Disposition: form-data; name=\"csrf_token\"\r\n\r\n{csrf}\r\n\
+             --{b}--\r\n",
+            b = boundary
+        );
         let resp = router
             .handle(
                 http::Request::builder()
@@ -1043,15 +1114,13 @@ mod tests {
                     .uri("/admin/docs/create")
                     .header(
                         http::header::CONTENT_TYPE,
-                        "application/x-www-form-urlencoded",
+                        format!("multipart/form-data; boundary={boundary}"),
                     )
                     .header(
                         http::header::COOKIE,
                         format!("{}={csrf}", crate::csrf::COOKIE_NAME),
                     )
-                    .body(Body::from(format!(
-                        "title=x&path=/tmp/a.bin&csrf_token={csrf}&clear_path=1"
-                    )))
+                    .body(Body::from(body))
                     .unwrap(),
             )
             .await;

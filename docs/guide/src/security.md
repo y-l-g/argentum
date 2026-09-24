@@ -4,6 +4,10 @@ The defaults Argentum ships with, and the deployment assumptions they depend on.
 
 - All POSTs verify a double-submit `csrf_token` before any DB work. `confirm=1` is a UX step, not a
   boundary.
+- A `FileUpload` value comes only from a file part (the uploader's answer, or the sanitized basename
+  with no uploader), the record's stored value on an untouched edit, or empty on `clear_<field>`. A
+  stored value renders as a link only when it is rooted (`/…`, not `//host`) or an absolute
+  `http(s)://…` URL; anything else renders as text (GH #277).
 - Passwords use Argon2id. Unknown emails take the same code path, and login failures share one
   generic message.
 - Deletes and bulk deletes re-fetch through `query()` and re-check policy inside the handler

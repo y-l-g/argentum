@@ -5,7 +5,8 @@ use showcase::{
 };
 
 use crate::common::{
-    assert_hydrate_keys_are_form_fields, body_string, demo_client, full_db, post_count,
+    assert_hydrate_keys_are_form_fields, body_string, demo_client, full_db, multipart_body,
+    post_count,
 };
 
 #[tokio::test]
@@ -113,15 +114,24 @@ async fn posts_create_valid_redirects_and_creates() {
     let authors = Author::all().exec(&mut db2).await.unwrap();
     let first = &authors[0];
     let before = Post::all().exec(&mut db2).await.unwrap().len();
+    // `image_path` is a required `FileUpload`, so it arrives as a file part
+    // (GH #277); `router_for_tests` installs no uploader, so the parser's
+    // sanitized basename is what the record stores.
+    let author_id = first.id.to_string();
+    let boundary = "----RelationBoundary";
+    let body = multipart_body(
+        boundary,
+        &[
+            ("title", "New Post"),
+            ("author_id", &author_id),
+            ("tags", "new"),
+            ("csrf_token", &csrf),
+        ],
+        &[("image_path", "new.jpg", "FAKEBYTES")],
+    );
     let resp = client
         .csrf(&csrf)
-        .post_form(
-            "/admin/posts/create",
-            format!(
-                "title=New+Post&author_id={}&image_path=/tmp/new.jpg&tags=new&csrf_token={csrf}",
-                first.id
-            ),
-        )
+        .post_multipart("/admin/posts/create", boundary, body)
         .await;
     assert!(
         resp.status().is_redirection(),
@@ -151,15 +161,21 @@ async fn posts_edit_hydrates_author() {
     let authors = Author::all().exec(&mut db2).await.unwrap();
     let first = &authors[0];
     // create a post via valid route to ensure edit hydrates
+    let author_id = first.id.to_string();
+    let boundary = "----RelationBoundary";
+    let body = multipart_body(
+        boundary,
+        &[
+            ("title", "EditMe"),
+            ("author_id", &author_id),
+            ("tags", "edit"),
+            ("csrf_token", &csrf),
+        ],
+        &[("image_path", "edit.jpg", "FAKEBYTES")],
+    );
     let _ = client
         .csrf(&csrf)
-        .post_form(
-            "/admin/posts/create",
-            format!(
-                "title=EditMe&author_id={}&image_path=/tmp/edit.jpg&tags=edit&csrf_token={csrf}",
-                first.id
-            ),
-        )
+        .post_multipart("/admin/posts/create", boundary, body)
         .await;
     let mut db2 = db.clone();
     let post = Post::filter(Post::fields().title().eq("EditMe".to_string()))
@@ -313,15 +329,24 @@ async fn posts_create_lifecycle_fields_persist() {
     let mut db2 = db.clone();
     let authors = Author::all().exec(&mut db2).await.unwrap();
     let first = &authors[0];
+    let author_id = first.id.to_string();
+    let boundary = "----RelationBoundary";
+    let body = multipart_body(
+        boundary,
+        &[
+            ("title", "Lifecycle Post"),
+            ("body", "Full story"),
+            ("status", "published"),
+            ("featured", "true"),
+            ("author_id", &author_id),
+            ("tags", "life"),
+            ("csrf_token", &csrf),
+        ],
+        &[("image_path", "life.jpg", "FAKEBYTES")],
+    );
     let resp = client
         .csrf(&csrf)
-        .post_form(
-            "/admin/posts/create",
-            format!(
-                "title=Lifecycle+Post&body=Full+story&status=published&featured=true&author_id={}&image_path=/tmp/life.jpg&tags=life&csrf_token={csrf}",
-                first.id
-            ),
-        )
+        .post_multipart("/admin/posts/create", boundary, body)
         .await;
     assert!(
         resp.status().is_redirection(),
@@ -351,15 +376,21 @@ async fn posts_create_omitted_lifecycle_fields_default_to_draft() {
     let mut db2 = db.clone();
     let authors = Author::all().exec(&mut db2).await.unwrap();
     let first = &authors[0];
+    let author_id = first.id.to_string();
+    let boundary = "----RelationBoundary";
+    let body = multipart_body(
+        boundary,
+        &[
+            ("title", "Stub Post"),
+            ("author_id", &author_id),
+            ("tags", "stub"),
+            ("csrf_token", &csrf),
+        ],
+        &[("image_path", "stub.jpg", "FAKEBYTES")],
+    );
     let resp = client
         .csrf(&csrf)
-        .post_form(
-            "/admin/posts/create",
-            format!(
-                "title=Stub+Post&author_id={}&image_path=/tmp/stub.jpg&tags=stub&csrf_token={csrf}",
-                first.id
-            ),
-        )
+        .post_multipart("/admin/posts/create", boundary, body)
         .await;
     assert!(
         resp.status().is_redirection(),

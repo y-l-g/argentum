@@ -7,7 +7,7 @@ use topcoat::router::Body;
 
 use crate::common::{
     SESSION_COOKIE, body_string, demo_client, form_body, full_db, input_value, mint_session,
-    tenanted_db, tenantless_client,
+    multipart_body, tenanted_db, tenantless_client,
 };
 
 #[tokio::test]
@@ -231,15 +231,24 @@ async fn create_assigns_the_logged_in_tenant() {
     let csrf = uuid::Uuid::new_v4().to_string();
     let mut db_q = db.clone();
     let authors = Author::all().exec(&mut db_q).await.unwrap();
+    // `image_path` is a required `FileUpload`, so the create carries a file
+    // part (GH #277); this router installs no uploader, so the sanitized
+    // basename is what the record stores.
+    let author_id = authors[0].id.to_string();
+    let boundary = "----TenancyBoundary";
+    let body = multipart_body(
+        boundary,
+        &[
+            ("title", "Tenanted"),
+            ("author_id", &author_id),
+            ("tags", "t"),
+            ("csrf_token", &csrf),
+        ],
+        &[("image_path", "t.jpg", "FAKEBYTES")],
+    );
     let resp = client
         .csrf(&csrf)
-        .post_form(
-            "/admin/posts/create",
-            format!(
-                "title=Tenanted&author_id={}&image_path=/tmp/t.jpg&tags=t&csrf_token={csrf}",
-                authors[0].id
-            ),
-        )
+        .post_multipart("/admin/posts/create", boundary, body)
         .await;
     assert!(
         resp.status().is_redirection(),

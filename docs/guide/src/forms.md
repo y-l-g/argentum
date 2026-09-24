@@ -81,14 +81,18 @@ Select::r#for(Post::fields().author_id())
   `enctype="multipart/form-data"` when a form has one, a 10 MiB body cap (413), a 400 for multipart
   without a boundary, and sanitized basenames (`.` / `..` / Windows reserved names surface as inline
   errors). On an edit the control drops native `required` (GH #184) — a `required` file input cannot
-  be pre-filled, so it blocked every untouched save; `required` still holds on create.
+  be pre-filled, so it blocked every untouched save; `required` still holds on create. A value reaches
+  the field only from a file part, from the record on an untouched edit, or as empty on
+  `clear_<field>`; text typed under the field's name is dropped (GH #277).
 - **Where the bytes go is the app's** (GH #188, ADR-0017): install an `Uploader` once with
   `Panel::uploads(store)`. `store(filename, bytes) -> Result<String, String>` receives the sanitized
   name and the content (bounded by the cap) and returns the value the record stores; a refusal is an
   inline error (`"<Label> could not be uploaded: <reason>"`), not a 500. With no uploader installed
   the sanitized basename is stored — the default — and the bytes are drained rather than buffered.
-- The stored path renders as a link to the file, on the edit form and on the detail page (GH #242):
-  the framework reads no extension and renders what the app stored, inventing no URL convention.
+- The stored path renders as a link to the file, on the edit form and on the detail page (GH #242),
+  only when it is a rooted path or an absolute `http(s)` URL (GH #277): the framework reads no
+  extension and renders what the app stored, inventing no URL convention, and any other value — a
+  bare basename, a `javascript:` scheme — renders as text rather than a clickable `href`.
   `Panel::serve_dir(path, dir)` mounts the directory an upload store writes to. A served directory is
   **public** (ADR-0017): its URLs answer whoever asks, with no session, because the auth gate covers
   only the panel prefix and `/_topcoat/runtime` (ADR-0013) and a served directory is mounted outside

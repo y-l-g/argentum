@@ -3,7 +3,9 @@ use showcase::{
     models::{Author, Post},
 };
 
-use crate::common::{body_string, demo_client, file_input_tag, full_db, post_count};
+use crate::common::{
+    body_string, demo_client, file_input_tag, full_db, multipart_body, post_count,
+};
 
 #[tokio::test]
 async fn posts_create_shows_fileupload_and_repeater() {
@@ -119,11 +121,22 @@ async fn posts_create_valid_fileupload_repeater_creates() {
     let authors = Author::all().exec(&mut db2).await.unwrap();
     let first = &authors[0];
     let before = Post::all().exec(&mut db2).await.unwrap().len();
-    let resp = client.csrf(&csrf).post_form("/admin/posts/create", format!(
-            "title=Valid+With+Files&author_id={}&image_path=/tmp/valid.jpg&tags=valid,tags&csrf_token={csrf}",
-            first.id
-        ))
-    .await;
+    let author_id = first.id.to_string();
+    let boundary = "----FileRepeaterBoundary";
+    let body = multipart_body(
+        boundary,
+        &[
+            ("title", "Valid With Files"),
+            ("author_id", &author_id),
+            ("tags", "valid,tags"),
+            ("csrf_token", &csrf),
+        ],
+        &[("image_path", "valid.jpg", "FAKEBYTES")],
+    );
+    let resp = client
+        .csrf(&csrf)
+        .post_multipart("/admin/posts/create", boundary, body)
+        .await;
     assert!(
         resp.status().is_redirection(),
         "valid should redirect, got {} ",
@@ -139,7 +152,10 @@ async fn posts_create_valid_fileupload_repeater_creates() {
         .unwrap();
     assert!(created.is_some());
     let post = created.unwrap();
-    assert_eq!(post.image_path, "/tmp/valid.jpg");
+    // No uploader is installed on this router, so the file part stores the
+    // parser's sanitized basename (GH #188) — never text the client typed
+    // (GH #277).
+    assert_eq!(post.image_path, "valid.jpg");
     assert_eq!(post.tags, "valid,tags");
 }
 
@@ -160,15 +176,21 @@ async fn posts_create_with_empty_optional_tags_group_submits() {
     let authors = Author::all().exec(&mut db2).await.unwrap();
     let before = Post::all().exec(&mut db2).await.unwrap().len();
 
+    let author_id = authors[0].id.to_string();
+    let boundary = "----FileRepeaterBoundary";
+    let body = multipart_body(
+        boundary,
+        &[
+            ("title", "No Tags"),
+            ("author_id", &author_id),
+            ("tags", ""),
+            ("csrf_token", &csrf),
+        ],
+        &[("image_path", "notags.jpg", "FAKEBYTES")],
+    );
     let resp = client
         .csrf(&csrf)
-        .post_form(
-            "/admin/posts/create",
-            format!(
-                "title=No+Tags&author_id={}&image_path=/tmp/notags.jpg&tags=&csrf_token={csrf}",
-                authors[0].id
-            ),
-        )
+        .post_multipart("/admin/posts/create", boundary, body)
         .await;
     let status = resp.status();
     assert!(
