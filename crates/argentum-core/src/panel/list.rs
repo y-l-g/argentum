@@ -421,7 +421,7 @@ mod tests {
     use toasty::Db;
 
     use super::{
-        super::{Panel, table_search},
+        super::{Panel, TABLE_SEARCH_PATH},
         *,
     };
 
@@ -652,12 +652,11 @@ mod tests {
             router: &topcoat::router::Router,
             args: String,
         ) -> http::Response<Body> {
-            let shard = topcoat::runtime::Shard::id(&table_search);
             router
                 .handle(
                     http::Request::builder()
                         .method(http::Method::POST)
-                        .uri(format!("/_topcoat/runtime/shards/{}", shard.as_str()))
+                        .uri(TABLE_SEARCH_PATH)
                         .header(http::header::CONTENT_TYPE, "application/json")
                         .header(topcoat::router::request::IDENTITY_HEADER, "A".repeat(22))
                         .body(Body::from(format!(r#"{{"args":{args},"signals":{{}}}}"#)))

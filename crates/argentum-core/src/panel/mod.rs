@@ -36,6 +36,8 @@ use topcoat::{
 
 #[cfg(feature = "auth")]
 pub(crate) use self::forms::parse_form_body;
+#[cfg(test)]
+pub(crate) use self::search::TABLE_SEARCH_PATH;
 pub(crate) use self::search::table_search;
 pub use self::shell::{Brand, DarkMode};
 use self::{
@@ -1123,6 +1125,44 @@ mod tests {
             .unwrap()
             .to_string();
         assert_eq!(location, "/admin/users");
+    }
+
+    /// The named runtime endpoints answer the gate (GH #146): a request
+    /// without a session to a shard's fixed path is refused with 401, not a
+    /// login redirect and not the shard's content. The path is stable, so the
+    /// refusal is the only thing that keeps it from being probed.
+    #[cfg(feature = "auth")]
+    #[tokio::test]
+    async fn named_shard_endpoints_answer_401_without_a_session() {
+        let db = Db::builder()
+            .models(toasty::models!(
+                crate::auth::AdminUser,
+                crate::auth::AuthSession
+            ))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        let router = Panel::new("admin")
+            .app_context(db)
+            .auth(crate::Auth::password())
+            .build()
+            .expect("panel builds");
+
+        for path in [TABLE_SEARCH_PATH, crate::notification::LIVE_TOASTER_PATH] {
+            let request = http::Request::builder()
+                .method(http::Method::POST)
+                .uri(path)
+                .header(http::header::CONTENT_TYPE, "application/json")
+                .body(Body::from("{}".to_owned()))
+                .unwrap();
+            let response = router.handle(request).await;
+            assert_eq!(
+                response.status(),
+                http::StatusCode::UNAUTHORIZED,
+                "an unauthenticated shard request must answer 401: {path}"
+            );
+        }
     }
 
     /// GH #174: a panel with no `Db` is a configuration error, not a panic.

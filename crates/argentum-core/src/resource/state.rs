@@ -529,7 +529,7 @@ impl TableState {
 
     /// Rebuild list state from live-search shard args (GH #74).
     ///
-    /// Shard requests hit `POST /_topcoat/runtime/shards/...`, so
+    /// Shard requests hit the `table_search` shard's own endpoint, so
     /// [`Self::from_cx`] would see the endpoint URI — not the list page's
     /// query. The page hands over the current values of its interaction
     /// signals instead: the search term, the filter transport, the sort column

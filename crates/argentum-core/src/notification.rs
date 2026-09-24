@@ -252,6 +252,20 @@ pub fn live_toast(cx: &Cx) -> LiveToast {
     }
 }
 
+/// The endpoint [`live_toaster`] is served at.
+///
+/// A shard that declares no path is served at a build-random one (topcoat#441);
+/// naming it keeps the endpoint stable across builds and legible in logs and
+/// tests. The `/argentum-` prefix separates it from a generated path, and the
+/// whole path stays under `/_topcoat/runtime`, so the panel's auth gate covers
+/// the shard and an unauthenticated rerun answers 401 rather than redirecting to
+/// the login page.
+///
+/// The literal in [`live_toaster`]'s attribute is the same path;
+/// `live_toaster_endpoint_is_the_named_path` pins the two together.
+#[cfg(test)]
+pub(crate) const LIVE_TOASTER_PATH: &str = "/_topcoat/runtime/shards/argentum-live-toaster";
+
 /// The shell's live toaster shard (GH #154 §3): reads the page's
 /// [`LiveToast`] signals and mounts the toast in place when one is set.
 ///
@@ -264,7 +278,7 @@ pub fn live_toast(cx: &Cx) -> LiveToast {
 /// The body lives in `render_live_toaster`: the shard macro's generated
 /// handler cannot name the request lifetime its `impl View` would capture, so
 /// the helper resolves the boxed view and the shard only forwards it.
-#[shard]
+#[shard("/_topcoat/runtime/shards/argentum-live-toaster")]
 pub async fn live_toaster(
     cx: &Cx,
     status: Signal<String>,
@@ -320,6 +334,15 @@ mod tests {
     use topcoat::context::CxTestBuilder;
 
     use super::*;
+
+    /// topcoat#441: the shard is served at the named path, so its endpoint is the
+    /// same in every build.
+    #[test]
+    fn live_toaster_endpoint_is_the_named_path() {
+        use topcoat::router::Route as _;
+
+        assert_eq!(live_toaster.path().as_str(), LIVE_TOASTER_PATH);
+    }
 
     fn cx_with_cookie(value: Option<&str>) -> Cx {
         let mut builder = Request::builder().uri("/").body(()).unwrap().into_parts().0;

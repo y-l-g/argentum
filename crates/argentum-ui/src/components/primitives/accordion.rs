@@ -1,4 +1,4 @@
-// SYNC: topcoat-ui-registry@0.8.1 sha256:201009cf7fee67a40c6be4948f03147f078ccad495ba5ac69f76fdaa64a89c47 — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
+// SYNC: topcoat-ui-registry@0.9.0 sha256:201009cf7fee67a40c6be4948f03147f078ccad495ba5ac69f76fdaa64a89c47 — do not hand-edit. Sync via `cargo xtask sync-topcoat-ui` (ADR-0007).
 use topcoat::{
     Result,
     icon::{icon, iconify::iconify_icon},
