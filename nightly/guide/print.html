@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-85965c51.js";
+            window.path_to_searchindex_js = "searchindex-cc30482e.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-da1679ae.js"></script>
@@ -558,7 +558,9 @@ claims full-table totals. Unknown <code>?group_by=</code> values render no heade
 <code>Content-Disposition</code>, RFC4180 with OWASP formula-defusing), reusing the same filters and sort over
 <code>export_query</code> — the base <code>query</code> unless the resource narrows it to the includes its columns
 declared (GH #177). Capped at 10k viewable rows: per-row <code>can_view</code> runs before the cap, so 413
-reflects what the caller may receive. <code>?bom=1</code> opts into an Excel BOM.</li>
+reflects what the caller may receive. An export whose filtered set runs past the 10,001-row scan
+window is a 413 too, even when fewer rows would be viewable: the export never returns a partial
+file. <code>?bom=1</code> opts into an Excel BOM.</li>
 <li>Failed table loads render the branded <code>ErrorState</code> in-region, not a blank page.</li>
 </ul>
 <p>Live updates:</p>
