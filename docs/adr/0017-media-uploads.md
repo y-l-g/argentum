@@ -57,9 +57,8 @@ fails validation is unreferenced, not wrong, and a store with a real write cost 
 
 ## Consequences
 
-- An app that never installs an `Uploader` is unaffected: the sanitized basename is stored, and the
-  stored value renders as a link only when it is a rooted path or an absolute `http(s)` URL
-  (GH #277).
+- An app that never installs an `Uploader` stores the sanitized basename; a bare basename is not
+  rooted, so the stored value renders as text rather than a link (GH #277).
 - A cleared upload empties the stored value, not the bytes: the framework cannot delete from a store
   it does not know. An app that wants the bytes gone acts on the empty value its record fn receives.
 - A rejected store drops the submitted value rather than blanking it, which is why the edit handler
