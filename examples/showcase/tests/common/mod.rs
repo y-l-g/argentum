@@ -463,6 +463,32 @@ pub fn form_body(pairs: &[(&str, &str)]) -> String {
     serializer.finish()
 }
 
+/// A multipart body: text fields, then one file part per `(field, filename,
+/// bytes)` (GH #277).
+///
+/// The framing is what a browser sends for a form with a file input, so a
+/// create can carry a real upload through the panel instead of a client-typed
+/// text value.
+pub fn multipart_body(
+    boundary: &str,
+    fields: &[(&str, &str)],
+    files: &[(&str, &str, &str)],
+) -> String {
+    let mut body = String::new();
+    for (name, value) in fields {
+        body.push_str(&format!(
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"\r\n\r\n{value}\r\n"
+        ));
+    }
+    for (name, filename, bytes) in files {
+        body.push_str(&format!(
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"; filename=\"{filename}\"\r\nContent-Type: application/octet-stream\r\n\r\n{bytes}\r\n"
+        ));
+    }
+    body.push_str(&format!("--{boundary}--\r\n"));
+    body
+}
+
 /// The `value` attribute of the named `<input>` in rendered HTML, in either
 /// attribute order.
 ///

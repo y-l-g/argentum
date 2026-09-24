@@ -496,6 +496,89 @@ async fn an_untouched_file_input_keeps_the_stored_path_and_a_chosen_one_replaces
     assert_eq!(docs(&db).await[0].cover, "/uploads/new.png");
 }
 
+/// GH #277: a url-encoded pair under a declared `FileUpload` name is text the
+/// client typed, not an upload. It is dropped before validation, so the
+/// required field is empty and nothing is written — the typed value never
+/// reaches the record and never renders as the file's link.
+#[tokio::test]
+async fn a_text_value_for_a_file_upload_is_not_stored_on_create() {
+    let db = seeded_db().await;
+    let router = router(db.clone(), Some(RecordingUploader::default()));
+    let csrf = new_csrf();
+    let body = format!("title=Notes&cover=javascript%3Aalert%281%29&csrf_token={csrf}");
+
+    let response = post(
+        &router,
+        "/admin/docs/create",
+        &csrf,
+        "application/x-www-form-urlencoded".to_string(),
+        body,
+    )
+    .await;
+    assert_eq!(
+        response.status(),
+        200,
+        "the form re-renders with the required error"
+    );
+    let html = body_string(response).await;
+    // The required error is attached to the upload field (its own error id),
+    // which is what proves the typed value was dropped rather than written.
+    assert!(
+        html.contains("cover-error"),
+        "the typed value leaves the required field empty: {html}"
+    );
+    assert!(
+        !html.contains("javascript"),
+        "the typed value must not survive into the re-rendered form: {html}"
+    );
+    assert!(
+        docs(&db).await.is_empty(),
+        "a client-typed upload value must not create the record"
+    );
+}
+
+/// GH #277: a multipart text part (no `filename`) under a declared
+/// `FileUpload` name is client-typed too. On edit the stored value is restored,
+/// so the forged value cannot replace the file the record names.
+#[tokio::test]
+async fn a_text_value_for_a_file_upload_keeps_the_stored_file_on_edit() {
+    let db = seeded_db().await;
+    let router = router(db.clone(), Some(RecordingUploader::default()));
+    let doc = seed_doc(&db, "Original", "/uploads/old.png", "spec.pdf").await;
+    let csrf = new_csrf();
+    let body = multipart_body(
+        "B",
+        &[
+            ("title", None, "Renamed"),
+            ("cover", None, "javascript:alert(1)"),
+            ("csrf_token", None, &csrf),
+        ],
+    );
+
+    let response = post_multipart(
+        &router,
+        &format!("/admin/docs/{}/edit", doc.id),
+        &csrf,
+        "B",
+        body,
+    )
+    .await;
+    assert_eq!(
+        response.status(),
+        303,
+        "the edit saves with the stored file kept"
+    );
+    let updated = docs(&db).await;
+    assert_eq!(
+        updated[0].title, "Renamed",
+        "the rest of the edit still applies"
+    );
+    assert_eq!(
+        updated[0].cover, "/uploads/old.png",
+        "a client-typed value must not replace the stored file"
+    );
+}
+
 #[tokio::test]
 async fn clearing_an_optional_upload_empties_the_stored_path() {
     let db = seeded_db().await;

@@ -1,6 +1,6 @@
 # Media uploads: an app-level `Uploader` and a clear control
 
-Date: 2026-09-22 — Status: accepted — Amended: 2026-09-22, 2026-09-23
+Date: 2026-09-22 — Status: accepted — Amended: 2026-09-22, 2026-09-23, 2026-09-24
 
 ## Decision
 
@@ -22,7 +22,11 @@ printed to the user, so never a driver message or a path. **The framework stores
 verbatim and renders it verbatim:** the field still binds a `String`, the record fn's contract is
 unchanged, and a stored value renders as a link to the file — on the edit form and on the detail
 page. The field reads no extension and owns no image pipeline, so it neither previews a path nor
-guesses a URL convention (GH #242).
+guesses a URL convention (GH #242). **A `FileUpload` value comes only from a file part** — the
+uploader's answer, or the sanitized basename with no uploader — from the stored value on an untouched
+edit, or empty on `clear_<field>`; text a client typed under the field's name is dropped (GH #277).
+**A stored value renders as a link only when it is rooted (`/…`, not `//host`) or an absolute
+`http(s)://…` URL**, and as text otherwise, so a stored scheme cannot become a clickable `href`.
 
 **The primitive stops at the file input.** A thumbnail in the stored row, an × that clears the input
 and the preview, drag-and-drop and upload progress are media-library work: the showcase renders the
@@ -54,7 +58,8 @@ fails validation is unreferenced, not wrong, and a store with a real write cost 
 ## Consequences
 
 - An app that never installs an `Uploader` is unaffected: the sanitized basename is stored, and the
-  stored value renders as a link to the file.
+  stored value renders as a link only when it is a rooted path or an absolute `http(s)` URL
+  (GH #277).
 - A cleared upload empties the stored value, not the bytes: the framework cannot delete from a store
   it does not know. An app that wants the bytes gone acts on the empty value its record fn receives.
 - A rejected store drops the submitted value rather than blanking it, which is why the edit handler
