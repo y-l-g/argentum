@@ -195,8 +195,8 @@ impl Panel {
     /// `Content-Security-Policy`, and `Content-Disposition: attachment` for
     /// anything but common raster images, audio/video and plain text, so an
     /// uploaded document cannot run script on the panel's origin (GH #278). A
-    /// 404 or 405 keeps Topcoat's plain `text/plain` error response, which
-    /// carries no user content.
+    /// 404 keeps Topcoat's `text/plain` error page; a 405 carries only `Allow`
+    /// and an empty body. Neither carries user content.
     ///
     /// The Panel owns the [`Router`], so this is the app's only way to mount a
     /// route the framework does not own.

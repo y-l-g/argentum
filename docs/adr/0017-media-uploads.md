@@ -51,8 +51,8 @@ the anonymous case.
 response the directory route serves carries `X-Content-Type-Options: nosniff` and a fixed sandboxing
 `Content-Security-Policy`, and `Content-Disposition: attachment` unless the `Content-Type` is a
 common raster image, audio/video or `text/plain` — an app that serves active documents mounts them on
-its own origin, since the policy is not configurable. A 404 or 405 keeps Topcoat's plain
-`text/plain` error response, which carries no user content.
+its own origin, since the policy is not configurable. A 404 keeps Topcoat's `text/plain` error page;
+a 405 carries only `Allow` and an empty body. Neither carries user content.
 
 Uploads run **before** the write transaction and outside it: an upload is a side effect in another
 system, and a rolled-back transaction must not have to undo it. A file stored for a form that then

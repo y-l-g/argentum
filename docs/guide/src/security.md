@@ -23,5 +23,5 @@ The defaults Argentum ships with, and the deployment assumptions they depend on.
   directory route serves carries `X-Content-Type-Options: nosniff`, a fixed sandboxing
   `Content-Security-Policy`, and `Content-Disposition: attachment` unless the file is a common raster
   image, audio/video or `text/plain`. An app that serves active documents mounts them on its own
-  origin; the policy is not configurable. A 404 or 405 keeps Topcoat's plain `text/plain` error
-  response, which carries no user content.
+  origin; the policy is not configurable. A 404 keeps Topcoat's `text/plain` error page; a 405
+  carries only `Allow` and an empty body. Neither carries user content.
