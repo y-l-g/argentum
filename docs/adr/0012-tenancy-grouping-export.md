@@ -1,6 +1,6 @@
 # Tenancy via Cx, in-memory grouping and CSV export
 
-Date: 2026-08-31 — Status: accepted — Amended: 2026-09-10, 2026-09-15, 2026-09-22
+Date: 2026-08-31 — Status: accepted — Amended: 2026-09-10, 2026-09-15, 2026-09-22, 2026-09-24
 
 ## Decision
 
@@ -25,7 +25,9 @@ quoting when a value holds `,`, `"` or a newline). `Panel` owns a per-resource
 `GET {prefix}/{slug}/export` route that serves
 `text/csv` with a sanitized `Content-Disposition: attachment; filename="..."`. The loader walks the
 filtered, sorted query in cursor chunks (GH #172), so a 10k-row export holds one chunk plus one CSV
-fragment, and the cap counts **viewable** rows: visibility is applied before the cap (GH #145). Its
+fragment, and the cap counts **viewable** rows: visibility is applied before the cap (GH #145). A
+full 10,001-row scan window with rows left beyond it refuses with the same 413 (GH #279), so the
+export never returns a partial file. Its
 includes come from `Resource::export_query(cx, needs)`, whose default is `query(cx)` unchanged and
 which an override may narrow to the relations the exported columns declared (`TextColumn::needs`,
 `Table::include_needs`, ADR-0018); the tenant scope is the framework's, applied to `export_query`
