@@ -1,6 +1,6 @@
 # Media uploads: an app-level `Uploader` and a clear control
 
-Date: 2026-09-22 — Status: accepted — Amended: 2026-09-22, 2026-09-23
+Date: 2026-09-22 — Status: accepted — Amended: 2026-09-22, 2026-09-23, 2026-09-24
 
 ## Decision
 
@@ -46,6 +46,12 @@ gating a served directory remains a possible future option; the rule for apps is
 to be private is mounted behind the app's own gate, never assumed private from the mount path.
 `a_served_directory_is_reachable_without_a_session` in `crates/argentum-core/tests/uploads.rs` pins
 the anonymous case.
+
+**A served directory is public and inert** (GH #278): because it shares the panel's origin, every
+response carries `X-Content-Type-Options: nosniff` and a fixed sandboxing
+`Content-Security-Policy`, and `Content-Disposition: attachment` unless the `Content-Type` is a
+common raster image, audio/video or `text/plain` — an app that serves active documents mounts them on
+its own origin, since the policy is not configurable.
 
 Uploads run **before** the write transaction and outside it: an upload is a side effect in another
 system, and a rolled-back transaction must not have to undo it. A file stored for a form that then

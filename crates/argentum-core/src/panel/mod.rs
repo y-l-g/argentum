@@ -191,6 +191,11 @@ impl Panel {
     /// whoever asks, with no session — an app that needs protected files owns
     /// that route itself (ADR-0017, GH #225).
     ///
+    /// Every response carries `nosniff`, a sandboxing
+    /// `Content-Security-Policy`, and `Content-Disposition: attachment` for
+    /// anything but common raster images, audio/video and plain text, so an
+    /// uploaded document cannot run script on the panel's origin (GH #278).
+    ///
     /// The Panel owns the [`Router`], so this is the app's only way to mount a
     /// route the framework does not own.
     pub fn serve_dir(mut self, path: impl Into<String>, dir: impl Into<PathBuf>) -> Self {
@@ -547,7 +552,12 @@ impl Panel {
             builder = builder.app_context(uploads);
         }
         for (path, dir) in served_dirs {
-            builder = builder.serve_dir(route_path(&path), dir);
+            // Files the panel serves share its origin, so each directory route
+            // is wrapped in the hardening layer that makes them inert
+            // (GH #278) — the same path scopes the layer to that route only.
+            builder = builder
+                .layer(headers::ServedFileHeaders::new(&path))
+                .serve_dir(route_path(&path), dir);
         }
         for page in pages {
             builder = builder.page(page);

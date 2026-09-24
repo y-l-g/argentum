@@ -19,3 +19,8 @@ The defaults Argentum ships with, and the deployment assumptions they depend on.
 - Redirects: `Err(redirect(..))` (307) for GETs, `Err(see_other(..))` (303 PRG) after mutations.
   Mid-stream they degrade to `window.location.replace`; streamed regions own their failure
   rendering. Wrap `Slot` in `error_boundary` for branded error pages.
+- A served directory (`Panel::serve_dir`) shares the panel's origin, so its responses carry
+  `X-Content-Type-Options: nosniff`, a fixed sandboxing `Content-Security-Policy`, and
+  `Content-Disposition: attachment` unless the file is a common raster image, audio/video or
+  `text/plain`. An app that serves active documents mounts them on its own origin; the policy is not
+  configurable.
