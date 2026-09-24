@@ -176,7 +176,9 @@ where
     /// Full RFC3339 timestamps match the exact instant (documented); a
     /// date-only `YYYY-MM-DD` matches the whole UTC day
     /// (`>= midnight AND < next midnight`), so rows stamped with any
-    /// time-of-day still match.
+    /// time-of-day still match. A day whose end lies past
+    /// `jiff::Timestamp::MAX` (9999-12-30) has no instant for the upper bound
+    /// to exclude, so it matches `>= midnight` alone.
     pub fn to_expr(&self, value: &str) -> Option<Expr<bool>> {
         let v = value.trim();
         if v.is_empty() {
@@ -197,8 +199,13 @@ where
         }
         if let Ok(date) = v.parse::<jiff::civil::Date>() {
             let start: jiff::Timestamp = format!("{date}T00:00:00Z").parse().ok()?;
-            let end = start + jiff::Span::new().hours(24);
-            return Some(self.lens.clone().ge(start).and(self.lens.clone().lt(end)));
+            // The day's end can lie past `Timestamp::MAX` (9999-12-30): `+` would panic
+            // on a user-supplied URL, so the last day is bounded below only — no instant
+            // exists past the maximum for the upper bound to exclude.
+            return Some(match start.checked_add(jiff::Span::new().hours(24)) {
+                Ok(end) => self.lens.clone().ge(start).and(self.lens.clone().lt(end)),
+                Err(_) => self.lens.clone().ge(start),
+            });
         }
         None
     }
@@ -513,6 +520,23 @@ mod tests {
         assert!(f.to_expr("2024-01-15T09:30:00+02:00").is_some());
         assert!(f.to_expr("not-a-date").is_none());
         assert!(f.to_expr("").is_none());
+    }
+
+    #[test]
+    fn date_filter_on_the_last_representable_day_does_not_panic() {
+        let f = DateFilter::r#for(Task::fields().created_at());
+        assert!(
+            f.to_expr("9999-12-30").is_some(),
+            "the last day builds a lower-bounded predicate"
+        );
+        assert!(
+            f.to_expr("9999-12-31").is_none(),
+            "a day past the maximum is invalid, not a panic"
+        );
+        assert!(
+            f.to_expr("-009999-01-01").is_none(),
+            "a day before the minimum is invalid"
+        );
     }
 
     #[test]

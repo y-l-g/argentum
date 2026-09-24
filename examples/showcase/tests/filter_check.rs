@@ -127,6 +127,35 @@ async fn posts_filter_date_created_at() {
 }
 
 #[tokio::test]
+async fn posts_date_filter_on_the_last_day_renders() {
+    // GH #280: the day's end lies past `jiff::Timestamp::MAX`, so the lower
+    // bound alone has to answer, on the list and on the export.
+    let db = full_db().await;
+    let router = router(db.clone());
+    let client = demo_client(&router, &db).await;
+
+    let resp = client
+        .get("/admin/posts?filters=created_at:9999-12-30")
+        .await;
+    assert!(resp.status().is_success());
+    let html = body_string(resp).await;
+    assert!(
+        row_titles(&html).is_empty(),
+        "the last representable day matches no seeded post: {html}"
+    );
+
+    let resp = client
+        .get("/admin/posts/export?filters=created_at:9999-12-30")
+        .await;
+    assert_eq!(
+        resp.status(),
+        200,
+        "the export must accept the last day, got {}",
+        resp.status()
+    );
+}
+
+#[tokio::test]
 async fn posts_filter_composes_and() {
     let db = full_db().await;
     let router = router(db.clone());
