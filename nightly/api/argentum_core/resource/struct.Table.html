@@ -43,9 +43,9 @@ row identity is not optional, and neither is something to show.</p>
 ) -&gt; Result&lt;BoxView&lt;'a&gt;&gt;<div class="where">where
     M: Model + <a class="trait" href="https://doc.rust-lang.org/1.98.1/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> + <a class="trait" href="https://doc.rust-lang.org/1.98.1/core/marker/trait.Sync.html" title="trait core::marker::Sync">Sync</a> + 'static,</div></h4></section></summary><div class="docblock"><p>Render with explicit list state and path instead of reading them from
 <code>cx</code> — the seam a live-search shard needs (GH #74): shard requests hit
-<code>POST /_topcoat/runtime/shards/...</code>, so <code>TableState::from_cx</code> would see
-the endpoint URI, not the list page’s <code>?q=/filters/sort</code>. Callers pass
-the page’s state (or shard args rebuilt via
+the <code>table_search</code> shard’s own endpoint, so <code>TableState::from_cx</code> would
+see the endpoint URI, not the list page’s <code>?q=/filters/sort</code>. Callers
+pass the page’s state (or shard args rebuilt via
 <a href="struct.TableSignals.html#method.to_state" title="method argentum_core::resource::TableSignals::to_state"><code>TableSignals::to_state</code></a>) and the list URL explicitly.</p>
 <p>Normalizes the state it is handed (GH #153), so a page calling this
 directly needs no knowledge of <code>NormalizedState</code>; a caller that

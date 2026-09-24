@@ -57,7 +57,7 @@ encode it a bounded number of times — never once per row (GH #205).
     dir: &amp;<a class="primitive" href="https://doc.rust-lang.org/1.98.1/std/primitive.str.html">str</a>,
     group_by: &amp;<a class="primitive" href="https://doc.rust-lang.org/1.98.1/std/primitive.str.html">str</a>,
 ) -&gt; Self</h4></section></summary><div class="docblock"><p>Rebuild list state from live-search shard args (GH #74).</p>
-<p>Shard requests hit <code>POST /_topcoat/runtime/shards/...</code>, so
+<p>Shard requests hit the <code>table_search</code> shard’s own endpoint, so
 <a href="struct.TableState.html#method.from_cx" title="associated function argentum_core::resource::TableState::from_cx"><code>Self::from_cx</code></a> would see the endpoint URI — not the list page’s
 query. The page hands over the current values of its interaction
 signals instead: the search term, the filter transport, the sort column

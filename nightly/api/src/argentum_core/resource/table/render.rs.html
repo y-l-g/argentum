@@ -112,9 +112,9 @@
 <a href=#112 id=112 data-nosnippet>112</a>
 <a href=#113 id=113 data-nosnippet>113</a>    <span class="doccomment">/// Render with explicit list state and path instead of reading them from
 <a href=#114 id=114 data-nosnippet>114</a>    /// `cx` — the seam a live-search shard needs (GH #74): shard requests hit
-<a href=#115 id=115 data-nosnippet>115</a>    /// `POST /_topcoat/runtime/shards/...`, so `TableState::from_cx` would see
-<a href=#116 id=116 data-nosnippet>116</a>    /// the endpoint URI, not the list page's `?q=/filters/sort`. Callers pass
-<a href=#117 id=117 data-nosnippet>117</a>    /// the page's state (or shard args rebuilt via
+<a href=#115 id=115 data-nosnippet>115</a>    /// the `table_search` shard's own endpoint, so `TableState::from_cx` would
+<a href=#116 id=116 data-nosnippet>116</a>    /// see the endpoint URI, not the list page's `?q=/filters/sort`. Callers
+<a href=#117 id=117 data-nosnippet>117</a>    /// pass the page's state (or shard args rebuilt via
 <a href=#118 id=118 data-nosnippet>118</a>    /// [`TableSignals::to_state`]) and the list URL explicitly.
 <a href=#119 id=119 data-nosnippet>119</a>    ///
 <a href=#120 id=120 data-nosnippet>120</a>    /// Normalizes the state it is handed (GH #153), so a page calling this

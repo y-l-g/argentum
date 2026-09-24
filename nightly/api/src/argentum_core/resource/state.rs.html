@@ -529,7 +529,7 @@
 <a href=#529 id=529 data-nosnippet>529</a>
 <a href=#530 id=530 data-nosnippet>530</a>    <span class="doccomment">/// Rebuild list state from live-search shard args (GH #74).
 <a href=#531 id=531 data-nosnippet>531</a>    ///
-<a href=#532 id=532 data-nosnippet>532</a>    /// Shard requests hit `POST /_topcoat/runtime/shards/...`, so
+<a href=#532 id=532 data-nosnippet>532</a>    /// Shard requests hit the `table_search` shard's own endpoint, so
 <a href=#533 id=533 data-nosnippet>533</a>    /// [`Self::from_cx`] would see the endpoint URI — not the list page's
 <a href=#534 id=534 data-nosnippet>534</a>    /// query. The page hands over the current values of its interaction
 <a href=#535 id=535 data-nosnippet>535</a>    /// signals instead: the search term, the filter transport, the sort column
