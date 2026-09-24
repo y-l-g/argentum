@@ -141,6 +141,11 @@ async fn parse_multipart_values(
         match filename {
             Some(f) if !f.is_empty() => {
                 let sanitized = sanitize_filename(&f);
+                // Duplicate part names are last-write-wins, bytes included: a
+                // later part replaces whatever an earlier one under the same
+                // name staged, so a name that sanitizes to empty cannot leave
+                // the earlier part's bytes behind (GH #277).
+                out.files.remove(&name);
                 // Bytes are staged only for a name the framework would persist
                 // (a rejected name sanitizes to empty, GH #149) and only when
                 // an uploader is installed to store them (GH #188). Otherwise
@@ -168,8 +173,10 @@ async fn parse_multipart_values(
                 // validation fires instead of treating it as missing. It is
                 // still a file part (GH #277): the browser submits every file
                 // input, and "keep" on edit must not read as a forged text
-                // value.
+                // value. It chose no file, so it discards bytes an earlier part
+                // staged under the same name.
                 read_bounded(&mut field, &mut bytes_seen, None).await?;
+                out.files.remove(&name);
                 out.file_part_names.insert(name.clone());
                 out.values.insert(name, String::new());
             }
@@ -178,6 +185,11 @@ async fn parse_multipart_values(
                 // same counter so the backstop sees the per-request total.
                 let text = field.text().await?;
                 count_form_bytes(&mut bytes_seen, text.len())?;
+                // A later text part under a name an earlier file part used
+                // takes the name out of the file-part set, so the drop removes
+                // the client-typed value instead of storing it (GH #277).
+                out.file_part_names.remove(&name);
+                out.files.remove(&name);
                 out.values.insert(name, text);
             }
         }
