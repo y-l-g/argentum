@@ -64,7 +64,7 @@ issue in the subject: `<type>(<scope>): <description> (#123)` (`docs/dev/COMMITS
 | `CONTEXT.md`, `docs/adr` | domain vocabulary, decisions |
 | `docs/dev` | specs (commits, prose, labels, testing) and `architecture.md` |
 | `docs/agents` | tracker notes for agents |
-| `.agents/skills` | load-when instructions: `check`, `commit`, `issue`, `pr`, `prose`, `style` |
+| `.agents/skills` | load-when instructions: `check`, `issue`, `pr`, `prose`, `style` |
 
 ## Renovate PRs
 

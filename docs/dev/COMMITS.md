@@ -12,14 +12,13 @@ subject — it is what links the history back to the tracker.
 ```
 
 No line of the commit message is longer than 100 characters. This keeps messages
-readable on GitHub and in git tools. The `semantic-pr` workflow enforces the
-title format on every pull request, since the title becomes the squashed commit.
+readable on GitHub and in git tools. Pull request titles follow the same format,
+since the title becomes the squashed commit; reviewers check it.
 
 ## Types
 
 `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `perf`, `chore`, `build`,
-`ci`, `revert`. Keep this list in sync with the `types` in
-`.github/workflows/semantic-pr.yml`.
+`ci`, `revert`.
 
 ## Subject
 
