@@ -97,8 +97,8 @@ different upstream code than the workspace builds.
 Every branch is squash-merged into `master`: one commit per branch, so no empty
 merge commits. The squashed commit is a Conventional Commit with the issue
 reference in the subject. [`docs/dev/COMMITS.md`](docs/dev/COMMITS.md) is the
-authoritative format. The `semantic-pr` workflow enforces the same format on
-pull request titles, since the title becomes the landed commit.
+authoritative format. Pull request titles follow the same format, since the
+title becomes the landed commit; reviewers check it.
 
 ## Triage
 

@@ -9,7 +9,7 @@ the pinned checkout, never from memory.
 - Read the API from the local cargo git cache or a sibling checkout
   (`../topcoat`, `../toasty` when present), at the rev `Cargo.lock` pins — not
   at their branch tip, which has moved on.
-- Quote the source file and line that proves the signature, the behavior, or
+- Quote the source file and symbol that proves the signature, the behavior, or
   the absence you rely on.
 - When the pinned rev changes, re-verify the claims that cited it.
 

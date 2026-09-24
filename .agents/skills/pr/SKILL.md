@@ -18,10 +18,11 @@ git log master..HEAD
 
 ## Title
 
-Same Conventional Commits format as a commit message (see the
-[`commit`](../commit/SKILL.md) skill), with the issue reference in the subject:
-`<type>(<scope>): <description> (#123)`. The `semantic-pr` workflow enforces it.
-PRs are squash-merged, so the title becomes the landed commit.
+Same Conventional Commits format as
+[`COMMITS.md`](../../../docs/dev/COMMITS.md), with the issue reference in the
+subject:
+`<type>(<scope>): <description> (#123)`.
+PRs are squash-merged, so the title becomes the landed commit; reviewers check it.
 
 ## Body
 
