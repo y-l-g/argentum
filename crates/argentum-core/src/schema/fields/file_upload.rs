@@ -552,6 +552,10 @@ mod tests {
                 !view.contains("href="),
                 "{refused} must not become a link on the detail page, got {view}"
             );
+            assert!(
+                view.contains(refused),
+                "{refused} must still render as text on the detail page, got {view}"
+            );
         }
 
         for linkable in ["/uploads/a.png", "https://cdn.example/a.png"] {
