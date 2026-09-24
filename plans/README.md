@@ -1,19 +1,18 @@
 # Implementation Plans
 
-Generated on 2026-09-24 against commit `cbb738a8` from a full audit of the workspace. Execute in
-the order below unless dependencies say otherwise. Each executor: read the plan fully before
-starting, honor its STOP conditions, and update your row when done.
+Generated on 2026-09-24 against commit `cbb738a8` from a full audit of the workspace. All six plans
+are executed; each row below records the pull request and the squash commit on `master`.
 
 ## Execution order & status
 
 | Plan | Title | Priority | Effort | Depends on | Status |
 |------|-------|----------|--------|------------|--------|
-| [001](001-fileupload-stored-value-xss.md) | Close the stored-XSS path through `FileUpload` values | P1 | M | — | TODO |
-| [002](002-serve-dir-inert-content.md) | Serve uploaded files as inert content from `Panel::serve_dir` | P1 | M | — | TODO |
-| [003](003-export-no-silent-truncation.md) | Refuse, never truncate, an export whose scan window is too small | P1 | S | — | TODO |
-| [004](004-date-filter-overflow-panic.md) | Stop a date filter on the last representable day from panicking | P1 | S | — | TODO |
-| [005](005-route-gate-test-matrix.md) | Pin every route's auth, CSRF, tenant and policy gates with tests | P1 | M | — | TODO |
-| [006](006-auth-off-fails-closed.md) | Make the `auth`-off build fail closed and keep its tests compiling | P1 | M | — | TODO |
+| [001](001-fileupload-stored-value-xss.md) | Close the stored-XSS path through `FileUpload` values | P1 | M | — | DONE (#284, `87b3fbd2`) |
+| [002](002-serve-dir-inert-content.md) | Serve uploaded files as inert content from `Panel::serve_dir` | P1 | M | — | DONE (#283, `5c3436e0`) |
+| [003](003-export-no-silent-truncation.md) | Refuse, never truncate, an export whose scan window is too small | P1 | S | — | DONE (#285, `98780e80`) |
+| [004](004-date-filter-overflow-panic.md) | Stop a date filter on the last representable day from panicking | P1 | S | — | DONE (#286, `0e146fec`) |
+| [005](005-route-gate-test-matrix.md) | Pin every route's auth, CSRF, tenant and policy gates with tests | P1 | M | — | DONE (#287, `8daf98a0`) |
+| [006](006-auth-off-fails-closed.md) | Make the `auth`-off build fail closed and keep its tests compiling | P1 | M | — | DONE (#288, `8f4d3e3b`) |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale)
 
