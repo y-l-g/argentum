@@ -68,7 +68,9 @@ Grouping and export:
   `Content-Disposition`, RFC4180 with OWASP formula-defusing), reusing the same filters and sort over
   `export_query` — the base `query` unless the resource narrows it to the includes its columns
   declared (GH #177). Capped at 10k viewable rows: per-row `can_view` runs before the cap, so 413
-  reflects what the caller may receive. `?bom=1` opts into an Excel BOM.
+  reflects what the caller may receive. An export whose filtered set runs past the 10,001-row scan
+  window is a 413 too, even when fewer rows would be viewable: the export never returns a partial
+  file. `?bom=1` opts into an Excel BOM.
 - Failed table loads render the branded `ErrorState` in-region, not a blank page.
 
 Live updates:

@@ -280,7 +280,9 @@ const MAX_BULK_IDS: usize = 400;
 /// Max receivable rows an export will deliver (GH #94): the chunked walk
 /// scans at most `MAX_EXPORT_ROWS + 1` raw rows and anything past the cap is
 /// a 413, so a 100k-row table stays bounded instead of buffering `Vec<Model>`
-/// + `String` without end.
+/// plus `String` without end. A full raw window with rows left beyond it is a
+/// 413 too, even when fewer rows are viewable (GH #279), so the export never
+/// returns a partial file.
 const MAX_EXPORT_ROWS: usize = 10_000;
 
 /// Rows per cursor chunk on the export walk (GH #172): each phase fetches
@@ -369,16 +371,17 @@ fn parse_bulk_ids(raw: &str, max: usize) -> Vec<String> {
 /// chunk's CSV is written incrementally, so a 10k-row export holds one chunk
 /// plus one CSV fragment instead of `Vec<Model>` + one joined `String`.
 ///
-/// Two passes keep that compatible with the exact pre-body contracts. First a
-/// bounded visibility scan counts receivable rows inside the same
-/// `MAX_EXPORT_ROWS + 1` raw window the old single fetch used — the 413 still
-/// reflects what the caller may receive (GH #86, GH #145), decided before any
-/// byte is sent. Then the streaming pass re-walks the same window and emits
-/// header + rows. A concurrent mutation landing between the passes can only
-/// push the second past the cap — that aborts the stream loudly instead of
-/// truncating silently. Formula cells are defused per OWASP in
-/// [`Table::csv_row`], and `?bom=1` prepends a UTF-8 BOM for Excel interop
-/// (GH #94).
+/// Two passes keep the pre-body contract. First a bounded visibility scan
+/// counts receivable rows inside the `MAX_EXPORT_ROWS + 1` raw window — the
+/// 413 reflects what the caller may receive (GH #86, GH #145), and a window
+/// that fills with rows left beyond it is a 413 too, because those rows may
+/// be viewable and dropping them would ship a partial file (GH #279). Both
+/// refusals happen before any byte is sent. Then the streaming pass re-walks
+/// the same window and emits header + rows. A concurrent mutation landing
+/// between the passes can only fill the window or push the second past the
+/// cap — that aborts the stream loudly instead of truncating silently.
+/// Formula cells are defused per OWASP in [`Table::csv_row`], and `?bom=1`
+/// prepends a UTF-8 BOM for Excel interop (GH #94).
 pub(crate) fn resource_export<R: Resource>(cx: &Cx, _body: Body) -> RouteFuture<'_> {
     Box::pin(async move {
         enforce_auth(cx)?;
@@ -409,6 +412,12 @@ pub(crate) fn resource_export<R: Resource>(cx: &Cx, _body: Body) -> RouteFuture<
         let mut visible = 0usize;
         while let Some(rows) = chunker.next_chunk(&mut db_handle).await? {
             visible += rows.iter().filter(|r| R::can_view(cx, r)).count();
+        }
+        // The cap counts viewable rows, but only inside the raw window: rows
+        // left past it may be viewable too, so a 200 would be a silent
+        // truncation (GH #279).
+        if chunker.beyond_window() {
+            return Err(topcoat::router::error::content_too_large().into());
         }
         enforce_export_cap_count(visible)?;
         // Phase 2: re-walk the window, streaming CSV fragments into a bounded
@@ -480,6 +489,12 @@ pub(crate) fn resource_export<R: Resource>(cx: &Cx, _body: Body) -> RouteFuture<
                     return;
                 }
             }
+            if chunker.beyond_window() {
+                // Rows inserted between the passes can fill the window here
+                // only, so phase 1's answer no longer holds (GH #279).
+                tracing::error!(resource = R::slug(), "export window overflowed mid-stream");
+                tx.abort(std::io::Error::other("export overflowed its window"));
+            }
         });
         let filename = export_filename(&R::slug());
         let res = http::Response::builder()
@@ -527,12 +542,15 @@ fn export_base_query<R: Resource>(
 /// so callers hold one chunk instead of the window. Each chunk after the
 /// first resumes from the previous chunk's `next_cursor`; a chunk shorter
 /// than the requested size ends the walk, because chaining an absent cursor
-/// or re-fetching cursor-free would rescan from the start.
+/// or re-fetching cursor-free would rescan from the start. A full window is
+/// probed one row past itself, so [`beyond_window`](Self::beyond_window)
+/// distinguishes "the table ended" from "the window did".
 struct ExportChunker<M> {
     query: toasty::stmt::Query<toasty::stmt::List<M>>,
     after: Option<toasty_core::stmt::Value>,
     raw_scanned: usize,
     exhausted: bool,
+    beyond_window: bool,
 }
 
 impl<M> ExportChunker<M>
@@ -545,7 +563,14 @@ where
             after: None,
             raw_scanned: 0,
             exhausted: false,
+            beyond_window: false,
         }
+    }
+
+    /// Whether the window filled with rows left past it (GH #279), so the raw
+    /// walk stopped early rather than at the table's end.
+    fn beyond_window(&self) -> bool {
+        self.beyond_window
     }
 
     async fn next_chunk(&mut self, db: &mut toasty::Db) -> Result<Option<Vec<M>>, topcoat::Error> {
@@ -554,6 +579,19 @@ where
         }
         let remaining = (MAX_EXPORT_ROWS + 1).saturating_sub(self.raw_scanned);
         if remaining == 0 {
+            // The window is full (GH #279): one probe row past it says whether
+            // the walk stopped on the table's end or on the window's. A full
+            // chunk without a cursor cannot be probed (GH #232) and is treated
+            // as the end.
+            if let Some(cursor) = self.after.clone() {
+                let probe = toasty::stmt::Paginate::new(self.query.clone(), 1)
+                    .after(cursor)
+                    .exec(db)
+                    .await
+                    .map_err(crate::db::unavailable)?;
+                self.beyond_window = !probe.items.is_empty();
+            }
+            self.exhausted = true;
             return Ok(None);
         }
         let take = remaining.min(EXPORT_CHUNK_ROWS);
@@ -718,15 +756,14 @@ mod tests {
         name: String,
     }
 
-    /// Seed one row past the export cap in a single batched insert (GH #218).
+    /// Seed `rows` dummies in a single batched insert (GH #218).
     ///
-    /// Both export-cap tests used to run a `toasty::create!` per row, so the
-    /// seed went through the engine pipeline 10,001 times and cost ~2s each —
-    /// more than the behaviour under test. `create_many` accumulates the
-    /// inserts into one statement. `name` maps a row index to its label.
-    async fn seed_past_the_export_cap(db: &mut Db, name: impl Fn(usize) -> String) {
+    /// The export-cap tests seed more rows than a per-row `toasty::create!`
+    /// loop can afford, so `create_many` accumulates the inserts into one
+    /// statement. `name` maps a row index to its label.
+    async fn seed_dummies(db: &mut Db, rows: usize, name: impl Fn(usize) -> String) {
         let mut create = Dummy::create_many();
-        for i in 0..MAX_EXPORT_ROWS + 1 {
+        for i in 0..rows {
             create = create.item(Dummy::create().name(name(i)));
         }
         create.exec(&mut *db).await.unwrap();
@@ -1641,7 +1678,7 @@ mod tests {
             .await
             .unwrap();
         db.push_schema().await.unwrap();
-        seed_past_the_export_cap(&mut db, |i| {
+        seed_dummies(&mut db, MAX_EXPORT_ROWS + 1, |i| {
             if i % 2 == 0 {
                 format!("allowed-{i:05}")
             } else {
@@ -1670,6 +1707,87 @@ mod tests {
         assert_eq!(rows.len(), (MAX_EXPORT_ROWS + 1).div_ceil(2));
         assert!(rows.iter().all(|r| r.starts_with("allowed-")));
         assert!(!csv.contains("denied-"));
+    }
+
+    #[tokio::test]
+    async fn export_refuses_when_viewable_rows_lie_past_the_window() {
+        // GH #279: the cap counts viewable rows, but only inside the raw
+        // window. With rows left past it, a 200 would be a partial CSV — the
+        // export must refuse with the same 413 the cap uses.
+        use std::collections::HashMap;
+
+        use http_body_util::BodyExt;
+
+        use crate::resource::Resource;
+
+        struct WindowedResource;
+        impl Resource for WindowedResource {
+            type Model = Dummy;
+            fn slug() -> String {
+                "dummies".to_string()
+            }
+            fn can_view_any(_cx: &Cx) -> bool {
+                true
+            }
+            fn can_view(_cx: &Cx, record: &Dummy) -> bool {
+                !record.name.starts_with("denied-")
+            }
+            fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
+                crate::resource::Table::r#for(cx)
+                    .id(|d: &Dummy| d.id.to_string())
+                    .pk(|d: &Dummy| d.id.to_string())
+                    .columns(crate::resource::TextColumn::r#for(
+                        Dummy::fields().name(),
+                        |d: &Dummy| d.name.clone(),
+                    ))
+            }
+            fn hydrate_form_values(_cx: &Cx, _record: &Dummy) -> HashMap<String, String> {
+                HashMap::new()
+            }
+        }
+
+        let mut db = Db::builder()
+            .models(toasty::models!(Dummy))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        // 20 rows past the window: the viewable count inside it stays under
+        // the cap, so only the presence of rows beyond it can refuse.
+        seed_dummies(&mut db, MAX_EXPORT_ROWS + 1 + 20, |i| {
+            if i % 2 == 0 {
+                format!("allowed-{i:05}")
+            } else {
+                format!("denied-{i:05}")
+            }
+        })
+        .await;
+        let router = Panel::new("admin")
+            .app_context(db)
+            .resource::<WindowedResource>()
+            .auth(crate::Auth::disabled())
+            .build()
+            .expect("panel builds");
+        let resp = router
+            .handle(
+                http::Request::builder()
+                    .uri("/admin/dummies/export")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await;
+        let status = resp.status();
+        assert_eq!(
+            status,
+            http::StatusCode::PAYLOAD_TOO_LARGE,
+            "rows past the raw window must 413, got {status}"
+        );
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let body_text = String::from_utf8_lossy(&body);
+        assert!(
+            !body_text.contains("allowed-") && !body_text.contains("denied-"),
+            "413 must carry no CSV rows, got {body_text:?}"
+        );
     }
 
     #[tokio::test]
@@ -1916,7 +2034,7 @@ mod tests {
             .await
             .unwrap();
         db.push_schema().await.unwrap();
-        seed_past_the_export_cap(&mut db, |i| format!("user-{i:05}")).await;
+        seed_dummies(&mut db, MAX_EXPORT_ROWS + 1, |i| format!("user-{i:05}")).await;
         let router = Panel::new("admin")
             .app_context(db)
             .resource::<CappedResource>()
