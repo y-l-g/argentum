@@ -201,6 +201,7 @@ mod tests {
     /// The live-search shard answers the gate before the registry lookup
     /// (GH #146): an unauthenticated probe cannot distinguish a registered
     /// slug from an unregistered one.
+    #[cfg(feature = "auth")]
     #[tokio::test]
     async fn search_shard_answers_auth_before_the_registry_lookup() {
         use topcoat::{context::CxTestBuilder, router::response::IntoResponse};
