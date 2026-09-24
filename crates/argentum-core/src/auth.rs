@@ -14,21 +14,21 @@
 //! a token hash to a user id, so an app registers it whatever authenticator it
 //! uses. A custom user model does not have to be an `AdminUser`.
 
-use std::future::Future;
-use std::pin::Pin;
-use std::time::Duration;
+use std::{future::Future, pin::Pin, time::Duration};
 
 use jiff::Timestamp;
 use toasty::Db;
-use topcoat::context::{Cx, app_context, try_app_context, try_request_context};
-use topcoat::router::{
-    Body, Layer, LayerFuture, Next, Path, PathBuf, RouteFuture,
-    error::{forbidden, redirect, unauthorized},
-    request::{method, original_headers, original_method, uri},
-    response::IntoResponse,
+use topcoat::{
+    context::{Cx, app_context, try_app_context, try_request_context},
+    router::{
+        Body, Layer, LayerFuture, Next, Path, PathBuf, RouteFuture,
+        error::{forbidden, redirect, unauthorized},
+        request::{method, original_headers, original_method, uri},
+        response::IntoResponse,
+    },
+    session::{self, RouterBuilderSessionExt, SessionConfig, TokenHash},
+    view::{BoxView, ViewExt},
 };
-use topcoat::session::{self, RouterBuilderSessionExt, SessionConfig, TokenHash};
-use topcoat::view::{BoxView, ViewExt};
 use uuid::Uuid;
 
 use crate::panel::{LoginHint, Panel, PanelPrefix, route_path};
@@ -982,8 +982,7 @@ mod tests {
     /// password authenticator. `token` is both the CSRF cookie and the form
     /// value the caller submits.
     fn login_cx(db: Db, token: &str) -> Cx {
-        use topcoat::context::CxTestBuilder;
-        use topcoat::cookie::CookieJarCell;
+        use topcoat::{context::CxTestBuilder, cookie::CookieJarCell};
 
         let parts = http::Request::builder()
             .method(http::Method::POST)

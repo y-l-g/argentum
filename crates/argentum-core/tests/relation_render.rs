@@ -1,8 +1,7 @@
 //! The read-only relation table (GH #187 item 6).
 
 use argentum_core::{RelationColumn, RelationColumns, render_relation};
-use topcoat::context::CxTestBuilder;
-use topcoat::view::ViewExt;
+use topcoat::{context::CxTestBuilder, view::ViewExt};
 
 #[derive(Debug, Clone)]
 struct Row {

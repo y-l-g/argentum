@@ -3,21 +3,20 @@
 //! `#[shard]` inventory only discovers concrete fns, so each declared
 //! resource monomorphizes its table loader here, keyed by list path.
 
-use std::collections::HashMap;
-use std::future::Future;
-use std::pin::Pin;
-use std::sync::Arc;
+use std::{collections::HashMap, future::Future, pin::Pin, sync::Arc};
 
-use topcoat::runtime::shard;
 use topcoat::{
     Result,
     context::Cx,
     router::error::forbidden,
+    runtime::shard,
     view::{BoxView, View},
 };
 
-use super::list::{load_table_page, table_error_view, wire_table_actions};
-use super::{enforce_auth, enforce_tenant};
+use super::{
+    enforce_auth, enforce_tenant,
+    list::{load_table_page, table_error_view, wire_table_actions},
+};
 use crate::resource::{Resource, TableSignals};
 
 /// One live-table shard invocation (GH #224): the list path the page asks for
@@ -194,18 +193,17 @@ pub(crate) use shard_body::table_search;
 
 #[cfg(test)]
 mod tests {
-    use super::super::Panel;
-    use super::*;
     use toasty::Db;
     use topcoat::router::Body;
+
+    use super::{super::Panel, *};
 
     /// The live-search shard answers the gate before the registry lookup
     /// (GH #146): an unauthenticated probe cannot distinguish a registered
     /// slug from an unregistered one.
     #[tokio::test]
     async fn search_shard_answers_auth_before_the_registry_lookup() {
-        use topcoat::context::CxTestBuilder;
-        use topcoat::router::response::IntoResponse;
+        use topcoat::{context::CxTestBuilder, router::response::IntoResponse};
 
         use crate::resource::Resource;
 
@@ -303,9 +301,11 @@ mod tests {
         // inside the shard invocation — the invocation must render the branded
         // in-region `ErrorState` + retry link (same as the streamed list via
         // `retry_url_for_error`), not error the shard.
-        use crate::resource::Resource;
-        use http_body_util::BodyExt;
         use std::collections::HashMap;
+
+        use http_body_util::BodyExt;
+
+        use crate::resource::Resource;
 
         #[derive(Debug, toasty::Model, Clone)]
         struct Dummy {
@@ -475,9 +475,11 @@ mod tests {
         // GH #157: grouping travels as a live signal, not a page-load
         // snapshot — the shard groups by the signal value, so a rerun with
         // the signal set renders headers and a rerun with it cleared does not.
-        use crate::resource::Resource;
-        use http_body_util::BodyExt;
         use std::collections::HashMap;
+
+        use http_body_util::BodyExt;
+
+        use crate::resource::Resource;
 
         #[derive(Debug, toasty::Model, Clone)]
         struct Dummy {

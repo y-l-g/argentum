@@ -1,5 +1,4 @@
-use std::collections::HashMap;
-use std::path::PathBuf;
+use std::{collections::HashMap, path::PathBuf};
 
 use argentum_core::{
     Brand, ColumnWidth, DateFilter, FileUpload, Grid, Group, IncludeNeeds, Panel, RelationColumn,

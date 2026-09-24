@@ -7,9 +7,11 @@
 
 #[doc(hidden)]
 pub mod __macro {
-    pub use toasty::schema::{Embed, Model};
-    pub use toasty::stmt;
-    pub use toasty::stmt::Path;
+    pub use toasty::{
+        schema::{Embed, Model},
+        stmt,
+        stmt::Path,
+    };
     pub use toasty_core::schema::app::VariantId;
     pub use topcoat::context::Cx;
 }

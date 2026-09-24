@@ -4,10 +4,14 @@ use argentum_ui::{
 };
 use topcoat::{Result, context::Cx, view::*};
 
-use super::super::lenses::{FieldResolver, lens_field, lens_label};
-use super::super::tree::Mode;
-use super::super::validation::Rules;
-use super::{ValueKind, render_value};
+use super::{
+    super::{
+        lenses::{FieldResolver, lens_field, lens_label},
+        tree::Mode,
+        validation::Rules,
+    },
+    ValueKind, render_value,
+};
 
 /// Typed multi-line text field bound to a Toasty field lens (GH #184).
 ///
@@ -192,10 +196,11 @@ impl Textarea {
 mod tests {
     use std::collections::HashMap;
 
+    use super::{
+        super::test_support::{DummyUser, cx},
+        *,
+    };
     use crate::schema::Schema;
-
-    use super::super::test_support::{DummyUser, cx};
-    use super::*;
 
     #[tokio::test]
     async fn textarea_renders_a_multiline_control_with_the_stored_value() {

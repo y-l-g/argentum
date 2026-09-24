@@ -4,20 +4,25 @@ use argentum_ui::{
 };
 use topcoat::{Result, context::Cx, view::*};
 
-use super::super::lenses::{capitalize, lens_field, lens_label};
-use super::super::relationship::{
-    OptionLoadError, OptionSource, RelatedCheck, RelatedPrimaryKey, RelationshipCheckFuture,
-    RelationshipChecker, RelationshipLoadFuture, RelationshipLoader, RelationshipSearchLoader,
-    related_record_check, related_records, related_records_search,
+use super::{
+    super::{
+        lenses::{capitalize, lens_field, lens_label},
+        relationship::{
+            OptionLoadError, OptionSource, RelatedCheck, RelatedPrimaryKey,
+            RelationshipCheckFuture, RelationshipChecker, RelationshipLoadFuture,
+            RelationshipLoader, RelationshipSearchLoader, related_record_check, related_records,
+            related_records_search,
+        },
+        tree::Mode,
+        validation::Rules,
+    },
+    ValueKind, render_value,
 };
-use super::super::tree::Mode;
-use super::super::validation::Rules;
-use super::{ValueKind, render_value};
 
 /// Select field bound to a lens (often a foreign key like `author_id`).
 ///
-/// `Select::for(Post::fields().author_id()).relationship(AuthorResource::query, |a| a.id, |a| a.name.clone())`
-/// loads options through the related resource's tenant-scoped query
+/// `Select::for(Post::fields().author_id()).relationship(AuthorResource::query, |a| a.id, |a|
+/// a.name.clone())` loads options through the related resource's tenant-scoped query
 /// (GH #223) and stores the
 /// related record's primary key as the value. Typos in the lens fail at compile
 /// time; a wrong value projection fails where the projected type differs from
@@ -368,7 +373,8 @@ impl Select {
         Rules::new().validate(&self.label, self.required, value)
     }
 
-    /// Async existence check: if relationship is configured and value non-empty, ensure it matches a loaded option.
+    /// Async existence check: if relationship is configured and value non-empty, ensure it matches
+    /// a loaded option.
     ///
     /// A loader failure surfaces as a form-level error (GH #91) instead of an
     /// empty-options passthrough that would 500 at FK write time. A policy
@@ -634,10 +640,11 @@ impl Select {
 mod tests {
     use topcoat::context::CxTestBuilder;
 
+    use super::{
+        super::test_support::{DummyUser, FkRef, opening_tag_at},
+        *,
+    };
     use crate::schema::Schema;
-
-    use super::super::test_support::{DummyUser, FkRef, opening_tag_at};
-    use super::*;
 
     /// A bare `Select` over a non-nullable FK rejects an empty submit inline
     /// (GH #147): an empty submit fails here with `is required`, so it never

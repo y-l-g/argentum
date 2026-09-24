@@ -5,9 +5,11 @@
 
 use std::collections::HashMap;
 
-use topcoat::Result;
-use topcoat::context::Cx;
-use topcoat::runtime::{Signal, signal};
+use topcoat::{
+    Result,
+    context::Cx,
+    runtime::{Signal, signal},
+};
 
 use crate::query_term::clamp_query_term;
 
@@ -893,10 +895,12 @@ pub(crate) fn filters_param_encodes() -> usize {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
+    use topcoat::context::{Cx, CxTestBuilder};
+
     use super::*;
     use crate::query_term::MAX_QUERY_TERM;
-    use std::collections::HashMap;
-    use topcoat::context::{Cx, CxTestBuilder};
 
     #[test]
     fn from_live_args_builds_state() {

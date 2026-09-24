@@ -1,8 +1,6 @@
 //! Table columns: [`TextColumn`] plus the [`IntoColumns`] seam.
 
-use std::borrow::Cow;
-use std::collections::BTreeSet;
-use std::sync::Arc;
+use std::{borrow::Cow, collections::BTreeSet, sync::Arc};
 
 use toasty::stmt::{Expr, OrderByExpr};
 

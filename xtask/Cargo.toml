@@ -13,3 +13,9 @@ anyhow = "1"
 serde_json = "1"
 topcoat-ui = { workspace = true }
 topcoat-ui-registry = { workspace = true }
+
+# `topcoat-ui-registry` is never named in code: `sync-topcoat-ui` and
+# `verify-topcoat-ui` locate it through `cargo metadata`, which lists only
+# packages in the dependency graph, so this declaration is the anchor (GH #271).
+[package.metadata.cargo-udeps.ignore]
+normal = ["topcoat-ui-registry"]

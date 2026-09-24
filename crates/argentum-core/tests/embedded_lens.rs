@@ -13,8 +13,10 @@
 use std::collections::HashMap;
 
 use argentum_core::{Schema, TextInput};
-use topcoat::context::{Cx, CxTestBuilder};
-use topcoat::view::ViewExt;
+use topcoat::{
+    context::{Cx, CxTestBuilder},
+    view::ViewExt,
+};
 
 #[derive(Debug, Clone, toasty::Embed)]
 struct Seo {

@@ -14,15 +14,16 @@
 //! flushes `Set-Cookie` on error responses too (topcoat#408), so the mutation
 //! `Err` redirects no longer need the old `?notification=` fallback.
 
-use serde::{Deserialize, Serialize};
-use topcoat::context::{Cx, try_request_context};
-use topcoat::cookie::{CookieJar, CookieJarCell, Cookies, cookie_store, cookies};
-use topcoat::icon::icon;
-use topcoat::runtime::{Signal, shard, signal};
-use topcoat::view::{Attributes, BoxView, View, ViewExt, attributes, view};
-
 use argentum_ui::{
     icons, toast, toast_close, toast_content, toast_description, toast_icon, toast_title,
+};
+use serde::{Deserialize, Serialize};
+use topcoat::{
+    context::{Cx, try_request_context},
+    cookie::{CookieJar, CookieJarCell, Cookies, cookie_store, cookies},
+    icon::icon,
+    runtime::{Signal, shard, signal},
+    view::{Attributes, BoxView, View, ViewExt, attributes, view},
 };
 
 /// The kind of notification (status).
@@ -315,9 +316,10 @@ async fn render_live_toaster<'a>(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use http::Request;
     use topcoat::context::CxTestBuilder;
+
+    use super::*;
 
     fn cx_with_cookie(value: Option<&str>) -> Cx {
         let mut builder = Request::builder().uri("/").body(()).unwrap().into_parts().0;

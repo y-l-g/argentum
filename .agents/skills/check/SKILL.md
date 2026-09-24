@@ -7,13 +7,13 @@ description: Always use this skill to verify a change locally before committing 
 
 Keep this file in sync with `.github/workflows/ci.yml`.
 
-Run the gates covering the touched area before pushing, and all nine before merging:
+Run the gates covering the touched area before pushing, and all ten before merging:
 
 ```
 cargo test --workspace --locked
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo check -p argentum-core --no-default-features --locked
-cargo fmt -p argentum-core -p argentum-macros -p argentum-ui -p showcase -p xtask -- --check
+cargo +nightly fmt --all -- --check
 topcoat fmt && git diff --exit-code
 cargo check --locked --manifest-path benchmarks/argentum/Cargo.toml
 cargo clippy --locked --manifest-path benchmarks/argentum/Cargo.toml --all-targets -- -D warnings
@@ -21,6 +21,7 @@ cargo +1.98 check --workspace --locked
 node --test crates/argentum-ui/assets/selects.test.js crates/argentum-ui/assets/bulk.test.js \
   crates/argentum-ui/assets/dialog.test.js crates/argentum-ui/assets/mutation-submit.test.js \
   examples/showcase/assets/media.test.js
+cargo +nightly udeps --workspace --all-targets --all-features --locked
 ```
 
 The asset suites are named rather than globbed, exactly as the CI `assets` job
@@ -42,7 +43,5 @@ Rules that catch the recurring failures:
   or redirect to a file.
 - Never hand-edit `crates/argentum-ui/src/components/primitives/`; sync it with
   `cargo xtask sync-topcoat-ui`.
-
-Only on request: unused dependencies via `cargo +nightly udeps` (needs
-`cargo-udeps` on nightly for `-Z binary-dep-depinfo`; GH #271 tracks promoting
-this to a CI job once it is verified green).
+- `cargo udeps` needs `cargo-udeps` on nightly for `-Z binary-dep-depinfo`:
+  `cargo +nightly install cargo-udeps --locked`, then the gate command above.

@@ -8,10 +8,12 @@ use std::collections::{HashMap, HashSet};
 
 use topcoat::{Result, context::Cx, view::*};
 
-use super::Schema;
-use super::fields::{FileUpload, Select, TextInput, Textarea};
-use super::layouts::{Grid, Group, Repeater, Section, Tabs};
-use super::validation::required_error;
+use super::{
+    Schema,
+    fields::{FileUpload, Select, TextInput, Textarea},
+    layouts::{Grid, Group, Repeater, Section, Tabs},
+    validation::required_error,
+};
 
 #[derive(Debug)]
 pub(crate) enum Node {
@@ -385,9 +387,8 @@ where
 mod tests {
     use topcoat::context::{Cx, CxTestBuilder};
 
-    use crate::schema::{Group, Schema, Section, TextInput};
-
     use super::*;
+    use crate::schema::{Group, Schema, Section, TextInput};
 
     fn cx() -> Cx {
         CxTestBuilder::new().build()

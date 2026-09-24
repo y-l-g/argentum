@@ -156,9 +156,10 @@ fn mount(prefix: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use toasty::stmt::List;
     use topcoat::context::Cx;
+
+    use super::*;
 
     #[derive(Debug, Clone, toasty::Model)]
     struct User {

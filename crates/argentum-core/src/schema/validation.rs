@@ -191,11 +191,10 @@ const EMAIL_MAX_LENGTH: usize = 254;
 ///
 /// - a quoted local part, `"a b"@example.com`;
 /// - a unicode local part or domain, `用户@例え.jp`;
-/// - an unquoted local part refuses `(`, `)`, `,`, `:`, `;`, `<`, `>`, `[`,
-///   `]`, `\`, `"` and space, so `a,b@b.com`, `a(b@b.com` and `a:b@b.com`
-///   are refused;
-/// - a domain label starts and ends with a letter or digit, so
-///   `user@my_host.com` is accepted and `a@b!.com` is refused;
+/// - an unquoted local part refuses `(`, `)`, `,`, `:`, `;`, `<`, `>`, `[`, `]`, `\`, `"` and
+///   space, so `a,b@b.com`, `a(b@b.com` and `a:b@b.com` are refused;
+/// - a domain label starts and ends with a letter or digit, so `user@my_host.com` is accepted and
+///   `a@b!.com` is refused;
 /// - a single-character TLD, `a@b.c`.
 ///
 /// The crate bounds the local part at 64 octets and the domain at 254;

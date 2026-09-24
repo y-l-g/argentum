@@ -12,8 +12,10 @@ use argentum_core::schema::{
     FileUpload, Grid, Group, Repeater, Schema, Section, Select, TextInput, Textarea,
 };
 use toasty::Db;
-use topcoat::context::{Cx, CxTestBuilder};
-use topcoat::view::ViewExt;
+use topcoat::{
+    context::{Cx, CxTestBuilder},
+    view::ViewExt,
+};
 
 #[derive(Debug, toasty::Model)]
 struct Doc {

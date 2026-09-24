@@ -8,14 +8,13 @@ mod select;
 mod text_input;
 mod textarea;
 
+use argentum_ui::{
+    field as ui_field, field_content as ui_field_content, field_title as ui_field_title,
+};
 pub use file_upload::FileUpload;
 pub use select::Select;
 pub use text_input::TextInput;
 pub use textarea::Textarea;
-
-use argentum_ui::{
-    field as ui_field, field_content as ui_field_content, field_title as ui_field_title,
-};
 use topcoat::{Result, context::Cx, view::*};
 
 /// How a read-only value is presented (GH #187).

@@ -154,9 +154,10 @@ async fn edit_rejects_forged_post_before_probing_the_record() {
 }
 #[tokio::test]
 async fn update_record_keeps_absent_fields() {
+    use std::collections::HashMap;
+
     use argentum_core::Resource;
     use showcase::app::UserResource;
-    use std::collections::HashMap;
 
     let db = seeded_db().await;
     let cx = topcoat::context::CxTestBuilder::new()

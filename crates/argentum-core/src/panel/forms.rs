@@ -5,7 +5,6 @@
 
 use std::collections::HashMap;
 
-use topcoat::view::internal::ThenView;
 use topcoat::{
     Result,
     context::Cx,
@@ -14,13 +13,17 @@ use topcoat::{
         error::{forbidden, see_other},
         request::{Bytes, FromRequest},
     },
-    view::{BoxView, HoistView, ViewExt, attributes, view},
+    view::{BoxView, HoistView, ViewExt, attributes, internal::ThenView, view},
 };
 
-use super::actions::{find_by_key, load_viewable};
-use super::{enforce_auth, enforce_tenant, list_url};
-use crate::db::db;
-use crate::notification::{Notification, notify_write_failure, set_notification};
+use super::{
+    actions::{find_by_key, load_viewable},
+    enforce_auth, enforce_tenant, list_url,
+};
+use crate::{
+    db::db,
+    notification::{Notification, notify_write_failure, set_notification},
+};
 
 /// Failure-toast wording for the create/update handlers (GH #174): one place,
 /// so the two paths cannot drift.
@@ -104,8 +107,7 @@ async fn parse_multipart_values(
     body: Body,
     capture: bool,
 ) -> Result<FormParts, topcoat::Error> {
-    use topcoat::router::content::multipart::Multipart;
-    use topcoat::router::request::FromRequest;
+    use topcoat::router::{content::multipart::Multipart, request::FromRequest};
 
     let mut out = FormParts {
         values: HashMap::new(),
@@ -825,14 +827,15 @@ pub(crate) fn resource_edit_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_
 
 #[cfg(test)]
 mod tests {
-    use super::super::Panel;
-    use super::*;
     use toasty::Db;
+
+    use super::{super::Panel, *};
 
     #[tokio::test]
     async fn edit_post_requires_can_view_as_well_as_can_update() {
-        use crate::resource::Resource;
         use std::collections::HashMap;
+
+        use crate::resource::Resource;
 
         #[derive(Debug, toasty::Model, Clone)]
         struct Dummy {
@@ -961,8 +964,9 @@ mod tests {
     /// iterating `values` cannot treat them as writable fields.
     #[tokio::test]
     async fn create_record_receives_no_transport_keys() {
-        use crate::schema::{FileUpload, Schema, TextInput};
         use std::sync::Mutex;
+
+        use crate::schema::{FileUpload, Schema, TextInput};
 
         #[derive(Debug, toasty::Model, Clone)]
         struct Doc {
@@ -1077,10 +1081,12 @@ mod tests {
     /// create handler.
     #[tokio::test]
     async fn a_driver_create_failure_does_not_echo_driver_text() {
-        use crate::resource::Resource;
-        use crate::schema::{Schema, TextInput};
-        use topcoat::context::CxTestBuilder;
-        use topcoat::cookie::CookieJarCell;
+        use topcoat::{context::CxTestBuilder, cookie::CookieJarCell};
+
+        use crate::{
+            resource::Resource,
+            schema::{Schema, TextInput},
+        };
 
         #[derive(Debug, toasty::Model, Clone)]
         struct Dummy {
@@ -1195,11 +1201,15 @@ mod tests {
     /// the body is exactly what a page would be handed.
     #[tokio::test]
     async fn a_driver_update_failure_does_not_echo_driver_text() {
-        use crate::resource::Resource;
-        use crate::schema::{Schema, TextInput};
-        use topcoat::cookie::RouterBuilderCookieExt;
-        use topcoat::router::response::IntoResponse;
-        use topcoat::router::{RouteFn, RouteFuture, Router};
+        use topcoat::{
+            cookie::RouterBuilderCookieExt,
+            router::{RouteFn, RouteFuture, Router, response::IntoResponse},
+        };
+
+        use crate::{
+            resource::Resource,
+            schema::{Schema, TextInput},
+        };
 
         #[derive(Debug, toasty::Model, Clone)]
         struct Dummy {
@@ -1354,8 +1364,9 @@ mod tests {
     /// redirect consumes the cookie, so a reload does not replay the toast.
     #[tokio::test]
     async fn mutation_redirect_carries_the_flash_cookie_instead_of_a_query() {
-        use crate::resource::Resource;
         use std::collections::HashMap;
+
+        use crate::resource::Resource;
 
         const COOKIE_NAME: &str = crate::notification::COOKIE_NAME;
 
@@ -1479,8 +1490,9 @@ mod tests {
 
     #[tokio::test]
     async fn unique_check_flags_duplicates_for_marked_fields() {
-        use crate::schema::{Schema, TextInput};
         use topcoat::context::CxTestBuilder;
+
+        use crate::schema::{Schema, TextInput};
 
         #[derive(Debug, toasty::Model, Clone)]
         struct Subscriber {
@@ -1588,8 +1600,9 @@ mod tests {
     /// [`two_empty_submits_on_a_unique_field_re_render_and_write_nothing`].
     #[tokio::test]
     async fn unique_field_is_required_however_it_is_marked() {
-        use crate::schema::{Schema, TextInput};
         use topcoat::context::CxTestBuilder;
+
+        use crate::schema::{Schema, TextInput};
 
         #[derive(Debug, toasty::Model, Clone)]
         struct Subscriber {
@@ -1658,8 +1671,9 @@ mod tests {
     /// declaration style.
     #[tokio::test]
     async fn lens_derived_unique_is_required_without_a_unique_call() {
-        use crate::schema::{Schema, TextInput};
         use topcoat::context::CxTestBuilder;
+
+        use crate::schema::{Schema, TextInput};
 
         #[derive(Debug, toasty::Model, Clone)]
         struct Subscriber {
@@ -1717,8 +1731,10 @@ mod tests {
     /// been taken" when it trims first.
     #[tokio::test]
     async fn two_empty_submits_on_a_unique_field_re_render_and_write_nothing() {
-        use crate::resource::{Resource, Table, TextColumn};
-        use crate::schema::{Schema, TextInput};
+        use crate::{
+            resource::{Resource, Table, TextColumn},
+            schema::{Schema, TextInput},
+        };
 
         #[derive(Debug, toasty::Model, Clone)]
         struct Subscriber {
@@ -1841,8 +1857,9 @@ mod tests {
 
     #[tokio::test]
     async fn unique_check_propagates_probe_errors() {
-        use crate::schema::{Schema, TextInput};
         use topcoat::context::CxTestBuilder;
+
+        use crate::schema::{Schema, TextInput};
 
         #[derive(Debug, toasty::Model, Clone)]
         struct Probe {
@@ -1880,8 +1897,9 @@ mod tests {
 
     #[tokio::test]
     async fn unique_check_ignores_absent_repeater_groups() {
-        use crate::schema::{Repeater, Schema, TextInput};
         use topcoat::context::CxTestBuilder;
+
+        use crate::schema::{Repeater, Schema, TextInput};
 
         #[derive(Debug, toasty::Model, Clone)]
         struct Tagged {

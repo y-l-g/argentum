@@ -4,16 +4,16 @@
 //! One routine applies the declaration for both loaders (GH #210) and the
 //! essentials check covers the action chrome the panel wires (GH #207).
 
-use std::marker::PhantomData;
-use std::sync::Arc;
+use std::{marker::PhantomData, sync::Arc};
 
 use toasty::stmt::{Expr, List, OrderByExpr};
-use topcoat::Result;
-use topcoat::context::Cx;
+use topcoat::{Result, context::Cx};
 
-use super::column::{IntoColumns, TextColumn};
-use super::filter::{Filter, IntoFilters};
-use super::state::{TablePage, TableState};
+use super::{
+    column::{IntoColumns, TextColumn},
+    filter::{Filter, IntoFilters},
+    state::{TablePage, TableState},
+};
 
 mod export;
 mod render;
@@ -480,23 +480,6 @@ impl<M> Table<M> {
         self.page_size
     }
 
-    /// Return the row-key for a record, if the table has one.
-    ///
-    /// Display key only (GH #168): keyed diffs and DOM ids — never a fetch
-    /// key. Action URLs and bulk values come from [`Self::pk_for`].
-    pub fn key_for(&self, record: &M) -> Option<String> {
-        self.row_key.as_ref().map(|f| f(record))
-    }
-
-    /// Return the record-key for a record, if the table has one.
-    ///
-    /// The model's typed PK as URL text (GH #168): handlers resolve exactly
-    /// these strings (`pk_eq_expr` / `pk_in_expr`), so this is what edit URLs,
-    /// delete dialogs, and bulk checkbox values carry.
-    pub fn pk_for(&self, record: &M) -> Option<String> {
-        self.record_key.as_ref().map(|f| f(record))
-    }
-
     /// Which row actions `record` allows (GH #235): the declared
     /// [`Self::row_actions`] policy, or [`RowActions::ALL`] when the table
     /// declares none.
@@ -683,13 +666,13 @@ impl<M> Table<M> {
     /// Resolve the full query ordering for a request (GH #210).
     ///
     /// Single source of truth for loaders, render and the export:
-    /// 1. `?sort=<column>&dir=asc|desc` when `<column>` names a declared
-    ///    sortable column — that column's direction (toasty appends the PK
-    ///    tie-breakers internally, see [`Self::order_by`]);
+    /// 1. `?sort=<column>&dir=asc|desc` when `<column>` names a declared sortable column — that
+    ///    column's direction (toasty appends the PK tie-breakers internally, see
+    ///    [`Self::order_by`]);
     /// 2. otherwise the declared default (first sortable column asc);
-    /// 3. otherwise, when `mode` asks for it, the PK alone — cursor pagination
-    ///    requires a deterministic order even with no sortable column, and
-    ///    toasty only *extends* an existing non-empty ordering.
+    /// 3. otherwise, when `mode` asks for it, the PK alone — cursor pagination requires a
+    ///    deterministic order even with no sortable column, and toasty only *extends* an existing
+    ///    non-empty ordering.
     ///
     /// Loaders that also need the search term parse the state once with
     /// [`TableState::from_cx`] and apply the declaration through
@@ -811,13 +794,12 @@ impl<M> Table<M> {
                 // so a page sitting exactly at a boundary carries a phantom
                 // cursor without validation. Each direction probes only the
                 // edge that can lie:
-                // - forward/first landing: prev is exact (absent on the first
-                //   page; otherwise the page we came from exists), next may be
-                //   phantom at the end boundary → probe next on full pages. A
-                //   short page cannot have a next page (GH #75).
-                // - backward landing: next is exact (the page we came from
-                //   follows), prev may be phantom when the fetch lands on the
-                //   first page → probe prev whenever one is reported.
+                // - forward/first landing: prev is exact (absent on the first page; otherwise the
+                //   page we came from exists), next may be phantom at the end boundary → probe next
+                //   on full pages. A short page cannot have a next page (GH #75).
+                // - backward landing: next is exact (the page we came from follows), prev may be
+                //   phantom when the fetch lands on the first page → probe prev whenever one is
+                //   reported.
                 //
                 // Deliberately NOT a `LIMIT per_page+1` fold: the engine
                 // derives `next_cursor` from the last *fetched* row, so
@@ -925,11 +907,11 @@ impl<M> Table<M> {
 
 #[cfg(test)]
 mod tests {
+    use toasty::{Db, stmt::List};
+    use topcoat::context::CxTestBuilder;
+
     use super::*;
     use crate::resource::{SelectFilter, Sort, TableState, TernaryFilter, TextColumn};
-    use toasty::Db;
-    use toasty::stmt::List;
-    use topcoat::context::CxTestBuilder;
 
     #[derive(Debug, Clone, toasty::Model)]
     struct User {

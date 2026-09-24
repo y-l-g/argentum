@@ -3,7 +3,6 @@
 //! Fetch, policy checks, and writes share one framework transaction (GH #84):
 //! a mid-loop failure deletes zero rows.
 
-use topcoat::view::internal::ThenView;
 use topcoat::{
     Result,
     context::Cx,
@@ -11,30 +10,36 @@ use topcoat::{
         Body, RouteFuture,
         error::{forbidden, see_other},
     },
-    view::{BoxView, HoistView},
+    view::{BoxView, HoistView, internal::ThenView},
 };
 
-use super::forms::{parse_form_body, truthy};
-use super::{enforce_auth, enforce_tenant, list_url};
-use crate::db::db;
-use crate::notification::{Notification, notify_write_failure, set_notification};
-use crate::resource::Committed;
+use super::{
+    enforce_auth, enforce_tenant,
+    forms::{parse_form_body, truthy},
+    list_url,
+};
+use crate::{
+    db::db,
+    notification::{Notification, notify_write_failure, set_notification},
+    resource::Committed,
+};
 
 /// Failure-toast wording for the delete handlers (GH #174).
 const WRITE_DELETE: &str = "delete the record";
 const WRITE_BULK_DELETE: &str = "delete the selected rows";
-use crate::resource::{OrderMode, Resource, Table, TableState, clamp_query_term};
-use crate::schema::OptionLoadError;
+use crate::{
+    resource::{OrderMode, Resource, Table, TableState, clamp_query_term},
+    schema::OptionLoadError,
+};
 
 /// Fetch one record by its URL `id` through the tenancy-scoped query seam.
 ///
 /// The string id is parsed against the model's primary-key type and the PK
 /// filter is ANDed onto the tenant-scoped
 /// [`scoped_query`](crate::resource::scoped_query) (ADR-0002, GH #223), so
-/// tenancy and soft-delete scoping both hold. Replaces the #75 item-1
-/// pattern of fetching every row and matching `Table::key_for` in memory —
-/// O(N) rows per edit/delete, leaking the whole table before the policy
-/// check.
+/// tenancy and soft-delete scoping both hold. Fetches the one row by key
+/// instead of loading every row and matching keys in memory — O(N) rows per
+/// edit/delete, leaking the whole table before the policy check.
 ///
 /// A malformed or unknown id maps to 404, not a query error.
 ///
@@ -589,8 +594,8 @@ where
 /// before labels). Parent form policy (`can_create` / `can_view`+`can_update`)
 /// stays on the form pages themselves: requiring parent `can_view_any` here
 /// would lock create-only users out of a form they may use, and adds no
-/// visibility the related list does not already expose. `Denied` → 403, driver failure → 500, filtered overflow →
-/// 200 with a "keep typing" hint option (client keeps its hint element).
+/// visibility the related list does not already expose. `Denied` → 403, driver failure → 500,
+/// filtered overflow → 200 with a "keep typing" hint option (client keeps its hint element).
 /// Success → 200 `text/html` with `<option>` markup, bounded to
 /// `MAX_RELATIONSHIP_OPTIONS`, values are typed PK strings, labels escaped.
 pub(crate) fn resource_options<R: Resource>(cx: &Cx, _body: Body) -> RouteFuture<'_> {
@@ -698,9 +703,9 @@ fn escape_option(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::super::Panel;
-    use super::*;
     use toasty::Db;
+
+    use super::{super::Panel, *};
 
     /// The minimal table-backed model most of this module's tests share
     /// (GH #217): it was declared nine times, byte-identically, inside the test
@@ -743,8 +748,9 @@ mod tests {
         // GH #168: the edit contract extends to deletes — a record that
         // cannot be viewed cannot be deleted by UUID-guessing the route,
         // even with `can_delete == true`.
-        use crate::resource::Resource;
         use std::collections::HashMap;
+
+        use crate::resource::Resource;
 
         struct ViewDeniedResource;
         impl Resource for ViewDeniedResource {
@@ -836,8 +842,9 @@ mod tests {
 
     #[tokio::test]
     async fn bulk_delete_caps_ids_and_ignores_display_key() {
-        use crate::resource::Resource;
         use std::collections::HashMap;
+
+        use crate::resource::Resource;
 
         struct UpperKeyResource;
         impl Resource for UpperKeyResource {
@@ -968,8 +975,9 @@ mod tests {
         // GH #168 defect 1 round-trip: `Table::id` projects a non-PK value
         // (the name), `Table::pk` carries the typed PK. Handlers must 404
         // the display value and accept the record key, for single and bulk.
-        use crate::resource::Resource;
         use std::collections::HashMap;
+
+        use crate::resource::Resource;
 
         struct NameKeyResource;
         impl Resource for NameKeyResource {
@@ -1100,8 +1108,9 @@ mod tests {
         // GH #84 acceptance: fetch, policy checks, and deletes share one
         // framework transaction — an impl that fails halfway rolls everything
         // back instead of half-applying.
-        use crate::resource::Resource;
         use std::collections::HashMap;
+
+        use crate::resource::Resource;
 
         struct FlakyBulkResource;
         impl Resource for FlakyBulkResource {
@@ -1208,9 +1217,11 @@ mod tests {
 
     #[tokio::test]
     async fn export_drops_rows_failing_can_view() {
-        use crate::resource::Resource;
-        use http_body_util::BodyExt;
         use std::collections::HashMap;
+
+        use http_body_util::BodyExt;
+
+        use crate::resource::Resource;
 
         struct RowPolicyResource;
         impl Resource for RowPolicyResource {
@@ -1291,10 +1302,12 @@ mod tests {
     /// declared include loads the parent, the silent one does not.
     #[tokio::test]
     async fn export_query_narrows_to_the_declared_column_includes() {
-        use crate::resource::{IncludeNeeds, Resource};
-        use http_body_util::BodyExt;
         use std::collections::HashMap;
+
+        use http_body_util::BodyExt;
         use toasty::stmt::{Include, List, Query};
+
+        use crate::resource::{IncludeNeeds, Resource};
 
         #[derive(Debug, toasty::Model, Clone)]
         struct Parent {
@@ -1481,9 +1494,11 @@ mod tests {
         // buffered CSV (header + rows, BOM variant included), arrives without
         // a Content-Length (chunked), and multi-chunk tables cross chunk
         // boundaries without repeating or dropping rows.
-        use crate::resource::Resource;
-        use http_body_util::BodyExt;
         use std::collections::HashMap;
+
+        use http_body_util::BodyExt;
+
+        use crate::resource::Resource;
 
         struct ChunkedResource;
         impl Resource for ChunkedResource {
@@ -1588,9 +1603,11 @@ mod tests {
         // counted before the cap inside the raw MAX+1 window, so interleaved
         // denied rows yield a 200 with the visible subset — never a 413, and
         // no count leak.
-        use crate::resource::Resource;
-        use http_body_util::BodyExt;
         use std::collections::HashMap;
+
+        use http_body_util::BodyExt;
+
+        use crate::resource::Resource;
 
         struct MixedResource;
         impl Resource for MixedResource {
@@ -1660,8 +1677,9 @@ mod tests {
         // GH #172: a short chunk ends the walk — re-fetching cursor-free
         // would rescan from the start and multiply the visible count past
         // the cap.
-        use crate::resource::Resource;
         use std::collections::HashMap;
+
+        use crate::resource::Resource;
 
         struct TinyResource;
         impl Resource for TinyResource {
@@ -1731,8 +1749,9 @@ mod tests {
         // and miss the CSV. This drives the same state through both — the list
         // through `Table::load`, the export through `export_base_query` — and
         // compares the rows and their order.
-        use crate::resource::{OrderMode, Resource, SelectFilter, Sort, TableState, TextColumn};
         use std::collections::HashMap;
+
+        use crate::resource::{OrderMode, Resource, SelectFilter, Sort, TableState, TextColumn};
 
         #[derive(Debug, Clone, toasty::Model)]
         struct Task {
@@ -1861,8 +1880,9 @@ mod tests {
         // GH #172 decision 2: the MAX_EXPORT_ROWS cap stays as the backstop
         // above streaming — decided by the pre-body visibility scan, so the
         // 413 carries no partial CSV.
-        use crate::resource::Resource;
         use std::collections::HashMap;
+
+        use crate::resource::Resource;
 
         struct CappedResource;
         impl Resource for CappedResource {
@@ -2017,8 +2037,9 @@ mod tests {
     async fn composite_pk_edit_fails_loudly_not_404() {
         // GH #95: a composite-PK resource is a programming error the URL
         // scheme cannot serve — 500 with a message, never per-id 404s.
-        use crate::resource::Resource;
         use std::collections::HashMap;
+
+        use crate::resource::Resource;
 
         #[derive(Debug, Clone, toasty::Model)]
         struct Pair {
@@ -2088,8 +2109,9 @@ mod tests {
     async fn options_endpoint_searches_and_gates() {
         // GH #150: `GET {parent}/options?field=&q=` narrows server-side,
         // allow-lists to searchable relationship selects, and mirrors gates.
-        use crate::resource::Resource;
         use http_body_util::BodyExt;
+
+        use crate::resource::Resource;
 
         #[derive(Debug, toasty::Model, Clone)]
         struct OptAuthor {
@@ -2238,8 +2260,9 @@ mod tests {
     async fn options_endpoint_rejects_non_searchable_and_overflows() {
         // GH #150 D5/D6: non-searchable selects never serve search (400);
         // filtered overflow answers 200 with the keep-typing hint.
-        use crate::resource::Resource;
         use http_body_util::BodyExt;
+
+        use crate::resource::Resource;
 
         #[derive(Debug, toasty::Model, Clone)]
         struct BigA {

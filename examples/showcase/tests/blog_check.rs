@@ -7,8 +7,10 @@
 //! the control: the same router still gates `/admin`, so a 200 on `/blog` is the
 //! blog being public rather than the gate being off.
 
-use showcase::app::router_for_tests as router;
-use showcase::models::{Author, DEMO_TENANT, Media, Post, PostStats, Publication, Seo};
+use showcase::{
+    app::router_for_tests as router,
+    models::{Author, DEMO_TENANT, Media, Post, PostStats, Publication, Seo},
+};
 
 use crate::common::{TestClient, body_string, demo_client, empty_schema_db, full_db};
 

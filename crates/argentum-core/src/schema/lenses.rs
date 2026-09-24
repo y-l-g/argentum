@@ -163,17 +163,14 @@ impl<'a> FieldResolver<'a> {
     ///
     /// Two sources, each authoritative for one thing:
     ///
-    /// - the **app schema** drives the traversal, because it is the only side
-    ///   that knows a field is a `#[document]` — a *primitive* whose storage is
-    ///   a model, so its inner fields collapse into the one column named after
-    ///   it, and a path through one has steps left over on arrival;
-    /// - the **compiled mapping** names the column. `Db::schema().mapping`
-    ///   records, per model, which column every field resolves to — flattened
-    ///   embedded structs, enum discriminant and payload columns, shared
-    ///   columns, and a document's single column alike — so this reads the name
-    ///   off `db::Table` rather than re-deriving Toasty's naming rules. An
-    ///   earlier revision accumulated names from `app::Field.name` and had to
-    ///   encode those rules itself.
+    /// - the **app schema** drives the traversal, because it is the only side that knows a field is
+    ///   a `#[document]` — a *primitive* whose storage is a model, so its inner fields collapse
+    ///   into the one column named after it, and a path through one has steps left over on arrival;
+    /// - the **compiled mapping** names the column. `Db::schema().mapping` records, per model,
+    ///   which column every field resolves to — flattened embedded structs, enum discriminant and
+    ///   payload columns, shared columns, and a document's single column alike — so this reads the
+    ///   name off `db::Table` rather than re-deriving Toasty's naming rules. An earlier revision
+    ///   accumulated names from `app::Field.name` and had to encode those rules itself.
     ///
     /// Probed against the pinned rev the two agree for every reachable shape,
     /// including the cases that are easy to get wrong: `#[shared(..)]` payloads
@@ -184,10 +181,9 @@ impl<'a> FieldResolver<'a> {
     /// Two roots reach here:
     ///
     /// - a **model** root, for a plain path (`seo.title`);
-    /// - a **variant** root, for an enum payload accessor
-    ///   (`media.video().poster().url()`): the generated accessor rebases onto
-    ///   the variant, so the root carries the parent path *to the enum field*
-    ///   while the projection's steps are **variant-local**.
+    /// - a **variant** root, for an enum payload accessor (`media.video().poster().url()`): the
+    ///   generated accessor rebases onto the variant, so the root carries the parent path *to the
+    ///   enum field* while the projection's steps are **variant-local**.
     ///
     /// Only embedded steps are followed. A relation hop yields `None`: this
     /// exists for embedded binding (GH #185), and binding anything else here
@@ -716,9 +712,10 @@ pub(crate) fn capitalize(s: &str) -> String {
 #[cfg(test)]
 mod tests {
 
-    use super::*;
     use toasty::schema::Model;
     use topcoat::context::CxTestBuilder;
+
+    use super::*;
 
     #[derive(Debug, toasty::Model)]
     struct DummyUser {

@@ -8,9 +8,7 @@
 //! nothing after them, so this module is deliberately small: a trait, the app
 //! context value that carries it, and the call that runs it.
 
-use std::collections::HashMap;
-use std::future::Future;
-use std::pin::Pin;
+use std::{collections::HashMap, future::Future, pin::Pin};
 
 use topcoat::context::{Cx, try_app_context};
 

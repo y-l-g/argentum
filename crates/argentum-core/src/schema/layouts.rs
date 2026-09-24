@@ -9,8 +9,10 @@ use argentum_ui::{
 };
 use topcoat::{Result, context::Cx, view::*};
 
-use super::Schema;
-use super::tree::{IntoSchema, Mode, RenderSource};
+use super::{
+    Schema,
+    tree::{IntoSchema, Mode, RenderSource},
+};
 
 /// Section — titled container with an optional child `Schema`.
 ///
@@ -447,9 +449,8 @@ mod tests {
 
     use topcoat::context::{Cx, CxTestBuilder};
 
-    use crate::schema::{Schema, TextInput};
-
     use super::*;
+    use crate::schema::{Schema, TextInput};
 
     fn cx() -> Cx {
         CxTestBuilder::new().build()

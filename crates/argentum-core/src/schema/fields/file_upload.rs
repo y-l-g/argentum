@@ -4,10 +4,14 @@ use argentum_ui::{
 };
 use topcoat::{Result, context::Cx, view::*};
 
-use super::super::lenses::{lens_field, lens_label};
-use super::super::tree::Mode;
-use super::super::validation::Rules;
-use super::{ValueKind, render_value, render_value_view};
+use super::{
+    super::{
+        lenses::{lens_field, lens_label},
+        tree::Mode,
+        validation::Rules,
+    },
+    ValueKind, render_value, render_value_view,
+};
 
 /// FileUpload field — stores a String path with file input handling.
 ///
@@ -274,10 +278,11 @@ mod tests {
 
     use topcoat::context::Cx;
 
+    use super::{
+        super::test_support::{attributes_of, cx, opening_tag_at, tag_with},
+        *,
+    };
     use crate::schema::Schema;
-
-    use super::super::test_support::{attributes_of, cx, opening_tag_at, tag_with};
-    use super::*;
 
     #[tokio::test]
     async fn file_upload_renders_without_value_attr() {

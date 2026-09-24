@@ -6,8 +6,10 @@
 //! where it lands rather than in each deployment's proxy config.
 
 use http::header;
-use topcoat::context::Cx;
-use topcoat::router::{Body, Layer, LayerFuture, Next, Path, response::Response};
+use topcoat::{
+    context::Cx,
+    router::{Body, Layer, LayerFuture, Next, Path, response::Response},
+};
 
 /// Response header carrying the policy.
 const CSP: header::HeaderName = header::CONTENT_SECURITY_POLICY;

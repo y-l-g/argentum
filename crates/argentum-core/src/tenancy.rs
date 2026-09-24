@@ -117,8 +117,9 @@ pub(crate) fn derived_tenant_filter<M: toasty::schema::Model>(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use topcoat::context::CxTestBuilder;
+
+    use super::*;
 
     fn cx_with_header(value: &str) -> Cx {
         let mut parts = http::Request::builder()

@@ -102,14 +102,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      # The workspace check runs on nightly: rustfmt.toml's keys are
+      # nightly-only (GH #269) and stable rustfmt ignores them with a warning.
+      # The default toolchain stays stable so the detached-bench `cargo fmt`
+      # steps below and the topcoat-cli build keep running on it.
       - run: rustup update stable && rustup default stable
+      - run: rustup toolchain install nightly --profile minimal --component rustfmt
       - uses: Swatinem/rust-cache@v2
-      # Explicit `-p` list: deterministic and independent of what cargo has
-      # checked out; `cargo fmt` only ever touches workspace members, so the
-      # detached benches (workspace `exclude`) get their own checks below.
-      - run: >-
-          cargo fmt -p argentum-core -p argentum-macros -p argentum-ui
-          -p showcase -p xtask -- --check
+      # `fmt --all` covers every workspace member; the detached benches
+      # (workspace `exclude`) keep their own stable checks below.
+      - run: cargo +nightly fmt --all -- --check
       # The detached benches have their own workspaces/lockfiles (GH #175):
       # check each in its own directory.
       - name: fmt detached benches
@@ -134,6 +136,18 @@ jobs:
         run: |
           topcoat fmt
           git diff --exit-code
+
+  udeps:
+    name: udeps
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: rustup update nightly && rustup default nightly
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo install cargo-udeps --locked
+      # Unused-dependency guard (GH #271). `--all-features` keeps a dependency
+      # that only a non-default feature pulls in from looking unused.
+      - run: cargo +nightly udeps --workspace --all-targets --all-features --locked
 
   bench-check:
     name: bench-check

@@ -8,9 +8,11 @@
 //! the file input with no script at all.
 
 use http_body_util::BodyExt;
-use showcase::app::router_with_app_uploads;
-use showcase::media::{KIND_FILE, KIND_IMAGE, MEDIA_PATH, MediaOwner, OWNER_POST, media_for_owner};
-use showcase::models::{DEMO_TENANT, MediaAsset, Post, User};
+use showcase::{
+    app::router_with_app_uploads,
+    media::{KIND_FILE, KIND_IMAGE, MEDIA_PATH, MediaOwner, OWNER_POST, media_for_owner},
+    models::{DEMO_TENANT, MediaAsset, Post, User},
+};
 use topcoat::router::{Body, Router};
 
 use crate::common::{TestClient, body_string, demo_client, full_db, tenantless_client};

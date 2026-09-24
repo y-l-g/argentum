@@ -6,18 +6,21 @@
 //! sanitized basename is still the stored value, so installing the seam is
 //! additive for every app that never installs one.
 
-use std::collections::HashMap;
-use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::{
+    collections::HashMap,
+    path::PathBuf,
+    sync::{Arc, Mutex},
+};
 
 use argentum_core::{
     Auth, FileUpload, Panel, Resource, Schema, Table, TextColumn, TextInput, Uploader,
 };
 use http::header::{CONTENT_TYPE, COOKIE, LOCATION};
 use toasty::Db;
-use topcoat::context::Cx;
-use topcoat::router::response::Response;
-use topcoat::router::{Body, Router};
+use topcoat::{
+    context::Cx,
+    router::{Body, Router, response::Response},
+};
 use uuid::Uuid;
 
 /// A document with one required and one optional upload: the two ends of the

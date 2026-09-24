@@ -11,17 +11,18 @@ use argentum_ui::{
     pagination, pagination_content, pagination_item, pagination_next, pagination_previous, table,
     table_body, table_cell, table_head, table_header, table_row,
 };
-use topcoat::context::Cx;
-use topcoat::icon::icon;
-use topcoat::runtime::Event;
-use topcoat::{Result, view::*};
+use topcoat::{Result, context::Cx, icon::icon, runtime::Event, view::*};
 
-use super::super::filter::Filter;
-use super::super::state::{
-    TablePage, TableSignals, TableState, bulk_delete_url, delete_action_url, group_header_dom_id,
-    row_dom_id, row_edit_url, row_view_url,
+use super::{
+    super::{
+        filter::Filter,
+        state::{
+            TablePage, TableSignals, TableState, bulk_delete_url, delete_action_url,
+            group_header_dom_id, row_dom_id, row_edit_url, row_view_url,
+        },
+    },
+    GroupKey, NormalizedState, RowActions, RowKey, Table,
 };
-use super::{GroupKey, NormalizedState, RowActions, RowKey, Table};
 
 /// Keystroke-quiet delay before a live search input reloads the table
 /// (GH #172, ~150-250ms): `assets/live-search.js` waits this long after the
@@ -2044,12 +2045,14 @@ struct GroupHeader {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
+    use topcoat::context::CxTestBuilder;
+
     use super::*;
     use crate::resource::{
         ColumnWidth, DateFilter, SelectFilter, Sort, TernaryFilter, TextColumn, VariantFilter,
     };
-    use std::collections::HashMap;
-    use topcoat::context::CxTestBuilder;
 
     #[derive(Debug, Clone, toasty::Model)]
     struct User {

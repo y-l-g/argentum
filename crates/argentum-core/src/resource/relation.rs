@@ -13,8 +13,10 @@
 //! drops, and the borrow checker says so if it is not.
 
 use argentum_ui::{table, table_body, table_cell, table_head, table_header, table_row};
-use topcoat::context::Cx;
-use topcoat::view::{BoxView, ViewExt, view};
+use topcoat::{
+    context::Cx,
+    view::{BoxView, ViewExt, view},
+};
 
 /// One column of a relation's read-only table (GH #187).
 ///
@@ -29,10 +31,10 @@ pub struct RelationColumn<R> {
 impl<R> RelationColumn<R> {
     /// Declare a column by label and projection.
     ///
-    /// Named for the shape it is, as [`TextColumn::computed`](crate::resource::TextColumn::computed)
-    /// is on the list's side: a relation column has no lens to bind, because the
-    /// related rows arrive as values rather than as a query. What a column *is*
-    /// is its projection.
+    /// Named for the shape it is, as
+    /// [`TextColumn::computed`](crate::resource::TextColumn::computed) is on the list's side: a
+    /// relation column has no lens to bind, because the related rows arrive as values rather
+    /// than as a query. What a column *is* is its projection.
     pub fn computed(
         label: impl Into<String>,
         display: impl Fn(&R) -> String + Send + Sync + 'static,

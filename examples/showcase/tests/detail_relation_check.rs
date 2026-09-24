@@ -155,6 +155,7 @@ async fn count_statements_once(client: &TestClient<'_>, path: &str) -> usize {
     }
 
     use std::sync::atomic::{AtomicUsize, Ordering};
+
     use tracing_subscriber::layer::{Layer, SubscriberExt};
 
     struct SqlCounter(Arc<AtomicUsize>);
@@ -235,8 +236,7 @@ async fn the_relation_issues_no_query_of_its_own() {
 async fn a_page_whose_query_skipped_the_include_says_so() {
     use argentum_core::Resource;
     use showcase::app::PostResource;
-    use topcoat::context::CxTestBuilder;
-    use topcoat::view::ViewExt;
+    use topcoat::{context::CxTestBuilder, view::ViewExt};
 
     let db = full_db().await;
     let cx = CxTestBuilder::new().app_context(db.clone()).build();

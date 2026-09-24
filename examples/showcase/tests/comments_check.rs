@@ -165,11 +165,11 @@ async fn comments_create_valid_redirects_and_creates() {
 /// post.
 #[tokio::test]
 async fn comment_writes_recheck_the_parent_post_tenant_inside_the_transaction() {
+    use std::collections::HashMap;
+
     use argentum_core::{Resource, Tenant, db::db as db_handle, scoped_query};
     use showcase::app::{CommentResource, PostResource};
-    use std::collections::HashMap;
-    use topcoat::context::CxTestBuilder;
-    use topcoat::router::response::IntoResponse;
+    use topcoat::{context::CxTestBuilder, router::response::IntoResponse};
 
     let (db, t1, t2) = tenanted_db().await;
     let cx = CxTestBuilder::new()
