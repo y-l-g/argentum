@@ -35,7 +35,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-a56bad97.js";
+            window.path_to_searchindex_js = "searchindex-2e3c8909.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-da1679ae.js"></script>
@@ -265,7 +265,9 @@ changed past the cap).</p>
 <code>enctype="multipart/form-data"</code> when a form has one, a 10 MiB body cap (413), a 400 for multipart
 without a boundary, and sanitized basenames (<code>.</code> / <code>..</code> / Windows reserved names surface as inline
 errors). On an edit the control drops native <code>required</code> (GH #184) — a <code>required</code> file input cannot
-be pre-filled, so it blocked every untouched save; <code>required</code> still holds on create.</p>
+be pre-filled, so it blocked every untouched save; <code>required</code> still holds on create. A value reaches
+the field only from a file part, from the record on an untouched edit, or as empty on
+<code>clear_&lt;field&gt;</code>; text typed under the field’s name is dropped (GH #277).</p>
 </li>
 <li>
 <p><strong>Where the bytes go is the app’s</strong> (GH #188, ADR-0017): install an <code>Uploader</code> once with
@@ -275,8 +277,10 @@ inline error (<code>"&lt;Label&gt; could not be uploaded: &lt;reason&gt;"</code>
 the sanitized basename is stored — the default — and the bytes are drained rather than buffered.</p>
 </li>
 <li>
-<p>The stored path renders as a link to the file, on the edit form and on the detail page (GH #242):
-the framework reads no extension and renders what the app stored, inventing no URL convention.
+<p>The stored path renders as a link to the file, on the edit form and on the detail page (GH #242),
+only when it is a rooted path or an absolute <code>http(s)</code> URL (GH #277): the framework reads no
+extension and renders what the app stored, inventing no URL convention, and any other value — a
+bare basename, a <code>javascript:</code> scheme — renders as text rather than a clickable <code>href</code>.
 <code>Panel::serve_dir(path, dir)</code> mounts the directory an upload store writes to. A served directory is
 <strong>public</strong> (ADR-0017): its URLs answer whoever asks, with no session, because the auth gate covers
 only the panel prefix and <code>/_topcoat/runtime</code> (ADR-0013) and a served directory is mounted outside
