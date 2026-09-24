@@ -94,6 +94,10 @@ pub struct Panel {
     login_hint: Option<String>,
     #[cfg(feature = "auth")]
     auth: crate::auth::Auth,
+    /// `true` once the app acknowledged the feature-off build with
+    /// [`Panel::auth`]; [`Panel::build`] refuses the panel otherwise.
+    #[cfg(not(feature = "auth"))]
+    auth_disabled: bool,
 }
 /// Where the panel root redirects (the first declared resource's list).
 /// Lives on the `app_context` because page handlers are plain `fn` pointers
@@ -151,6 +155,8 @@ impl Panel {
             login_hint: None,
             #[cfg(feature = "auth")]
             auth: crate::auth::Auth::default(),
+            #[cfg(not(feature = "auth"))]
+            auth_disabled: false,
         }
     }
 
@@ -399,6 +405,15 @@ impl Panel {
         self
     }
 
+    /// Acknowledge that this build has no authentication (ADR-0013): with the
+    /// `auth` feature off, [`build`](Self::build) refuses a panel that has not
+    /// been handed [`Auth::disabled`](crate::Auth::disabled).
+    #[cfg(not(feature = "auth"))]
+    pub fn auth(mut self, _auth: crate::Auth) -> Self {
+        self.auth_disabled = true;
+        self
+    }
+
     /// A muted line rendered under the login form, for demo credentials or
     /// deployment hints (e.g. `"Demo: admin@example.com / password"`).
     #[cfg(feature = "auth")]
@@ -421,6 +436,11 @@ impl Panel {
     /// panel prefix, or `shell_assets` declared without `assets`. Configuring
     /// a panel wrong is a boot failure, not a request-time panic, so it comes
     /// back as an error the caller can log or exit on.
+    ///
+    /// With the `auth` feature off nothing authenticates requests, so a panel
+    /// that has not acknowledged that with
+    /// [`Panel::auth(Auth::disabled())`](Self::auth) is also an error
+    /// (ADR-0013).
     pub fn build(self) -> topcoat::Result<Router> {
         if !self.registration_errors.is_empty() {
             return Err(std::io::Error::other(format!(
@@ -457,6 +477,8 @@ impl Panel {
             login_hint,
             #[cfg(feature = "auth")]
             auth,
+            #[cfg(not(feature = "auth"))]
+            auth_disabled,
         } = self;
         let db = db.ok_or_else(|| {
             topcoat::Error::from(std::io::Error::other(
@@ -481,6 +503,18 @@ impl Panel {
                 ))
                 .into());
             }
+        }
+        // Auth compiled out (ADR-0013): `enforce_auth` is a no-op and no gate
+        // is installed, so a panel that reaches here would serve every page and
+        // mutation to anyone. The opt-out stays a line of app code.
+        #[cfg(not(feature = "auth"))]
+        if !auth_disabled {
+            return Err(std::io::Error::other(
+                "Panel::build: argentum-core is built without the `auth` feature, so nothing \
+                 authenticates requests; call `.auth(Auth::disabled())` to serve the panel \
+                 ungated, or enable the feature",
+            )
+            .into());
         }
         #[cfg(feature = "auth")]
         crate::auth::assert_models_registered(&db, &auth);
@@ -1021,6 +1055,7 @@ mod tests {
     /// The panel root answers the gate before reading `RootRedirect`
     /// (GH #146 defense in depth): a mis-mounted gate must not leak the
     /// first resource's slug via the redirect target.
+    #[cfg(feature = "auth")]
     #[tokio::test]
     async fn panel_root_redirect_rechecks_auth_before_the_root_target() {
         use topcoat::{context::CxTestBuilder, router::response::IntoResponse};
@@ -1100,6 +1135,165 @@ mod tests {
         assert!(
             format!("{error}").contains("requires a Db"),
             "the error must name the missing Db, got {error}"
+        );
+    }
+
+    /// The feature-off build has no gate, so it refuses a panel that has not
+    /// acknowledged that (ADR-0013): serving ungated stays a line of app code,
+    /// never a side effect of trimming dependencies.
+    #[cfg(not(feature = "auth"))]
+    #[tokio::test]
+    async fn build_refuses_an_unacknowledged_ungated_panel() {
+        use crate::resource::Resource;
+
+        #[derive(Debug, toasty::Model, Clone)]
+        struct Dummy {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            name: String,
+        }
+        struct DummyResource;
+        impl Resource for DummyResource {
+            type Model = Dummy;
+
+            fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
+                crate::resource::Table::r#for(cx)
+                    .id(|d: &Dummy| d.id.to_string())
+                    .columns(crate::resource::TextColumn::r#for(
+                        Dummy::fields().name(),
+                        |d: &Dummy| d.name.clone(),
+                    ))
+            }
+        }
+
+        let db = Db::builder()
+            .models(toasty::models!(Dummy))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        let Err(error) = Panel::new("admin")
+            .app_context(db)
+            .resource::<DummyResource>()
+            .build()
+        else {
+            panic!("an ungated panel must not build without the auth feature");
+        };
+        assert!(
+            format!("{error}").contains("auth"),
+            "the error must name the missing auth feature, got {error}"
+        );
+    }
+
+    /// The explicit opt-out is the acknowledgement `build` requires, so an app
+    /// that asks for an ungated panel gets one.
+    #[cfg(not(feature = "auth"))]
+    #[tokio::test]
+    async fn build_accepts_the_explicit_opt_out() {
+        use crate::resource::Resource;
+
+        #[derive(Debug, toasty::Model, Clone)]
+        struct Dummy {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            name: String,
+        }
+        struct DummyResource;
+        impl Resource for DummyResource {
+            type Model = Dummy;
+
+            fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
+                crate::resource::Table::r#for(cx)
+                    .id(|d: &Dummy| d.id.to_string())
+                    .columns(crate::resource::TextColumn::r#for(
+                        Dummy::fields().name(),
+                        |d: &Dummy| d.name.clone(),
+                    ))
+            }
+        }
+
+        let db = Db::builder()
+            .models(toasty::models!(Dummy))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        Panel::new("admin")
+            .app_context(db)
+            .resource::<DummyResource>()
+            .auth(crate::Auth::disabled())
+            .build()
+            .expect("the explicit opt-out builds the panel");
+    }
+
+    /// CSRF does not depend on the `auth` feature (GH #99): with the gate
+    /// compiled out, a create POST without a matching `csrf_token` is still
+    /// 403, so dropping sessions does not drop the double-submit check.
+    #[cfg(not(feature = "auth"))]
+    #[tokio::test]
+    async fn csrf_is_enforced_without_the_auth_feature() {
+        use crate::{
+            resource::Resource,
+            schema::{Schema, TextInput},
+        };
+
+        #[derive(Debug, toasty::Model, Clone)]
+        struct Dummy {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            name: String,
+        }
+        struct DummyResource;
+        impl Resource for DummyResource {
+            type Model = Dummy;
+
+            fn can_create(_cx: &Cx) -> bool {
+                true
+            }
+            fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
+                crate::resource::Table::r#for(cx)
+                    .id(|d: &Dummy| d.id.to_string())
+                    .columns(crate::resource::TextColumn::r#for(
+                        Dummy::fields().name(),
+                        |d: &Dummy| d.name.clone(),
+                    ))
+            }
+            fn form(_cx: &Cx) -> Schema {
+                Schema::new(TextInput::r#for(Dummy::fields().name()))
+            }
+        }
+
+        let db = Db::builder()
+            .models(toasty::models!(Dummy))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        let router = Panel::new("admin")
+            .app_context(db)
+            .resource::<DummyResource>()
+            .auth(crate::Auth::disabled())
+            .build()
+            .expect("the explicit opt-out builds the panel");
+
+        let response = router
+            .handle(
+                http::Request::builder()
+                    .method(http::Method::POST)
+                    .uri("/admin/dummies/create")
+                    .header(
+                        http::header::CONTENT_TYPE,
+                        "application/x-www-form-urlencoded",
+                    )
+                    .body(Body::from("name=Ada"))
+                    .unwrap(),
+            )
+            .await;
+        assert_eq!(
+            response.status(),
+            http::StatusCode::FORBIDDEN,
+            "a create POST with no csrf_token must fail closed"
         );
     }
 

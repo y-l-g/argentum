@@ -12,7 +12,7 @@ Run the gates covering the touched area before pushing, and all ten before mergi
 ```
 cargo test --workspace --locked
 cargo clippy --workspace --all-targets --locked -- -D warnings
-cargo check -p argentum-core --no-default-features --locked
+cargo test -p argentum-core --no-default-features --locked
 cargo +nightly fmt --all -- --check
 topcoat fmt && git diff --exit-code
 cargo check --locked --manifest-path benchmarks/argentum/Cargo.toml

@@ -19,6 +19,8 @@ pub mod __macro {
 // Tenancy, CSRF, and the `Db` glue.
 #[cfg(feature = "auth")]
 pub mod auth;
+#[cfg(not(feature = "auth"))]
+mod auth_off;
 pub mod csrf;
 pub mod cursor;
 pub mod db;
@@ -33,6 +35,8 @@ pub mod upload;
 pub use argentum_macros::EmbeddedForm;
 #[cfg(feature = "auth")]
 pub use auth::{Auth, Authenticator, CurrentUser, PasswordAuth};
+#[cfg(not(feature = "auth"))]
+pub use auth_off::Auth;
 pub use notification::{Notification, NotificationStatus};
 pub use panel::{Brand, DarkMode, Panel};
 pub use resource::{

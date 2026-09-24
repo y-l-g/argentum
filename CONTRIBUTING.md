@@ -39,7 +39,7 @@ and all ten before merging.
 
 1. `cargo test --workspace --locked`
 2. `cargo clippy --workspace --all-targets --locked -- -D warnings`
-3. `cargo check -p argentum-core --no-default-features --locked`
+3. `cargo test -p argentum-core --no-default-features --locked`
 4. `cargo +nightly fmt --all -- --check`
 5. `topcoat fmt`, then `git diff --exit-code`
 6. `cargo check --locked --manifest-path benchmarks/argentum/Cargo.toml`
@@ -48,10 +48,12 @@ and all ten before merging.
 9. `node --test crates/argentum-ui/assets/selects.test.js crates/argentum-ui/assets/bulk.test.js crates/argentum-ui/assets/dialog.test.js crates/argentum-ui/assets/mutation-submit.test.js examples/showcase/assets/media.test.js`
 10. `cargo +nightly udeps --workspace --all-targets --all-features --locked`
 
-Gate 3 keeps the opt-out auth feature compiling: `auth` is on by default in
-`argentum-core`, and `default-features = false` stays a working escape hatch
-(GH #129). Gate 8 is the MSRV floor declared in `Cargo.toml` (GH #175). Gate 10
-guards unused dependencies (GH #271); `--all-features` keeps a feature-gated
+Gate 3 keeps the opt-out auth feature compiling and its tests passing: `auth`
+is on by default in `argentum-core`, `default-features = false` stays a working
+escape hatch, and `Panel::build` refuses a panel that has not called
+`.auth(Auth::disabled())` (GH #129, GH #282). Gate 8 is the MSRV floor declared
+in `Cargo.toml` (GH #175). Gate 10 guards unused dependencies (GH #271);
+`--all-features` keeps a feature-gated
 dependency from looking unused. CI also
 runs `cargo fmt -- --check` inside each detached bench workspace and verifies
 that the two lockfiles pin identical `topcoat` and `toasty` revs.
