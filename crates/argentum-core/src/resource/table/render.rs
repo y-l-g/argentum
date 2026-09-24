@@ -112,9 +112,9 @@ impl<M> Table<M> {
 
     /// Render with explicit list state and path instead of reading them from
     /// `cx` — the seam a live-search shard needs (GH #74): shard requests hit
-    /// `POST /_topcoat/runtime/shards/...`, so `TableState::from_cx` would see
-    /// the endpoint URI, not the list page's `?q=/filters/sort`. Callers pass
-    /// the page's state (or shard args rebuilt via
+    /// the `table_search` shard's own endpoint, so `TableState::from_cx` would
+    /// see the endpoint URI, not the list page's `?q=/filters/sort`. Callers
+    /// pass the page's state (or shard args rebuilt via
     /// [`TableSignals::to_state`]) and the list URL explicitly.
     ///
     /// Normalizes the state it is handed (GH #153), so a page calling this

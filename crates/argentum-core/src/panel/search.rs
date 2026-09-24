@@ -156,7 +156,7 @@ fn search_entry(cx: &Cx, path: &str) -> Result<SearchFn> {
 mod shard_body {
     use super::*;
 
-    #[shard]
+    #[shard("/_topcoat/runtime/shards/argentum-table-search")]
     pub(crate) async fn table_search(
         cx: &Cx,
         path: String,
@@ -190,6 +190,20 @@ mod shard_body {
     }
 }
 pub(crate) use shard_body::table_search;
+
+/// The endpoint [`table_search`] is served at.
+///
+/// A shard that declares no path is served at a build-random one (topcoat#441);
+/// naming it keeps the endpoint stable across builds and legible in logs and
+/// tests. The `/argentum-` prefix separates it from a generated path, and the
+/// whole path stays under `/_topcoat/runtime`, so the panel's auth gate covers
+/// the shard and an unauthenticated rerun answers 401 rather than redirecting to
+/// the login page.
+///
+/// The literal in [`table_search`]'s attribute is the same path;
+/// `table_search_endpoint_is_the_named_path` pins the two together.
+#[cfg(test)]
+pub(crate) const TABLE_SEARCH_PATH: &str = "/_topcoat/runtime/shards/argentum-table-search";
 
 #[cfg(test)]
 mod tests {
@@ -381,12 +395,11 @@ mod tests {
                 sig(7, ""),
             )
         };
-        let shard = topcoat::runtime::Shard::id(&table_search);
         let response = router
             .handle(
                 http::Request::builder()
                     .method(http::Method::POST)
-                    .uri(format!("/_topcoat/runtime/shards/{}", shard.as_str()))
+                    .uri(TABLE_SEARCH_PATH)
                     .header(http::header::CONTENT_TYPE, "application/json")
                     .header(topcoat::router::request::IDENTITY_HEADER, "A".repeat(22))
                     .body(Body::from(format!(
@@ -440,7 +453,7 @@ mod tests {
             .handle(
                 http::Request::builder()
                     .method(http::Method::POST)
-                    .uri(format!("/_topcoat/runtime/shards/{}", shard.as_str()))
+                    .uri(TABLE_SEARCH_PATH)
                     .header(http::header::CONTENT_TYPE, "application/json")
                     .header(topcoat::router::request::IDENTITY_HEADER, "A".repeat(22))
                     .body(Body::from(format!(
@@ -559,10 +572,7 @@ mod tests {
             router.handle(
                 http::Request::builder()
                     .method(http::Method::POST)
-                    .uri(format!(
-                        "/_topcoat/runtime/shards/{}",
-                        topcoat::runtime::Shard::id(&table_search).as_str()
-                    ))
+                    .uri(TABLE_SEARCH_PATH)
                     .header(http::header::CONTENT_TYPE, "application/json")
                     .header(topcoat::router::request::IDENTITY_HEADER, "A".repeat(22))
                     .body(Body::from(format!(r#"{{"args":{args},"signals":{{}}}}"#)))
@@ -622,10 +632,7 @@ mod tests {
         );
         let request = http::Request::builder()
             .method(http::Method::POST)
-            .uri(format!(
-                "/_topcoat/runtime/shards/{}",
-                topcoat::runtime::Shard::id(&table_search).as_str()
-            ))
+            .uri(TABLE_SEARCH_PATH)
             .header(http::header::CONTENT_TYPE, "application/json")
             .header(topcoat::router::request::IDENTITY_HEADER, "A".repeat(22))
             .body(Body::from(format!(r#"{{"args":{args},"signals":{{}}}}"#)))
@@ -782,5 +789,14 @@ mod tests {
             http::StatusCode::FORBIDDEN,
             "a can_view_any denial must refuse the shard rerun"
         );
+    }
+
+    /// topcoat#441: the shard is served at the named path, so its endpoint is the
+    /// same in every build and the tests post to it by name.
+    #[test]
+    fn table_search_endpoint_is_the_named_path() {
+        use topcoat::router::Route as _;
+
+        assert_eq!(table_search.path().as_str(), TABLE_SEARCH_PATH);
     }
 }

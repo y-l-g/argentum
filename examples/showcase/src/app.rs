@@ -1,10 +1,11 @@
 use std::{collections::HashMap, path::PathBuf};
 
 use argentum_core::{
-    Brand, ColumnWidth, DateFilter, FileUpload, Grid, Group, IncludeNeeds, Panel, RelationColumn,
-    RelationColumns, Repeater, Resource, Schema, Section, Select, SelectFilter, Table, Tabs,
-    TernaryFilter, TextColumn, TextInput, Textarea, Uploader, VariantFilter, read_embedded,
-    render_relation, require_tenant, scoped_query, submitted, tenant_id, write_embedded,
+    Brand, ColumnWidth, Committed, DateFilter, FileUpload, Grid, Group, IncludeNeeds, Panel,
+    RelationColumn, RelationColumns, Repeater, Resource, Schema, Section, Select, SelectFilter,
+    Table, Tabs, TernaryFilter, TextColumn, TextInput, Textarea, Uploader, VariantFilter,
+    read_embedded, render_relation, require_tenant, scoped_query, submitted, tenant_id,
+    write_embedded,
 };
 use toasty::Db;
 use topcoat::{
@@ -131,6 +132,13 @@ impl Resource for UserResource {
             if record.active { "true" } else { "false" }.to_string(),
         );
         map
+    }
+
+    /// Wake the live feed after a committed write, so an open page re-reads the
+    /// users it shows.
+    async fn after_commit(_cx: &Cx, _committed: Committed<User>) -> Result<()> {
+        crate::live::notify();
+        Ok(())
     }
 
     async fn create_record(
