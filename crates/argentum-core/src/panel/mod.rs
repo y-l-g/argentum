@@ -191,10 +191,12 @@ impl Panel {
     /// whoever asks, with no session — an app that needs protected files owns
     /// that route itself (ADR-0017, GH #225).
     ///
-    /// Every response carries `nosniff`, a sandboxing
+    /// Every file the directory route serves carries `nosniff`, a sandboxing
     /// `Content-Security-Policy`, and `Content-Disposition: attachment` for
     /// anything but common raster images, audio/video and plain text, so an
-    /// uploaded document cannot run script on the panel's origin (GH #278).
+    /// uploaded document cannot run script on the panel's origin (GH #278). A
+    /// 404 or 405 keeps Topcoat's plain `text/plain` error response, which
+    /// carries no user content.
     ///
     /// The Panel owns the [`Router`], so this is the app's only way to mount a
     /// route the framework does not own.

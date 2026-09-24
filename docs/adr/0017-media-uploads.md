@@ -47,11 +47,12 @@ to be private is mounted behind the app's own gate, never assumed private from t
 `a_served_directory_is_reachable_without_a_session` in `crates/argentum-core/tests/uploads.rs` pins
 the anonymous case.
 
-**A served directory is public and inert** (GH #278): because it shares the panel's origin, every
-response carries `X-Content-Type-Options: nosniff` and a fixed sandboxing
+**A served directory is public and inert** (GH #278): because it shares the panel's origin, every file
+response the directory route serves carries `X-Content-Type-Options: nosniff` and a fixed sandboxing
 `Content-Security-Policy`, and `Content-Disposition: attachment` unless the `Content-Type` is a
 common raster image, audio/video or `text/plain` — an app that serves active documents mounts them on
-its own origin, since the policy is not configurable.
+its own origin, since the policy is not configurable. A 404 or 405 keeps Topcoat's plain
+`text/plain` error response, which carries no user content.
 
 Uploads run **before** the write transaction and outside it: an upload is a side effect in another
 system, and a rolled-back transaction must not have to undo it. A file stored for a form that then

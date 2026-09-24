@@ -9,7 +9,7 @@
 //! [`ServedFileHeaders`] on each one (GH #278): the files an app accepts from
 //! its users are inert, whatever their extension.
 
-use http::header;
+use http::{StatusCode, header};
 use topcoat::{
     context::Cx,
     router::{Body, Layer, LayerFuture, Next, Path, PathBuf, response::Response},
@@ -107,13 +107,19 @@ const INLINE_TYPES: &[&str] = &[
 ];
 
 /// Emits `X-Content-Type-Options: nosniff`, a fixed sandboxing
-/// `Content-Security-Policy` and `Content-Disposition: attachment` (GH #278).
+/// `Content-Security-Policy` and `Content-Disposition: attachment` on every file
+/// response the directory route serves (GH #278).
 ///
 /// A served directory shares the panel's origin (ADR-0017 makes it public by
 /// decision), and Topcoat derives `Content-Type` from the file extension, so a
 /// user who uploads an `.html` or `.svg` document otherwise runs script with the
 /// admin's session. The policy is fixed rather than configurable: an app that
-/// serves active documents mounts them on its own origin.
+/// serves active documents mounts them on its own origin. A disposition that
+/// already downloads is kept, so a route that names a file keeps its filename.
+///
+/// The directory route's own failures (404, 405) leave through `Err` and skip
+/// this layer; they render Topcoat's plain error response, which carries no file
+/// content.
 #[derive(Debug, Clone)]
 pub(crate) struct ServedFileHeaders {
     path: PathBuf,
@@ -145,19 +151,21 @@ impl Layer for ServedFileHeaders {
     }
 }
 
-/// Make one served file's response inert.
+/// Make one file response the directory route served inert.
 ///
-/// The policy overwrites whatever the directory route sent: a served file
-/// never needs a scriptable policy. `nosniff` and the policy apply to every
-/// response; only the disposition depends on the content type.
+/// The policy overwrites whatever the directory route sent: a served file never
+/// needs a scriptable policy. `nosniff` and the policy apply to every file
+/// response. The disposition depends on the content type, so it is skipped on a
+/// `304 Not Modified`, which carries no content type and no body to render.
 fn harden_served_file(response: &mut Response) {
+    let not_modified = response.status() == StatusCode::NOT_MODIFIED;
     let headers = response.headers_mut();
     headers.insert(
         header::X_CONTENT_TYPE_OPTIONS,
         header::HeaderValue::from_static("nosniff"),
     );
     headers.insert(CSP, header::HeaderValue::from_static(SERVED_FILE_CSP));
-    if is_inline(headers.get(header::CONTENT_TYPE)) {
+    if not_modified || is_inline(headers.get(header::CONTENT_TYPE)) {
         return;
     }
     let already_an_attachment = headers
@@ -347,14 +355,40 @@ mod tests {
     }
 
     #[test]
+    fn a_not_modified_response_carries_the_policy_and_no_disposition() {
+        // A 304 has no `Content-Type`, so the disposition rule cannot see what
+        // is being revalidated; an inline image must not flip to a download.
+        let mut response = file_response(None);
+        *response.status_mut() = StatusCode::NOT_MODIFIED;
+        harden_served_file(&mut response);
+        assert_eq!(
+            response
+                .headers()
+                .get(header::X_CONTENT_TYPE_OPTIONS)
+                .unwrap(),
+            "nosniff"
+        );
+        assert!(policy(&response).contains("sandbox"));
+        assert_eq!(disposition(&response), None);
+    }
+
+    #[test]
     fn an_existing_policy_is_overwritten() {
         // A served file never needs a scriptable policy, so unlike
-        // `FrameAncestors` this layer does not defer to what is there.
+        // `FrameAncestors` this layer does not defer to what is there. The
+        // literal is the directive the browser must receive: `frame-ancestors`
+        // is here because `FrameAncestors` skips a response that already has a
+        // policy (GH #216: comparing against the implementation constant would
+        // change both sides together).
         let mut response = file_response(Some("text/html"));
         response
             .headers_mut()
             .insert(CSP, header::HeaderValue::from_static("script-src *"));
         harden_served_file(&mut response);
-        assert_eq!(policy(&response), SERVED_FILE_CSP);
+        assert_eq!(
+            policy(&response),
+            "default-src 'none'; img-src 'self'; media-src 'self'; \
+             style-src 'unsafe-inline'; sandbox; frame-ancestors 'self'"
+        );
     }
 }

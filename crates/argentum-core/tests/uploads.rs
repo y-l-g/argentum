@@ -16,8 +16,8 @@ use argentum_core::{
     Auth, FileUpload, Panel, Resource, Schema, Table, TextColumn, TextInput, Uploader,
 };
 use http::header::{
-    CONTENT_DISPOSITION, CONTENT_SECURITY_POLICY, CONTENT_TYPE, COOKIE, LOCATION,
-    X_CONTENT_TYPE_OPTIONS,
+    CONTENT_DISPOSITION, CONTENT_SECURITY_POLICY, CONTENT_TYPE, COOKIE, IF_MODIFIED_SINCE,
+    LAST_MODIFIED, LOCATION, X_CONTENT_TYPE_OPTIONS,
 };
 use toasty::Db;
 use topcoat::{
@@ -304,6 +304,17 @@ async fn get(router: &Router, uri: &str) -> Response<Body> {
     router.handle(request).await
 }
 
+/// A GET that revalidates: the directory route answers `304` when the file has
+/// not changed since `since`.
+async fn get_if_modified_since(router: &Router, uri: &str, since: &str) -> Response<Body> {
+    let request = http::Request::builder()
+        .uri(uri)
+        .header(IF_MODIFIED_SINCE, since)
+        .body(Body::empty())
+        .expect("request builds");
+    router.handle(request).await
+}
+
 async fn body_bytes(response: Response<Body>) -> Vec<u8> {
     http_body_util::BodyExt::collect(response.into_body())
         .await
@@ -325,6 +336,12 @@ fn csp(response: &Response<Body>) -> &str {
         .to_str()
         .expect("the policy is ASCII")
 }
+
+/// The exact directive a served file must carry. Spelled out rather than read
+/// from the implementation constant: the `frame-ancestors` directive is the one
+/// `FrameAncestors` cannot supply for a response that already has a policy.
+const SERVED_FILE_POLICY: &str = "default-src 'none'; img-src 'self'; media-src 'self'; \
+     style-src 'unsafe-inline'; sandbox; frame-ancestors 'self'";
 
 /// A new CSRF token, paired with the cookie `post` sends.
 fn new_csrf() -> String {
@@ -780,8 +797,9 @@ async fn a_served_directory_is_reachable_without_a_session() {
 #[tokio::test]
 async fn served_active_content_is_inert() {
     // A served directory shares the panel's origin, so a document a user
-    // uploads must not run its script there (GH #278): every response is
-    // sniff-proof and sandboxed, and only the passive allow-list opens inline.
+    // uploads must not run its script there (GH #278): every file the directory
+    // route serves is sniff-proof and sandboxed, and only the passive
+    // allow-list opens inline.
     let db = seeded_db().await;
     let dir = temp_dir("serve-inert");
     std::fs::write(dir.join("cat.png"), b"PNG-FILE").expect("write upload");
@@ -807,14 +825,35 @@ async fn served_active_content_is_inert() {
         "nosniff",
         "a served file is never sniffed"
     );
-    assert!(
-        csp(&png).contains("sandbox"),
-        "a served file carries the sandbox policy: {}",
-        csp(&png)
+    assert_eq!(
+        csp(&png),
+        SERVED_FILE_POLICY,
+        "a served file carries the fixed sandboxing policy"
     );
     assert!(
         png.headers().get(CONTENT_DISPOSITION).is_none(),
         "a raster image opens inline"
+    );
+
+    // A revalidated file is still hardened, and the missing `Content-Type` of a
+    // 304 must not turn an inline image into a download.
+    let last_modified = png
+        .headers()
+        .get(LAST_MODIFIED)
+        .expect("a served file is dated")
+        .to_str()
+        .unwrap()
+        .to_string();
+    let revalidated = get_if_modified_since(&router, "/uploads/cat.png", &last_modified).await;
+    assert_eq!(revalidated.status(), 304, "the file did not change");
+    assert_eq!(
+        revalidated.headers().get(X_CONTENT_TYPE_OPTIONS).unwrap(),
+        "nosniff"
+    );
+    assert_eq!(csp(&revalidated), SERVED_FILE_POLICY);
+    assert!(
+        revalidated.headers().get(CONTENT_DISPOSITION).is_none(),
+        "a 304 has nothing to download"
     );
 
     for path in ["/uploads/evil.svg", "/uploads/evil.html"] {
@@ -825,10 +864,10 @@ async fn served_active_content_is_inert() {
             "nosniff",
             "{path} is never sniffed"
         );
-        assert!(
-            csp(&response).contains("sandbox"),
-            "{path} carries the sandbox policy: {}",
-            csp(&response)
+        assert_eq!(
+            csp(&response),
+            SERVED_FILE_POLICY,
+            "{path} carries the fixed sandboxing policy"
         );
         let disposition = response
             .headers()
