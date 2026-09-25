@@ -1,7 +1,7 @@
 <!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Argentum — a server-rendered admin toolkit on Topcoat and Toasty."><title>argentum_core - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../static.files/rustdoc-1ed95124.css"><meta name="rustdoc-vars" data-root-path="../" data-static-root-path="../static.files/" data-current-crate="argentum_core" data-themes="" data-resource-suffix="" data-rustdoc-version="1.98.1 (48a229cea 2026-09-01)" data-channel="1.98.1" data-search-js="search-9944d736.js" data-stringdex-js="stringdex-2da4960a.js" data-settings-js="settings-170eb4bf.js" ><script src="../static.files/storage-41dd4d93.js"></script><script defer src="../crates.js"></script><script defer src="../static.files/main-417ebf0a.js"></script><noscript><link rel="stylesheet" href="../static.files/noscript-f7c3ffd8.css"></noscript><link rel="alternate icon" type="image/png" href="../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../static.files/favicon-044be391.svg"></head><body class="rustdoc mod crate"><a class="skip-main-content" href="#main-content">Skip to main content</a><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><rustdoc-topbar><h2><a href="#">Crate argentum_core</a></h2></rustdoc-topbar><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../argentum_core/index.html">argentum_<wbr>core</a><span class="version">0.1.0</span></h2></div><div class="sidebar-elems"><ul class="block"><li><a id="all-types" href="all.html">All Items</a></li></ul><section id="rustdoc-toc"><h3><a href="#">Sections</a></h3><ul class="block top-toc"><li><a href="#argentum" title="Argentum">Argentum</a><ul><li><a href="#language" title="Language">Language</a></li></ul></li></ul><h3><a href="#reexports">Crate Items</a></h3><ul class="block"><li><a href="#reexports" title="Re-exports">Re-exports</a></li><li><a href="#modules" title="Modules">Modules</a></li><li><a href="#derives" title="Derive Macros">Derive Macros</a></li></ul></section><div id="rustdoc-modnav"></div></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><div class="width-limiter"><section id="main-content" class="content" tabindex="-1"><div class="main-heading"><h1>Crate <span>argentum_<wbr>core</span>&nbsp;<button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../src/argentum_core/lib.rs.html#1-56">Source</a> </span></div><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Argentum — a server-rendered admin toolkit on Topcoat and Toasty.</p>
 <p>This crate holds the toolkit’s foundation: the <a href="resource/trait.Resource.html" title="trait argentum_core::resource::Resource"><code>Resource</code></a> trait and the
 types that compose an admin UI (Panel, Table, Schema, Action). See the
-workspace README and <code>CONTEXT.md</code> for the vocabulary and the roadmap.</p>
+workspace README and <code>CONTEXT.md</code> for the vocabulary.</p>
 <h2 id="argentum"><a class="doc-anchor" href="#argentum">§</a>Argentum</h2>
 <p>Admin toolkit for Rust — server-rendered on Topcoat, persisted with Toasty. Provides the CRUD
 core of Filament (Panel + Resource → Table + Schema, deletes via Resource record fns) with no
@@ -45,56 +45,40 @@ cookie (<code>__Host-</code>, HttpOnly, Secure, SameSite=Lax). Seven-day fixed l
 deleted on logout, revocable per user; the raw token is never stored.</p>
 <p><em>Avoid</em>: Token (the client half), SessionStore, Login, Cookie</p>
 <h4 id="resource"><a class="doc-anchor" href="#resource">§</a>Resource</h4>
-<p>A type that maps one Toasty Model to its admin UI. Defines the base query — and the export’s
-narrowed half of it, <code>export_query</code>, which defaults to the base query unchanged (GH #177) — the
-tenant declaration (<code>requires_tenant</code> gates every handler; <code>tenant_scope</code> supplies the predicate
-the framework ANDs on, derived from the model’s <code>tenant_id</code> by default and declared by the
-resource when its rows inherit their tenant, GH #223; a gated resource that supplies neither is
-refused at <code>Panel::build</code>, GH #231), the table, the form, the record’s string projection for
-edit/view hydration (<code>hydrate_form_values(cx, record)</code>), the view (GH #187), navigation entry, and
-policy — the <code>can_*</code> predicates, which the panel applies per record to the list’s action chrome
-through the table’s row policy (GH #235). One Model → one Resource; its routes
-(list/create/view/edit/delete) come from the Panel
-registration, not a <code>pages()</code> declaration. A resource that declares no <code>view</code> has no detail page:
-<code>viewed()</code> is derived from the schema, not declared beside it, so the route’s answer and the row’s
-<code>View</code> link cannot disagree.</p>
+<p>A type that maps one Toasty Model to its admin UI: the base query, the table, the form, the
+record’s string projection for edit/view hydration (<code>hydrate_form_values(cx, record)</code>), the
+view (GH #187), the navigation entry, and the policy (<code>can_*</code> predicates). One Model → one
+Resource; its routes (list/create/view/edit/delete) come from the Panel registration, not a
+<code>pages()</code> declaration. A resource that declares no <code>view</code> has no detail page: <code>viewed()</code> is
+derived from the schema, so the route and the row’s <code>View</code> link cannot disagree. Tenancy,
+export scoping, and row chrome are covered in the guide; see
+<a href="docs/guide/src/resources.md">resources</a> and
+<a href="docs/guide/src/policy-auth-tenancy.md">policy, auth, tenancy</a>.</p>
 <p><em>Avoid</em>: Model, Entity, Collection, AdminModel, CRUD</p>
 <h4 id="schema"><a class="doc-anchor" href="#schema">§</a>Schema</h4>
 <p>The unified layout primitive for forms, infolists, and detail pages (GH #187, ADR-0016): one
 declaration read two ways — <code>render_with</code> gives controls, <code>render_readonly</code> gives the record’s
 stored values under the same labels and layout. A composition of layout blocks (Section, Group,
-Grid, Tabs) and typed fields (TextInput, Textarea, Select, FileUpload, Repeater) bound via field
-lenses to a Model. Textarea is TextInput’s multi-line sibling: the same lens, the same required
-default and error contract, a <code>&lt;textarea&gt;</code> control instead — and deliberately no <code>unique()</code>, since
-the app-side pre-check builds its probe from <code>TextInput</code> (GH #184, GH #115).</p>
+Grid, Tabs) and typed fields bound via field lenses to a Model. See
+<a href="docs/guide/src/forms.md">forms</a> and <a href="docs/guide/src/detail-pages.md">detail pages</a>.</p>
 <p><em>Avoid</em>: Form, Infolist, Fieldset (as top-level term), statePath</p>
 <h4 id="table"><a class="doc-anchor" href="#table">§</a>Table</h4>
 <p>The declarative description of a list view. Declares columns, filters, search, sort, pagination,
 and row/bulk actions. It also declares how to query — searchable and filterable columns produce
 Toasty predicates, sortable columns map to order_by. Owns the row loop: row identity is mandatory
-and typed, declared once via the table’s row-key closure (<code>Table::id(|u| u.id.to_string())</code>) until
-Toasty exposes instance→PK extraction, and render errors without it — never a loop index. Identity
-is two projections: the <code>Table::id</code> display key (keyed diffs, DOM ids) and the <code>Table::pk</code> record
-key (edit/delete URLs, bulk checkbox values), resolved by handlers as the typed PK — action chrome
-without <code>pk</code> is a render error, not a silent 404 (GH #168).</p>
-<p>Row chrome is gated twice. The <code>with_*</code> prefixes decide which affordances the table declares at all,
-and <code>TableChrome</code> is the whole-resource declaration behind them (GH #226); the table’s <strong>row
-policy</strong> (<code>Table::row_actions</code>) decides which of them each loaded record may use (GH #235). The
-panel wires the policy from the resource’s <code>can_view</code>/<code>can_update</code>/<code>can_delete</code>, each action paired
-with the predicates its route checks (GH #86, GH #168), so a refused row renders no Edit/Delete link
-and a <strong>disabled</strong> bulk checkbox labelled with the reason. A table that declares no policy renders
-every wired action (<code>RowActions::ALL</code>), and a table with no chrome never consults one — the
-whole-resource gate is unchanged. The handler’s all-or-nothing check stays as the safety net for a
-hand-crafted POST, which is why a denied row must never reach the selection transport.</p>
+and typed, declared once via the table’s row-key closure (<code>Table::id(|u| u.id.to_string())</code>)
+until Toasty exposes instance→PK extraction, and render errors without it — never a loop index.
+Identity is two projections: the <code>Table::id</code> display key (keyed diffs, DOM ids) and the
+<code>Table::pk</code> record key (edit/delete URLs, bulk checkbox values), resolved by handlers as the
+typed PK — action chrome without <code>pk</code> is a render error, not a silent 404 (GH #168).</p>
+<p>Row chrome is opt-in per resource (<code>TableChrome</code>, GH #226) and gated per record by the table’s
+<strong>row policy</strong> (<code>Table::row_actions</code>, GH #235), which the panel wires from the resource’s
+<code>can_view</code>/<code>can_update</code>/<code>can_delete</code>: a refused row renders no link, and a delete-refused row a
+<strong>disabled</strong> bulk checkbox labelled with the reason. The handler’s all-or-nothing check stays as
+the safety net for a hand-crafted POST.</p>
 <p>A <code>live_search(true)</code> table hands its chrome to the page’s <code>TableSignals</code>: the shard’s tracked
 reads re-render the table in place when search, sort, filters, or pagination write a signal
-(GH #151). Grouping rides the same signal set, seeded from the page-load <code>?group_by=</code> and changed
-via navigation until a live control exists (GH #157). A page can own the same seam directly —
-create the <code>TableSignals</code>, render the live toolbar, and let its own shard load through <code>Table::load</code>
-and re-render with <code>Table::render_live_with_state</code> — which is how the showcase table demos stay
-live without being resources (GH #154 §2). A live render also carries a refresh control: a
-confirmed delete writes it and the shard re-runs, so the table reflects the write without a
-navigation (GH #234, ADR-0020).</p>
+(GH #151). See <a href="docs/guide/src/tables.md">tables</a> and ADR-0003.</p>
 <p><em>Avoid</em>: Grid, Listing, DataTable</p>
 <p><em>Documented exception</em>: <code>Grid</code> is also a shipped <strong>Schema layout block</strong> — <code>Grid::new(2)</code>, a column
 container for forms and detail pages (ADR-0016). It is a different artifact from the list view, and
@@ -104,12 +88,9 @@ comments and locals.</p>
 <p>A typed projection of a Model field (or a computed value) displayed in a Table row, rendered
 through a lens-bound closure where typos fail at compile time. <code>searchable</code>/<code>sortable</code> map to
 Toasty predicates and order_by; computed columns render values but declare none. A column whose
-projection reads a relation declares it with <code>needs(..)</code>, and the CSV export’s narrowed query is
-built from those declarations (GH #177, ADR-0018). A column declares its width in the table’s
-fixed layout with <code>width(ColumnWidth::..)</code>; widths are shares of the table, and the default follows
-the column’s kind: a field column declares none and takes what the declared columns leave, a
-computed column claims a share (GH #240). <code>TextColumn</code> is the only column type; Badge,
-Number and the rest remain spec-level.</p>
+projection reads a relation declares it with <code>needs(..)</code> (GH #177, ADR-0018). A column declares
+its width with <code>width(ColumnWidth::..)</code>; see <a href="docs/guide/src/tables.md">tables</a> (GH #240).
+<code>TextColumn</code> is the only column type; Badge, Number and the rest remain spec-level.</p>
 <p><em>Avoid</em>: Field (in table context), Cell, Attribute</p>
 <h4 id="detail-page"><a class="doc-anchor" href="#detail-page">§</a>Detail page</h4>
 <p><code>GET {prefix}/{slug}/{id}</code> (GH #187): one record in two halves — <code>Resource::view</code>’s Schema,
@@ -122,74 +103,47 @@ record the caller may not view is a 403.</p>
 <h4 id="action"><a class="doc-anchor" href="#action">§</a>Action</h4>
 <p>A user-invoked delete/create/edit operation driven by a <code>Resource</code> record fn (<code>delete_record</code> /
 <code>bulk_delete_records</code> / <code>create_record</code> / <code>update_record</code>) through a POST handler, inside a
-transaction, with authorization checked against the passed record inside the handler. The four
-kinds are the mutation vocabulary, and they exist as one value — <code>Mutation::Create/Update/Delete</code> —
-which is what a <code>Committed</code> carries to <code>after_commit</code>. <strong>Not</strong> an operation <em>type</em>: a non-CRUD
-operation (publish, archive) is still modelled as a record fn or a hand-written page, and an
-<code>Action</code> value with its own before/after hooks remains future work (GH #112).</p>
+transaction, with authorization checked against the passed record inside the handler (ADR-0004).
+A non-CRUD operation (publish, archive) is still modelled as a record fn or a hand-written page;
+an <code>Action</code> value with its own before/after hooks remains future work (GH #112).</p>
 <p><em>Avoid</em>: Command, Mutation, Operation, Modal</p>
 <h4 id="committed"><a class="doc-anchor" href="#committed">§</a>Committed</h4>
-<p>What one successful mutation wrote, handed to <code>Resource::after_commit</code> (GH #112): the mutation kind
-plus the rows it wrote — the row a create returned, the row an update returned (the committed
-state, reloaded by the instance update), the rows a delete or bulk delete removed (gone by the time
-the hook sees them, so they arrive as they were). Built by the framework, never by an app. One
-<code>Committed</code> per write, so a bulk delete is a single value however many rows it took. The hook runs
-after <code>tx.commit()</code> and before the response, which is the only place a side effect that must not
-survive a rollback belongs; a failed hook is logged and never rolls the write back, and a write
-that did not commit never produces a <code>Committed</code> at all.</p>
+<p>What one successful mutation wrote, handed to <code>Resource::after_commit</code> (GH #112, ADR-0004):
+the mutation kind plus the rows it wrote — the row a create or update returned, the rows a
+delete or bulk delete removed (gone by the time the hook sees them, so they arrive as they
+were). One <code>Committed</code> per write. The hook runs after <code>tx.commit()</code> and before the response;
+a failed hook is logged and never rolls the write back.</p>
 <p><em>Avoid</em>: CommittedSet, ChangeSet, Event, PostCommit</p>
 <h4 id="query"><a class="doc-anchor" href="#query">§</a>Query</h4>
-<p>The base filtered query for a Resource. Returned by Resource::query(cx) and used by every loader
-<em>through</em> <code>scoped_query(cx)</code>, which is that base with the framework’s tenant filter ANDed on when
-the resource requires a tenant (GH #223); the CSV export asks Resource::export_query(cx, needs)
-instead, which defaults to this query and may narrow its includes to the ones the exported columns
-declared (GH #177), and is scoped the same way. The seam for a resource’s own row scoping — soft
-deletes, row-level visibility, includes; tenancy is the framework’s, so a gated resource’s <code>query</code>
-is its tenant-unscoped base.</p>
+<p>The base filtered query for a Resource, returned by <code>Resource::query(cx)</code> and used by every
+loader through <code>scoped_query(cx)</code> — that base with the framework’s tenant filter ANDed on when
+the resource requires a tenant (GH #223). The CSV export asks <code>Resource::export_query(cx, needs)</code>
+instead, which defaults to this query (GH #177). See
+<a href="docs/guide/src/data-access.md">data access</a>.</p>
 <p><em>Avoid</em>: Scope, EloquentQuery, Builder (as domain term)</p>
 <h4 id="policy"><a class="doc-anchor" href="#policy">§</a>Policy</h4>
-<p>The per-Resource authorization rules (viewAny, view, create, update, delete), implemented as
-<code>Resource::can_view_any</code>/<code>can_view</code>/<code>can_create</code>/<code>can_update</code>/<code>can_delete</code> — the one authorization
-vocabulary. Default-deny; checked in both page and POST handlers, and in relationship option loads
-(<code>can_view_any</code> fails the load closed, <code>can_view</code> filters rows before labels render, GH #108). The
-row/bulk chrome that promises these actions is opt-in to match (GH #226):
-<code>Resource::editable</code>/<code>deletable</code> default to <code>false</code>, so a resource that never declares them renders no
-Edit or Delete affordance and its default-deny predicates are never contradicted. A resource that opts
-in declares the flag beside the predicate it promises — <code>can_view</code> + <code>can_update</code> for the Edit link,
-<code>can_view</code> + <code>can_delete</code> for row and bulk Delete — and the panel applies those predicates per row
-through the table’s row policy (GH #235): a refused row renders no link, and a delete-refused row a
-<strong>disabled</strong> bulk checkbox labelled with the reason, so select-all submits only rows the handler
-accepts. The
-chrome narrows with the rule instead of contradicting it, and the handler’s all-or-nothing check
-stays as the safety net for a hand-crafted POST. <code>Resource::viewed</code> is per-record exact the same
-way, derived from the declared <code>view</code> schema rather than declared beside it. Nothing enforces the
-pairing: <code>can_update</code>/<code>can_delete</code> need a record, so no <code>Panel::build</code> call has one to check, and
-Rust cannot tell an overridden method from a defaulted one — a chrome flag beside a row-level
-predicate is a legitimate configuration, not a detectable mistake.</p>
+<p>The per-Resource authorization rules, implemented as <code>Resource::can_view_any</code>/<code>can_view</code>/
+<code>can_create</code>/<code>can_update</code>/<code>can_delete</code> — the one authorization vocabulary. Default-deny; checked
+in both page and POST handlers, and in relationship option loads (GH #108). The row/bulk chrome
+that promises these actions is opt-in to match (GH #226): <code>Resource::editable</code>/<code>deletable</code> default
+to <code>false</code>, and the panel applies the predicates per row through the table’s row policy (GH #235).
+<code>Resource::viewed</code> works the same way, derived from the declared <code>view</code> schema. See
+<a href="docs/guide/src/policy-auth-tenancy.md">policy, auth, tenancy</a>.</p>
 <p><em>Avoid</em>: Guard, Permission, Gate, Ability, Policy trait</p>
 <h4 id="editable"><a class="doc-anchor" href="#editable">§</a>editable</h4>
 <p>A <strong>chrome switch</strong>, not a policy predicate: <code>Resource::editable()</code> decides whether the per-row
-<code>Edit</code> link renders (GH #162). Defaults to <code>false</code> — chrome is opt-in (GH #226), matching the
-default-deny predicates in <code>Policy</code>, so a resource that never declares it renders no Edit
-affordance. A resource that opts in overrides it to <code>true</code> alongside the predicate it promises
-(<code>can_view</code> + <code>can_update</code> for the edit link), which the panel then applies per record (GH #235):
-a row those predicates refuse renders no link. It grants nothing: the edit GET and POST always
-require <code>can_view</code> + <code>can_update</code>, and the routes exist whether or not the link renders. The
-coarse flag and a row-level predicate are a legitimate pair — the flag decides whether the column
-exists, the predicate decides which rows fill it — while chrome shown for a row the route refuses
-is a bug, not a configuration.</p>
+<code>Edit</code> link renders (GH #162). Defaults to <code>false</code> (GH #226). A resource that opts in overrides
+it to <code>true</code> alongside the predicate it promises (<code>can_view</code> + <code>can_update</code>), which the panel
+applies per record (GH #235). It grants nothing: the edit GET and POST always require
+<code>can_view</code> + <code>can_update</code>, and the routes exist whether or not the link renders.</p>
 <p><em>Avoid</em>: Writable, Mutable, can_edit</p>
 <h4 id="deletable"><a class="doc-anchor" href="#deletable">§</a>deletable</h4>
-<p>A <strong>chrome switch</strong>, not a policy predicate: <code>Resource::deletable()</code> decides whether the row Delete
-button and the bulk checkbox column render (GH #96). Defaults to <code>false</code> — chrome is opt-in
-(GH #226), matching the default-deny <code>can_delete</code>, so a resource that never declares it renders no
-Delete affordance. A resource that opts in overrides it to <code>true</code> alongside <code>can_view</code> +
-<code>can_delete</code>, which the panel then applies per record (GH #235): a row either predicate refuses
-renders no Delete link and a <strong>disabled</strong> bulk checkbox labelled with the reason, so select-all
-cannot submit a key the handler’s all-or-nothing check refuses. It grants nothing:
-<code>delete_record</code>/<code>bulk_delete_records</code> re-check
-<code>can_delete</code> on the loaded record inside the handler’s transaction, and the routes exist whether or
-not the chrome renders.</p>
+<p>A <strong>chrome switch</strong>, not a policy predicate: <code>Resource::deletable()</code> decides whether the row
+Delete button and the bulk checkbox column render (GH #96). Defaults to <code>false</code> (GH #226).
+A resource that opts in overrides it to <code>true</code> alongside <code>can_view</code> + <code>can_delete</code>, which the
+panel applies per record (GH #235): a refused row renders no Delete link and a <strong>disabled</strong> bulk
+checkbox labelled with the reason. It grants nothing: <code>delete_record</code>/<code>bulk_delete_records</code>
+re-check <code>can_delete</code> on the loaded record inside the handler’s transaction.</p>
 <p><em>Avoid</em>: Destroyable, Removable, can_delete</p>
 <h4 id="navigationitem"><a class="doc-anchor" href="#navigationitem">§</a>NavigationItem</h4>
 <p>An entry in the Panel sidebar: a label, a NavTarget, and a sort order. Derived by default from a
@@ -210,75 +164,35 @@ from a UI control (SelectFilter, TernaryFilter, DateFilter, VariantFilter), comp
 <h4 id="field"><a class="doc-anchor" href="#field">§</a>Field</h4>
 <p>A typed input bound to a Model lens inside a Schema. A <code>String</code> lens binds with <code>TextInput::r#for</code>;
 a lens whose leaf is another type (<code>i64</code>, <code>Uuid</code>, <code>jiff::Timestamp</code>) binds with <code>TextInput::typed</code>
-(GH #192), which renders the value’s <code>Display</code>, parses the submission through the type’s own
-<code>FromStr</code>, and refuses what it cannot parse as an inline field error. The two constructors stay
-separate so <code>r#for</code>’s “only <code>String</code> compiles” rule — the compile-time guarantee of ADR-0001 — is
-unchanged at every existing call site. Bound via its field lens and column name; <code>required</code> defaults
-from Toasty column nullability (GH #100, GH #147 — <code>TextInput</code>, <code>Textarea</code>, <code>Select</code>, <code>FileUpload</code>
-alike, opt out with <code>.optional()</code>; a <code>FileUpload</code> suspends its native <code>required</code> on an edit, where
-the stored path is surfaced instead and an empty control means “keep”, GH #184), while uniqueness
-metadata is future work (upstream gap #115; non-<code>TextInput</code> uniqueness is not declared).
-<code>TextInput::unique()</code> is the exception, and it implies <strong>presence</strong> (GH #189): the framework stores
-<code>""</code>, never NULL (GH #89), so a unique field left empty is refused inline as
-<code>"&lt;Label&gt; is required"</code> — <code>.optional()</code> does not lift it, the app-side probe never runs for an
-empty value, the rendered control’s required marker reads the same predicate, and <code>Panel::build</code>
-refuses the marker on a column with no unique index. Hydrates from the Model into Create/Update
-projections. Renders through the upstream <code>field</code> family (topcoat#420): <code>field</code> + <code>field_label</code>
-follow the invalid/disabled state, <code>aria-invalid</code> drives the control’s destructive border/ring, the
-<code>ac-error</code> slot carries <code>role="alert"</code>, and a <code>Repeater</code> renders as <code>field_set</code> + <code>field_legend</code>. A
-<code>Repeater</code> group whose inner values are all empty is “absent”: its inner <code>required</code> inputs do not
-fire, and a <code>required</code> group yields one label-keyed error (GH #147).</p>
+(GH #192), which renders the value’s <code>Display</code> and parses the submission through the type’s own
+<code>FromStr</code>. Bound via its field lens and column name; <code>required</code> defaults from Toasty column
+nullability (opt out with <code>.optional()</code>), and <code>TextInput::unique()</code> implies <strong>presence</strong>
+(GH #189): the framework stores <code>""</code>, never NULL (GH #89). Renders through the upstream <code>field</code>
+family (topcoat#420). See <a href="docs/guide/src/forms.md">forms</a> and ADR-0001.</p>
 <p><em>Avoid</em>: Input, Control, Widget (in form context), statePath</p>
 <h4 id="embedded-value"><a class="doc-anchor" href="#embedded-value">§</a>Embedded value</h4>
 <p>A <code>toasty::Embed</code> struct or enum stored in the parent row’s flattened columns, bound as a <strong>value</strong>
 rather than leaf by leaf (GH #191, ADR-0019). <code>#[derive(EmbeddedForm)]</code> generates the flat-map ↔
-typed conversion, the presence question (<code>any_present</code>, behind <code>submitted</code>), and a
-<code>form(cx, parent)</code> of controls; the framework supplies every key from the compiled mapping
-(<code>leaf_key</code>, <code>enum_spec</code>, <code>write_embedded</code>, <code>read_embedded</code>, <code>submitted</code>), so the app declares
-neither the columns nor the variant rule. An enum’s variant is its <strong>discriminant column</strong>:
-hydration writes the stored variant into a visible <code>Select</code> over the schema’s variant list — each
-option submitting the stored value and reading as the variant’s name — each variant’s payload
-renders inside its own marked group, and <code>variant.js</code> shows only the chosen one’s — so a variant
-can be picked on create and changed on edit, while with JavaScript off every group renders, so
-nothing the server parses is lost. A read-only page names the stored variant rather than printing
-the discriminant. A named discriminant always wins — one the enum does not declare is refused
-loudly. Payloads select a variant only when no discriminant is named at all (the create form), by a
-variant’s own non-shared payload, through resolved keys. Per-field overrides are
-<code>#[form(label = "…")]</code>, <code>#[form(textarea)]</code> and <code>#[form(textarea, rows = N)]</code>; an unknown key is a
-compile error. A <code>#[document]</code> inside a value, a relation, an enum nested inside an enum variant,
-and a tuple struct are not covered.</p>
+typed conversion and a <code>form(cx, parent)</code> of controls. An enum’s variant is its <strong>discriminant
+column</strong>: hydration writes the stored variant into a visible <code>Select</code>, so a variant can be picked
+on create and changed on edit. Per-field overrides are <code>#[form(label = "…")]</code>,
+<code>#[form(textarea)]</code> and <code>#[form(textarea, rows = N)]</code>; an unknown key is a compile error. See
+<a href="docs/guide/src/forms.md">forms</a>.</p>
 <p><em>Avoid</em>: Nested form, Sub-form, Composite field, Inline model</p>
 <h4 id="uploader"><a class="doc-anchor" href="#uploader">§</a>Uploader</h4>
 <p>Where a <code>FileUpload</code>’s bytes go (GH #188, ADR-0017): a trait the app implements and installs once
-per Panel (<code>Panel::uploads</code>), discovered on the app_context wherever a <code>FileUpload</code> stores — an
-object store is an app-level dependency, not a per-field declaration.
-<code>store(filename, bytes) -&gt; Result&lt;String, String&gt;</code> receives the part’s already-sanitized basename
-and its content (bounded by the 10 MiB form cap) and returns the value the record stores, which the
-framework renders verbatim as a link to the file (GH #242) — so what it returns is a URL the
-browser can fetch, percent-encoded by the store when the client filename carries anything outside
-the unreserved set. A refusal (<code>Err(reason)</code>) is an inline
-field error — <code>"&lt;Label&gt; could not be uploaded: &lt;reason&gt;"</code> — because a rejected upload is user input,
-not infrastructure. With no
-uploader installed the sanitized basename is stored, and the bytes are drained rather than
-buffered. A stored value renders a <code>clear_&lt;field&gt;</code> checkbox (a framework transport key, stripped
-before any record fn, GH #148); clearing does not waive <code>required</code>, so a record that must keep a
-file answers <code>"&lt;Label&gt; is required"</code> — declare <code>.optional()</code> to let a record lose its file. A form
-that re-renders with errors carries a just-stored path in a <code>keep_&lt;field&gt;</code> control and re-uses it
-only when <code>holds(path)</code> confirms the store still has it (GH #297): the carry keeps a file the
-browser’s empty file input cannot resend, and <code>holds</code> answers <code>false</code> by default.
-<code>Panel::serve_dir(path, dir)</code> mounts an app-owned filesystem directory (an upload store’s output)
-on the panel’s router, which is the app’s only way to add a route the framework does not own. A
-served directory is <strong>public</strong> (ADR-0017): those URLs answer whoever asks, with no session, because
-the auth gate covers exactly the panel prefix and the runtime prefix (ADR-0013) and a served
-directory sits outside both. An app that needs protected files owns that route itself.</p>
+per Panel (<code>Panel::uploads</code>). <code>store(filename, bytes) -&gt; Result&lt;String, String&gt;</code> receives the
+part’s already-sanitized basename and returns the value the record stores; a refusal
+(<code>Err(reason)</code>) is an inline field error. With no uploader installed the sanitized basename is
+stored, and the bytes are drained rather than buffered. <code>Panel::serve_dir(path, dir)</code> mounts an
+app-owned filesystem directory on the panel’s router; a served directory is <strong>public</strong>. See
+<a href="docs/guide/src/forms.md">forms</a>.</p>
 <p><em>Avoid</em>: FileStore, Attachment, Blob store</p>
 <h4 id="streamed-region"><a class="doc-anchor" href="#streamed-region">§</a>Streamed region</h4>
 <p>A <code>suspense</code> region of the page whose content swaps in after the first render. The resource list
 streams its table: skeleton first (<code>Table::render_skeleton</code>), loaded rows swap in without a client
 library. Later reruns (page/shard) morph in place per Topcoat #392 — focus, scroll, and typing
-survive; reorderable rows need stable <code>id</code>s (ticket #104 and GH #151 cover the live shard:
-<code>Signal&lt;T&gt;</code> params, #393, written by search/sort/filters/pagination). The table always renders
-inside a <code>data-boundary</code> region.</p>
+survive. The table always renders inside a <code>data-boundary</code> region. See ADR-0003.</p>
 <p><em>Avoid</em>: Shard (as domain term), Region, Island, Boundary</p>
 <h4 id="notification"><a class="doc-anchor" href="#notification">§</a>Notification</h4>
 <p>A transient user-visible message (status + title + optional description, rendered as a
