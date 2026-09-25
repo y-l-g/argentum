@@ -9,7 +9,9 @@
 //! This is the render-path proof: the flattened name is what the form posts
 //! and what `field_names()` allow-lists, or a bound embedded field would
 //! render blank and then be refused as an unknown key. The resolver walk
-//! itself is covered by `schema::lenses`'s own tests.
+//! itself is covered by `schema::lenses`'s own tests; the two refusals at the
+//! bottom drive the panicking entry a form binding uses, which that module
+//! does not.
 
 use std::collections::HashMap;
 
@@ -28,6 +30,15 @@ struct Seo {
 #[derive(Debug, Clone, toasty::Embed)]
 struct Meta {
     seo: Seo,
+    note: String,
+}
+
+#[derive(Debug, Clone, toasty::Model)]
+struct Author {
+    #[key]
+    #[auto]
+    id: uuid::Uuid,
+    name: String,
 }
 
 #[derive(Debug, Clone, toasty::Model)]
@@ -38,12 +49,16 @@ struct Article {
     #[index]
     title: String,
     meta: Meta,
+    #[index]
+    author_id: uuid::Uuid,
+    #[belongs_to(key = author_id, references = id)]
+    author: toasty::Deferred<Author>,
 }
 
 /// A `Db` built from the article model — the app schema comes with it.
 async fn article_cx() -> Cx {
     let db = toasty::Db::builder()
-        .models(toasty::models!(Article))
+        .models(toasty::models!(Article, Author))
         .connect("sqlite::memory:")
         .await
         .expect("connect");
@@ -126,4 +141,28 @@ async fn the_flattened_name_participates_in_allow_list_and_validation() {
             .contains_key("meta_seo_description"),
         "an explicitly required embedded leaf must validate presence"
     );
+}
+
+/// A traversal lens over a relation is not an embedded step, and this walk is
+/// for embedded binding only. It must fail loudly rather than bind anything —
+/// `author_id` and `name` are different columns, so a silent misbind here would
+/// write the wrong one (GH #100). No `lenses.rs` test reaches this branch: its
+/// panic rows come from the missing/foreign-root model check, not from a
+/// relation hop in the walk.
+#[tokio::test]
+#[should_panic(expected = "only embedded steps")]
+async fn a_relation_traversal_is_refused_rather_than_misbound() {
+    let cx = article_cx().await;
+    let _ = TextInput::r#for_context(&cx, Article::fields().author().name());
+}
+
+/// Without a `Db` there is no app schema, and the single-segment rule must
+/// still refuse a traversal lens loudly rather than bind the wrong column.
+/// `lenses.rs` covers `resolve_embedded_value` against a bare `Cx`, which
+/// returns `None`; this pins the panicking `resolve` entry a form binding uses.
+#[tokio::test]
+#[should_panic(expected = "single-field lens")]
+async fn without_a_schema_a_traversal_lens_still_fails_loudly() {
+    let cx = CxTestBuilder::new().build();
+    let _ = TextInput::r#for_context(&cx, Article::fields().meta().note());
 }

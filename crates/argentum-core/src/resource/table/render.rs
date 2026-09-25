@@ -3393,13 +3393,16 @@ mod tests {
         }
     }
 
-    /// GH #205: a table render encodes the filter transport once for the page.
+    /// GH #205: a table render builds the row-action URLs from one shared base
+    /// — the encoded filter transport — before the row loop, so every row's
+    /// dialog opener is that base plus its own `delete=` key.
     ///
-    /// Every row's dialog opener is the page's shared base — the one encoded
-    /// transport — plus its own `delete=` key, so the bytes before `delete=`
-    /// are identical across rows and independent of the page size.
+    /// The base cannot be observed as a count: `filters_param` is a pure
+    /// function of the state, so a per-row rebuild produces identical bytes.
+    /// This pins the shape instead — every opener shares byte-identical bytes
+    /// before `delete=`, independent of the page size.
     #[tokio::test]
-    async fn table_render_encodes_the_filter_transport_once_per_page_not_per_row() {
+    async fn table_render_reuses_one_filter_transport_base_across_rows() {
         let cx = CxTestBuilder::new().build();
         let state = filters_state(&[("status", "published"), ("featured", "true")]);
         let tbl = Table::<User>::r#for(&cx)
@@ -3455,7 +3458,7 @@ mod tests {
             );
             assert_eq!(
                 *base, one_row[0],
-                "rows must reuse the page's one encoded transport, not re-encode per row"
+                "rows must reuse the page's one encoded base, not rebuild it per row"
             );
         }
     }
