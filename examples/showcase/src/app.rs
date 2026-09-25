@@ -30,6 +30,151 @@ use crate::models::{
 /// shell (GH #247): one document contract, one typeface.
 pub(crate) const GEIST: Font = fontsource_font!(GEIST, host: Asset);
 
+/// The submitted value for `key`, trimmed; an absent key is empty.
+fn submitted_trimmed(values: &HashMap<String, String>, key: &str) -> String {
+    values
+        .get(key)
+        .cloned()
+        .unwrap_or_default()
+        .trim()
+        .to_string()
+}
+
+/// The submitted value for `key` parsed as `T`; an absent key is empty, so an
+/// unparsable value fails with `invalid <key>` — the message a typed control
+/// refuses inline before a record fn runs.
+fn submitted_parsed<T: std::str::FromStr>(values: &HashMap<String, String>, key: &str) -> Result<T>
+where
+    T::Err: std::fmt::Display,
+{
+    submitted_trimmed(values, key)
+        .parse::<T>()
+        .map_err(|e| topcoat::Error::from(std::io::Error::other(format!("invalid {key}: {e}"))))
+}
+
+/// The submitted value for `key`, trimmed; an absent key keeps `current`
+/// (GH #89), so an omitted optional field never blanks the record.
+fn kept(values: &HashMap<String, String>, key: &str, current: &str) -> String {
+    match values.get(key) {
+        Some(v) => v.trim().to_string(),
+        None => current.to_string(),
+    }
+}
+
+/// The submitted value for `key` when it is one of `allowed`; anything else
+/// keeps `current`.
+fn kept_one_of(
+    values: &HashMap<String, String>,
+    key: &str,
+    allowed: &[&str],
+    current: &str,
+) -> String {
+    match values.get(key).map(|v| v.trim()) {
+        Some(v) if allowed.contains(&v) => v.to_string(),
+        _ => current.to_string(),
+    }
+}
+
+/// The submitted boolean for `key`: `"true"`/`"false"` (trimmed) parse, and an
+/// absent or unparsable value keeps `current`.
+fn kept_bool(values: &HashMap<String, String>, key: &str, current: bool) -> bool {
+    match values.get(key).map(|v| v.trim()) {
+        Some("true") => true,
+        Some("false") => false,
+        _ => current,
+    }
+}
+
+/// The submitted value for `key` parsed as `T`; an absent key keeps `current`.
+/// An unparsable value fails with `invalid <key>`, the message a typed control
+/// refuses inline before a record fn runs.
+fn kept_parsed<T: std::str::FromStr>(
+    values: &HashMap<String, String>,
+    key: &str,
+    current: T,
+) -> Result<T>
+where
+    T::Err: std::fmt::Display,
+{
+    match values.get(key) {
+        Some(v) => v.trim().parse::<T>().map_err(|e| {
+            topcoat::Error::from(std::io::Error::other(format!("invalid {key}: {e}")))
+        }),
+        None => Ok(current),
+    }
+}
+
+/// The submitted embedded value for `field`; an absent group keeps `current`
+/// (GH #89, GH #191) — the submit may omit a section the form did not render.
+fn kept_embedded<M, T, L>(
+    cx: &Cx,
+    field: impl Fn() -> L,
+    values: &HashMap<String, String>,
+    current: &T,
+) -> T
+where
+    M: toasty::schema::Model,
+    T: argentum_core::EmbeddedForm + Clone,
+    L: Into<toasty::stmt::Path<M, T>>,
+{
+    if submitted(cx, field(), values) {
+        read_embedded(cx, field(), values)
+    } else {
+        current.clone()
+    }
+}
+
+/// Generate `delete_record` and `bulk_delete_records` for a resource whose
+/// record fns delete through the resource's own tenant-scoped query, one row
+/// at a time, inside the handler's transaction (GH #84, GH #86, GH #223).
+macro_rules! delete_through_query {
+    ($model:ident) => {
+        fn delete_record(
+            cx: &Cx,
+            record: $model,
+            ex: &mut dyn toasty::Executor,
+        ) -> impl std::future::Future<Output = Result<()>> + Send
+        where
+            Self: Sized,
+        {
+            let cx = cx.clone();
+            async move {
+                Self::query(&cx)
+                    .filter($model::fields().id().eq(record.id))
+                    .delete()
+                    .exec(&mut *ex)
+                    .await
+                    .map_err(|e| -> topcoat::Error { e.into() })?;
+                Ok(())
+            }
+        }
+
+        fn bulk_delete_records(
+            cx: &Cx,
+            records: Vec<$model>,
+            ex: &mut dyn toasty::Executor,
+        ) -> impl std::future::Future<Output = Result<()>> + Send
+        where
+            Self: Sized,
+        {
+            let cx = cx.clone();
+            async move {
+                // Framework-checked records (GH #84, GH #86): delete each
+                // inside the handler's tx — any error rolls the batch back.
+                for rec in &records {
+                    Self::query(&cx)
+                        .filter($model::fields().id().eq(rec.id))
+                        .delete()
+                        .exec(&mut *ex)
+                        .await
+                        .map_err(|e| -> topcoat::Error { e.into() })?;
+                }
+                Ok(())
+            }
+        }
+    };
+}
+
 // ---------------------------------------------------------------------------
 // Resource — single Model → Resource, see CONTEXT.md
 // ---------------------------------------------------------------------------
@@ -147,18 +292,8 @@ impl Resource for UserResource {
         values: HashMap<String, String>,
         ex: &mut dyn toasty::Executor,
     ) -> Result<User> {
-        let name = values
-            .get("name")
-            .cloned()
-            .unwrap_or_default()
-            .trim()
-            .to_string();
-        let email = values
-            .get("email")
-            .cloned()
-            .unwrap_or_default()
-            .trim()
-            .to_string();
+        let name = submitted_trimmed(&values, "name");
+        let email = submitted_trimmed(&values, "email");
         // Optional selects fall back to member/active: the form offers them,
         // older clients omitting them still create a valid member.
         let role = match values.get("role").map(|s| s.trim().to_string()) {
@@ -191,26 +326,10 @@ impl Resource for UserResource {
     ) -> Result<User> {
         // The handler's checked snapshot (GH #86): `record` was loaded
         // inside the framework tx and policy-checked — no re-query.
-        let name = match values.get("name") {
-            // Absent keys keep the stored value (GH #89): an omitted
-            // optional field must not silently blank the record.
-            Some(v) => v.trim().to_string(),
-            None => record.name.clone(),
-        };
-        let email = match values.get("email") {
-            Some(v) => v.trim().to_string(),
-            None => record.email.clone(),
-        };
-        let role = match values.get("role") {
-            Some(v) if v.trim() == "admin" || v.trim() == "member" => v.trim().to_string(),
-            Some(_) => record.role.clone(),
-            None => record.role.clone(),
-        };
-        let active = match values.get("active") {
-            Some(v) if v.trim() == "false" => false,
-            Some(v) if v.trim() == "true" => true,
-            _ => record.active,
-        };
+        let name = kept(&values, "name", &record.name);
+        let email = kept(&values, "email", &record.email);
+        let role = kept_one_of(&values, "role", &["admin", "member"], &record.role);
+        let active = kept_bool(&values, "active", record.active);
         // The updated row goes back to the framework (GH #112): it is what
         // `after_commit` names, and it is already the committed state.
         toasty::update!(record {
@@ -228,50 +347,7 @@ impl Resource for UserResource {
         Ok(record)
     }
 
-    fn delete_record(
-        cx: &Cx,
-        record: User,
-        ex: &mut dyn toasty::Executor,
-    ) -> impl std::future::Future<Output = Result<()>> + Send
-    where
-        Self: Sized,
-    {
-        let cx = cx.clone();
-        async move {
-            // Use the model's delete via query to respect tenancy.
-            Self::query(&cx)
-                .filter(User::fields().id().eq(record.id))
-                .delete()
-                .exec(&mut *ex)
-                .await
-                .map_err(|e| -> topcoat::Error { e.into() })?;
-            Ok(())
-        }
-    }
-
-    fn bulk_delete_records(
-        cx: &Cx,
-        records: Vec<User>,
-        ex: &mut dyn toasty::Executor,
-    ) -> impl std::future::Future<Output = Result<()>> + Send
-    where
-        Self: Sized,
-    {
-        let cx = cx.clone();
-        async move {
-            // Framework-checked records (GH #84, #86): delete each inside
-            // the handler's tx — any error rolls the batch back.
-            for rec in &records {
-                Self::query(&cx)
-                    .filter(User::fields().id().eq(rec.id))
-                    .delete()
-                    .exec(&mut *ex)
-                    .await
-                    .map_err(|e| -> topcoat::Error { e.into() })?;
-            }
-            Ok(())
-        }
-    }
+    delete_through_query!(User);
 }
 
 pub struct AuthorResource;
@@ -358,18 +434,8 @@ impl Resource for AuthorResource {
     {
         let cx = cx.clone();
         async move {
-            let name = values
-                .get("name")
-                .cloned()
-                .unwrap_or_default()
-                .trim()
-                .to_string();
-            let email = values
-                .get("email")
-                .cloned()
-                .unwrap_or_default()
-                .trim()
-                .to_string();
+            let name = submitted_trimmed(&values, "name");
+            let email = submitted_trimmed(&values, "email");
             // `requires_tenant` makes the handler answer 403 before this runs
             // (GH #87), so `require_tenant` never panics on a tenantless submit
             // and a nil-tenant orphan stays impossible (GH #223).
@@ -393,15 +459,8 @@ impl Resource for AuthorResource {
         ex: &mut dyn toasty::Executor,
     ) -> Result<Author> {
         // The handler's checked snapshot (GH #86) — no re-query.
-        let name = match values.get("name") {
-            // Absent keys keep the stored value (GH #89).
-            Some(v) => v.trim().to_string(),
-            None => rec.name.clone(),
-        };
-        let email = match values.get("email") {
-            Some(v) => v.trim().to_string(),
-            None => rec.email.clone(),
-        };
+        let name = kept(&values, "name", &rec.name);
+        let email = kept(&values, "email", &rec.email);
         // The updated row goes back to the framework (GH #112).
         toasty::update!(rec {
             name: name,
@@ -414,48 +473,7 @@ impl Resource for AuthorResource {
         Ok(rec)
     }
 
-    fn delete_record(
-        cx: &Cx,
-        rec: Author,
-        ex: &mut dyn toasty::Executor,
-    ) -> impl std::future::Future<Output = Result<()>> + Send
-    where
-        Self: Sized,
-    {
-        let cx = cx.clone();
-        async move {
-            Self::query(&cx)
-                .filter(Author::fields().id().eq(rec.id))
-                .delete()
-                .exec(&mut *ex)
-                .await
-                .map_err(|e| -> topcoat::Error { e.into() })?;
-            Ok(())
-        }
-    }
-
-    fn bulk_delete_records(
-        cx: &Cx,
-        records: Vec<Author>,
-        ex: &mut dyn toasty::Executor,
-    ) -> impl std::future::Future<Output = Result<()>> + Send
-    where
-        Self: Sized,
-    {
-        let cx = cx.clone();
-        async move {
-            // Framework-checked records (GH #84, #86) — delete inside the tx.
-            for rec in &records {
-                Self::query(&cx)
-                    .filter(Author::fields().id().eq(rec.id))
-                    .delete()
-                    .exec(&mut *ex)
-                    .await
-                    .map_err(|e| -> topcoat::Error { e.into() })?;
-            }
-            Ok(())
-        }
-    }
+    delete_through_query!(Author);
 }
 
 pub struct PostResource;
@@ -818,21 +836,8 @@ impl Resource for PostResource {
     {
         let cx = cx.clone();
         async move {
-            let title = values
-                .get("title")
-                .cloned()
-                .unwrap_or_default()
-                .trim()
-                .to_string();
-            let author_id_str = values
-                .get("author_id")
-                .cloned()
-                .unwrap_or_default()
-                .trim()
-                .to_string();
-            let author_id = author_id_str.parse::<uuid::Uuid>().map_err(|e| {
-                topcoat::Error::from(std::io::Error::other(format!("invalid author_id: {e}")))
-            })?;
+            let title = submitted_trimmed(&values, "title");
+            let author_id = submitted_parsed::<uuid::Uuid>(&values, "author_id")?;
             // Verify the author exists *in this tenant*: `scoped_query` is the
             // framework's tenancy-scoped entry point (GH #223) — plain
             // `AuthorResource::query` is the tenant-unscoped base now that the
@@ -849,26 +854,11 @@ impl Resource for PostResource {
                     "author not found",
                 )));
             }
-            let image_path = values
-                .get("image_path")
-                .cloned()
-                .unwrap_or_default()
-                .trim()
-                .to_string();
-            let tags = values
-                .get("tags")
-                .cloned()
-                .unwrap_or_default()
-                .trim()
-                .to_string();
+            let image_path = submitted_trimmed(&values, "image_path");
+            let tags = submitted_trimmed(&values, "tags");
             // Optional lifecycle fields with draft defaults: older clients
             // omitting them still create a valid draft.
-            let body = values
-                .get("body")
-                .cloned()
-                .unwrap_or_default()
-                .trim()
-                .to_string();
+            let body = submitted_trimmed(&values, "body");
             let status = match values.get("status").map(|s| s.trim().to_string()) {
                 Some(s) if s == "draft" || s == "published" => s,
                 _ => "draft".to_string(),
@@ -922,17 +912,8 @@ impl Resource for PostResource {
         let cx = cx.clone();
         async move {
             // The handler's checked snapshot (GH #86) — no re-query.
-            let title = match values.get("title") {
-                // Absent keys keep the stored value (GH #89).
-                Some(v) => v.trim().to_string(),
-                None => rec.title.clone(),
-            };
-            let author_id = match values.get("author_id") {
-                Some(s) => s.trim().parse::<uuid::Uuid>().map_err(|e| {
-                    topcoat::Error::from(std::io::Error::other(format!("invalid author_id: {e}")))
-                })?,
-                None => rec.author_id,
-            };
+            let title = kept(&values, "title", &rec.title);
+            let author_id = kept_parsed(&values, "author_id", rec.author_id)?;
             // Symmetric FK double-check (GH #91, mirrors create): validate_async
             // already checked, but the author may be cross-tenant or deleted
             // since — so the check runs through the tenant-scoped query
@@ -949,52 +930,29 @@ impl Resource for PostResource {
                     "author not found",
                 )));
             }
-            let image_path = match values.get("image_path") {
-                // Absent keys keep the stored value (GH #89).
-                Some(v) => v.trim().to_string(),
-                None => rec.image_path.clone(),
-            };
-            let tags = match values.get("tags") {
-                Some(v) => v.trim().to_string(),
-                None => rec.tags.clone(),
-            };
-            let body = match values.get("body") {
-                Some(v) => v.trim().to_string(),
-                None => rec.body.clone(),
-            };
-            let status = match values.get("status") {
-                Some(v) if v.trim() == "draft" || v.trim() == "published" => v.trim().to_string(),
-                _ => rec.status.clone(),
-            };
-            let featured = match values.get("featured") {
-                Some(v) if v.trim() == "true" => true,
-                Some(v) if v.trim() == "false" => false,
-                _ => rec.featured,
-            };
+            let image_path = kept(&values, "image_path", &rec.image_path);
+            let tags = kept(&values, "tags", &rec.tags);
+            let body = kept(&values, "body", &rec.body);
+            let status = kept_one_of(&values, "status", &["draft", "published"], &rec.status);
+            let featured = kept_bool(&values, "featured", rec.featured);
             // Embedded values (GH #191): an absent value keeps the stored one,
             // exactly like the scalar fields above (GH #89) — the submit may
             // omit a section the form did not render. "Absent" is decided by
             // the keys the app schema resolves, not by a name spelled here.
-            let seo = if submitted(&cx, Post::fields().seo(), &values) {
-                read_embedded(&cx, Post::fields().seo(), &values)
-            } else {
-                rec.seo.clone()
-            };
-            let publication = if submitted(&cx, Post::fields().publication(), &values) {
-                read_embedded(&cx, Post::fields().publication(), &values)
-            } else {
-                rec.publication.clone()
-            };
-            let media = if submitted(&cx, Post::fields().media(), &values) {
-                read_embedded(&cx, Post::fields().media(), &values)
-            } else {
-                rec.media.clone()
-            };
-            let post_stats = if submitted(&cx, Post::fields().post_stats(), &values) {
-                read_embedded(&cx, Post::fields().post_stats(), &values)
-            } else {
-                rec.post_stats.clone()
-            };
+            let seo = kept_embedded(&cx, || Post::fields().seo(), &values, &rec.seo);
+            let publication = kept_embedded(
+                &cx,
+                || Post::fields().publication(),
+                &values,
+                &rec.publication,
+            );
+            let media = kept_embedded(&cx, || Post::fields().media(), &values, &rec.media);
+            let post_stats = kept_embedded(
+                &cx,
+                || Post::fields().post_stats(),
+                &values,
+                &rec.post_stats,
+            );
             toasty::update!(rec {
                 title: title,
                 author_id: author_id,
@@ -1017,48 +975,7 @@ impl Resource for PostResource {
         }
     }
 
-    fn delete_record(
-        cx: &Cx,
-        rec: Post,
-        ex: &mut dyn toasty::Executor,
-    ) -> impl std::future::Future<Output = Result<()>> + Send
-    where
-        Self: Sized,
-    {
-        let cx = cx.clone();
-        async move {
-            Self::query(&cx)
-                .filter(Post::fields().id().eq(rec.id))
-                .delete()
-                .exec(&mut *ex)
-                .await
-                .map_err(|e| -> topcoat::Error { e.into() })?;
-            Ok(())
-        }
-    }
-
-    fn bulk_delete_records(
-        cx: &Cx,
-        records: Vec<Post>,
-        ex: &mut dyn toasty::Executor,
-    ) -> impl std::future::Future<Output = Result<()>> + Send
-    where
-        Self: Sized,
-    {
-        let cx = cx.clone();
-        async move {
-            // Framework-checked records (GH #84, #86) — delete inside the tx.
-            for rec in &records {
-                Self::query(&cx)
-                    .filter(Post::fields().id().eq(rec.id))
-                    .delete()
-                    .exec(&mut *ex)
-                    .await
-                    .map_err(|e| -> topcoat::Error { e.into() })?;
-            }
-            Ok(())
-        }
-    }
+    delete_through_query!(Post);
 }
 
 /// Comments resource over `Comment`: the moderation queue.
@@ -1268,21 +1185,8 @@ impl Resource for CommentResource {
         values: HashMap<String, String>,
         ex: &mut dyn toasty::Executor,
     ) -> Result<Comment> {
-        let body = values
-            .get("body")
-            .cloned()
-            .unwrap_or_default()
-            .trim()
-            .to_string();
-        let post_id = values
-            .get("post_id")
-            .cloned()
-            .unwrap_or_default()
-            .trim()
-            .parse::<uuid::Uuid>()
-            .map_err(|e| {
-                topcoat::Error::from(std::io::Error::other(format!("invalid post_id: {e}")))
-            })?;
+        let body = submitted_trimmed(&values, "body");
+        let post_id = submitted_parsed::<uuid::Uuid>(&values, "post_id")?;
         // Tenancy double-check inside the tx (GH #178): the pre-tx option-set
         // validation is not a write-time guarantee.
         ensure_post_in_tenant(cx, post_id, ex).await?;
@@ -1302,16 +1206,8 @@ impl Resource for CommentResource {
         values: HashMap<String, String>,
         ex: &mut dyn toasty::Executor,
     ) -> Result<Comment> {
-        let body = match values.get("body") {
-            Some(v) => v.trim().to_string(),
-            None => record.body.clone(),
-        };
-        let post_id = match values.get("post_id") {
-            Some(s) => s.trim().parse::<uuid::Uuid>().map_err(|e| {
-                topcoat::Error::from(std::io::Error::other(format!("invalid post_id: {e}")))
-            })?,
-            None => record.post_id,
-        };
+        let body = kept(&values, "body", &record.body);
+        let post_id = kept_parsed(&values, "post_id", record.post_id)?;
         // An update can re-point the comment at another post (GH #178), which
         // is exactly the move the pre-tx check cannot be trusted to catch.
         ensure_post_in_tenant(cx, post_id, ex).await?;
@@ -1326,47 +1222,7 @@ impl Resource for CommentResource {
         Ok(record)
     }
 
-    fn delete_record(
-        cx: &Cx,
-        record: Comment,
-        ex: &mut dyn toasty::Executor,
-    ) -> impl std::future::Future<Output = Result<()>> + Send
-    where
-        Self: Sized,
-    {
-        let cx = cx.clone();
-        async move {
-            Self::query(&cx)
-                .filter(Comment::fields().id().eq(record.id))
-                .delete()
-                .exec(&mut *ex)
-                .await
-                .map_err(|e| -> topcoat::Error { e.into() })?;
-            Ok(())
-        }
-    }
-
-    fn bulk_delete_records(
-        cx: &Cx,
-        records: Vec<Comment>,
-        ex: &mut dyn toasty::Executor,
-    ) -> impl std::future::Future<Output = Result<()>> + Send
-    where
-        Self: Sized,
-    {
-        let cx = cx.clone();
-        async move {
-            for rec in &records {
-                Self::query(&cx)
-                    .filter(Comment::fields().id().eq(rec.id))
-                    .delete()
-                    .exec(&mut *ex)
-                    .await
-                    .map_err(|e| -> topcoat::Error { e.into() })?;
-            }
-            Ok(())
-        }
-    }
+    delete_through_query!(Comment);
 }
 
 #[layout("/admin")]
