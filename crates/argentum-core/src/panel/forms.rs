@@ -617,7 +617,9 @@ async fn restore_pending_uploads(
 /// `field_name → ["<Label> has already been taken"]` per duplicated value.
 ///
 /// `current` holds the record's own hydrated values on edit: a field whose
-/// submitted value is unchanged belongs to this record and is skipped.
+/// submitted value normalises to the same stored value belongs to this record
+/// and is skipped, so a typed field's re-spelled equivalent is not a duplicate
+/// (GH #297).
 ///
 /// Empty submits are never probed (GH #189): a `unique()` field is required
 /// (see [`crate::schema::TextInput::unique`]), so `validate` has already
@@ -663,8 +665,19 @@ async fn check_unique<R: Resource>(
         if submitted.is_empty() {
             continue;
         }
-        // Unchanged on edit → this record's own value, not a duplicate.
-        if current.get(&name).map(|s| s.trim().to_string()) == Some(submitted.clone()) {
+        // Unchanged on edit → this record's own value, not a duplicate. Both
+        // sides normalise through the leaf's own rule (GH #297): a typed
+        // field's re-spelled equivalent — `01` for `1`, an upper-case UUID for
+        // its lower-case form — is the same value, so the probe is skipped. A
+        // text comparison would call it changed, probe this record's own row
+        // and refuse the save.
+        let unchanged = current.get(&name).is_some_and(|kept| {
+            matches!(
+                (input.normalize(kept), input.normalize(&submitted)),
+                (Ok(kept), Ok(submitted)) if kept == submitted
+            )
+        });
+        if unchanged {
             continue;
         }
         // The leaf's own binding (GH #297): a typed field parses the
@@ -2597,86 +2610,152 @@ mod tests {
         );
     }
 
+    use crate::schema::{FileUpload, Schema, TextInput};
+
+    /// The body of `response`, for an inline-error assertion.
+    async fn response_html(response: http::Response<Body>) -> String {
+        String::from_utf8_lossy(
+            &http_body_util::BodyExt::collect(response.into_body())
+                .await
+                .unwrap()
+                .to_bytes(),
+        )
+        .to_string()
+    }
+
+    /// The typed unique field the two probes below share (GH #297). The column
+    /// is a `Uuid`, not a whole number: SQLite's INTEGER affinity coerces `01`
+    /// to `1`, so a whole-number column lets a text probe pass.
+    #[derive(Debug, toasty::Model, Clone)]
+    struct Tagged {
+        #[key]
+        #[auto]
+        id: uuid::Uuid,
+        name: String,
+        #[unique]
+        token: uuid::Uuid,
+    }
+
+    struct TaggedResource;
+
+    impl crate::resource::Resource for TaggedResource {
+        type Model = Tagged;
+
+        fn slug() -> String {
+            "tagged".to_string()
+        }
+
+        fn can_view_any(_cx: &Cx) -> bool {
+            true
+        }
+
+        fn can_view(_cx: &Cx, _record: &Tagged) -> bool {
+            true
+        }
+
+        fn can_create(_cx: &Cx) -> bool {
+            true
+        }
+
+        fn can_update(_cx: &Cx, _record: &Tagged) -> bool {
+            true
+        }
+
+        fn table(cx: &Cx) -> crate::resource::Table<Tagged> {
+            crate::resource::Table::r#for(cx)
+                .id(|row: &Tagged| row.id.to_string())
+                .pk(|row: &Tagged| row.id.to_string())
+                .columns(crate::resource::TextColumn::r#for(
+                    Tagged::fields().name(),
+                    |row: &Tagged| row.name.clone(),
+                ))
+        }
+
+        fn form(_cx: &Cx) -> Schema {
+            Schema::new((
+                TextInput::r#for(Tagged::fields().name()),
+                TextInput::typed::<Tagged, uuid::Uuid>(Tagged::fields().token()).unique(),
+            ))
+        }
+
+        fn hydrate_form_values(_cx: &Cx, record: &Tagged) -> HashMap<String, String> {
+            HashMap::from([
+                ("name".to_string(), record.name.clone()),
+                ("token".to_string(), record.token.to_string()),
+            ])
+        }
+
+        async fn create_record(
+            _cx: &Cx,
+            values: HashMap<String, String>,
+            ex: &mut dyn toasty::Executor,
+        ) -> topcoat::Result<Tagged> {
+            toasty::create!(Tagged {
+                name: values.get("name").cloned().unwrap_or_default(),
+                token: submitted_token(&values),
+            })
+            .exec(&mut *ex)
+            .await
+            .map_err(|error| -> topcoat::Error { error.into() })
+        }
+
+        async fn update_record(
+            _cx: &Cx,
+            mut record: Tagged,
+            values: HashMap<String, String>,
+            ex: &mut dyn toasty::Executor,
+        ) -> topcoat::Result<Tagged> {
+            if let Some(name) = values.get("name") {
+                record.name = name.clone();
+            }
+            if values.contains_key("token") {
+                record.token = submitted_token(&values);
+            }
+            toasty::update!(record {
+                name: record.name.clone(),
+                token: record.token,
+            })
+            .exec(&mut *ex)
+            .await
+            .map_err(|error| -> topcoat::Error { error.into() })?;
+            Ok(record)
+        }
+    }
+
+    /// The submitted token, or the nil UUID when it does not parse.
+    fn submitted_token(values: &HashMap<String, String>) -> uuid::Uuid {
+        values
+            .get("token")
+            .and_then(|value| value.parse::<uuid::Uuid>().ok())
+            .unwrap_or(uuid::Uuid::nil())
+    }
+
     /// GH #297: the app-side unique probe binds the leaf's declared type. The
-    /// stored `1` and the submitted `01` are two spellings of one whole number:
-    /// a text comparison finds no duplicate, while the typed comparison sees the
-    /// same `i64` and refuses the submit.
+    /// stored token's canonical spelling is lower case, so an upper-case
+    /// submission is a different string and the same `Uuid`: a text comparison
+    /// finds no duplicate — and on this non-text column it cannot run at all —
+    /// while the typed comparison refuses the submit.
     #[tokio::test]
     async fn a_typed_unique_field_probes_the_declared_type() {
-        use crate::schema::{Schema, TextInput};
-
-        #[derive(Debug, toasty::Model, Clone)]
-        struct Ranked {
-            #[key]
-            #[auto]
-            id: uuid::Uuid,
-            name: String,
-            #[unique]
-            rank: i64,
-        }
-
-        struct RankedResource;
-        impl crate::resource::Resource for RankedResource {
-            type Model = Ranked;
-            fn slug() -> String {
-                "ranked".to_string()
-            }
-            fn can_view_any(_cx: &Cx) -> bool {
-                true
-            }
-            fn can_create(_cx: &Cx) -> bool {
-                true
-            }
-            fn table(cx: &Cx) -> crate::resource::Table<Ranked> {
-                crate::resource::Table::r#for(cx)
-                    .id(|row: &Ranked| row.id.to_string())
-                    .pk(|row: &Ranked| row.id.to_string())
-                    .columns(crate::resource::TextColumn::r#for(
-                        Ranked::fields().name(),
-                        |row: &Ranked| row.name.clone(),
-                    ))
-            }
-            fn form(_cx: &Cx) -> Schema {
-                Schema::new((
-                    TextInput::r#for(Ranked::fields().name()),
-                    TextInput::typed::<Ranked, i64>(Ranked::fields().rank()).unique(),
-                ))
-            }
-            async fn create_record(
-                _cx: &Cx,
-                values: HashMap<String, String>,
-                ex: &mut dyn toasty::Executor,
-            ) -> topcoat::Result<Ranked> {
-                toasty::create!(Ranked {
-                    name: values.get("name").cloned().unwrap_or_default(),
-                    rank: values
-                        .get("rank")
-                        .and_then(|value| value.parse::<i64>().ok())
-                        .unwrap_or_default(),
-                })
-                .exec(&mut *ex)
-                .await
-                .map_err(|error| -> topcoat::Error { error.into() })
-            }
-        }
+        const TOKEN: &str = "0f8fad5b-d9cb-469f-a165-70867728950e";
 
         let db = Db::builder()
-            .models(toasty::models!(Ranked))
+            .models(toasty::models!(Tagged))
             .connect("sqlite::memory:")
             .await
             .unwrap();
         db.push_schema().await.unwrap();
         let mut db_q = db.clone();
-        toasty::create!(Ranked {
+        toasty::create!(Tagged {
             name: "one".to_string(),
-            rank: 1i64,
+            token: uuid::Uuid::parse_str(TOKEN).unwrap(),
         })
         .exec(&mut db_q)
         .await
         .unwrap();
         let router = Panel::new("admin")
             .app_context(db.clone())
-            .resource::<RankedResource>()
+            .resource::<TaggedResource>()
             .auth(crate::Auth::disabled())
             .build()
             .expect("panel builds");
@@ -2685,7 +2764,7 @@ mod tests {
         let request = |body: String| {
             http::Request::builder()
                 .method(http::Method::POST)
-                .uri("/admin/ranked/create")
+                .uri("/admin/tagged/create")
                 .header(
                     http::header::CONTENT_TYPE,
                     "application/x-www-form-urlencoded",
@@ -2698,36 +2777,36 @@ mod tests {
                 .unwrap()
         };
 
-        // `01` is not the stored spelling, so a text probe sees no duplicate.
+        // The upper-case spelling is not the stored one, so a text probe sees
+        // no duplicate; the typed probe sees the same `Uuid`.
         let response = router
-            .handle(request(format!("name=two&rank=01&csrf_token={csrf}")))
+            .handle(request(format!(
+                "name=two&token={}&csrf_token={csrf}",
+                TOKEN.to_uppercase()
+            )))
             .await;
         assert_eq!(
             response.status(),
             200,
             "the duplicate must re-render, not create"
         );
-        let html = String::from_utf8_lossy(
-            &http_body_util::BodyExt::collect(response.into_body())
-                .await
-                .unwrap()
-                .to_bytes(),
-        )
-        .to_string();
+        let html = response_html(response).await;
         assert!(
-            html.contains("Rank has already been taken"),
+            html.contains("Token has already been taken"),
             "the typed probe must see the duplicate, got {html}"
         );
         let mut db_q = db.clone();
         assert_eq!(
-            Ranked::all().exec(&mut db_q).await.unwrap().len(),
+            Tagged::all().exec(&mut db_q).await.unwrap().len(),
             1,
             "a refused create writes nothing"
         );
 
-        // The other direction: a genuinely different number still creates.
+        // The other direction: a genuinely different token still creates.
         let response = router
-            .handle(request(format!("name=two&rank=2&csrf_token={csrf}")))
+            .handle(request(format!(
+                "name=two&token=3f8fad5b-d9cb-469f-a165-70867728950e&csrf_token={csrf}"
+            )))
             .await;
         assert_eq!(
             response.status(),
@@ -2736,9 +2815,236 @@ mod tests {
         );
         let mut db_q = db.clone();
         assert_eq!(
-            Ranked::all().exec(&mut db_q).await.unwrap().len(),
+            Tagged::all().exec(&mut db_q).await.unwrap().len(),
             2,
             "the accepted create writes its row"
+        );
+    }
+
+    /// GH #297: the edit exclusion normalises both sides through the leaf's own
+    /// rule, so a re-spelled equivalent of the record's own value is that value
+    /// and the save succeeds; another record's value still refuses.
+    #[tokio::test]
+    async fn a_typed_unique_field_skips_the_records_own_value_on_edit() {
+        const MINE: &str = "0f8fad5b-d9cb-469f-a165-70867728950e";
+        const THEIRS: &str = "3f8fad5b-d9cb-469f-a165-70867728950e";
+
+        let db = Db::builder()
+            .models(toasty::models!(Tagged))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        let mut db_q = db.clone();
+        let mine = toasty::create!(Tagged {
+            name: "mine".to_string(),
+            token: uuid::Uuid::parse_str(MINE).unwrap(),
+        })
+        .exec(&mut db_q)
+        .await
+        .unwrap();
+        toasty::create!(Tagged {
+            name: "theirs".to_string(),
+            token: uuid::Uuid::parse_str(THEIRS).unwrap(),
+        })
+        .exec(&mut db_q)
+        .await
+        .unwrap();
+        let router = Panel::new("admin")
+            .app_context(db.clone())
+            .resource::<TaggedResource>()
+            .auth(crate::Auth::disabled())
+            .build()
+            .expect("panel builds");
+
+        let csrf = uuid::Uuid::new_v4().to_string();
+        let url = format!("/admin/tagged/{}/edit", mine.id);
+        let edit = |token: &str| {
+            http::Request::builder()
+                .method(http::Method::POST)
+                .uri(&url)
+                .header(
+                    http::header::CONTENT_TYPE,
+                    "application/x-www-form-urlencoded",
+                )
+                .header(
+                    http::header::COOKIE,
+                    format!("{}={csrf}", crate::csrf::COOKIE_NAME),
+                )
+                .body(Body::from(format!(
+                    "name=mine&token={token}&csrf_token={csrf}"
+                )))
+                .unwrap()
+        };
+
+        // The record's own token, re-spelled: the same value, so the save
+        // succeeds instead of probing this record's own row.
+        let response = router.handle(edit(&MINE.to_uppercase())).await;
+        assert!(
+            response.status().is_redirection(),
+            "re-spelling the record's own value must save, got {} {}",
+            response.status(),
+            response_html(response).await
+        );
+        let mut db_q = db.clone();
+        let saved = Tagged::filter(Tagged::fields().id().eq(mine.id))
+            .first()
+            .exec(&mut db_q)
+            .await
+            .unwrap()
+            .expect("the edited record");
+        assert_eq!(
+            saved.token,
+            uuid::Uuid::parse_str(MINE).unwrap(),
+            "the re-spelled value is stored canonically"
+        );
+
+        // Another record holds the submitted token: refused, nothing written.
+        let response = router.handle(edit(THEIRS)).await;
+        assert_eq!(
+            response.status(),
+            200,
+            "another record's value must refuse the edit"
+        );
+        let html = response_html(response).await;
+        assert!(
+            html.contains("Token has already been taken"),
+            "the typed probe must see the other record, got {html}"
+        );
+        let mut db_q = db.clone();
+        let unchanged = Tagged::filter(Tagged::fields().id().eq(mine.id))
+            .first()
+            .exec(&mut db_q)
+            .await
+            .unwrap()
+            .expect("the refused record");
+        assert_eq!(
+            unchanged.token,
+            uuid::Uuid::parse_str(MINE).unwrap(),
+            "a refused edit writes nothing"
+        );
+    }
+
+    /// GH #297: `Uploader::holds` defaults to `false`, so a store that does not
+    /// implement it cannot vouch for a carried path — a forged `keep_<field>`
+    /// leaves the field empty and the create refuses.
+    #[tokio::test]
+    async fn a_forged_carry_is_refused_by_the_default_holds() {
+        #[derive(Debug, toasty::Model, Clone)]
+        struct Doc {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            title: String,
+            path: String,
+        }
+
+        /// A store that implements only `store`: `holds` stays the default.
+        struct NoHoldsUploader;
+
+        impl crate::Uploader for NoHoldsUploader {
+            async fn store(
+                &self,
+                _filename: &str,
+                _bytes: &[u8],
+            ) -> std::result::Result<String, String> {
+                Ok("/uploads/stored.bin".to_string())
+            }
+        }
+
+        struct DocResource;
+
+        impl crate::resource::Resource for DocResource {
+            type Model = Doc;
+
+            fn slug() -> String {
+                "docs".to_string()
+            }
+
+            fn can_view_any(_cx: &Cx) -> bool {
+                true
+            }
+
+            fn can_create(_cx: &Cx) -> bool {
+                true
+            }
+
+            fn table(cx: &Cx) -> crate::resource::Table<Doc> {
+                crate::resource::Table::r#for(cx)
+                    .id(|row: &Doc| row.id.to_string())
+                    .columns(crate::resource::TextColumn::r#for(
+                        Doc::fields().title(),
+                        |row: &Doc| row.title.clone(),
+                    ))
+            }
+
+            fn form(_cx: &Cx) -> Schema {
+                Schema::new((
+                    TextInput::r#for(Doc::fields().title()),
+                    FileUpload::r#for(Doc::fields().path()),
+                ))
+            }
+
+            async fn create_record(
+                _cx: &Cx,
+                values: HashMap<String, String>,
+                ex: &mut dyn toasty::Executor,
+            ) -> topcoat::Result<Doc> {
+                toasty::create!(Doc {
+                    title: values.get("title").cloned().unwrap_or_default(),
+                    path: values.get("path").cloned().unwrap_or_default(),
+                })
+                .exec(&mut *ex)
+                .await
+                .map_err(|error| -> topcoat::Error { error.into() })
+            }
+        }
+
+        let db = Db::builder()
+            .models(toasty::models!(Doc))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        let router = Panel::new("admin")
+            .app_context(db.clone())
+            .uploads(NoHoldsUploader)
+            .resource::<DocResource>()
+            .auth(crate::Auth::disabled())
+            .build()
+            .expect("panel builds");
+
+        let csrf = uuid::Uuid::new_v4().to_string();
+        // A forged candidate with no file part: nothing stored the path.
+        let response = router
+            .handle(
+                http::Request::builder()
+                    .method(http::Method::POST)
+                    .uri("/admin/docs/create")
+                    .header(
+                        http::header::CONTENT_TYPE,
+                        "application/x-www-form-urlencoded",
+                    )
+                    .header(
+                        http::header::COOKIE,
+                        format!("{}={csrf}", crate::csrf::COOKIE_NAME),
+                    )
+                    .body(Body::from(format!(
+                        "title=Doc&keep_path=javascript:alert(1)&csrf_token={csrf}"
+                    )))
+                    .unwrap(),
+            )
+            .await;
+        assert_eq!(response.status(), 200, "the forged carry must re-render");
+        let html = response_html(response).await;
+        assert!(
+            html.contains("Path is required"),
+            "the forged carry must leave the field empty, got {html}"
+        );
+        let mut db_q = db.clone();
+        assert!(
+            Doc::all().exec(&mut db_q).await.unwrap().is_empty(),
+            "a forged carry must not create a record"
         );
     }
 }

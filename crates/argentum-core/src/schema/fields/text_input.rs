@@ -26,10 +26,11 @@ type EqProbe = std::sync::Arc<dyn Fn(&str) -> Option<toasty::stmt::Expr<bool>> +
 /// unique as text but not as the type (or the reverse) is checked for what the
 /// record will store (GH #297).
 ///
-/// The index resolves inside the closure rather than here: a context-bound leaf
-/// reports its **flattened storage column** (`seo_title`), which is a column of
-/// the resource's model, not of the leaf's own lens root, so a non-unique field
-/// must not resolve it at all (GH #185).
+/// The index resolves inside the closure rather than here: the name is the
+/// leaf's **app field name**, and for a context-bound leaf that is its flattened
+/// storage column (`seo_title`), which the leaf's own lens root does not name —
+/// toasty matches app field names — so resolving it eagerly would panic for an
+/// embedded typed leaf. Only a `unique()` marker reaches the closure.
 ///
 /// `IntoExpr` is what lets the comparison name the value: it is implemented for
 /// every scalar toasty stores, and the panel's typed constructors require it
@@ -61,8 +62,7 @@ pub struct TextInput {
     /// The email and typed-parse rules (GH #243), with their messages.
     rules: Rules,
     /// The typed leaf's unique probe, absent on a text leaf (GH #297): a text
-    /// leaf's comparison is built from the handler's own model, because a
-    /// context-bound leaf's flattened name belongs to that model.
+    /// leaf's comparison is built from the model the handler queries.
     typed_probe: Option<EqProbe>,
 }
 
