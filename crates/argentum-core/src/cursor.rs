@@ -60,10 +60,10 @@ pub fn encode(value: &Value) -> Result<String> {
 /// A malformed cursor token — the `?after=`/`?before=` value itself is bad —
 /// or a conflicting cursor pair (`?after=` + `?before=` together, GH #155).
 ///
-/// Distinguishable from any other load failure so the list page can drop the
-/// cursor from its retry link (GH #110): retrying the identical URL can never
-/// succeed, while a transient failure must retry the same evidence (GH #98).
-/// The message is the decode error's own `cursor: …` text, or the conflict
+/// One of the two markers [`is_cursor_error`] reads to drop the cursor from
+/// the retry link (GH #110): retrying the identical URL can never succeed,
+/// while a transient failure must retry the same evidence (GH #98). The
+/// message is the decode error's own `cursor: …` text, or the conflict
 /// message's.
 #[derive(Debug)]
 pub(crate) struct CursorDecodeError(String);
@@ -86,6 +86,40 @@ impl std::fmt::Display for CursorDecodeError {
 }
 
 impl std::error::Error for CursorDecodeError {}
+
+/// A cursor the query's ordering refuses (GH #294): the token decodes, but it
+/// was cut from a different `ORDER BY` — the sort changed since the link was
+/// built — so the engine rejects the statement. Distinct from
+/// [`CursorDecodeError`] because the token itself is well formed; the two share
+/// the retry contract below.
+#[derive(Debug)]
+pub(crate) struct CursorRejectedError(String);
+
+impl CursorRejectedError {
+    /// Attribute a failed paginated load to `error`, the engine's refusal of
+    /// the request's cursor.
+    pub(crate) fn rejected(error: &topcoat::Error) -> topcoat::Error {
+        topcoat::Error::from(CursorRejectedError(error.to_string()))
+    }
+}
+
+impl std::fmt::Display for CursorRejectedError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for CursorRejectedError {}
+
+/// Whether `error` is the request's cursor's fault (GH #110, GH #294): a
+/// malformed token, a conflicting cursor pair, or a token the ordering
+/// rejects. Retrying the identical request can never succeed for any of them,
+/// so the list page drops the cursor from its retry link and the live retry
+/// resets it.
+pub(crate) fn is_cursor_error(error: &topcoat::Error) -> bool {
+    error.downcast_ref::<CursorDecodeError>().is_some()
+        || error.downcast_ref::<CursorRejectedError>().is_some()
+}
 
 /// Decode a token produced by [`encode`] back into a cursor [`Value`].
 ///

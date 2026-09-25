@@ -320,8 +320,26 @@ impl<M> Table<M> {
     }
 
     /// Declare filters. Accepts a single filter or tuple of filters.
-    pub fn filters(mut self, filters: impl IntoFilters<M>) -> Self {
-        self.filters = filters.into_filters();
+    ///
+    /// Panics on duplicate [`Filter::name`] (GH #294), the same fail-loud
+    /// policy as [`Self::columns`]: the `filters` transport is one
+    /// `name:value` pair per declared filter, and `parse_filters_param` keeps
+    /// the first value for a duplicated key, so two filters sharing a name
+    /// would silently drop one of them.
+    pub fn filters(mut self, filters: impl IntoFilters<M>) -> Self
+    where
+        M: toasty::schema::Model,
+    {
+        let filters = filters.into_filters();
+        let mut seen = std::collections::HashSet::with_capacity(filters.len());
+        for f in &filters {
+            let name = f.name();
+            assert!(
+                seen.insert(name),
+                "duplicate filter name '{name}': each Table filter needs a distinct name (GH #294)"
+            );
+        }
+        self.filters = filters;
         self
     }
 
@@ -813,7 +831,7 @@ impl<M> Table<M> {
                 let loaded = paginated
                     .exec(&mut db)
                     .await
-                    .map_err(topcoat::Error::from)?;
+                    .map_err(|error| reject_cursor(error.into(), state))?;
                 let mut page = TablePage::from_toasty_page(loaded)?;
                 // Cursor-existence probes, one per landing direction (GH #172):
                 // the engine sets `next_cursor`/`prev_cursor` optimistically,
@@ -928,6 +946,26 @@ impl<M> Table<M> {
     /// change cannot rebuild the control the user is interacting with.
     pub(crate) fn filter_bar_enabled(&self) -> bool {
         self.filters_ui.unwrap_or(!self.filters.is_empty())
+    }
+}
+
+/// Attribute a failed paginated fetch to the request's cursor (GH #294).
+///
+/// A token cut from a different ordering decodes but the engine refuses the
+/// statement (`invalid_statement`: its field count no longer matches the
+/// query's `ORDER BY`), and a statement that does not involve the cursor never
+/// carries that error. Such a failure is the cursor's, so it takes the
+/// cursor-stripped retry contract instead of re-requesting the identical URL
+/// forever; every other failure keeps the cursor (GH #98).
+fn reject_cursor(error: topcoat::Error, state: &TableState) -> topcoat::Error {
+    let cursored = state.after.is_some() || state.before.is_some();
+    let rejected = error
+        .downcast_ref::<toasty::Error>()
+        .is_some_and(toasty::Error::is_invalid_statement);
+    if cursored && rejected {
+        crate::cursor::CursorRejectedError::rejected(&error)
+    } else {
+        error
     }
 }
 
@@ -1443,6 +1481,18 @@ mod tests {
         ));
     }
 
+    #[test]
+    #[should_panic(expected = "duplicate filter name")]
+    fn duplicate_filter_name_panics_on_duplicate_field() {
+        // GH #294: the transport names a filter by its field, and the parser
+        // keeps the first value for a duplicated key, so two filters on one
+        // field would silently drop one. Refuse the declaration instead.
+        let _ = Table::<Task>::new().filters((
+            SelectFilter::r#for(Task::fields().status(), vec!["published".to_string()]),
+            SelectFilter::r#for(Task::fields().status(), vec!["draft".to_string()]),
+        ));
+    }
+
     async fn seeded_users(names: &[&str]) -> topcoat::context::Cx {
         let mut db = Db::builder()
             .models(toasty::models!(User))
@@ -1813,6 +1863,105 @@ mod tests {
             count_around(false),
             bare_main_cost + bare_probe_cost,
             "backward landing must cost exactly main + one prev probe"
+        );
+    }
+
+    #[tokio::test]
+    async fn stale_cursor_is_marked_for_retry() {
+        // GH #294: a token cut from another ordering decodes but the engine
+        // refuses the statement (the cursor's field count no longer matches
+        // the query's `ORDER BY`). That failure is the cursor's, so it carries
+        // a cursor marker and the retry drops pagination instead of repeating
+        // the identical failing request forever.
+        use toasty::stmt::Value;
+        use toasty_core::stmt::ValueRecord;
+
+        let mut db = Db::builder()
+            .models(toasty::models!(Task))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        for title in ["Alpha", "Bravo", "Charlie", "Delta"] {
+            toasty::create!(Task {
+                title: title.to_string(),
+                status: "draft".to_string(),
+                featured: false,
+                created_at: "2024-01-01T00:00:00Z".parse::<jiff::Timestamp>().unwrap(),
+            })
+            .exec(&mut db)
+            .await
+            .unwrap();
+        }
+        let cx = topcoat::context::CxTestBuilder::new()
+            .app_context(db)
+            .build();
+        let table = || {
+            Table::<Task>::new()
+                .id(|t| t.id.to_string())
+                .pk(|t| t.id.to_string())
+                .columns(
+                    TextColumn::r#for(Task::fields().title(), |t: &Task| t.title.clone())
+                        .sortable(),
+                )
+                .paginate(2)
+        };
+        // The query orders by `title` then the PK to break ties, so a cursor
+        // with three fields has one too many.
+        let wide = crate::cursor::encode(&Value::Record(ValueRecord::from_vec(vec![
+            Value::String("Alpha".to_string()),
+            Value::String("x".to_string()),
+            Value::I64(1),
+        ])))
+        .unwrap();
+        let state = TableState {
+            after: Some(wide),
+            ..TableState::default()
+        };
+        let error = table()
+            .load(&cx, toasty::stmt::Query::<List<Task>>::all(), &state)
+            .await
+            .expect_err("a cursor with too many fields must fail the load");
+        assert!(
+            crate::cursor::is_cursor_error(&error),
+            "a rejected cursor must carry the cursor marker, got {error}"
+        );
+        assert!(
+            error
+                .downcast_ref::<crate::cursor::CursorRejectedError>()
+                .is_some(),
+            "the refusal is not a decode failure, got {error}"
+        );
+
+        // A transient failure keeps the cursor (GH #98): a failure the cursor
+        // did not cause carries no marker, so `retry_url_for_error` keeps the
+        // pagination it was given.
+        let transient = topcoat::Error::from(std::io::Error::other("database unavailable"));
+        assert!(
+            !crate::cursor::is_cursor_error(&transient),
+            "only cursor failures drop pagination on retry"
+        );
+
+        // A cursor cut from this query's own ordering round-trips: the guard
+        // marks a rejected cursor, not every request that carries one.
+        let first = table()
+            .load(
+                &cx,
+                toasty::stmt::Query::<List<Task>>::all(),
+                &TableState::default(),
+            )
+            .await
+            .unwrap();
+        let state = TableState {
+            after: first.next_cursor.clone(),
+            ..TableState::default()
+        };
+        assert!(
+            table()
+                .load(&cx, toasty::stmt::Query::<List<Task>>::all(), &state)
+                .await
+                .is_ok(),
+            "a matching cursor must keep loading"
         );
     }
 }

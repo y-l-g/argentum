@@ -444,6 +444,21 @@ mod tests {
             table_html.contains("set((cx.hydrate(&quot;&quot;)).clone())"),
             "live retry must clear the cursor signal: {table_html}"
         );
+        // GH #294: the retry re-runs the shard through a token it reads and
+        // increments, so the click re-runs the load even when every query
+        // signal already holds the failing value.
+        assert!(
+            table_html.contains("data-retry-attempt="),
+            "live retry must carry the shard-read retry token: {table_html}"
+        );
+        assert!(
+            table_html.contains("increment()"),
+            "live retry must increment the token: {table_html}"
+        );
+        assert!(
+            table_html.contains("::topcoat::dep("),
+            "the retry token must be a shard dependency: {table_html}"
+        );
 
         // The `before` signal path is symmetric: a tampered backward cursor
         // renders the same cursor-stripped ErrorState. A tampered `group_by`
@@ -481,6 +496,255 @@ mod tests {
         assert!(
             !table_html.contains("group_by"),
             "an unknown group_by must not echo through the shard retry link: {table_html}"
+        );
+    }
+
+    #[tokio::test]
+    async fn live_shard_stale_cursor_retry_drops_pagination() {
+        // GH #294: a token that decodes but was cut from another ordering is
+        // refused by the engine, not by the decoder. The retry must still drop
+        // pagination instead of repeating the identical failing request.
+        use std::collections::HashMap;
+
+        use http_body_util::BodyExt;
+        use toasty::stmt::Value;
+        use toasty_core::stmt::ValueRecord;
+
+        use crate::resource::Resource;
+
+        #[derive(Debug, toasty::Model, Clone)]
+        struct Dummy {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            name: String,
+        }
+        struct LiveResource;
+        impl Resource for LiveResource {
+            type Model = Dummy;
+            fn slug() -> String {
+                "dummies".to_string()
+            }
+            fn can_view_any(_cx: &Cx) -> bool {
+                true
+            }
+            fn can_view(_cx: &Cx, _record: &Dummy) -> bool {
+                true
+            }
+            fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
+                crate::resource::Table::r#for(cx)
+                    .id(|d: &Dummy| d.id.to_string())
+                    .pk(|d: &Dummy| d.id.to_string())
+                    .columns(
+                        crate::resource::TextColumn::r#for(Dummy::fields().name(), |d: &Dummy| {
+                            d.name.clone()
+                        })
+                        .searchable()
+                        .sortable(),
+                    )
+                    .paginate(1)
+                    .live_search(true)
+            }
+            fn hydrate_form_values(_cx: &Cx, _record: &Dummy) -> HashMap<String, String> {
+                HashMap::new()
+            }
+        }
+
+        let mut db = Db::builder()
+            .models(toasty::models!(Dummy))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        for name in ["Ada", "Bob"] {
+            toasty::create!(Dummy {
+                name: name.to_string(),
+            })
+            .exec(&mut db)
+            .await
+            .unwrap();
+        }
+        let router = Panel::new("admin")
+            .app_context(db)
+            .resource::<LiveResource>()
+            .auth(crate::Auth::disabled())
+            .build()
+            .expect("panel builds");
+
+        // The query orders by name then the primary key, so three fields is
+        // one too many: the token decodes, the statement does not verify.
+        let stale = crate::cursor::encode(&Value::Record(ValueRecord::from_vec(vec![
+            Value::String("Ada".to_string()),
+            Value::String("x".to_string()),
+            Value::I64(1),
+        ])))
+        .unwrap();
+        let sig = |n: u8, v: &str| format!(r#"{{"t":"Signal","id":"{:032x}","v":"{v}"}}"#, n);
+        let args = format!(
+            r#"["/admin/dummies",{}, {}, {}, {}, {}, {}, {}]"#,
+            sig(1, ""),
+            sig(2, ""),
+            sig(3, ""),
+            sig(4, ""),
+            sig(5, &crate::resource::cursor_after(&stale)),
+            sig(6, ""),
+            sig(7, ""),
+        );
+        let response = router
+            .handle(
+                http::Request::builder()
+                    .method(http::Method::POST)
+                    .uri(TABLE_SEARCH_PATH)
+                    .header(http::header::CONTENT_TYPE, "application/json")
+                    .header(topcoat::router::request::IDENTITY_HEADER, "A".repeat(22))
+                    .body(Body::from(format!(r#"{{"args":{args},"signals":{{}}}}"#)))
+                    .unwrap(),
+            )
+            .await;
+        assert_eq!(response.status(), http::StatusCode::OK);
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let table_html = String::from_utf8_lossy(&bytes).to_string();
+        assert!(
+            table_html.contains("Couldn't load Dummies"),
+            "a stale cursor must render the error state: {table_html}"
+        );
+        assert!(
+            table_html.contains("href=\"/admin/dummies\""),
+            "the stale-cursor retry must target the bare list: {table_html}"
+        );
+        assert!(
+            !table_html.contains("after="),
+            "a stale cursor must not travel into the retry link: {table_html}"
+        );
+        assert!(
+            table_html.contains("set((cx.hydrate(&quot;&quot;)).clone())"),
+            "the stale-cursor retry must reset the cursor signal: {table_html}"
+        );
+    }
+
+    #[tokio::test]
+    async fn live_shard_retry_preserves_the_query() {
+        // GH #294: a failure the cursor did not cause must be retried with the
+        // query that failed — search, filters, and sort included. The retry
+        // re-runs through the token it increments, so it is not inert when the
+        // query signals already hold the values the failed request used.
+        //
+        // The unpaginated table is the deterministic non-cursor failure: the
+        // list loader refuses it before any cursor is decoded.
+        use std::collections::HashMap;
+
+        use http_body_util::BodyExt;
+
+        use crate::resource::Resource;
+
+        #[derive(Debug, toasty::Model, Clone)]
+        struct Dummy {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            name: String,
+            featured: bool,
+        }
+        struct UnpaginatedLive;
+        impl Resource for UnpaginatedLive {
+            type Model = Dummy;
+            fn slug() -> String {
+                "dummies".to_string()
+            }
+            fn can_view_any(_cx: &Cx) -> bool {
+                true
+            }
+            fn can_view(_cx: &Cx, _record: &Dummy) -> bool {
+                true
+            }
+            fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
+                crate::resource::Table::r#for(cx)
+                    .id(|d: &Dummy| d.id.to_string())
+                    .pk(|d: &Dummy| d.id.to_string())
+                    .columns(
+                        crate::resource::TextColumn::r#for(Dummy::fields().name(), |d: &Dummy| {
+                            d.name.clone()
+                        })
+                        .searchable()
+                        .sortable(),
+                    )
+                    .filters(crate::resource::TernaryFilter::r#for(
+                        Dummy::fields().featured(),
+                    ))
+                    .live_search(true)
+            }
+            fn hydrate_form_values(_cx: &Cx, _record: &Dummy) -> HashMap<String, String> {
+                HashMap::new()
+            }
+        }
+
+        let mut db = Db::builder()
+            .models(toasty::models!(Dummy))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        toasty::create!(Dummy {
+            name: "Ada".to_string(),
+            featured: false,
+        })
+        .exec(&mut db)
+        .await
+        .unwrap();
+        let router = Panel::new("admin")
+            .app_context(db)
+            .resource::<UnpaginatedLive>()
+            .auth(crate::Auth::disabled())
+            .build()
+            .expect("panel builds");
+
+        let sig = |n: u8, v: &str| format!(r#"{{"t":"Signal","id":"{:032x}","v":"{v}"}}"#, n);
+        let args = format!(
+            r#"["/admin/dummies",{}, {}, {}, {}, {}, {}, {}]"#,
+            sig(1, "Ada"),
+            sig(2, "featured:true"),
+            sig(3, "name"),
+            sig(4, "desc"),
+            sig(5, ""),
+            sig(6, ""),
+            sig(7, ""),
+        );
+        let response = router
+            .handle(
+                http::Request::builder()
+                    .method(http::Method::POST)
+                    .uri(TABLE_SEARCH_PATH)
+                    .header(http::header::CONTENT_TYPE, "application/json")
+                    .header(topcoat::router::request::IDENTITY_HEADER, "A".repeat(22))
+                    .body(Body::from(format!(r#"{{"args":{args},"signals":{{}}}}"#)))
+                    .unwrap(),
+            )
+            .await;
+        assert_eq!(response.status(), http::StatusCode::OK);
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let table_html = String::from_utf8_lossy(&bytes).to_string();
+        assert!(
+            table_html.contains("Couldn't load Dummies"),
+            "the unpaginated live load must render the error state: {table_html}"
+        );
+        // The href keeps the failed query; the no-JS fallback retries it.
+        let href = table_html
+            .split("href=\"")
+            .nth(1)
+            .and_then(|rest| rest.split('"').next())
+            .unwrap_or_default()
+            .to_string();
+        assert!(
+            href.contains("q=Ada") && href.contains("filters=") && href.contains("sort=name"),
+            "the retry href must keep the failed query, got {href}"
+        );
+        assert!(
+            table_html.contains("data-retry-attempt=") && table_html.contains("increment()"),
+            "the retry must re-run through its token: {table_html}"
+        );
+        assert!(
+            !table_html.contains("set((cx.hydrate"),
+            "a non-cursor failure must not clear the query signals: {table_html}"
         );
     }
 
