@@ -34,7 +34,7 @@ body:
       label: What actually happened
       description: Quote the exact message — the panic, the compiler error, or the response body. Do not paraphrase it.
       placeholder: |
-        thread 'main' panicked at crates/argentum-core/src/...:
+        thread 'main' panicked at crates/tablo-core/src/...:
         ...
     validations:
       required: true
@@ -51,7 +51,7 @@ body:
     id: area
     attributes:
       label: Affected area
-      description: Crate or subsystem — `argentum-core`, `argentum-macros`, `argentum-ui`, `showcase`, `xtask`, benchmarks, or docs.
-      placeholder: argentum-core (table)
+      description: Crate or subsystem — `tablo-core`, `tablo-macros`, `tablo-ui`, `showcase`, `xtask`, benchmarks, or docs.
+      placeholder: tablo-core (table)
     validations:
       required: true

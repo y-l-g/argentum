@@ -4,7 +4,7 @@ Date: 2026-09-10 — Status: accepted — Amended: 2026-09-14, 2026-09-24
 
 ## Decision
 
-Authentication is a default-on `Panel` concern in `argentum-core`, behind a feature that is enabled by
+Authentication is a default-on `Panel` concern in `tablo-core`, behind a feature that is enabled by
 default:
 
 - **One override seam.** An object-safe `Authenticator` trait (boxed futures) is stored per `Panel`
@@ -44,7 +44,7 @@ whose `find_by_id` keeps resolving a de-permitted user.
 A fresh app registers the shipped models, seeds an `AdminUser`, and gets a working login and a gated
 panel; an existing app implements one trait and swaps it in. The showcase proves the default path
 end-to-end, and a core integration test proves the override path. Tenant-scoped pages become reachable
-by logging in — the tenant comes from the user. `argentum-core` grows its first production Toasty
+by logging in — the tenant comes from the user. `tablo-core` grows its first production Toasty
 models and its first feature flag, with the Argon2 and session dependencies opt-out via
 `default-features = false`. With the feature off the panel has no gate and no login routes, so
 `Panel::build` refuses to build it unless the app hands it `Auth::disabled()` — the same explicit

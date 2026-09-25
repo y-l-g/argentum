@@ -305,8 +305,8 @@ async fn the_relation_issues_no_query_of_its_own() {
 /// a 500.
 #[tokio::test]
 async fn a_page_whose_query_skipped_the_include_says_so() {
-    use argentum_core::Resource;
     use showcase::app::PostResource;
+    use tablo_core::Resource;
     use topcoat::{context::CxTestBuilder, view::ViewExt};
 
     let db = full_db().await;

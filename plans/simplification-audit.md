@@ -14,7 +14,7 @@ scripted greps, `diff`); estimates are marked as such. `.worktrees/` and `target
 | First-party Rust source (excludes inline tests) | 23,569 | 64 files |
 | Inline `#[cfg(test)] mod tests` inside those files | 18,041 | 55 modules |
 | Integration tests (`**/tests/`) | 14,187 | 37 files, 4 test targets (2 consolidated) |
-| Vendored primitives (`argentum-ui/src/components/primitives/`) | 3,870 | 31 files, synced verbatim |
+| Vendored primitives (`tablo-ui/src/components/primitives/`) | 3,870 | 31 files, synced verbatim |
 | Shipped JavaScript | 1,697 | 11 assets |
 | JavaScript tests | 1,755 | 6 suites |
 | Documentation (Markdown) | 3,326 | 46 files |
@@ -41,11 +41,11 @@ accordion, avatar, badge, breadcrumb, dropdown_menu, hover_card, kbd, progress,
 radio_group, spinner, switch, tabs, toggle, tooltip
 ```
 
-`grep -rn "\b<name>("` over `crates/argentum-core/src`, `crates/argentum-ui/src`, and
+`grep -rn "\b<name>("` over `crates/tablo-core/src`, `crates/tablo-ui/src`, and
 `examples/showcase/src` returns zero hits for each (the two `toggle(` hits are
 `sidebar_open.toggle()`). `lib.rs:28-64` re-exports a curated subset that excludes all fourteen.
 
-One of them is worth calling out: `argentum-core` has its own `Tabs` schema layout
+One of them is worth calling out: `tablo-core` has its own `Tabs` schema layout
 (`schema/layouts.rs`) that renders tab markup directly, while the vendored `tabs` primitive is
 never called. Two tab implementations exist and only one is used.
 
@@ -106,7 +106,7 @@ derive entry point invoked by name). No `#[allow(dead_code)]`, no `unsafe`, no
 ### B. Tests
 
 The suite is not too big for what it protects, but it is written three times over: shared
-scaffolding exists for the showcase and not for `argentum-core`, the panel's inline test modules
+scaffolding exists for the showcase and not for `tablo-core`, the panel's inline test modules
 rebuild the same fixture per test, and several integration modules restate a unit test that
 landed later.
 
@@ -128,13 +128,13 @@ in at least eight test modules (`column.rs:439`, `export.rs:76`, `mod.rs:844`,
 
 `examples/showcase/tests/common/mod.rs` (739 lines) is the good version of exactly this
 (`TestClient`, `login`, `mint_session`, `multipart_body`, `response_cookies`, `input_value`) and
-is unreachable from `argentum-core`. Add `crates/argentum-core/tests/common/mod.rs` and a
+is unreachable from `tablo-core`. Add `crates/tablo-core/tests/common/mod.rs` and a
 `#[cfg(test)] test_support` module for the unit tests; declare the former from `it.rs` the way
 the showcase does.
 
 **B2 — Panel inline tests rebuild the same fixture per test. `verified`. (~400-500 lines)**
 
-Measured in `crates/argentum-core/src/panel/` alone:
+Measured in `crates/tablo-core/src/panel/` alone:
 
 - **34** of 35 `hydrate_form_values` overrides in tests are the exact trait-default stub
   (`HashMap::new()`); only `forms.rs:2681` is real.
@@ -151,7 +151,7 @@ crate, no coverage change.
 
 **B3 — `embedded_lens.rs` restates `schema/lenses.rs`. `verified`. (~130 lines)**
 
-`crates/argentum-core/tests/embedded_lens.rs` (302 lines, 10 tests) predates
+`crates/tablo-core/tests/embedded_lens.rs` (302 lines, 10 tests) predates
 `lenses.rs:786-1240`, which covers the resolver walk directly. Eight integration tests map 1:1,
 including an identical test name in both files
 (`a_document_leaf_resolves_to_the_document_column`: embedded_lens.rs:173 and lenses.rs:1038).
@@ -277,7 +277,7 @@ One canonical paragraph per invariant, linked by name, is the whole fix.
 
 **C4 — 29 doc blocks of 25 lines or more, six of 40+. `verified`. (~150-250 lines)**
 
-Longest: `schema/embedded.rs:1` (76 lines), `argentum-macros/src/lib.rs:8` (71),
+Longest: `schema/embedded.rs:1` (76 lines), `tablo-macros/src/lib.rs:8` (71),
 `fields/select.rs:211` (48), `resource/mod.rs:295` (48), `schema/relationship.rs:15` (47),
 `resource/mod.rs:613` (43). `resource/mod.rs` carries **537 doc-comment lines for 353 code
 lines** (152%) — the `Resource` trait explains the architecture to the reader instead of stating
@@ -297,7 +297,7 @@ rationale prose per block, moving what belongs to `CONTEXT.md` or an ADR, is rea
 
 Each candidate already resolves in `Cargo.lock` transitively, so declaring it directly adds no
 new dependency version — but it does change the workspace lock, and AGENTS.md rule 7 then
-requires the same commit to sync `benchmarks/argentum/Cargo.lock`.
+requires the same commit to sync `benchmarks/tablo/Cargo.lock`.
 
 **D1 — Hex encoders → `hex`. `verified`. (~30 lines, three sites)**
 
@@ -469,7 +469,7 @@ returning the same four strings.
 | Lines | Function | Where |
 | --- | --- | --- |
 | 321 | `render_inner` | table/render.rs:200-520 |
-| 269 | `expand_enum` | argentum-macros/src/embedded.rs:490-768 |
+| 269 | `expand_enum` | tablo-macros/src/embedded.rs:490-768 |
 | 266 | `render_filter_bar` | table/render.rs:1284-1549 |
 | 219 | `render_with` | schema/fields/select.rs:436-654 |
 | 212 | `Panel::build` | panel/mod.rs:446-657 |
@@ -611,7 +611,7 @@ Gates: `RUSTDOCFLAGS=-D warnings cargo doc`, `mdbook build docs/guide`; `PROSE.m
 
 **Batch 4 — crate swaps (D).** `hex` (two sites) and `percent-encoding` (two sites), then decide
 D4 and D5. `~70 lines` for D1-D3; ~300 with the test-parser decision.
-Gates: the full ten, plus AGENTS.md rule 7's `benchmarks/argentum/Cargo.lock` sync if the
+Gates: the full ten, plus AGENTS.md rule 7's `benchmarks/tablo/Cargo.lock` sync if the
 workspace lock changes.
 
 **Batch 5 — structural (E1-E3, E5, E6, E7, E8, E10, F2, F3).** The local, high-confidence ones

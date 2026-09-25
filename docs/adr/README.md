@@ -11,7 +11,7 @@ code and an ADR disagree, the code wins and the ADR is the thing to fix.
 | [0002](0002-query-seam.md) | `Resource::query` scopes rows; the framework owns tenancy |
 | [0003](0003-reactivity-seam.md) | Suspense, morphing reruns, and one scalar live-search shard |
 | [0004](0004-action-auth.md) | Mutations are transactional and per-record, with a post-commit hook |
-| [0006](0006-argentum-ui-seam.md) | Styled primitives live in `argentum-ui`; Tailwind stays per app |
+| [0006](0006-tablo-ui-seam.md) | Styled primitives live in `tablo-ui`; Tailwind stays per app |
 | [0007](0007-primitives-vs-composites.md) | `primitives/` is synced, `composites/` is hand-written |
 | [0008](0008-panel-declarative-resources.md) | Panel declares resources and owns the shell document |
 | [0009](0009-shell-shadcn-parity.md) | The shell is shadcn-shaped, with runtime sidebar state |

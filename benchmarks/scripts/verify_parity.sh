@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# verify_parity.sh — Argentum 50-row self-check + baseline compile smoke.
+# verify_parity.sh — Tablo 50-row self-check + baseline compile smoke.
 # Cross-framework HTML parity was dropped in GH #159: the axum-maud/leptos
-# apps render stubs, so diffing them against Argentum is non-comparable.
-# This script asserts Argentum renders Post 00..49 with Author includes,
+# apps render stubs, so diffing them against Tablo is non-comparable.
+# This script asserts Tablo renders Post 00..49 with Author includes,
 # and that both baselines still compile.
 
 set -euo pipefail
@@ -10,7 +10,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
 BENCH="$ROOT/benchmarks"
 
-PORT_ARGENTUM="${PORT_ARGENTUM:-3000}"
+PORT_TABLO="${PORT_TABLO:-3000}"
 
 wait_ready() {
   local url="$1"
@@ -39,15 +39,15 @@ fetch_normalized() {
 TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"; pkill -P $$ 2>/dev/null || true; kill $(jobs -p) 2>/dev/null || true' EXIT INT TERM
 
-echo "verify_parity: starting argentum..."
+echo "verify_parity: starting tablo..."
 
-# Start argentum
-echo "  argentum -> http://localhost:$PORT_ARGENTUM/admin/posts"
-PORT=$PORT_ARGENTUM cargo run --manifest-path "$BENCH/argentum/Cargo.toml" >/tmp/verify-argentum.log 2>&1 &
-PID_ARGENTUM=$!
-if ! wait_ready "http://localhost:$PORT_ARGENTUM/admin/posts"; then
-  echo "argentum failed to start"
-  cat /tmp/verify-argentum.log || true
+# Start tablo
+echo "  tablo -> http://localhost:$PORT_TABLO/admin/posts"
+PORT=$PORT_TABLO cargo run --manifest-path "$BENCH/tablo/Cargo.toml" >/tmp/verify-tablo.log 2>&1 &
+PID_TABLO=$!
+if ! wait_ready "http://localhost:$PORT_TABLO/admin/posts"; then
+  echo "tablo failed to start"
+  cat /tmp/verify-tablo.log || true
   exit 1
 fi
 
@@ -68,29 +68,29 @@ else
 fi
 
 # Fetch and normalize
-fetch_normalized "http://localhost:$PORT_ARGENTUM/admin/posts" "$TMPDIR/argentum.txt"
-echo "  fetched argentum ($(wc -l <"$TMPDIR/argentum.txt") lines)"
+fetch_normalized "http://localhost:$PORT_TABLO/admin/posts" "$TMPDIR/tablo.txt"
+echo "  fetched tablo ($(wc -l <"$TMPDIR/tablo.txt") lines)"
 
-# Argentum self-check: ensure 50 rows are visible (titles Post 00..49)
-if grep -q "Post 00" "$TMPDIR/argentum.txt" && grep -q "Post 49" "$TMPDIR/argentum.txt"; then
-  echo "  parity argentum: PASS (50 rows visible, Post 00..Post 49 found)"
+# Tablo self-check: ensure 50 rows are visible (titles Post 00..49)
+if grep -q "Post 00" "$TMPDIR/tablo.txt" && grep -q "Post 49" "$TMPDIR/tablo.txt"; then
+  echo "  parity tablo: PASS (50 rows visible, Post 00..Post 49 found)"
 else
-  echo "  parity argentum: FAIL (50 rows not found)"
-  echo "  argentum.txt head:"
-  head -n 50 "$TMPDIR/argentum.txt" || true
+  echo "  parity tablo: FAIL (50 rows not found)"
+  echo "  tablo.txt head:"
+  head -n 50 "$TMPDIR/tablo.txt" || true
   exit 1
 fi
 
 # Ensure author names appear (include worked)
-if grep -q "Author" "$TMPDIR/argentum.txt"; then
-  echo "  parity argentum includes: PASS (Author names visible)"
+if grep -q "Author" "$TMPDIR/tablo.txt"; then
+  echo "  parity tablo includes: PASS (Author names visible)"
 else
-  echo "  parity argentum includes: FAIL (no Author)"
+  echo "  parity tablo includes: FAIL (no Author)"
   exit 1
 fi
 
 # Cleanup
-kill "$PID_ARGENTUM" 2>/dev/null || true
-wait "$PID_ARGENTUM" 2>/dev/null || true
+kill "$PID_TABLO" 2>/dev/null || true
+wait "$PID_TABLO" 2>/dev/null || true
 
-echo "verify_parity: done (argentum 50-row + 2 includes verified; baselines smoke-only, GH #159)"
+echo "verify_parity: done (tablo 50-row + 2 includes verified; baselines smoke-only, GH #159)"

@@ -2,7 +2,7 @@
 //!
 //! `sync-topcoat-ui` mirrors the [`VENDORED_PRIMITIVES`] subset of the
 //! `topcoat-ui-registry` sources into
-//! `crates/argentum-ui/src/components/primitives/` **verbatim**: every file is
+//! `crates/tablo-ui/src/components/primitives/` **verbatim**: every file is
 //! the registry's byte-for-byte source under a one-line SYNC header that
 //! records the registry version *and* the sha256 content hash of the source
 //! (the same hash scheme topcoat's own registry and `topcoat ui` use). Because
@@ -17,9 +17,9 @@ use std::{
 
 use topcoat_ui::{Component, Dependency, Registry};
 
-/// The registry components Argentum vendors into `primitives/` (ADR-0007).
+/// The registry components Tablo vendors into `primitives/` (ADR-0007).
 ///
-/// The set is the transitive closure of what `crates/argentum-ui/src/lib.rs`
+/// The set is the transitive closure of what `crates/tablo-ui/src/lib.rs`
 /// re-exports: the re-exported components plus the components they depend on.
 /// `vendored_components` resolves the set and checks that closure against
 /// `Component::dependencies`, so the sync and the guards fail with the missing
@@ -116,7 +116,7 @@ pub fn primitives_dir() -> PathBuf {
     manifest_dir
         .parent()
         .unwrap_or(Path::new("."))
-        .join("crates/argentum-ui/src/components/primitives")
+        .join("crates/tablo-ui/src/components/primitives")
 }
 
 /// The registry Cargo resolved for this workspace, plus its crate version.
@@ -129,7 +129,7 @@ pub fn primitives_dir() -> PathBuf {
 fn locate_registry() -> anyhow::Result<(Registry, String)> {
     // Anchored at xtask's own manifest: a bare `cargo metadata`
     // resolves the caller's CWD, so invoking from a detached workspace
-    // (e.g. benchmarks/argentum, which has no topcoat-ui-registry in its
+    // (e.g. benchmarks/tablo, which has no topcoat-ui-registry in its
     // graph) failed with a misleading "must be a dependency of xtask".
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
     let output = std::process::Command::new("cargo")
@@ -289,7 +289,7 @@ fn ensure_primitives_mod(
 /// hash, `mod.rs` still lists exactly [`VENDORED_PRIMITIVES`], and the set is
 /// closed under the registry's same-registry dependencies.
 ///
-/// This is Argentum's counterpart of topcoat's own
+/// This is Tablo's counterpart of topcoat's own
 /// `examples/ui/tests/registry_sync.rs`: because the sync is byte-for-byte
 /// (no injected headers *inside* the source, no string patches), a hash
 /// comparison is meaningful and drift cannot hide.
@@ -414,11 +414,11 @@ pub fn assets_dir() -> PathBuf {
     manifest_dir
         .parent()
         .unwrap_or(Path::new("."))
-        .join("crates/argentum-ui/assets")
+        .join("crates/tablo-ui/assets")
 }
 
 /// Shell JS assets (ADR-0014): the file under `assets/` plus the
-/// `argentum-ui` constant that wires it into the document head.
+/// `tablo-ui` constant that wires it into the document head.
 pub const ASSET_FILES: &[(&str, &str)] = &[
     ("sidebar.js", "SIDEBAR_JS"),
     ("theme.js", "THEME_JS"),
@@ -434,7 +434,7 @@ pub const ASSET_FILES: &[(&str, &str)] = &[
 
 /// One hook-contract entry (ADR-0014): `js` must appear in the
 /// asset's source and `rust` must appear somewhere in the Rust render sources
-/// (`argentum-ui/src` + `argentum-core/src`; test modules and comment-only
+/// (`tablo-ui/src` + `tablo-core/src`; test modules and comment-only
 /// lines are stripped). Usually both are the same attribute hook;
 /// dataset-mapped hooks name each side's spelling (`dialogOpenParam` reads
 /// `data-dialog-open-param`).
@@ -767,7 +767,7 @@ fn production_sources(src: &str) -> String {
 /// removed, for the hook contract's Rust half.
 fn rust_sources(root: &Path) -> anyhow::Result<String> {
     let mut out = String::new();
-    for dir in ["crates/argentum-ui/src", "crates/argentum-core/src"] {
+    for dir in ["crates/tablo-ui/src", "crates/tablo-core/src"] {
         let mut files = Vec::new();
         collect_rs(&root.join(dir), &mut files)?;
         for path in files {
@@ -817,8 +817,8 @@ pub fn verify_asset_hooks() -> anyhow::Result<()> {
     let assets = assets_dir();
     let mut failures = Vec::new();
 
-    let lib_rs = std::fs::read_to_string(root.join("crates/argentum-ui/src/lib.rs"))
-        .map_err(|error| anyhow::anyhow!("cannot read argentum-ui/src/lib.rs: {error}"))?;
+    let lib_rs = std::fs::read_to_string(root.join("crates/tablo-ui/src/lib.rs"))
+        .map_err(|error| anyhow::anyhow!("cannot read tablo-ui/src/lib.rs: {error}"))?;
 
     // Every asset file exists and stays wired to its constant.
     let mut sources: std::collections::HashMap<&str, String> = std::collections::HashMap::new();
@@ -836,7 +836,7 @@ pub fn verify_asset_hooks() -> anyhow::Result<()> {
         }
         if !contains_hook(&lib_rs, constant) {
             failures.push(format!(
-                "{constant} is gone from argentum-ui/src/lib.rs, so {file} is no longer wired into the document; {HOOK_HINT}"
+                "{constant} is gone from tablo-ui/src/lib.rs, so {file} is no longer wired into the document; {HOOK_HINT}"
             ));
         }
     }

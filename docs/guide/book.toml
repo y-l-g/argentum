@@ -1,14 +1,14 @@
 [book]
-title = "Argentum Guide"
-authors = ["Argentum contributors"]
+title = "Tablo Guide"
+authors = ["Tablo contributors"]
 language = "en"
 src = "src"
 
 [output.html]
 default-theme = "light"
 preferred-dark-theme = "navy"
-git-repository-url = "https://github.com/y-l-g/argentum"
-edit-url-template = "https://github.com/y-l-g/argentum/edit/master/docs/guide/src/{path}"
+git-repository-url = "https://github.com/y-l-g/tablo"
+edit-url-template = "https://github.com/y-l-g/tablo/edit/master/docs/guide/src/{path}"
 
 # `optional = true` warns instead of failing when the linkcheck binary is missing locally;
 # with it installed (CI) broken links still fail the build.

@@ -1,4 +1,4 @@
-# Argentum — Agent Instructions
+# Tablo — Agent Instructions
 
 ## Commands
 
@@ -27,9 +27,9 @@ cargo install --git https://github.com/tokio-rs/topcoat --rev "$REV" topcoat-cli
    a file.
 6. `cargo fmt` covers workspace members only; the detached `benchmarks/*` workspaces are
    formatted and linted by manifest path.
-7. Any lockfile change syncs `benchmarks/argentum/Cargo.lock` in the same commit, with
+7. Any lockfile change syncs `benchmarks/tablo/Cargo.lock` in the same commit, with
    identical `topcoat`/`toasty` revs.
-8. Never hand-edit `crates/argentum-ui/src/components/primitives/`; sync it with xtask. Owned
+8. Never hand-edit `crates/tablo-ui/src/components/primitives/`; sync it with xtask. Owned
    components live in `components/composites/`.
 9. Hunting dead code: prefer `pub` API, always-same-value config, and test-only paths.
    `unsafe_code` and `warnings` are denied; `too_many_lines` is allowed.
@@ -51,7 +51,7 @@ guide is `docs/guide/` (mdBook), decisions are in `docs/adr/`, contributor specs
 ## Renovate PRs
 
 Bump `topcoat`/`toasty` deliberately, never with a blanket `cargo update`; sync
-`benchmarks/argentum/Cargo.lock` in the same commit. Coupled sets (e.g. `argon2` +
+`benchmarks/tablo/Cargo.lock` in the same commit. Coupled sets (e.g. `argon2` +
 `password-hash`) merge as one combined manual bump. See
 [`CONTRIBUTING.md`](CONTRIBUTING.md#dependency-pins) for the commands and GH #103.
 Two `syn` majors remain (GH #181, GH #193); do not force-unify.

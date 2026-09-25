@@ -5,7 +5,7 @@ Date: 2026-09-22 — Status: accepted — Amended: 2026-09-22, 2026-09-25
 ## Decision
 
 **1. The codec is derived from the type's shape; the keys come from the schema.**
-`#[derive(EmbeddedForm)]` (in `argentum-macros`) generates the flat-map ↔ typed conversion, the
+`#[derive(EmbeddedForm)]` (in `tablo-macros`) generates the flat-map ↔ typed conversion, the
 presence question, and a `form(cx, parent)` returning the value's controls. The app declares the value
 per type — one derive, no field bindings — and calls `write_embedded` / `read_embedded` / `submitted`
 where it hydrates and writes. It never spells a column: each leaf is addressed by a typed path

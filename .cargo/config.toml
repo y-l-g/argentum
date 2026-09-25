@@ -7,7 +7,7 @@ xtask = "run --package xtask --"
 #
 # codegen-units: the dev profile default, stated explicitly so a machine-wide
 # cargo config cannot scale it back down. Setting it to 1 serializes codegen
-# inside each crate -- exactly wrong for the heaviest units here (argentum-core,
+# inside each crate -- exactly wrong for the heaviest units here (tablo-core,
 # showcase and its test binaries) and it also makes linking slower by producing
 # fewer, larger object files.
 #

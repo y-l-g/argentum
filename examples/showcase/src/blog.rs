@@ -11,7 +11,7 @@
 //! loaders are panel-scoped (auth, tenancy, chrome) and would drag the admin
 //! shell's assumptions into a page that has no session to resolve them from.
 
-use argentum_core::db::db;
+use tablo_core::db::db;
 use toasty::stmt::Include;
 use topcoat::{
     Result,
@@ -62,7 +62,7 @@ async fn blog_layout(cx: &Cx, slot: Slot<'_>) -> Result<impl View> {
             <head>
                 <meta charset="utf-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1">
-                <title>"Argentum Blog"</title>
+                <title>"Tablo Blog"</title>
                 topcoat::dev::script()
                 if assets {
                     topcoat::runtime::script()
@@ -86,7 +86,7 @@ async fn blog_layout(cx: &Cx, slot: Slot<'_>) -> Result<impl View> {
                                 "text-muted-foreground hover:text-foreground" if !current,
                             ))
                         >
-                            "Argentum Blog"
+                            "Tablo Blog"
                         </a>
                         <a
                             href="/admin"
@@ -103,7 +103,7 @@ async fn blog_layout(cx: &Cx, slot: Slot<'_>) -> Result<impl View> {
                     <p
                         class="mx-auto w-full max-w-3xl px-6 py-4 text-sm text-muted-foreground"
                     >
-                        "Published with Argentum."
+                        "Published with Tablo."
                     </p>
                 </footer>
             </body>

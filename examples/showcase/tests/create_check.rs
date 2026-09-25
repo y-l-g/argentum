@@ -110,7 +110,7 @@ async fn create_valid_redirects_with_a_one_time_flash() {
     assert!(
         cookies
             .iter()
-            .any(|c| c.contains("__Host-argentum_notification")),
+            .any(|c| c.contains("__Host-tablo_notification")),
         "the flash cookie must be set on the redirect, got {cookies:?}"
     );
 
@@ -122,7 +122,7 @@ async fn create_valid_redirects_with_a_one_time_flash() {
         "GET list after create should be 200"
     );
     // The shell consumed the one-time flash: the follow-up response clears it.
-    let cleared = set_cookie_header(&resp2, "__Host-argentum_notification")
+    let cleared = set_cookie_header(&resp2, "__Host-tablo_notification")
         .expect("following the redirect must consume the flash");
     assert!(
         cleared.contains("Max-Age=0") || cleared.contains("Expires=Thu, 01 Jan 1970"),
@@ -188,7 +188,7 @@ async fn create_valid_persists_the_new_user_and_toasts_it() {
 
 #[tokio::test]
 async fn create_policy_deny() {
-    use argentum_core::{Resource, Schema, Table, TextColumn, TextInput};
+    use tablo_core::{Resource, Schema, Table, TextColumn, TextInput};
 
     #[derive(Debug, toasty::Model, Clone)]
     struct DummyUser {
@@ -237,9 +237,9 @@ async fn create_policy_deny() {
         .await
         .unwrap();
     db.push_schema().await.unwrap();
-    let router = argentum_core::Panel::new("admin")
+    let router = tablo_core::Panel::new("admin")
         .app_context(db.clone())
-        .auth(argentum_core::Auth::disabled())
+        .auth(tablo_core::Auth::disabled())
         .resource::<DenyCreateResource>()
         .build()
         .expect("panel builds");
@@ -382,7 +382,7 @@ async fn users_create_static_selects_set_role_and_active() {
 async fn a_failed_write_toasts_on_the_next_panel_page() {
     use std::collections::HashMap;
 
-    use argentum_core::{Resource, Schema, Table, TextColumn, TextInput};
+    use tablo_core::{Resource, Schema, Table, TextColumn, TextInput};
     use topcoat::context::Cx;
 
     #[derive(Debug, toasty::Model, Clone)]
@@ -432,9 +432,9 @@ async fn a_failed_write_toasts_on_the_next_panel_page() {
         .await
         .unwrap();
     db.push_schema().await.unwrap();
-    let router = argentum_core::Panel::new("admin")
+    let router = tablo_core::Panel::new("admin")
         .app_context(db)
-        .auth(argentum_core::Auth::disabled())
+        .auth(tablo_core::Auth::disabled())
         .resource::<FailingResource>()
         .build()
         .expect("panel builds");
@@ -455,7 +455,7 @@ async fn a_failed_write_toasts_on_the_next_panel_page() {
         resp.status()
     );
     // The flash cookie rides the 500 response...
-    let flash = set_cookie_header(&resp, "__Host-argentum_notification")
+    let flash = set_cookie_header(&resp, "__Host-tablo_notification")
         .expect("the flash cookie must ride the 500 response");
     let cookie_value = flash
         .split(';')
@@ -472,7 +472,7 @@ async fn a_failed_write_toasts_on_the_next_panel_page() {
 
     // The next panel page consumes the flash and renders the toast.
     let page = client
-        .cookie("__Host-argentum_notification", &cookie_value)
+        .cookie("__Host-tablo_notification", &cookie_value)
         .get("/admin/widgets")
         .await;
     assert!(

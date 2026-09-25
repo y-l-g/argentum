@@ -14,7 +14,7 @@
 
 use std::collections::HashMap;
 
-use argentum_core::{
+use tablo_core::{
     Notification, Resource, Uploader, csrf, db::db, notification::set_notification, require_tenant,
     scoped_query,
 };
@@ -213,17 +213,17 @@ async fn media_page(cx: &Cx) -> Result<impl View> {
 
     Ok(view! {
         cx =>
-        argentum_ui::page(
-            argentum_ui::page_header(
-                argentum_ui::page_title("Media library")
-                argentum_ui::page_description(
+        tablo_ui::page(
+            tablo_ui::page_header(
+                tablo_ui::page_title("Media library")
+                tablo_ui::page_description(
                     "Files stored through the app's uploader, attached to a post or a user."
                 )
             )
-            argentum_ui::page_content(
-                argentum_ui::card(
-                    argentum_ui::card_header(argentum_ui::card_title("Upload"))
-                    argentum_ui::card_content(
+            tablo_ui::page_content(
+                tablo_ui::card(
+                    tablo_ui::card_header(tablo_ui::card_title("Upload"))
+                    tablo_ui::card_content(
                         <form
                             method="post"
                             action=(MEDIA_PATH)
@@ -235,7 +235,7 @@ async fn media_page(cx: &Cx) -> Result<impl View> {
                                 <label class="text-sm font-medium" for="media-owner">
                                     "Owner"
                                 </label>
-                                argentum_ui::select(
+                                tablo_ui::select(
                                     attrs: attributes! { id="media-owner" name=(OWNER_FIELD) required="" },
                                     <option value="" selected="">"Choose an owner…"</option>
                                     <optgroup label="Posts">
@@ -259,7 +259,7 @@ async fn media_page(cx: &Cx) -> Result<impl View> {
                                     "File"
                                 </label>
                                 <div class="flex items-center gap-2">
-                                    argentum_ui::input(
+                                    tablo_ui::input(
                                         attrs: attributes! {
                                             id="media-file"
                                             type="file"
@@ -274,9 +274,9 @@ async fn media_page(cx: &Cx) -> Result<impl View> {
                                     // and the preview itself and cancels that
                                     // reset, so a file clear keeps the owner the
                                     // user picked (ADR-0021).
-                                    argentum_ui::button(
-                                        variant: argentum_ui::ButtonVariant::Outline,
-                                        size: argentum_ui::ButtonSize::Sm,
+                                    tablo_ui::button(
+                                        variant: tablo_ui::ButtonVariant::Outline,
+                                        size: tablo_ui::ButtonSize::Sm,
                                         attrs: attributes! {
                                             type="reset"
                                             data-media-clear=""
@@ -291,17 +291,17 @@ async fn media_page(cx: &Cx) -> Result<impl View> {
                                     class="flex items-center gap-3 text-xs text-muted-foreground"
                                 ></div>
                             </div>
-                            argentum_ui::button(
-                                variant: argentum_ui::ButtonVariant::Primary,
+                            tablo_ui::button(
+                                variant: tablo_ui::ButtonVariant::Primary,
                                 attrs: attributes! { type="submit" },
                                 "Upload"
                             )
                         </form>
                     )
                 )
-                argentum_ui::card(
-                    argentum_ui::card_header(argentum_ui::card_title("Stored media"))
-                    argentum_ui::card_content(
+                tablo_ui::card(
+                    tablo_ui::card_header(tablo_ui::card_title("Stored media"))
+                    tablo_ui::card_content(
                         <div class="flex flex-col gap-3">
                             if media.is_empty() {
                                 <p

@@ -4,14 +4,14 @@ Date: 2026-09-18 — Status: accepted — Amended: 2026-09-19, 2026-09-22, 2026-
 
 ## Decision
 
-**Ownership.** `crates/argentum-ui/assets/` holds ten hand-written JS assets (`sidebar.js`,
+**Ownership.** `crates/tablo-ui/assets/` holds ten hand-written JS assets (`sidebar.js`,
 `theme.js`, `dialog.js`, `bulk.js`, `filters.js`, `live-search.js`, `selects.js`, `variant.js`,
 `notifications.js`, `mutation-submit.js`; `selects.test.js`, `bulk.test.js`, `dialog.test.js`,
 `mutation-submit.test.js`, `notifications.test.js` and `filters.test.js` are the Node tests, not
 shipped, and `examples/showcase/assets/media.test.js` tests the showcase's `media.js` — ~67.0 KB
 unminified, ~25.4 KB gzipped summed per asset (`gzip -9 -n`), with no build or minify step). They
 are declared as `Asset` constants in
-`crates/argentum-ui/src/lib.rs` and emitted by `Panel::render_document` in `argentum-core` on every
+`crates/tablo-ui/src/lib.rs` and emitted by `Panel::render_document` in `tablo-core` on every
 document with `ShellAssets`, including the login page, where all but `theme.js`'s backstop apply are
 no-ops. Only the document emits `<script>` tags, `defer`red (GH #152 — parsing never waits for them;
 every asset either registers document-level listeners at execution or binds in a `DOMContentLoaded`
@@ -26,7 +26,7 @@ observe what was rendered; scoping emission to page content needs a new declarat
 not shrink the bundle because all ten handles stay referenced. The "hook ⇒ script" guarantee
 therefore holds only for documents rendered through `render_document` with `ShellAssets` configured:
 a `Panel` built without `.shell_assets(..)` renders sidebar/toaster hooks with no scripts, as do apps
-using `argentum-ui` components directly.
+using `tablo-ui` components directly.
 
 **Hook contract.** Each asset consumes an explicit hook list, guarded by `xtask/tests/it.rs`
 (via `xtask::verify_asset_hooks`, alongside the registry-sync guard): the test fails when an asset file is

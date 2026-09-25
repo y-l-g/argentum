@@ -1,0 +1,20 @@
+[package]
+name = "tablo-ui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Beautiful Topcoat UI primitives for Tablo — owned library over topcoat-ui-registry."
+
+[dependencies]
+http = "1"
+topcoat = { workspace = true, features = ["tailwind", "font", "font-fontsource", "asset", "icon", "icon-iconify", "runtime"] }
+
+[dev-dependencies]
+tokio = { workspace = true }
+
+[build-dependencies]
+topcoat = { workspace = true, features = ["icon-iconify"] }
+
+[lints]
+workspace = true

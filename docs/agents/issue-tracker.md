@@ -1,6 +1,6 @@
 # Issue tracker
 
-Issues live in GitHub at `y-l-g/argentum`. Use the `gh` CLI, which infers the
+Issues live in GitHub at `y-l-g/tablo`. Use the `gh` CLI, which infers the
 repo when run inside a clone.
 
 ## Commands
@@ -21,7 +21,7 @@ The label vocabulary is in [`docs/dev/LABELS.md`](../dev/LABELS.md).
 ## Upstream issues
 
 An issue labeled `upstream` records a missing or unstable Toasty or Topcoat API
-and the Argentum workaround it forces. File one with the Upstream gap form,
+and the Tablo workaround it forces. File one with the Upstream gap form,
 which fixes the five fields.
 
 The body is the status. Edit the body when the upstream state changes; never

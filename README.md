@@ -1,8 +1,8 @@
-# Argentum
+# Tablo
 
 > **Admin toolkit for Rust**, server-rendered on **Topcoat** (UI and reactivity) and **Toasty** (ORM). Filament-style Panel plus Resource, tables, and forms, with no SPA build step.
 
-[![CI](https://github.com/y-l-g/argentum/actions/workflows/ci.yml/badge.svg)](https://github.com/y-l-g/argentum/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![CI](https://github.com/y-l-g/tablo/actions/workflows/ci.yml/badge.svg)](https://github.com/y-l-g/tablo/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 ## What it is
 
@@ -82,8 +82,8 @@ contributor specs in [`docs/dev/`](docs/dev/), domain vocabulary in
 ## Documentation
 
 - **Guide**: [`docs/guide/`](docs/guide/) — build with `mdbook build docs/guide`, or read the
-  published copy at <https://y-l.fr/argentum/nightly/guide/>. The rustdoc reference is published
-  beside it at <https://y-l.fr/argentum/nightly/api/argentum_core/>.
+  published copy at <https://y-l.fr/tablo/nightly/guide/>. The rustdoc reference is published
+  beside it at <https://y-l.fr/tablo/nightly/api/tablo_core/>.
 - [`CONTEXT.md`](CONTEXT.md) — the vocabulary.
 - [`docs/adr/`](docs/adr/) — the decisions, one note each.
 - [`examples/showcase/`](examples/showcase/) — the runnable reference.

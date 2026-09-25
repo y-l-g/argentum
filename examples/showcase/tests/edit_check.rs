@@ -84,7 +84,7 @@ async fn edit_page_hydrates_and_updates() {
         !loc.contains("notification"),
         "the toast must not ride the query, got {loc}"
     );
-    let flash = set_cookie_header(&resp, "__Host-argentum_notification")
+    let flash = set_cookie_header(&resp, "__Host-tablo_notification")
         .expect("the flash cookie is set on the redirect");
     assert!(
         flash.contains("Updated"),
@@ -156,8 +156,8 @@ async fn edit_rejects_forged_post_before_probing_the_record() {
 async fn update_record_keeps_absent_fields() {
     use std::collections::HashMap;
 
-    use argentum_core::Resource;
     use showcase::app::UserResource;
+    use tablo_core::Resource;
 
     let db = seeded_db().await;
     let cx = topcoat::context::CxTestBuilder::new()
@@ -169,7 +169,7 @@ async fn update_record_keeps_absent_fields() {
     // Only email submitted: name must keep its stored value.
     let mut values = HashMap::new();
     values.insert("email".to_string(), "kept@example.com".to_string());
-    let mut ex = argentum_core::db::db(&cx);
+    let mut ex = tablo_core::db::db(&cx);
     UserResource::update_record(&cx, user.clone(), values, &mut ex)
         .await
         .unwrap();

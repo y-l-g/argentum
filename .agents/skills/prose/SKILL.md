@@ -1,6 +1,6 @@
 ---
 name: prose
-description: Always use this skill before writing long-form markdown documentation for Argentum
+description: Always use this skill before writing long-form markdown documentation for Tablo
 ---
 
 # Prose

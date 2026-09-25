@@ -10,4 +10,4 @@ group_imports = "StdExternalCrate"
 # `components/primitives/` mirrors topcoat-ui-registry verbatim (ADR-0007):
 # reformatting it breaks the byte-exact `cargo xtask verify-topcoat-ui`
 # contract. Owned code in `components/composites/` formats normally.
-ignore = ["crates/argentum-ui/src/components/primitives"]
+ignore = ["crates/tablo-ui/src/components/primitives"]

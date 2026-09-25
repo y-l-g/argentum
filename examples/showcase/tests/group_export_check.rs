@@ -157,7 +157,7 @@ async fn posts_export_streams_csv_with_content_disposition() {
 async fn export_over_cap_413s_at_route_level() {
     // GH #136 §4: the 413 mapping is unit-tested (`export_cap_maps_one_row…`);
     // this pins the route wiring — a table past the cap answers 413.
-    use argentum_core::{Resource, Schema, Table, TextColumn, TextInput};
+    use tablo_core::{Resource, Schema, Table, TextColumn, TextInput};
     use toasty::Db;
 
     use crate::common::TestClient;
@@ -209,9 +209,9 @@ async fn export_over_cap_413s_at_route_level() {
         create = create.item(Dummy::create().name(format!("row-{i:05}")));
     }
     create.exec(&mut db).await.unwrap();
-    let router = argentum_core::Panel::new("admin")
+    let router = tablo_core::Panel::new("admin")
         .app_context(db)
-        .auth(argentum_core::Auth::disabled())
+        .auth(tablo_core::Auth::disabled())
         .resource::<BigResource>()
         .build()
         .expect("panel builds");

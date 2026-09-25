@@ -6,7 +6,7 @@ embedded values, and the render and reactivity invariants any page has to respec
 Get the DB from app context:
 
 ```rust
-let mut db = argentum_core::db::db(cx);
+let mut db = tablo_core::db::db(cx);
 let rows = User::all().exec(&mut db).await?;
 ```
 
@@ -50,7 +50,7 @@ Derive the codec and declare nothing per field (GH #191, ADR-0019). The derive r
 shape, the framework names the columns:
 
 ```rust
-#[derive(Debug, Clone, toasty::Embed, argentum_core::EmbeddedForm)]
+#[derive(Debug, Clone, toasty::Embed, tablo_core::EmbeddedForm)]
 pub enum Publication {
     #[column(variant = 1)]
     Scheduled { #[shared(timestamp)] scheduled_at: String, scheduled_for: String },

@@ -1,8 +1,8 @@
 # Introduction
 
-What Argentum is, what it deliberately is not, and the two upstream projects it is built on.
+What Tablo is, what it deliberately is not, and the two upstream projects it is built on.
 
-Argentum is an **admin toolkit for Rust**, server-rendered on
+Tablo is an **admin toolkit for Rust**, server-rendered on
 [Topcoat](https://github.com/tokio-rs/topcoat) (UI and reactivity) and
 [Toasty](https://github.com/tokio-rs/toasty) (ORM): a Filament-style `Panel` plus `Resource`,
 tables, and forms, with no SPA build step.
@@ -22,14 +22,14 @@ tables, and forms, with no SPA build step.
 
 ## The two upstream dependencies
 
-Argentum is a thin, opinionated layer, not a framework of its own:
+Tablo is a thin, opinionated layer, not a framework of its own:
 
 - **Topcoat** owns rendering, routing, request context, reactivity, assets, cookies and sessions.
-  Argentum adds the admin-shaped pieces on top — `Panel`, `Resource`, `Table`, `Schema` — and
+  Tablo adds the admin-shaped pieces on top — `Panel`, `Resource`, `Table`, `Schema` — and
   follows Topcoat's idioms (`view!`, `#[component]`, `Cx`, `href!`, `#[memoize]`) rather than
   inventing parallel ones.
 - **Toasty** owns the data layer: models, queries, filters, sorting, preloading and migrations.
-  Argentum queries Toasty directly, so the typed model is the single source of truth for columns,
+  Tablo queries Toasty directly, so the typed model is the single source of truth for columns,
   relations and nullability.
 
 Both track `main` and are pinned by `Cargo.lock`; bump them deliberately, never with a blanket

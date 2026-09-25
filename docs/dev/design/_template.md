@@ -8,7 +8,7 @@ but keep the section order.
 A design document is guide-level: write it for the people who will use the
 change, not for someone reading the implementation. The two audiences are:
 
-  - App developers — developers building an admin with Argentum.
+  - App developers — developers building an admin with Tablo.
   - Toolkit contributors — anyone extending Panel, Resource, Table, or Schema.
 
 Describe what those audiences will see and have to do. Avoid documenting

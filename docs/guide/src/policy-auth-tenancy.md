@@ -26,11 +26,11 @@ Auth is on by default and fails closed:
 - Register the shipped models and seed one admin:
 
 ```rust
-toasty::models!(crate::User, argentum_core::auth::AdminUser, argentum_core::auth::AuthSession)
+toasty::models!(crate::User, tablo_core::auth::AdminUser, tablo_core::auth::AuthSession)
 ```
 
 ```rust
-let hash = argentum_core::auth::hash_password("secret").expect("hash password");
+let hash = tablo_core::auth::hash_password("secret").expect("hash password");
 // store in AdminUser.password_hash (Argon2id PHC string)
 ```
 
@@ -68,5 +68,5 @@ and the framework derives the `tenant_id` filter from the model and applies it a
 See [Resources](./resources.md) for the three shapes a resource can declare.
 
 No built-in rate limiter or lockout: enforce at the edge (proxy/WAF). `Notification` is a one-time
-`__Host-argentum_notification` flash cookie on the 303 Post/Redirect/Get response, consumed on
+`__Host-tablo_notification` flash cookie on the 303 Post/Redirect/Get response, consumed on
 follow-up so reloads never replay it.

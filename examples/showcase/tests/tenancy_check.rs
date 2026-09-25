@@ -97,15 +97,15 @@ async fn tenancy_via_cx_with_tenant_scopes_query_directly() {
     // GH #223: the tenant filter is the framework's, applied by `scoped_query`
     // — the direct-query entry point app code must use, because
     // `PostResource::query` is the unscoped base.
-    use argentum_core::{Tenant, scoped_query};
     use showcase::app::PostResource;
+    use tablo_core::{Tenant, scoped_query};
     use topcoat::context::CxTestBuilder;
     let (db, t1, _) = tenanted_db().await;
     let cx_t1 = CxTestBuilder::new()
         .app_context(db.clone())
         .request_context(Tenant(t1))
         .build();
-    let mut db_cx = argentum_core::db::db(&cx_t1);
+    let mut db_cx = tablo_core::db::db(&cx_t1);
     let rows = scoped_query::<PostResource>(&cx_t1)
         .unwrap()
         .exec(&mut db_cx)
@@ -116,7 +116,7 @@ async fn tenancy_via_cx_with_tenant_scopes_query_directly() {
 
     // Different tenant via Cx::with
     let cx_t2 = cx_t1.with(Tenant(uuid::Uuid::from_u128(2)));
-    let mut db_cx2 = argentum_core::db::db(&cx_t2);
+    let mut db_cx2 = tablo_core::db::db(&cx_t2);
     let rows2 = scoped_query::<PostResource>(&cx_t2)
         .unwrap()
         .exec(&mut db_cx2)
@@ -459,15 +459,15 @@ async fn comments_query_scopes_directly_through_parent_post() {
     // GH #169, Cx-level proof alongside the HTTP tests above.: the
     // scope is declared in `CommentResource::tenant_scope` and applied by
     // `scoped_query` — `CommentResource::query` is the tenant-unscoped base.
-    use argentum_core::{Tenant, scoped_query};
     use showcase::app::CommentResource;
+    use tablo_core::{Tenant, scoped_query};
     use topcoat::context::CxTestBuilder;
     let (db, t1, t2) = tenanted_db().await;
     let cx_t1 = CxTestBuilder::new()
         .app_context(db.clone())
         .request_context(Tenant(t1))
         .build();
-    let mut db_cx = argentum_core::db::db(&cx_t1);
+    let mut db_cx = tablo_core::db::db(&cx_t1);
     let rows = scoped_query::<CommentResource>(&cx_t1)
         .unwrap()
         .exec(&mut db_cx)
@@ -477,7 +477,7 @@ async fn comments_query_scopes_directly_through_parent_post() {
     assert_eq!(rows[0].body, "T1 comment");
 
     let cx_t2 = cx_t1.with(Tenant(t2));
-    let mut db_cx2 = argentum_core::db::db(&cx_t2);
+    let mut db_cx2 = tablo_core::db::db(&cx_t2);
     let rows2 = scoped_query::<CommentResource>(&cx_t2)
         .unwrap()
         .exec(&mut db_cx2)

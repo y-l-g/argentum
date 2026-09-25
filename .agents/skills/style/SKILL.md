@@ -1,6 +1,6 @@
 ---
 name: style
-description: Always use this skill before writing or editing Rust code or documentation in the Argentum repository
+description: Always use this skill before writing or editing Rust code or documentation in the Tablo repository
 ---
 
 # Code Style
@@ -21,7 +21,7 @@ description: Always use this skill before writing or editing Rust code or docume
 Name a module's file after the module and place it alongside its directory
 (`foo.rs` next to `foo/`), never `foo/mod.rs`. Existing `mod.rs` files are
 grandfathered: do not rename them, and never touch
-`crates/argentum-ui/src/components/primitives/`, which mirrors
+`crates/tablo-ui/src/components/primitives/`, which mirrors
 `topcoat-ui-registry` verbatim for the xtask sync.
 
 ## Dependencies

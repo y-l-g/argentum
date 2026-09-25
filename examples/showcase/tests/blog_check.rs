@@ -123,7 +123,7 @@ async fn blog_list_and_detail_are_public() {
             "the {name} page must render a complete document: {html}"
         );
         assert!(
-            html.contains("Published with Argentum."),
+            html.contains("Published with Tablo."),
             "the {name} page must render the public layout: {html}"
         );
         assert!(

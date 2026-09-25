@@ -4,7 +4,7 @@ Date: 2026-09-23 — Status: accepted — Amended: none
 
 ## Decision
 
-**The library is the app's, and its rows are polymorphic.** `argentum-core` keeps the seam
+**The library is the app's, and its rows are polymorphic.** `tablo-core` keeps the seam
 ADR-0017 drew — a `FileUpload` binds a `String`, the bytes go to the app's `Uploader`, and the
 stored value renders as a link — and the media library is the showcase's:
 `examples/showcase/src/models.rs` declares `MediaAsset`, `#[table = "medias"]`, one row per stored
@@ -69,7 +69,7 @@ file, the file's name otherwise, the URL revoked when the preview is replaced or
 form with no file input in reach keeps the browser's reset rather than swallowing the click.
 
 The script is the **app's asset**, declared as `MEDIA_JS` and linked `defer`red by the page rather
-than added to the shell's set. ADR-0014 owns the scripts `argentum-ui` ships — the document emits
+than added to the shell's set. ADR-0014 owns the scripts `tablo-ui` ships — the document emits
 them, and no component emits its own — and this is the app's own script on the app's own page: a
 tenth shell asset would load media-widget code into every admin document of every app (ADR-0014's
 all-load policy) for a widget one page renders, and the framework offers no seam for an app-supplied

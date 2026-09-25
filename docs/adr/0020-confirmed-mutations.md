@@ -8,7 +8,7 @@ Date: 2026-09-23 — Status: accepted
 confirmation checks, their flash notification, and the no-JS path are unchanged
 (`panel/actions.rs`, ADR-0004, ADR-0010). What changes is who follows the redirect: a form marked
 `data-mutation-submit` — the row-delete confirm and the bulk confirm — is posted by
-`crates/argentum-ui/assets/mutation-submit.js` with `fetch`, and the response is applied in place.
+`crates/tablo-ui/assets/mutation-submit.js` with `fetch`, and the response is applied in place.
 Without JavaScript the marker is inert and the same form POSTs and 303s.
 
 **The mutation response is the whole list page, and the client reads exactly two things out of it.**

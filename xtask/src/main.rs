@@ -38,7 +38,7 @@ COMMANDS:
     sync-topcoat-ui    Copy the components in `xtask::VENDORED_PRIMITIVES`
                        from the `topcoat-ui-registry` crate Cargo resolved
                        for this workspace into
-                       crates/argentum-ui/src/components/primitives/*.rs —
+                       crates/tablo-ui/src/components/primitives/*.rs —
                        verbatim, under a SYNC header recording the registry
                        version and the source's sha256 content hash. Never
                        touches composites/. No sibling clone required — the

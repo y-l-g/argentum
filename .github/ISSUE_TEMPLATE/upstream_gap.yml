@@ -1,5 +1,5 @@
 name: Upstream gap
-description: A Toasty or Topcoat API Argentum needs is missing or unstable. Track the gap here until it exists upstream.
+description: A Toasty or Topcoat API Tablo needs is missing or unstable. Track the gap here until it exists upstream.
 title: "[upstream] "
 labels: ["upstream"]
 body:
@@ -7,7 +7,7 @@ body:
     attributes:
       value: |
         An upstream gap is a missing or unstable API in Toasty or Topcoat that
-        forces Argentum to carry a workaround. File one gap per issue, titled
+        forces Tablo to carry a workaround. File one gap per issue, titled
         `<project>: <capability>`.
 
         Rules for the body:
@@ -41,11 +41,11 @@ body:
   - type: textarea
     id: today
     attributes:
-      label: Today in Argentum
+      label: Today in Tablo
       description: Fenced code block of the real workaround, copied from the source, with the `file:line` on the first line of the fence.
       placeholder: |
         ```rust
-        // crates/argentum-core/src/panel/forms.rs:523
+        // crates/tablo-core/src/panel/forms.rs:523
         async fn check_unique<R: Resource>(
             cx: &Cx,
             schema: &crate::schema::Schema,
@@ -75,7 +75,7 @@ body:
     id: retire
     attributes:
       label: Retire when
-      description: One line naming the exact Argentum code that gets deleted.
+      description: One line naming the exact Tablo code that gets deleted.
       placeholder: "`panel/forms.rs:523 check_unique` and its call sites at `panel/forms.rs:642` and `:790` are deleted."
     validations:
       required: true

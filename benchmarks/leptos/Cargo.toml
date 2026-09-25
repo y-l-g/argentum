@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 publish = false
 
-# Detached from the Argentum workspace on purpose (see ../README.md).
+# Detached from the Tablo workspace on purpose (see ../README.md).
 # Mirrors tokio-rs/topcoat/benchmarks/leptos, which is the proven-working
 # shape for a Leptos SSR comparator.
 [workspace]

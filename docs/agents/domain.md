@@ -19,5 +19,5 @@ say so rather than inventing a term.
 If your output contradicts an ADR, surface it explicitly rather than silently
 overriding it:
 
-> Contradicts ADR-0007 (primitives vs composites in `argentum-ui`), but worth
+> Contradicts ADR-0007 (primitives vs composites in `tablo-ui`), but worth
 > reopening because…
