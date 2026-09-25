@@ -1,4 +1,4 @@
-// Unit tests for `selects.js` (GH #184, GH #236, GH #237).
+// Unit tests for `selects.js` (GH #184, GH #236, GH #237, GH #293).
 //
 // There is no JS test runner in this workspace — the assets are plain browser
 // scripts loaded through `asset!` — so this runs on Node's built-in runner and
@@ -43,6 +43,9 @@ function standInDocument(filters) {
     querySelectorAll(selector) {
       return selector === '[data-options-filter]' ? filters : [];
     },
+    // The `<li>`s `renderList` builds. Only the pieces the listbox reads:
+    // attributes, dataset, text, and the id `aria-activedescendant` names.
+    createElement: () => listItem(),
     // Every listener for `type`, in registration order: firing them all is what
     // a browser does for one event.
     listeners(type) {
@@ -51,6 +54,25 @@ function standInDocument(filters) {
     types() {
       return Array.from(byType.keys());
     },
+  };
+}
+
+// A created `<li>`, as `renderList` fills it in.
+function listItem() {
+  const attrs = {};
+  return {
+    dataset: {},
+    textContent: '',
+    className: '',
+    id: '',
+    getAttribute: (name) => (name in attrs ? attrs[name] : null),
+    setAttribute: (name, value) => {
+      attrs[name] = value;
+    },
+    removeAttribute: (name) => {
+      delete attrs[name];
+    },
+    scrollIntoView() {},
   };
 }
 
@@ -65,8 +87,9 @@ function load(document) {
 
 // A searchable field as the server renders it: the combobox (a filter input
 // over a listbox) beside the select primitive's wrapper `<span>`, which holds
-// the native `<select>` and the chevron.
-function searchableField() {
+// the native `<select>` and the chevron. `server` names the field the
+// overflowed relationship fetches options for.
+function searchableField({ server = null } = {}) {
   const options = [
     { value: '', textContent: '-- Select --' },
     { value: 'pk-ada', textContent: 'Ada Author' },
@@ -87,6 +110,9 @@ function searchableField() {
 
   const combo = {};
   const wrap = {};
+  const wrapAttrs = server
+    ? { 'data-options-server': 'true', 'data-options-field': server }
+    : {};
   const filterAttrs = {};
   const filter = {
     value: '',
@@ -99,8 +125,12 @@ function searchableField() {
     setAttribute: (name, value) => {
       filterAttrs[name] = value;
     },
+    removeAttribute: (name) => {
+      delete filterAttrs[name];
+    },
   };
   const list = {
+    id: 'name-options-list',
     hidden: false,
     querySelector: (selector) => {
       if (selector === '[role="option"][aria-selected="true"]') {
@@ -121,6 +151,7 @@ function searchableField() {
     options,
     required: false,
     events: [],
+    querySelectorAll: (selector) => (selector === 'option' ? options : []),
     dispatchEvent(event) {
       this.events.push(event);
       return true;
@@ -130,7 +161,7 @@ function searchableField() {
   const control = { hidden: false };
   select.parentElement = control;
   wrap.querySelector = (selector) => (selector === 'select' ? select : null);
-  wrap.getAttribute = () => null;
+  wrap.getAttribute = (name) => (name in wrapAttrs ? wrapAttrs[name] : null);
   wrap.dataset = {};
   rows.forEach((row) => {
     row.closest = (selector) =>
@@ -154,7 +185,8 @@ function plainField() {
 
 // The matching cases are pure; a document with no fields is enough to load the
 // script.
-const { matchingOptions, MAX_LIST_ITEMS, shouldHideNativeSelect } = load(standInDocument([]));
+const { matchingOptions, MAX_LIST_ITEMS, preservedOption, shouldHideNativeSelect } =
+  load(standInDocument([]));
 
 const PLACEHOLDER = { value: '', label: '-- Select --', selected: false };
 const ada = { value: 'pk-ada', label: 'Ada Author', selected: false };
@@ -336,4 +368,151 @@ test('an arrow key advances one row', () => {
   const selected = world.rows.filter((row) => row.getAttribute('aria-selected') === 'true');
   assert.equal(selected.length, 1, 'one row per arrow key');
   assert.equal(selected[0].dataset.value, 'pk-alan', 'the row after the first');
+});
+
+// --- GH #293: the current option, the combobox ARIA, and Enter ---------------
+
+test('an edit form shows the current option label in the box', () => {
+  // The native select is hidden and the filter input is the box left in its
+  // place, so an edit form opens on the record's stored label, not empty.
+  const world = searchableField();
+  world.select.value = 'pk-ada';
+  load(standInDocument([world.filter]));
+  assert.equal(world.filter.value, 'Ada Author');
+});
+
+test('a field with no current option leaves the box empty', () => {
+  // The placeholder is the empty value: it is not a choice to display.
+  const world = searchableField();
+  load(standInDocument([world.filter]));
+  assert.equal(world.filter.value, '');
+});
+
+test('a swap keeps the current option under its own label', () => {
+  // The server answers the needle, not the selection; the label exists only in
+  // the option the swap drops, so re-attach it by label rather than showing the
+  // primary key as its own (GH #293).
+  assert.equal(
+    preservedOption('pk-ada', 'Ada Author', '<option value="pk-ken">Ken</option>'),
+    '<option value="pk-ada" selected>Ada Author</option>',
+  );
+});
+
+test('a swap that already carries the current option does not duplicate it', () => {
+  assert.equal(
+    preservedOption('pk-ada', 'Ada Author', '<option value="pk-ada">Ada Author</option>'),
+    null,
+  );
+});
+
+test('an empty selection preserves nothing', () => {
+  assert.equal(preservedOption('', 'Ada Author', ''), null);
+});
+
+test('a record label cannot break out of the option markup', () => {
+  assert.equal(
+    preservedOption('pk-1', 'A "quoted" <name>', ''),
+    '<option value="pk-1" selected>A &quot;quoted&quot; &lt;name&gt;</option>',
+  );
+});
+
+test('opening the combobox expands it and names its active row', () => {
+  const world = searchableField();
+  const document = standInDocument([world.filter]);
+  load(document);
+  document.listeners('focusin').forEach((handler) => handler({ target: world.filter }));
+  assert.equal(world.list.hidden, false, 'the list is showing');
+  assert.equal(world.filter.getAttribute('aria-expanded'), 'true');
+  assert.equal(
+    world.filter.getAttribute('aria-activedescendant'),
+    'name-options-list-option-0',
+    'the first row is the active descendant',
+  );
+});
+
+test('an arrow key moves the active descendant with the selection', () => {
+  const world = searchableField();
+  const document = standInDocument([world.filter]);
+  load(document);
+  document.listeners('focusin').forEach((handler) => handler({ target: world.filter }));
+  document.listeners('keydown').forEach((handler) => {
+    handler({ key: 'ArrowDown', target: world.filter, preventDefault() {} });
+  });
+  assert.equal(
+    world.filter.getAttribute('aria-activedescendant'),
+    'name-options-list-option-1',
+    'the active row follows the arrow',
+  );
+});
+
+test('closing the combobox collapses it and clears the active row', () => {
+  const world = searchableField();
+  const document = standInDocument([world.filter]);
+  load(document);
+  document.listeners('focusin').forEach((handler) => handler({ target: world.filter }));
+  document.listeners('keydown').forEach((handler) => {
+    handler({ key: 'Escape', target: world.filter, preventDefault() {} });
+  });
+  assert.equal(world.list.hidden, true);
+  assert.equal(world.filter.getAttribute('aria-expanded'), 'false');
+  assert.equal(world.filter.getAttribute('aria-activedescendant'), null);
+});
+
+test('Enter while the combobox has focus never submits the form', () => {
+  // The list is collapsed: the keystroke is still the combobox's, not the
+  // form's implicit submit.
+  const world = searchableField();
+  const document = standInDocument([world.filter]);
+  load(document);
+  world.list.hidden = true;
+  const event = {
+    key: 'Enter',
+    target: world.filter,
+    prevented: false,
+    preventDefault() {
+      this.prevented = true;
+    },
+  };
+  document.listeners('keydown').forEach((handler) => handler(event));
+  assert.equal(event.prevented, true, 'the form must not submit');
+  assert.equal(world.select.events.length, 0, 'nothing was chosen');
+});
+
+test('Enter while the server is searching does not submit', () => {
+  // The status row ("Searching…") offers no option to pick, and the keystroke
+  // must not submit the record the reader is editing (GH #293).
+  const world = searchableField({ server: 'author_id' });
+  const document = standInDocument([world.filter]);
+  const realSetTimeout = global.setTimeout;
+  const realClearTimeout = global.clearTimeout;
+  global.setTimeout = () => 0;
+  global.clearTimeout = () => {};
+  try {
+    load(document);
+    document.listeners('input').forEach((handler) => handler({ target: world.filter }));
+    assert.equal(world.list.hidden, false, 'the status row shows the search');
+    const event = {
+      key: 'Enter',
+      target: world.filter,
+      prevented: false,
+      preventDefault() {
+        this.prevented = true;
+      },
+    };
+    document.listeners('keydown').forEach((handler) => handler(event));
+    assert.equal(event.prevented, true, 'the form must not submit');
+    assert.equal(
+      world.filter.getAttribute('aria-expanded'),
+      'true',
+      'the status popup is expanded',
+    );
+    assert.equal(
+      world.filter.getAttribute('aria-activedescendant'),
+      null,
+      'a status line has no active row',
+    );
+  } finally {
+    global.setTimeout = realSetTimeout;
+    global.clearTimeout = realClearTimeout;
+  }
 });
