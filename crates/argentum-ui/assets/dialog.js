@@ -10,6 +10,13 @@
 // the closed state is normally a navigation. This script adds Escape,
 // backdrop, and `[data-dialog-close]` dismissal without a reload.
 //
+// Two dialogs are not dismissed by every path. An alert dialog asks for an
+// answer, so a backdrop click is not one and never closes it — Escape and
+// `[data-dialog-close]` stay the ways out. A dialog whose mutation is in
+// flight (`data-dialog-busy`, set by `mutation-submit.js`) is held until the
+// response lands: dismissing it would strand the write, and the response would
+// then close whatever dialog a later click opened in its place.
+//
 // A dialog whose open state is URL-driven mirrors the dismissal back into the
 // URL (`?open=false`, named by `data-dialog-open-param`) so a reload stays
 // closed. A dialog driven by a runtime signal carries no such marker — its
@@ -22,6 +29,8 @@
 // DOMContentLoaded missed anything the server rendered later.
 function dismissDialog(dialog) {
   if (!dialog.open) return;
+  // A mutation in flight owns the dialog (GH #293).
+  if (dialog.dataset.dialogBusy === 'true') return;
   dialog.close();
   const param = dialog.dataset.dialogOpenParam;
   if (!param) return;
@@ -68,7 +77,12 @@ function install() {
     // The overlay is the <dialog> itself; a click on it (not the panel inside)
     // is the backdrop.
     if (e.target === dialog) {
-      dismissDialog(dialog);
+      // An alert dialog asks for an answer, so the backdrop is not one: it
+      // stays until Escape or a `[data-dialog-close]` control answers it
+      // (GH #293). A dialog mid-mutation is held by `dismissDialog` either way.
+      if (dialog.getAttribute('role') !== 'alertdialog') {
+        dismissDialog(dialog);
+      }
       return;
     }
     if (e.target.closest('[data-dialog-close]')) {

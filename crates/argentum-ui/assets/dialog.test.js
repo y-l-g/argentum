@@ -1,4 +1,5 @@
-// Unit test for the row-delete trigger wiring in `dialog.js` (GH #233).
+// Unit test for the row-delete trigger wiring and the dismissal rules in
+// `dialog.js` (GH #233, GH #293).
 //
 // There is no JS test runner in this workspace — the assets are plain browser
 // scripts loaded through `asset!` — so this runs on Node's built-in runner and
@@ -15,6 +16,11 @@
 // than open a dialog whose Delete posts somewhere unintended. The click wiring
 // itself is driven through a document stand-in, so "opens without navigating"
 // is a test and not a reading of the listener.
+//
+// The dismissal cases drive the same stand-in: an alert dialog keeps the
+// backdrop from standing in for an answer, a dialog mid-mutation ignores every
+// dismissal, and the `?open=false` bookkeeping the paths that work already do
+// stays in place.
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -33,18 +39,36 @@ const triggerOf = (dialogId, action) => ({
         : null,
 });
 
-// The dialog and its form, with the calls the wiring makes recorded.
-const dialogOf = ({ open = false } = {}) => {
-  const calls = { opened: 0, action: null, openAttr: null };
+// The dialog and its form, with the calls the wiring makes recorded. `role`
+// is what the server renders (an `alert_dialog` carries `alertdialog`);
+// `busy` is the marker `mutation-submit.js` sets while a write is in flight.
+const dialogOf = ({
+  open = false,
+  role = null,
+  busy = false,
+  openParam = null,
+} = {}) => {
+  const calls = { opened: 0, closed: 0, action: null, openAttr: null };
+  const attrs = role ? { role } : {};
   const form = { setAttribute: (name, value) => (calls.action = [name, value]) };
   const dialog = {
     open,
     calls,
+    dataset: {},
     querySelector: (selector) =>
       selector === '[data-row-delete-form]' ? form : null,
-    showModal: () => calls.opened++,
+    getAttribute: (name) => (name in attrs ? attrs[name] : null),
     setAttribute: (name, value) => (calls.openAttr = [name, value]),
+    showModal: () => calls.opened++,
+    close() {
+      calls.closed += 1;
+      this.open = false;
+    },
+    // The delegated handlers resolve the dialog from the event target.
+    closest: (selector) => (selector === 'dialog[open]' ? dialog : null),
   };
+  if (busy) dialog.dataset.dialogBusy = 'true';
+  if (openParam) dialog.dataset.dialogOpenParam = openParam;
   return dialog;
 };
 
@@ -55,10 +79,10 @@ const docOf = (dialog) => ({
 
 // --- a document stand-in -----------------------------------------------------
 
-// `dialog.js` is a plain browser script: `install()` reads `document` from the
-// global scope and every handler is document-delegated, so the stand-in has to
-// be in place before the script is required and stay there while its listeners
-// run. It is only as wide as the script needs.
+// `dialog.js` is a plain browser script: `install()` reads `document` and
+// `window` from the global scope and every handler is document-delegated, so
+// the stand-ins have to be in place before the script is required and stay
+// there while its listeners run. It is only as wide as the script needs.
 function standInDocument(dialog) {
   const byType = new Map();
   return {
@@ -67,7 +91,9 @@ function standInDocument(dialog) {
       byType.get(type).push(handler);
     },
     getElementById: (id) => (id === 'admin-users-delete-dialog' ? dialog : null),
-    querySelector: () => null,
+    // Escape reads the open dialog off the document.
+    querySelector: (selector) =>
+      selector === 'dialog[open]' && dialog && dialog.open ? dialog : null,
     // Every listener for `type`, in registration order: firing them all is what
     // a browser does for one event.
     listeners(type) {
@@ -77,17 +103,55 @@ function standInDocument(dialog) {
 }
 
 // Load a fresh copy of the script against `document`, run the case, and drop
-// the stand-in: a fresh copy re-runs `install()`, so each case gets its own
-// listener set.
+// the stand-ins: a fresh copy re-runs `install()`, so each case gets its own
+// listener set. `pushed` records the `?open=false` history the URL-driven
+// dismissal writes.
 function withDocument(standIn, run) {
+  const pushed = [];
+  const realWindow = global.window;
   global.document = standIn;
+  global.window = {
+    location: { href: 'http://localhost/admin/users' },
+    history: {
+      state: null,
+      pushState(state, title, url) {
+        pushed.push(String(url));
+      },
+    },
+  };
   delete require.cache[SCRIPT];
   try {
     require(SCRIPT);
-    run();
+    run({ pushed });
   } finally {
     delete global.document;
+    global.window = realWindow;
   }
+}
+
+// A click whose target is the <dialog> itself: the overlay, not the panel.
+function backdropClick(dialog) {
+  return { target: dialog };
+}
+
+// A click on a control inside the dialog. `close` marks it
+// `[data-dialog-close]`; `link` marks it a real navigation, which the script
+// leaves to the browser.
+function clickInside(dialog, { close = false, link = false } = {}) {
+  const target = {
+    closest: (selector) => {
+      if (selector === 'dialog[open]') return dialog;
+      if (selector === '[data-dialog-close]') return close ? target : null;
+      if (selector === 'a[href]') return link ? target : null;
+      return null;
+    },
+  };
+  return { target };
+}
+
+// Fire every `type` listener the browser would, in registration order.
+function fire(type, event) {
+  global.document.listeners(type).forEach((handler) => handler(event));
 }
 
 // A click on a row Delete control, as the browser hands it to the listener: the
@@ -210,5 +274,64 @@ test('a click the page cannot serve is left to the link', () => {
     );
     global.document.listeners('click').forEach((handler) => handler(event));
     assert.equal(event.prevented, false, 'the link opens the fallback');
+  });
+});
+
+// --- GH #293: the alert backdrop and the in-flight dialog --------------------
+
+test('a backdrop click does not dismiss an alert dialog', () => {
+  // An alert dialog asks for an answer, and the backdrop is not one: it stays
+  // until Escape or one of its own controls closes it.
+  const dialog = dialogOf({ open: true, role: 'alertdialog' });
+  withDocument(standInDocument(dialog), () => {
+    fire('click', backdropClick(dialog));
+    assert.equal(dialog.calls.closed, 0, 'the alert dialog waits for an answer');
+  });
+});
+
+test('a backdrop click still dismisses a plain dialog', () => {
+  // The alert rule is the exception, not a blanket refusal to dismiss.
+  const dialog = dialogOf({ open: true });
+  withDocument(standInDocument(dialog), () => {
+    fire('click', backdropClick(dialog));
+    assert.equal(dialog.calls.closed, 1, 'a plain dialog dismisses on the backdrop');
+  });
+});
+
+test('a dialog mid-mutation ignores a backdrop click', () => {
+  // The write owns the dialog until its response lands: closing it here would
+  // let a later click open the same dialog for another record, and the
+  // response would then close that one.
+  const dialog = dialogOf({ open: true, busy: true });
+  withDocument(standInDocument(dialog), () => {
+    fire('click', backdropClick(dialog));
+    assert.equal(dialog.calls.closed, 0, 'the write still owns the dialog');
+  });
+});
+
+test('a dialog mid-mutation ignores Escape', () => {
+  const dialog = dialogOf({ open: true, busy: true });
+  withDocument(standInDocument(dialog), () => {
+    fire('keydown', { key: 'Escape' });
+    assert.equal(dialog.calls.closed, 0, 'Escape cannot strand the write either');
+  });
+});
+
+test('an alert dialog closes through its own control', () => {
+  const dialog = dialogOf({ open: true, role: 'alertdialog' });
+  withDocument(standInDocument(dialog), () => {
+    fire('click', clickInside(dialog, { close: true }));
+    assert.equal(dialog.calls.closed, 1, 'the Cancel control is the answer');
+  });
+});
+
+test('a dismissed URL-driven dialog still mirrors ?open=false', () => {
+  // The bookkeeping the paths that work already do: a dialog whose open state
+  // is in the URL writes the dismissal back so a reload stays closed.
+  const dialog = dialogOf({ open: true, role: 'alertdialog', openParam: 'open' });
+  withDocument(standInDocument(dialog), ({ pushed }) => {
+    fire('click', clickInside(dialog, { close: true }));
+    assert.equal(dialog.calls.closed, 1);
+    assert.deepEqual(pushed, ['http://localhost/admin/users?open=false']);
   });
 });

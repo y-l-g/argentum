@@ -241,15 +241,22 @@ function standInDocument() {
 }
 
 // A form stand-in: the marker answers the listener's `closest`, the action is
-// what the case gives it. `new FormData(form)` cannot serialize this, which is
-// the point — the post is never reached, only the decision is under test.
-const submitForm = ({ marked = true, action = '/admin/users/ada/delete' } = {}) => {
+// what the case gives it, and `dialog` is the confirm dialog the row form
+// lives in. `new FormData(form)` cannot serialize this, which is the point —
+// the post is never reached, only the decision is under test.
+const submitForm = ({
+  marked = true,
+  action = '/admin/users/ada/delete',
+  dialog = null,
+} = {}) => {
   const form = {
     getAttribute: (name) => (name === 'action' ? action : null),
     matches: () => marked,
-    closest: (selector) =>
-      marked && selector === 'form[data-mutation-submit]' ? form : null,
-    querySelector: () => null,
+    closest: (selector) => {
+      if (selector === 'dialog') return dialog;
+      return marked && selector === 'form[data-mutation-submit]' ? form : null;
+    },
+    querySelector: (selector) => (selector === 'dialog' ? dialog : null),
   };
   return form;
 };
@@ -414,6 +421,36 @@ test('a refused submit shows the response without repeating the request', async 
       await new Promise((resolve) => setImmediate(resolve));
       assert.equal(form.submits, 0, 'the refused delete is not posted again');
       assert.deepEqual(document.written, ['<!doctype html><p>not allowed</p>']);
+    },
+  );
+});
+
+test('the confirm dialog is held while the mutation is in flight', async () => {
+  // `dialog.js` refuses to dismiss a dialog carrying this marker, so the write
+  // owns it until its response is in hand (GH #293).
+  await withServerAnswer(
+    {
+      redirected: false,
+      ok: false,
+      status: 500,
+      text: async () => '<!doctype html><p>the write failed</p>',
+    },
+    async ({ document }) => {
+      const dialog = { dataset: {} };
+      const form = recordableForm({ dialog });
+      const event = submitEvent(form);
+      document.listeners('submit').forEach((handler) => handler(event));
+      assert.equal(
+        dialog.dataset.dialogBusy,
+        'true',
+        'the dialog belongs to the write while it is outstanding',
+      );
+      await new Promise((resolve) => setImmediate(resolve));
+      assert.equal(
+        dialog.dataset.dialogBusy,
+        undefined,
+        'the response hands the dialog back',
+      );
     },
   );
 });

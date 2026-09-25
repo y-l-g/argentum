@@ -184,6 +184,11 @@ async function send(form, action, submitter) {
   const row = rowOf(form, region);
   const index = row ? Array.from(row.parentElement.children).indexOf(row) : -1;
   if (submitter) submitter.disabled = true;
+  // The confirm dialog belongs to the write until its response lands
+  // (GH #293): `dialog.js` reads this marker, so a backdrop click or Escape
+  // cannot close it and leave the response to close whatever dialog the next
+  // click opened in its place.
+  if (dialog) dialog.dataset.dialogBusy = 'true';
 
   let response;
   try {
@@ -207,6 +212,7 @@ async function send(form, action, submitter) {
   // the render behind it failed.
   if (!response.redirected) {
     if (submitter) submitter.disabled = false;
+    clearDialogBusy(dialog);
     showResponse(await response.text());
     return;
   }
@@ -225,6 +231,9 @@ async function send(form, action, submitter) {
   const doc = new DOMParser().parseFromString(await response.text(), 'text/html');
   const { table, toasts } = swapTargets(doc);
   const revision = root ? root.querySelector('[data-table-revision]') : null;
+  // The write landed and its response is in hand: the dialog is dismissible
+  // again before the page starts applying it.
+  clearDialogBusy(dialog);
   // Nothing to update in place: a response the page cannot place is a page
   // the reader should be looking at.
   if (!region || (!revision && !table)) {
@@ -293,6 +302,12 @@ function insertToasts(toasts) {
 
 function dismiss(dialog) {
   if (dialog && dialog.open) dialog.close();
+}
+
+// Hand the dialog back to `dialog.js` once the mutation is over, whatever the
+// response holds: the marker only holds it while the write is outstanding.
+function clearDialogBusy(dialog) {
+  if (dialog) delete dialog.dataset.dialogBusy;
 }
 
 // Show a response the client already fetched, without issuing the request
