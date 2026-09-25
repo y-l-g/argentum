@@ -37,7 +37,7 @@ pub use relationship::{MAX_RELATIONSHIP_OPTIONS, OptionSource};
 use topcoat::{Result, context::Cx, view::*};
 pub use tree::IntoSchema;
 pub(crate) use tree::{
-    Mode, Node, RenderSource, for_each_field, validate_leaf, walk_repeater_absence,
+    Mode, Node, RenderSource, for_each_field, validate_leaf, walk_absent_groups,
 };
 pub use validation::TypedValue;
 
@@ -113,6 +113,11 @@ impl Schema {
     /// stored value, the browser echoes it, and this puts back the same string
     /// the record fn would have produced rather than a re-spelling of it.
     ///
+    /// A `Select` takes its trimmed submission (GH #297): its presence rule and
+    /// its option-existence check both read `value.trim()`, so the trimmed
+    /// value is the one that passed — writing the untrimmed spelling would
+    /// store a value no rule authorised.
+    ///
     /// A value the caller has not validated cannot be normalised, so a parse
     /// failure here leaves the submission untouched and reports nothing: it is
     /// unreachable from the handlers (validation refuses it first), and a
@@ -137,6 +142,15 @@ impl Schema {
             }
             if let Ok(normalized) = input.normalize(submitted) {
                 values.insert(name, normalized);
+            }
+        }
+        for name in self.select_inputs().keys() {
+            let Some(submitted) = values.get(name).cloned() else {
+                continue;
+            };
+            let trimmed = submitted.trim();
+            if trimmed.len() != submitted.len() {
+                values.insert(name.clone(), trimmed.to_string());
             }
         }
     }
@@ -214,11 +228,11 @@ impl Schema {
     /// per-field `.get(..)`, but a generic impl iterating `values` would
     /// silently promote `role`/`tenant_id`/handler keys (`csrf_token`,
     /// `confirm`, `ids`) to client-controlled writes. The transport keys the
-    /// handlers own (`csrf_token`, `clear_<field>`) are stripped before the
-    /// record fns run (GH #148), so a generic impl cannot promote those
-    /// either; `confirm`/`ids` are only read, never written. Callers should
-    /// reject or ignore the rest (at least `debug_assert!` in tests); handler
-    /// keys must be filtered by the caller before calling this.
+    /// handlers own (`csrf_token`, `clear_<field>`, `keep_<field>`) are
+    /// stripped before the record fns run (GH #148), so a generic impl cannot
+    /// promote those either; `confirm`/`ids` are only read, never written.
+    /// Callers should reject or ignore the rest (at least `debug_assert!` in
+    /// tests); handler keys must be filtered by the caller before calling this.
     pub fn unknown_keys(&self, values: &HashMap<String, String>) -> Vec<String> {
         use std::collections::HashSet;
         let known: HashSet<String> = self.field_names().into_iter().collect();
@@ -302,19 +316,26 @@ impl Schema {
     /// therefore only write keys present in the submission, or an omitted
     /// optional field silently blanks the stored value. Use
     /// [`Self::unknown_keys`] to allow-list POST keys.
+    ///
+    /// A field a submission hides is not validated (GH #297): an all-empty
+    /// Repeater group is absent (GH #147), and a variant group the submission's
+    /// discriminant does not name is not rendered by `variant.js`, so neither
+    /// can fail the submit for a value the user cannot see.
     pub fn validate(&self, values: &HashMap<String, String>) -> HashMap<String, Vec<String>> {
-        // Classify the repeaters first (GH #147): an all-empty group is
+        // Classify the groups first (GH #147, GH #297): an all-empty group is
         // "absent" — an untouched group submits empty strings (or omits the
         // keys), both treated as absent — so its inner inputs must not fail
-        // the submit for any requiredness. A `required` group answers with
+        // the submit for any requiredness. A `required` repeater answers with
         // its one label-keyed error instead, and required repeaters nested
         // inside an absent group are suppressed with it. A partially filled
         // group (any inner value non-empty) enforces inner `required` as
         // usual. Whitespace-only values count as empty, matching the
-        // codebase-wide trim convention.
+        // codebase-wide trim convention. A variant group the submission's
+        // discriminant does not name is hidden with its subtree, which is what
+        // makes validation agree with the render (GH #297).
         let mut errors: HashMap<String, Vec<String>> = HashMap::new();
         let mut skip: HashSet<String> = HashSet::new();
-        walk_repeater_absence(&self.nodes, values, &mut skip, &mut errors, false);
+        walk_absent_groups(&self.nodes, values, &mut skip, &mut errors, false);
         // One walk, one match per node (`validate_leaf`): the single place a
         // field kind joins validation (GH #209).
         for node in &self.nodes {
@@ -330,30 +351,34 @@ impl Schema {
         errors
     }
 
-    /// Field names hidden inside absent Repeater groups for these values
-    /// (GH #147): the same classification `validate` uses — an all-empty
-    /// group is "absent" — minus the required-group errors, which validation
-    /// already reported. `check_unique` consults it so an untouched group is
-    /// never unique-checked while validation calls it clean.
-    pub(crate) fn absent_repeater_fields(
-        &self,
-        values: &HashMap<String, String>,
-    ) -> HashSet<String> {
+    /// Field names a submission leaves out of validation (GH #147, GH #297):
+    /// the same classification `validate` uses — an all-empty Repeater group
+    /// is absent, and a variant group the discriminant does not name is hidden
+    /// — minus the required-group errors, which validation already reported.
+    /// `check_unique` consults it so an untouched group is never unique-checked
+    /// while validation calls it clean, and `validate_async` so a hidden
+    /// group's select is not probed for existence.
+    pub(crate) fn absent_fields(&self, values: &HashMap<String, String>) -> HashSet<String> {
         let mut skip = HashSet::new();
         let mut discarded = HashMap::new();
-        walk_repeater_absence(&self.nodes, values, &mut skip, &mut discarded, false);
+        walk_absent_groups(&self.nodes, values, &mut skip, &mut discarded, false);
         skip
     }
 
     /// Async validation for Select relationship existence (tenancy-aware).
+    ///
+    /// A field `validate` skipped is skipped here too (GH #297): an absent
+    /// repeater group or a hidden variant group holds no value the user can
+    /// see, so its select must not be probed for existence.
     pub async fn validate_async(
         &self,
         cx: &Cx,
         values: &HashMap<String, String>,
     ) -> HashMap<String, Vec<String>> {
         let mut errors = self.validate(values);
+        let absent = self.absent_fields(values);
         for (name, sel) in self.select_inputs() {
-            if errors.contains_key(&name) {
+            if errors.contains_key(&name) || absent.contains(&name) {
                 continue;
             }
             if sel.relationship.is_some() || !sel.options_static.is_empty() {
@@ -439,6 +464,39 @@ mod tests {
         values.remove("role");
         values.remove("confirm");
         assert!(schema.unknown_keys(&values).is_empty());
+    }
+
+    /// GH #297: a `Select`'s presence and option checks read `value.trim()`,
+    /// so the trimmed spelling is the one validation authorises. Normalisation
+    /// writes exactly that value, and a padded value no option matches is still
+    /// refused rather than trimmed into one.
+    #[tokio::test]
+    async fn a_select_stores_the_value_its_check_authorised() {
+        let cx = topcoat::context::CxTestBuilder::new().build();
+        let schema = Schema::new(
+            Select::r#for(DummyUser::fields().name())
+                .options(vec!["red".to_string(), "blue".to_string()]),
+        );
+
+        let mut values = HashMap::new();
+        values.insert("name".to_string(), "  red ".to_string());
+        assert!(
+            schema.validate_async(&cx, &values).await.is_empty(),
+            "the option check reads the trimmed value"
+        );
+        schema.normalize_values(&mut values);
+        assert_eq!(
+            values.get("name").map(String::as_str),
+            Some("red"),
+            "the stored value is the one the check authorised"
+        );
+
+        let mut invalid = HashMap::new();
+        invalid.insert("name".to_string(), "  re d ".to_string());
+        assert!(
+            !schema.validate_async(&cx, &invalid).await.is_empty(),
+            "trimming does not turn a non-option into one"
+        );
     }
 
     /// GH #191: a derived form is built by appending, so `extend` carries the

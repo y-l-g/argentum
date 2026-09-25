@@ -1468,6 +1468,34 @@ impl Uploader for DirUploader {
         // file on disk does not carry.
         Ok(format!("{UPLOAD_URL_PREFIX}/{}", url_segment(&name)))
     }
+
+    /// Whether the served directory still holds the file a URL names (GH #297).
+    ///
+    /// The candidate comes from a form the panel re-rendered, so it is a URL
+    /// this store itself produced; the check is a lookup rather than a path
+    /// join — every entry in the store's own root is encoded back to its URL
+    /// form and compared, so a `%2F`, a `..` or an absolute path a client
+    /// submits never reaches the filesystem.
+    async fn holds(&self, path: &str) -> bool {
+        let Some(segment) = path.strip_prefix(UPLOAD_URL_PREFIX) else {
+            return false;
+        };
+        let Some(segment) = segment.strip_prefix('/') else {
+            return false;
+        };
+        if segment.is_empty() {
+            return false;
+        }
+        let Ok(mut entries) = tokio::fs::read_dir(&self.dir).await else {
+            return false;
+        };
+        while let Ok(Some(entry)) = entries.next_entry().await {
+            if url_segment(&entry.file_name().to_string_lossy()) == segment {
+                return true;
+            }
+        }
+        false
+    }
 }
 
 /// The longest client filename the showcase keeps, in bytes.

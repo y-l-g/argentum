@@ -326,7 +326,10 @@ not infrastructure. With no
 uploader installed the sanitized basename is stored, and the bytes are drained rather than
 buffered. A stored value renders a `clear_<field>` checkbox (a framework transport key, stripped
 before any record fn, GH #148); clearing does not waive `required`, so a record that must keep a
-file answers `"<Label> is required"` — declare `.optional()` to let a record lose its file.
+file answers `"<Label> is required"` — declare `.optional()` to let a record lose its file. A form
+that re-renders with errors carries a just-stored path in a `keep_<field>` control and re-uses it
+only when `holds(path)` confirms the store still has it (GH #297): the carry keeps a file the
+browser's empty file input cannot resend, and `holds` answers `false` by default.
 `Panel::serve_dir(path, dir)` mounts an app-owned filesystem directory (an upload store's output)
 on the panel's router, which is the app's only way to add a route the framework does not own. A
 served directory is **public** (ADR-0017): those URLs answer whoever asks, with no session, because

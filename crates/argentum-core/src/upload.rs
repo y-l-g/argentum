@@ -8,7 +8,11 @@
 //! nothing after them, so this module is deliberately small: a trait, the app
 //! context value that carries it, and the call that runs it.
 
-use std::{collections::HashMap, future::Future, pin::Pin};
+use std::{
+    collections::{HashMap, HashSet},
+    future::Future,
+    pin::Pin,
+};
 
 use topcoat::context::{Cx, try_app_context};
 
@@ -43,6 +47,31 @@ pub trait Uploader: Send + Sync + 'static {
         filename: &str,
         bytes: &[u8],
     ) -> impl Future<Output = Result<String, String>> + Send;
+
+    /// Whether `path` is a value this store produced and still holds (GH #297).
+    ///
+    /// A form that re-renders with errors carries the path a just-finished
+    /// store returned, so the file survives the next submit; the framework asks
+    /// this before it re-uses that path, which keeps the value's origin in the
+    /// store rather than in whatever the client sent: a client-typed path is
+    /// stored only when the store itself vouches for it (GH #277).
+    ///
+    /// The contract is **ownership, not bare existence**: answer `true` only
+    /// for a path this store returned from [`store`](Self::store) and still
+    /// resolves **inside its own root**. An existence check on a
+    /// client-supplied path — `Path::exists`, a `HEAD` on any URL — would turn
+    /// this into a path-traversal gate.
+    ///
+    /// The default answers `false`, so a store that does not implement it keeps
+    /// the pre-#297 behaviour: a re-rendered form does not carry an upload, and
+    /// the next submit fails the field's `required` rule (create) or keeps the
+    /// record's stored file (edit).
+    fn holds(&self, path: &str) -> impl Future<Output = bool> + Send {
+        async move {
+            let _ = path;
+            false
+        }
+    }
 }
 
 /// A file part a form submitted: the sanitized basename and its bytes.
@@ -69,21 +98,29 @@ impl InstalledUploader {
 /// Boxed future of [`DynUploader::store`].
 type StoreFuture<'a> = Pin<Box<dyn Future<Output = Result<String, String>> + Send + 'a>>;
 
+/// Boxed future of [`DynUploader::holds`].
+type HoldFuture<'a> = Pin<Box<dyn Future<Output = bool> + Send + 'a>>;
+
 /// Dyn-compatible view of [`Uploader`].
 ///
 /// [`Uploader`] returns `impl Future` (the house style: no `async_trait`
 /// dependency, no hand-boxed signatures for implementors), which is not
 /// dyn-compatible. The panel holds whichever uploader the app installed
-/// without becoming generic over it, so the single call it makes goes through
-/// this shim — the public trait stays the shape an app implements, and the
-/// box stays here.
+/// without becoming generic over it, so the calls it makes go through this
+/// shim — the public trait stays the shape an app implements, and the box
+/// stays here.
 pub(crate) trait DynUploader: Send + Sync {
     fn store<'a>(&'a self, filename: &'a str, bytes: &'a [u8]) -> StoreFuture<'a>;
+    fn holds<'a>(&'a self, path: &'a str) -> HoldFuture<'a>;
 }
 
 impl<U: Uploader> DynUploader for U {
     fn store<'a>(&'a self, filename: &'a str, bytes: &'a [u8]) -> StoreFuture<'a> {
         Box::pin(Uploader::store(self, filename, bytes))
+    }
+
+    fn holds<'a>(&'a self, path: &'a str) -> HoldFuture<'a> {
+        Box::pin(Uploader::holds(self, path))
     }
 }
 
@@ -101,15 +138,40 @@ pub(crate) fn installed(cx: &Cx) -> bool {
     try_app_context::<InstalledUploader>(cx).is_some()
 }
 
+/// The installed uploader, if this panel has one.
+///
+/// The concrete boxed trait object keeps its auto traits: dropping `Send +
+/// Sync` from the reference is not a coercion the compiler performs here.
+type DynUploaderRef<'a> = &'a (dyn DynUploader + Send + Sync);
+
+fn installed_uploader<'a>(cx: &'a Cx) -> Option<DynUploaderRef<'a>> {
+    try_app_context::<InstalledUploader>(cx).map(|installed| &*installed.0)
+}
+
+/// Whether the installed uploader still holds `path` (GH #297).
+///
+/// `false` without an installed uploader: nothing stored the bytes, so nothing
+/// can vouch for a path a re-rendered form carried.
+pub(crate) async fn holds(cx: &Cx, path: &str) -> bool {
+    match installed_uploader(cx) {
+        Some(uploader) => uploader.holds(path).await,
+        None => false,
+    }
+}
+
 /// Run the installed uploader over the file parts this form submitted
-/// (GH #188), returning `field_name -> inline errors`.
+/// (GH #188), returning `field_name -> inline errors` and the fields whose
+/// value is now the uploader's answer.
 ///
 /// For each declared [`FileUpload`](crate::schema::FileUpload) that carried
 /// bytes, the returned path replaces the sanitized basename the parser put in
 /// `values` — so the record fn sees the stored path and nothing else changes
-/// about its contract. Without an installed uploader this is a no-op: the
-/// basename stays, which is exactly the pre-#188 behaviour an app that never
-/// installs one must keep.
+/// about its contract. The second half of the answer is those field names: a
+/// form that re-renders carries them so the next submit can keep the upload
+/// (GH #297). Without an installed uploader this is a no-op: the basename
+/// stays, which is exactly the pre-#188 behaviour an app that never installs
+/// one must keep, and nothing is carried, because a client's filename is not a
+/// stored file.
 ///
 /// A failed store becomes an inline field error and **drops the submitted
 /// value**, because there is no path to store: nothing was written, and the
@@ -128,12 +190,12 @@ pub(crate) async fn store_uploads(
     schema: &Schema,
     files: &HashMap<String, StagedUpload>,
     values: &mut HashMap<String, String>,
-) -> UploadErrors {
-    let Some(uploader) = try_app_context::<InstalledUploader>(cx).map(|installed| &*installed.0)
-    else {
-        return UploadErrors::new();
+) -> (UploadErrors, HashSet<String>) {
+    let Some(uploader) = installed_uploader(cx) else {
+        return (UploadErrors::new(), HashSet::new());
     };
     let mut errors = UploadErrors::new();
+    let mut stored = HashSet::new();
     // Declared uploads only: a file part the schema does not declare is not a
     // field this form may write (the unknown-key allow-list answers for it).
     for (name, upload) in schema.file_uploads() {
@@ -142,7 +204,8 @@ pub(crate) async fn store_uploads(
         };
         match uploader.store(&staged.filename, &staged.bytes).await {
             Ok(path) => {
-                values.insert(name, path);
+                values.insert(name.clone(), path);
+                stored.insert(name);
             }
             Err(reason) => {
                 values.remove(&name);
@@ -156,5 +219,5 @@ pub(crate) async fn store_uploads(
             }
         }
     }
-    errors
+    (errors, stored)
 }

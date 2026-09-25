@@ -6,7 +6,9 @@ The defaults Argentum ships with, and the deployment assumptions they depend on.
   boundary.
 - A `FileUpload` value comes only from a file part (the uploader's answer, or the sanitized basename
   with no uploader), the record's stored value on an untouched edit, or empty on `clear_<field>`. A
-  stored value renders as a link only when it is rooted (`/…`, not `//host`) or an absolute
+  re-rendered form's `keep_<field>` candidate is re-used only when the installed uploader's
+  `holds(path)` confirms the store still has it, so a client-typed path is never stored. A stored
+  value renders as a link only when it is rooted (`/…`, not `//host`) or an absolute
   `http(s)://…` URL; anything else renders as text (GH #277).
 - Passwords use Argon2id. Unknown emails take the same code path, and login failures share one
   generic message.

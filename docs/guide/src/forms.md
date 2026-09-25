@@ -82,13 +82,21 @@ Select::r#for(Post::fields().author_id())
   without a boundary, and sanitized basenames (`.` / `..` / Windows reserved names surface as inline
   errors). On an edit the control drops native `required` (GH #184) — a `required` file input cannot
   be pre-filled, so it blocked every untouched save; `required` still holds on create. A value reaches
-  the field only from a file part, from the record on an untouched edit, or as empty on
-  `clear_<field>`; text typed under the field's name is dropped (GH #277).
+  the field only from a file part (the uploader's own answer, a re-rendered form's carried upload
+  included), from the record on an untouched edit, or as empty on `clear_<field>`; text typed under
+  the field's name is dropped (GH #277).
 - **Where the bytes go is the app's** (GH #188, ADR-0017): install an `Uploader` once with
   `Panel::uploads(store)`. `store(filename, bytes) -> Result<String, String>` receives the sanitized
   name and the content (bounded by the cap) and returns the value the record stores; a refusal is an
   inline error (`"<Label> could not be uploaded: <reason>"`), not a 500. With no uploader installed
   the sanitized basename is stored — the default — and the bytes are drained rather than buffered.
+  A form that re-renders with errors carries the path that store just returned in a hidden
+  `keep_<field>` control, because the browser's file input is empty on the next attempt: implement
+  `Uploader::holds(path)` to make that carry survive the submit (GH #297). The framework re-uses a
+  carried path only when `holds` confirms the store still has it — `holds` must answer `true` only
+  for a path the store itself produced and resolves inside its own root — and it defaults to `false`,
+  which keeps the behaviour of a store that does not implement it: no carry, so the next submit
+  fails `required` (create) or an edit keeps the record's stored file.
 - The stored path renders as a link to the file, on the edit form and on the detail page (GH #242),
   only when it is a rooted path or an absolute `http(s)` URL (GH #277): the framework reads no
   extension and renders what the app stored, inventing no URL convention, and any other value — a
@@ -102,12 +110,15 @@ Select::r#for(Post::fields().author_id())
   whose records may lose their file declares `.optional()`.
 - `Repeater` is a single-entry group. An all-empty group is skipped, so its inner required fields do
   not fail the submit. A `required` repeater yields one label-keyed error; a partially filled group
-  still enforces inner `required`.
+  still enforces inner `required`. An embedded enum's variant groups follow the discriminant a
+  submission names (GH #191): only the named variant's fields validate, so a stale value in a group
+  the user cannot see never blocks the submit (GH #297). A submission that names no variant hides
+  nothing, because the value codec's payload fallback may still read any group.
 
 Validation errors render inline per field. Absent keys validate as `""` and updates write only
 present keys; handlers reject unknown form keys with 400 (`role` / `tenant_id` smuggling fails
-closed; only `csrf_token` and `clear_<field>` are exempt), so extra posted keys never reach record
-fns.
+closed; only `csrf_token`, `clear_<field>` and `keep_<field>` are exempt), so extra posted keys never
+reach record fns.
 
 Embedded values declare one form node and flatten their fields; see
 [Data access](./data-access.md#embedded-values).
