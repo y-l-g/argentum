@@ -122,79 +122,59 @@
 <a href=#122 id=122 data-nosnippet>122</a>
 <a href=#123 id=123 data-nosnippet>123</a><span class="attr">#[cfg(test)]
 <a href=#124 id=124 data-nosnippet>124</a></span><span class="kw">mod </span>tests {
-<a href=#125 id=125 data-nosnippet>125</a>    <span class="kw">use </span>topcoat::context::CxTestBuilder;
-<a href=#126 id=126 data-nosnippet>126</a>
-<a href=#127 id=127 data-nosnippet>127</a>    <span class="kw">use super</span>::<span class="kw-2">*</span>;
-<a href=#128 id=128 data-nosnippet>128</a>
-<a href=#129 id=129 data-nosnippet>129</a>    <span class="kw">fn </span>cx_with_cookie(value: <span class="prelude-ty">Option</span>&lt;<span class="kw-2">&amp;</span>str&gt;) -&gt; Cx {
-<a href=#130 id=130 data-nosnippet>130</a>        <span class="kw">let </span><span class="kw-2">mut </span>parts = http::Request::builder()
-<a href=#131 id=131 data-nosnippet>131</a>            .uri(<span class="string">"/"</span>)
-<a href=#132 id=132 data-nosnippet>132</a>            .body(())
-<a href=#133 id=133 data-nosnippet>133</a>            .unwrap()
-<a href=#134 id=134 data-nosnippet>134</a>            .into_parts()
-<a href=#135 id=135 data-nosnippet>135</a>            .<span class="number">0</span>;
-<a href=#136 id=136 data-nosnippet>136</a>        <span class="kw">if let </span><span class="prelude-val">Some</span>(v) = value {
-<a href=#137 id=137 data-nosnippet>137</a>            parts.headers.insert(
-<a href=#138 id=138 data-nosnippet>138</a>                http::header::COOKIE,
-<a href=#139 id=139 data-nosnippet>139</a>                <span class="macro">format!</span>(<span class="string">"{COOKIE_NAME}={v}"</span>).parse().unwrap(),
-<a href=#140 id=140 data-nosnippet>140</a>            );
-<a href=#141 id=141 data-nosnippet>141</a>        }
-<a href=#142 id=142 data-nosnippet>142</a>        CxTestBuilder::new()
-<a href=#143 id=143 data-nosnippet>143</a>            .request_context(parts)
-<a href=#144 id=144 data-nosnippet>144</a>            .request_context(CookieJarCell::new())
-<a href=#145 id=145 data-nosnippet>145</a>            .build()
-<a href=#146 id=146 data-nosnippet>146</a>    }
-<a href=#147 id=147 data-nosnippet>147</a>
-<a href=#148 id=148 data-nosnippet>148</a>    <span class="attr">#[test]
-<a href=#149 id=149 data-nosnippet>149</a>    </span><span class="kw">fn </span>valid_token_format() {
-<a href=#150 id=150 data-nosnippet>150</a>        <span class="macro">assert!</span>(is_valid_token(<span class="kw-2">&amp;</span>uuid::Uuid::new_v4().to_string()));
-<a href=#151 id=151 data-nosnippet>151</a>        <span class="macro">assert!</span>(!is_valid_token(<span class="string">""</span>));
-<a href=#152 id=152 data-nosnippet>152</a>        <span class="macro">assert!</span>(!is_valid_token(<span class="string">"not-a-uuid"</span>));
-<a href=#153 id=153 data-nosnippet>153</a>    }
-<a href=#154 id=154 data-nosnippet>154</a>
-<a href=#155 id=155 data-nosnippet>155</a>    <span class="attr">#[test]
-<a href=#156 id=156 data-nosnippet>156</a>    </span><span class="kw">fn </span>verify_matches_cookie_and_rejects_mismatch() {
-<a href=#157 id=157 data-nosnippet>157</a>        <span class="kw">let </span>token = uuid::Uuid::new_v4().to_string();
-<a href=#158 id=158 data-nosnippet>158</a>        <span class="kw">let </span>cx = cx_with_cookie(<span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span>token));
-<a href=#159 id=159 data-nosnippet>159</a>        <span class="kw">let </span><span class="kw-2">mut </span>values = std::collections::HashMap::new();
-<a href=#160 id=160 data-nosnippet>160</a>        values.insert(FIELD_NAME.to_string(), token.clone());
-<a href=#161 id=161 data-nosnippet>161</a>        <span class="macro">assert!</span>(verify(<span class="kw-2">&amp;</span>cx, <span class="kw-2">&amp;</span>values).is_ok());
-<a href=#162 id=162 data-nosnippet>162</a>        values.insert(FIELD_NAME.to_string(), uuid::Uuid::new_v4().to_string());
-<a href=#163 id=163 data-nosnippet>163</a>        <span class="macro">assert!</span>(verify(<span class="kw-2">&amp;</span>cx, <span class="kw-2">&amp;</span>values).is_err());
-<a href=#164 id=164 data-nosnippet>164</a>        <span class="macro">assert!</span>(verify(<span class="kw-2">&amp;</span>cx, <span class="kw-2">&amp;</span>std::collections::HashMap::new()).is_err());
-<a href=#165 id=165 data-nosnippet>165</a>        <span class="macro">assert!</span>(
-<a href=#166 id=166 data-nosnippet>166</a>            verify(
-<a href=#167 id=167 data-nosnippet>167</a>                <span class="kw-2">&amp;</span>cx_with_cookie(<span class="prelude-val">None</span>),
-<a href=#168 id=168 data-nosnippet>168</a>                <span class="kw-2">&amp;</span>std::collections::HashMap::from([(FIELD_NAME.to_string(), token)])
-<a href=#169 id=169 data-nosnippet>169</a>            )
-<a href=#170 id=170 data-nosnippet>170</a>            .is_err()
-<a href=#171 id=171 data-nosnippet>171</a>        );
-<a href=#172 id=172 data-nosnippet>172</a>    }
-<a href=#173 id=173 data-nosnippet>173</a>
-<a href=#174 id=174 data-nosnippet>174</a>    <span class="doccomment">/// The issued cookie carries the hardened `__Host-` contract (GH #149),
-<a href=#175 id=175 data-nosnippet>175</a>    /// matching the session cookie: `Secure`, `HttpOnly`, `SameSite=Lax`,
-<a href=#176 id=176 data-nosnippet>176</a>    /// `Path=/`, no `Domain`.
-<a href=#177 id=177 data-nosnippet>177</a>    </span><span class="attr">#[test]
-<a href=#178 id=178 data-nosnippet>178</a>    </span><span class="kw">fn </span>ensured_cookie_is_host_prefixed_and_secure() {
-<a href=#179 id=179 data-nosnippet>179</a>        <span class="kw">let </span>cx = cx_with_cookie(<span class="prelude-val">None</span>);
-<a href=#180 id=180 data-nosnippet>180</a>        <span class="kw">let </span>token = ensure_token(<span class="kw-2">&amp;</span>cx);
-<a href=#181 id=181 data-nosnippet>181</a>        <span class="macro">assert!</span>(is_valid_token(<span class="kw-2">&amp;</span>token));
-<a href=#182 id=182 data-nosnippet>182</a>        <span class="kw">let </span>cookie = cookies(<span class="kw-2">&amp;</span>cx)
-<a href=#183 id=183 data-nosnippet>183</a>            .get(COOKIE_NAME)
-<a href=#184 id=184 data-nosnippet>184</a>            .expect(<span class="string">"ensure_token set the cookie"</span>);
-<a href=#185 id=185 data-nosnippet>185</a>        <span class="macro">assert_eq!</span>(cookie.value(), token);
-<a href=#186 id=186 data-nosnippet>186</a>        <span class="macro">assert_eq!</span>(cookie.name(), COOKIE_NAME);
-<a href=#187 id=187 data-nosnippet>187</a>        <span class="macro">assert!</span>(cookie.secure().unwrap_or(<span class="bool-val">false</span>), <span class="string">"{cookie:?}"</span>);
-<a href=#188 id=188 data-nosnippet>188</a>        <span class="macro">assert!</span>(cookie.http_only().unwrap_or(<span class="bool-val">false</span>), <span class="string">"{cookie:?}"</span>);
-<a href=#189 id=189 data-nosnippet>189</a>        <span class="macro">assert_eq!</span>(cookie.path(), <span class="prelude-val">Some</span>(<span class="string">"/"</span>));
-<a href=#190 id=190 data-nosnippet>190</a>        <span class="macro">assert!</span>(cookie.domain().is_none(), <span class="string">"{cookie:?}"</span>);
-<a href=#191 id=191 data-nosnippet>191</a>        <span class="macro">assert!</span>(
-<a href=#192 id=192 data-nosnippet>192</a>            <span class="macro">matches!</span>(
-<a href=#193 id=193 data-nosnippet>193</a>                cookie.same_site(),
-<a href=#194 id=194 data-nosnippet>194</a>                <span class="prelude-val">Some</span>(topcoat::cookie::SameSite::Lax) | <span class="prelude-val">None
-<a href=#195 id=195 data-nosnippet>195</a>            </span>),
-<a href=#196 id=196 data-nosnippet>196</a>            <span class="string">"{cookie:?}"
-<a href=#197 id=197 data-nosnippet>197</a>        </span>);
-<a href=#198 id=198 data-nosnippet>198</a>    }
-<a href=#199 id=199 data-nosnippet>199</a>}
+<a href=#125 id=125 data-nosnippet>125</a>    <span class="kw">use super</span>::<span class="kw-2">*</span>;
+<a href=#126 id=126 data-nosnippet>126</a>    <span class="kw">use </span><span class="kw">crate</span>::test_support::cx_with_cookie;
+<a href=#127 id=127 data-nosnippet>127</a>
+<a href=#128 id=128 data-nosnippet>128</a>    <span class="attr">#[test]
+<a href=#129 id=129 data-nosnippet>129</a>    </span><span class="kw">fn </span>valid_token_format() {
+<a href=#130 id=130 data-nosnippet>130</a>        <span class="macro">assert!</span>(is_valid_token(<span class="kw-2">&amp;</span>uuid::Uuid::new_v4().to_string()));
+<a href=#131 id=131 data-nosnippet>131</a>        <span class="macro">assert!</span>(!is_valid_token(<span class="string">""</span>));
+<a href=#132 id=132 data-nosnippet>132</a>        <span class="macro">assert!</span>(!is_valid_token(<span class="string">"not-a-uuid"</span>));
+<a href=#133 id=133 data-nosnippet>133</a>    }
+<a href=#134 id=134 data-nosnippet>134</a>
+<a href=#135 id=135 data-nosnippet>135</a>    <span class="attr">#[test]
+<a href=#136 id=136 data-nosnippet>136</a>    </span><span class="kw">fn </span>verify_matches_cookie_and_rejects_mismatch() {
+<a href=#137 id=137 data-nosnippet>137</a>        <span class="kw">let </span>token = uuid::Uuid::new_v4().to_string();
+<a href=#138 id=138 data-nosnippet>138</a>        <span class="kw">let </span>cx = cx_with_cookie(COOKIE_NAME, <span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span>token));
+<a href=#139 id=139 data-nosnippet>139</a>        <span class="kw">let </span><span class="kw-2">mut </span>values = std::collections::HashMap::new();
+<a href=#140 id=140 data-nosnippet>140</a>        values.insert(FIELD_NAME.to_string(), token.clone());
+<a href=#141 id=141 data-nosnippet>141</a>        <span class="macro">assert!</span>(verify(<span class="kw-2">&amp;</span>cx, <span class="kw-2">&amp;</span>values).is_ok());
+<a href=#142 id=142 data-nosnippet>142</a>        values.insert(FIELD_NAME.to_string(), uuid::Uuid::new_v4().to_string());
+<a href=#143 id=143 data-nosnippet>143</a>        <span class="macro">assert!</span>(verify(<span class="kw-2">&amp;</span>cx, <span class="kw-2">&amp;</span>values).is_err());
+<a href=#144 id=144 data-nosnippet>144</a>        <span class="macro">assert!</span>(verify(<span class="kw-2">&amp;</span>cx, <span class="kw-2">&amp;</span>std::collections::HashMap::new()).is_err());
+<a href=#145 id=145 data-nosnippet>145</a>        <span class="macro">assert!</span>(
+<a href=#146 id=146 data-nosnippet>146</a>            verify(
+<a href=#147 id=147 data-nosnippet>147</a>                <span class="kw-2">&amp;</span>cx_with_cookie(COOKIE_NAME, <span class="prelude-val">None</span>),
+<a href=#148 id=148 data-nosnippet>148</a>                <span class="kw-2">&amp;</span>std::collections::HashMap::from([(FIELD_NAME.to_string(), token)])
+<a href=#149 id=149 data-nosnippet>149</a>            )
+<a href=#150 id=150 data-nosnippet>150</a>            .is_err()
+<a href=#151 id=151 data-nosnippet>151</a>        );
+<a href=#152 id=152 data-nosnippet>152</a>    }
+<a href=#153 id=153 data-nosnippet>153</a>
+<a href=#154 id=154 data-nosnippet>154</a>    <span class="doccomment">/// The issued cookie carries the hardened `__Host-` contract (GH #149),
+<a href=#155 id=155 data-nosnippet>155</a>    /// matching the session cookie: `Secure`, `HttpOnly`, `SameSite=Lax`,
+<a href=#156 id=156 data-nosnippet>156</a>    /// `Path=/`, no `Domain`.
+<a href=#157 id=157 data-nosnippet>157</a>    </span><span class="attr">#[test]
+<a href=#158 id=158 data-nosnippet>158</a>    </span><span class="kw">fn </span>ensured_cookie_is_host_prefixed_and_secure() {
+<a href=#159 id=159 data-nosnippet>159</a>        <span class="kw">let </span>cx = cx_with_cookie(COOKIE_NAME, <span class="prelude-val">None</span>);
+<a href=#160 id=160 data-nosnippet>160</a>        <span class="kw">let </span>token = ensure_token(<span class="kw-2">&amp;</span>cx);
+<a href=#161 id=161 data-nosnippet>161</a>        <span class="macro">assert!</span>(is_valid_token(<span class="kw-2">&amp;</span>token));
+<a href=#162 id=162 data-nosnippet>162</a>        <span class="kw">let </span>cookie = cookies(<span class="kw-2">&amp;</span>cx)
+<a href=#163 id=163 data-nosnippet>163</a>            .get(COOKIE_NAME)
+<a href=#164 id=164 data-nosnippet>164</a>            .expect(<span class="string">"ensure_token set the cookie"</span>);
+<a href=#165 id=165 data-nosnippet>165</a>        <span class="macro">assert_eq!</span>(cookie.value(), token);
+<a href=#166 id=166 data-nosnippet>166</a>        <span class="macro">assert_eq!</span>(cookie.name(), COOKIE_NAME);
+<a href=#167 id=167 data-nosnippet>167</a>        <span class="macro">assert!</span>(cookie.secure().unwrap_or(<span class="bool-val">false</span>), <span class="string">"{cookie:?}"</span>);
+<a href=#168 id=168 data-nosnippet>168</a>        <span class="macro">assert!</span>(cookie.http_only().unwrap_or(<span class="bool-val">false</span>), <span class="string">"{cookie:?}"</span>);
+<a href=#169 id=169 data-nosnippet>169</a>        <span class="macro">assert_eq!</span>(cookie.path(), <span class="prelude-val">Some</span>(<span class="string">"/"</span>));
+<a href=#170 id=170 data-nosnippet>170</a>        <span class="macro">assert!</span>(cookie.domain().is_none(), <span class="string">"{cookie:?}"</span>);
+<a href=#171 id=171 data-nosnippet>171</a>        <span class="macro">assert!</span>(
+<a href=#172 id=172 data-nosnippet>172</a>            <span class="macro">matches!</span>(
+<a href=#173 id=173 data-nosnippet>173</a>                cookie.same_site(),
+<a href=#174 id=174 data-nosnippet>174</a>                <span class="prelude-val">Some</span>(topcoat::cookie::SameSite::Lax) | <span class="prelude-val">None
+<a href=#175 id=175 data-nosnippet>175</a>            </span>),
+<a href=#176 id=176 data-nosnippet>176</a>            <span class="string">"{cookie:?}"
+<a href=#177 id=177 data-nosnippet>177</a>        </span>);
+<a href=#178 id=178 data-nosnippet>178</a>    }
+<a href=#179 id=179 data-nosnippet>179</a>}
 </code></pre></div></section></main></body></html>

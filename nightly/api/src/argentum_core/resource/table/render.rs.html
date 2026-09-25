@@ -3387,302 +3387,318 @@
 <a href=#3387 id=3387 data-nosnippet>3387</a>        }
 <a href=#3388 id=3388 data-nosnippet>3388</a>    }
 <a href=#3389 id=3389 data-nosnippet>3389</a>
-<a href=#3390 id=3390 data-nosnippet>3390</a>    <span class="doccomment">/// GH #205: a table render encodes the filter transport a bounded number of
-<a href=#3391 id=3391 data-nosnippet>3391</a>    /// times. The counter is per-thread and `#[tokio::test]` drives a
-<a href=#3392 id=3392 data-nosnippet>3392</a>    /// current-thread runtime, so this measures one render in isolation.
-<a href=#3393 id=3393 data-nosnippet>3393</a>    </span><span class="attr">#[tokio::test]
-<a href=#3394 id=3394 data-nosnippet>3394</a>    </span><span class="kw">async fn </span>table_render_encodes_the_filter_transport_once_per_page_not_per_row() {
-<a href=#3395 id=3395 data-nosnippet>3395</a>        <span class="kw">use </span><span class="kw">crate</span>::resource::{filters_param_encodes, reset_filters_param_encodes};
-<a href=#3396 id=3396 data-nosnippet>3396</a>
-<a href=#3397 id=3397 data-nosnippet>3397</a>        <span class="kw">let </span>cx = CxTestBuilder::new().build();
-<a href=#3398 id=3398 data-nosnippet>3398</a>        <span class="kw">let </span>state = filters_state(<span class="kw-2">&amp;</span>[(<span class="string">"status"</span>, <span class="string">"published"</span>), (<span class="string">"featured"</span>, <span class="string">"true"</span>)]);
-<a href=#3399 id=3399 data-nosnippet>3399</a>        <span class="kw">let </span>tbl = Table::&lt;User&gt;::r#for(<span class="kw-2">&amp;</span>cx)
-<a href=#3400 id=3400 data-nosnippet>3400</a>            .id(|u: <span class="kw-2">&amp;</span>User| u.id.to_string())
-<a href=#3401 id=3401 data-nosnippet>3401</a>            <span class="comment">// Every row renders a delete-dialog link, so the table needs the
-<a href=#3402 id=3402 data-nosnippet>3402</a>            // record key those URLs carry (GH #168).
-<a href=#3403 id=3403 data-nosnippet>3403</a>            </span>.pk(|u: <span class="kw-2">&amp;</span>User| u.id.to_string())
-<a href=#3404 id=3404 data-nosnippet>3404</a>            .with_delete(<span class="string">"/admin/users"</span>.to_string())
-<a href=#3405 id=3405 data-nosnippet>3405</a>            .columns(TextColumn::r#for(User::fields().name(), |u: <span class="kw-2">&amp;</span>User| {
-<a href=#3406 id=3406 data-nosnippet>3406</a>                u.name.clone()
-<a href=#3407 id=3407 data-nosnippet>3407</a>            }));
-<a href=#3408 id=3408 data-nosnippet>3408</a>        <span class="kw">let </span>rows = |n: usize| -&gt; Vec&lt;User&gt; {
-<a href=#3409 id=3409 data-nosnippet>3409</a>            (<span class="number">0</span>..n)
-<a href=#3410 id=3410 data-nosnippet>3410</a>                .map(|i| User {
-<a href=#3411 id=3411 data-nosnippet>3411</a>                    id: uuid::Uuid::from_u128(i <span class="kw">as </span>u128),
-<a href=#3412 id=3412 data-nosnippet>3412</a>                    name: <span class="macro">format!</span>(<span class="string">"user-{i}"</span>),
-<a href=#3413 id=3413 data-nosnippet>3413</a>                })
-<a href=#3414 id=3414 data-nosnippet>3414</a>                .collect()
-<a href=#3415 id=3415 data-nosnippet>3415</a>        };
-<a href=#3416 id=3416 data-nosnippet>3416</a>        <span class="kw">let </span>encodes_for = <span class="kw">async </span>|page: TablePage&lt;User&gt;| {
-<a href=#3417 id=3417 data-nosnippet>3417</a>            reset_filters_param_encodes();
-<a href=#3418 id=3418 data-nosnippet>3418</a>            <span class="kw">let </span>html = tbl
-<a href=#3419 id=3419 data-nosnippet>3419</a>                .render_with_state(<span class="kw-2">&amp;</span>cx, page, <span class="kw-2">&amp;</span>state, <span class="string">"/admin/users"</span>)
-<a href=#3420 id=3420 data-nosnippet>3420</a>                .<span class="kw">await
-<a href=#3421 id=3421 data-nosnippet>3421</a>                </span>.unwrap()
-<a href=#3422 id=3422 data-nosnippet>3422</a>                .single()
-<a href=#3423 id=3423 data-nosnippet>3423</a>                .<span class="kw">await
-<a href=#3424 id=3424 data-nosnippet>3424</a>                </span>.unwrap()
-<a href=#3425 id=3425 data-nosnippet>3425</a>                .render(<span class="kw-2">&amp;</span>cx);
-<a href=#3426 id=3426 data-nosnippet>3426</a>            <span class="macro">assert!</span>(
-<a href=#3427 id=3427 data-nosnippet>3427</a>                html.contains(<span class="string">"status%3Apublished"</span>),
-<a href=#3428 id=3428 data-nosnippet>3428</a>                <span class="string">"each row's delete link must carry the filter transport, got {html}"
-<a href=#3429 id=3429 data-nosnippet>3429</a>            </span>);
-<a href=#3430 id=3430 data-nosnippet>3430</a>            filters_param_encodes()
-<a href=#3431 id=3431 data-nosnippet>3431</a>        };
-<a href=#3432 id=3432 data-nosnippet>3432</a>
-<a href=#3433 id=3433 data-nosnippet>3433</a>        <span class="kw">let </span>one_row = encodes_for(TablePage::from(rows(<span class="number">1</span>))).<span class="kw">await</span>;
-<a href=#3434 id=3434 data-nosnippet>3434</a>        <span class="kw">let </span>eight_rows = encodes_for(TablePage::from(rows(<span class="number">8</span>))).<span class="kw">await</span>;
-<a href=#3435 id=3435 data-nosnippet>3435</a>        <span class="macro">assert!</span>(one_row &gt; <span class="number">0</span>, <span class="string">"the state's filters must project at all"</span>);
-<a href=#3436 id=3436 data-nosnippet>3436</a>        <span class="macro">assert_eq!</span>(
-<a href=#3437 id=3437 data-nosnippet>3437</a>            one_row, eight_rows,
-<a href=#3438 id=3438 data-nosnippet>3438</a>            <span class="string">"the filter transport must be encoded a bounded number of times, \
-<a href=#3439 id=3439 data-nosnippet>3439</a>             independent of row count: one row encoded it {one_row} times, \
-<a href=#3440 id=3440 data-nosnippet>3440</a>             eight rows {eight_rows}"
-<a href=#3441 id=3441 data-nosnippet>3441</a>        </span>);
-<a href=#3442 id=3442 data-nosnippet>3442</a>    }
-<a href=#3443 id=3443 data-nosnippet>3443</a>
-<a href=#3444 id=3444 data-nosnippet>3444</a>    <span class="attr">#[tokio::test]
-<a href=#3445 id=3445 data-nosnippet>3445</a>    </span><span class="kw">async fn </span>void_window_links_back_to_first_page() {
-<a href=#3446 id=3446 data-nosnippet>3446</a>        <span class="comment">// GH #98: a cursor past the last row (rows deleted under pagination)
-<a href=#3447 id=3447 data-nosnippet>3447</a>        // must offer navigation, never a pager-less dead end.
-<a href=#3448 id=3448 data-nosnippet>3448</a>        </span><span class="kw">let </span>cx = CxTestBuilder::new().build();
-<a href=#3449 id=3449 data-nosnippet>3449</a>        <span class="kw">let </span>tbl = Table::&lt;User&gt;::r#for(<span class="kw-2">&amp;</span>cx)
-<a href=#3450 id=3450 data-nosnippet>3450</a>            .id(|u| u.id.to_string())
-<a href=#3451 id=3451 data-nosnippet>3451</a>            .pk(|u| u.id.to_string())
-<a href=#3452 id=3452 data-nosnippet>3452</a>            .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()).sortable())
-<a href=#3453 id=3453 data-nosnippet>3453</a>            .paginate(<span class="number">1</span>);
-<a href=#3454 id=3454 data-nosnippet>3454</a>        <span class="kw">let </span>void_page = TablePage {
-<a href=#3455 id=3455 data-nosnippet>3455</a>            rows: Vec::new(),
-<a href=#3456 id=3456 data-nosnippet>3456</a>            next_cursor: <span class="prelude-val">None</span>,
-<a href=#3457 id=3457 data-nosnippet>3457</a>            prev_cursor: <span class="prelude-val">None</span>,
-<a href=#3458 id=3458 data-nosnippet>3458</a>        };
-<a href=#3459 id=3459 data-nosnippet>3459</a>        <span class="kw">let </span>state = TableState {
-<a href=#3460 id=3460 data-nosnippet>3460</a>            after: <span class="prelude-val">Some</span>(<span class="string">"abc"</span>.to_string()),
-<a href=#3461 id=3461 data-nosnippet>3461</a>            sort: <span class="prelude-val">Some</span>(Sort {
-<a href=#3462 id=3462 data-nosnippet>3462</a>                column: <span class="string">"name"</span>.to_string(),
-<a href=#3463 id=3463 data-nosnippet>3463</a>                descending: <span class="bool-val">false</span>,
-<a href=#3464 id=3464 data-nosnippet>3464</a>            }),
-<a href=#3465 id=3465 data-nosnippet>3465</a>            ..TableState::default()
-<a href=#3466 id=3466 data-nosnippet>3466</a>        };
-<a href=#3467 id=3467 data-nosnippet>3467</a>        <span class="kw">let </span>html = tbl
-<a href=#3468 id=3468 data-nosnippet>3468</a>            .render_with_state(<span class="kw-2">&amp;</span>cx, void_page, <span class="kw-2">&amp;</span>state, <span class="string">"/admin/users"</span>)
-<a href=#3469 id=3469 data-nosnippet>3469</a>            .<span class="kw">await
-<a href=#3470 id=3470 data-nosnippet>3470</a>            </span>.unwrap()
-<a href=#3471 id=3471 data-nosnippet>3471</a>            .single()
-<a href=#3472 id=3472 data-nosnippet>3472</a>            .<span class="kw">await
-<a href=#3473 id=3473 data-nosnippet>3473</a>            </span>.unwrap()
-<a href=#3474 id=3474 data-nosnippet>3474</a>            .render(<span class="kw-2">&amp;</span>cx);
-<a href=#3475 id=3475 data-nosnippet>3475</a>        <span class="macro">assert!</span>(
-<a href=#3476 id=3476 data-nosnippet>3476</a>            html.contains(<span class="string">"Back to first page"</span>),
-<a href=#3477 id=3477 data-nosnippet>3477</a>            <span class="string">"void window must link home, got {html}"
-<a href=#3478 id=3478 data-nosnippet>3478</a>        </span>);
-<a href=#3479 id=3479 data-nosnippet>3479</a>
-<a href=#3480 id=3480 data-nosnippet>3480</a>        <span class="comment">// A genuinely empty first page stays pager-less (its empty-state
-<a href=#3481 id=3481 data-nosnippet>3481</a>        // already offers Clear links).
-<a href=#3482 id=3482 data-nosnippet>3482</a>        </span><span class="kw">let </span>empty_first = TablePage {
-<a href=#3483 id=3483 data-nosnippet>3483</a>            rows: Vec::new(),
-<a href=#3484 id=3484 data-nosnippet>3484</a>            next_cursor: <span class="prelude-val">None</span>,
-<a href=#3485 id=3485 data-nosnippet>3485</a>            prev_cursor: <span class="prelude-val">None</span>,
-<a href=#3486 id=3486 data-nosnippet>3486</a>        };
-<a href=#3487 id=3487 data-nosnippet>3487</a>        <span class="kw">let </span>html = tbl
-<a href=#3488 id=3488 data-nosnippet>3488</a>            .render_with_state(<span class="kw-2">&amp;</span>cx, empty_first, <span class="kw-2">&amp;</span>TableState::default(), <span class="string">"/admin/users"</span>)
-<a href=#3489 id=3489 data-nosnippet>3489</a>            .<span class="kw">await
-<a href=#3490 id=3490 data-nosnippet>3490</a>            </span>.unwrap()
-<a href=#3491 id=3491 data-nosnippet>3491</a>            .single()
-<a href=#3492 id=3492 data-nosnippet>3492</a>            .<span class="kw">await
-<a href=#3493 id=3493 data-nosnippet>3493</a>            </span>.unwrap()
-<a href=#3494 id=3494 data-nosnippet>3494</a>            .render(<span class="kw-2">&amp;</span>cx);
-<a href=#3495 id=3495 data-nosnippet>3495</a>        <span class="macro">assert!</span>(
-<a href=#3496 id=3496 data-nosnippet>3496</a>            !html.contains(<span class="string">"Back to first page"</span>),
-<a href=#3497 id=3497 data-nosnippet>3497</a>            <span class="string">"empty first page must stay pager-less, got {html}"
-<a href=#3498 id=3498 data-nosnippet>3498</a>        </span>);
-<a href=#3499 id=3499 data-nosnippet>3499</a>    }
-<a href=#3500 id=3500 data-nosnippet>3500</a>
-<a href=#3501 id=3501 data-nosnippet>3501</a>    <span class="attr">#[tokio::test]
-<a href=#3502 id=3502 data-nosnippet>3502</a>    </span><span class="kw">async fn </span>skeleton_shares_the_table_root_with_the_swapped_body() {
-<a href=#3503 id=3503 data-nosnippet>3503</a>        <span class="kw">let </span>cx = CxTestBuilder::new().build();
-<a href=#3504 id=3504 data-nosnippet>3504</a>        <span class="kw">let </span>tbl = Table::&lt;User&gt;::r#for(<span class="kw-2">&amp;</span>cx)
-<a href=#3505 id=3505 data-nosnippet>3505</a>            .id(|u| u.id.to_string())
-<a href=#3506 id=3506 data-nosnippet>3506</a>            .pk(|u| u.id.to_string())
-<a href=#3507 id=3507 data-nosnippet>3507</a>            .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()));
-<a href=#3508 id=3508 data-nosnippet>3508</a>        <span class="kw">let </span>html = tbl
-<a href=#3509 id=3509 data-nosnippet>3509</a>            .render_skeleton(<span class="kw-2">&amp;</span>cx)
-<a href=#3510 id=3510 data-nosnippet>3510</a>            .<span class="kw">await
-<a href=#3511 id=3511 data-nosnippet>3511</a>            </span>.unwrap()
-<a href=#3512 id=3512 data-nosnippet>3512</a>            .single()
-<a href=#3513 id=3513 data-nosnippet>3513</a>            .<span class="kw">await
-<a href=#3514 id=3514 data-nosnippet>3514</a>            </span>.unwrap()
-<a href=#3515 id=3515 data-nosnippet>3515</a>            .render(<span class="kw-2">&amp;</span>cx);
-<a href=#3516 id=3516 data-nosnippet>3516</a>        <span class="macro">assert!</span>(
-<a href=#3517 id=3517 data-nosnippet>3517</a>            html.contains(<span class="string">"data-table-root"</span>),
-<a href=#3518 id=3518 data-nosnippet>3518</a>            <span class="string">"skeleton must share table root, got {html}"
-<a href=#3519 id=3519 data-nosnippet>3519</a>        </span>);
-<a href=#3520 id=3520 data-nosnippet>3520</a>        <span class="macro">assert!</span>(
-<a href=#3521 id=3521 data-nosnippet>3521</a>            html.contains(<span class="string">"aria-busy"</span>),
-<a href=#3522 id=3522 data-nosnippet>3522</a>            <span class="string">"skeleton must announce loading, got {html}"
-<a href=#3523 id=3523 data-nosnippet>3523</a>        </span>);
-<a href=#3524 id=3524 data-nosnippet>3524</a>        <span class="macro">assert_eq!</span>(
-<a href=#3525 id=3525 data-nosnippet>3525</a>            html.matches(<span class="string">"aria-busy=\"true\""</span>).count(),
-<a href=#3526 id=3526 data-nosnippet>3526</a>            <span class="number">2</span>,
-<a href=#3527 id=3527 data-nosnippet>3527</a>            <span class="string">"busy must ride on the morph boundary and the table root (GH #160), got {html}"
-<a href=#3528 id=3528 data-nosnippet>3528</a>        </span>);
-<a href=#3529 id=3529 data-nosnippet>3529</a>        <span class="macro">assert!</span>(
-<a href=#3530 id=3530 data-nosnippet>3530</a>            html.contains(<span class="string">"aria-hidden"</span>),
-<a href=#3531 id=3531 data-nosnippet>3531</a>            <span class="string">"skeleton must hold chrome placeholders, got {html}"
-<a href=#3532 id=3532 data-nosnippet>3532</a>        </span>);
-<a href=#3533 id=3533 data-nosnippet>3533</a>        <span class="comment">// The skeleton and the swapped table must declare the same layout, or
-<a href=#3534 id=3534 data-nosnippet>3534</a>        // the swap re-measures the columns (GH #240): comparing the two
-<a href=#3535 id=3535 data-nosnippet>3535</a>        // opening tags states that without pinning a class literal.
-<a href=#3536 id=3536 data-nosnippet>3536</a>        </span><span class="kw">let </span>skeleton_table = table_tag(<span class="kw-2">&amp;</span>html).to_string();
-<a href=#3537 id=3537 data-nosnippet>3537</a>        <span class="comment">// The swap payload is the table itself, under the same boundary region.
-<a href=#3538 id=3538 data-nosnippet>3538</a>        </span><span class="kw">let </span>rows = <span class="macro">vec!</span>[User {
-<a href=#3539 id=3539 data-nosnippet>3539</a>            id: uuid::Uuid::nil(),
-<a href=#3540 id=3540 data-nosnippet>3540</a>            name: <span class="string">"Ada"</span>.to_string(),
-<a href=#3541 id=3541 data-nosnippet>3541</a>        }];
-<a href=#3542 id=3542 data-nosnippet>3542</a>        <span class="kw">let </span>html = tbl
-<a href=#3543 id=3543 data-nosnippet>3543</a>            .render_with_state(<span class="kw-2">&amp;</span>cx, rows.into(), <span class="kw-2">&amp;</span>TableState::default(), <span class="string">"/admin/users"</span>)
-<a href=#3544 id=3544 data-nosnippet>3544</a>            .<span class="kw">await
-<a href=#3545 id=3545 data-nosnippet>3545</a>            </span>.unwrap()
-<a href=#3546 id=3546 data-nosnippet>3546</a>            .single()
-<a href=#3547 id=3547 data-nosnippet>3547</a>            .<span class="kw">await
-<a href=#3548 id=3548 data-nosnippet>3548</a>            </span>.unwrap()
-<a href=#3549 id=3549 data-nosnippet>3549</a>            .render(<span class="kw-2">&amp;</span>cx);
-<a href=#3550 id=3550 data-nosnippet>3550</a>        <span class="macro">assert!</span>(
-<a href=#3551 id=3551 data-nosnippet>3551</a>            html.contains(<span class="string">"data-table-root"</span>) &amp;&amp; html.contains(<span class="string">"data-boundary=\"table\""</span>),
-<a href=#3552 id=3552 data-nosnippet>3552</a>            <span class="string">"the swapped table must land in the skeleton's region, got {html}"
-<a href=#3553 id=3553 data-nosnippet>3553</a>        </span>);
-<a href=#3554 id=3554 data-nosnippet>3554</a>        <span class="macro">assert!</span>(
-<a href=#3555 id=3555 data-nosnippet>3555</a>            html.contains(<span class="string">"Ada"</span>),
-<a href=#3556 id=3556 data-nosnippet>3556</a>            <span class="string">"swap payload must be rows, got {html}"
-<a href=#3557 id=3557 data-nosnippet>3557</a>        </span>);
-<a href=#3558 id=3558 data-nosnippet>3558</a>        <span class="macro">assert_eq!</span>(
-<a href=#3559 id=3559 data-nosnippet>3559</a>            table_tag(<span class="kw-2">&amp;</span>html),
-<a href=#3560 id=3560 data-nosnippet>3560</a>            skeleton_table,
-<a href=#3561 id=3561 data-nosnippet>3561</a>            <span class="string">"the swapped table must declare the skeleton's layout (GH #240), got {html}"
-<a href=#3562 id=3562 data-nosnippet>3562</a>        </span>);
-<a href=#3563 id=3563 data-nosnippet>3563</a>    }
-<a href=#3564 id=3564 data-nosnippet>3564</a>
-<a href=#3565 id=3565 data-nosnippet>3565</a>    <span class="attr">#[tokio::test]
-<a href=#3566 id=3566 data-nosnippet>3566</a>    </span><span class="kw">async fn </span>a_static_table_renders_no_runtime_bindings_at_all() {
-<a href=#3567 id=3567 data-nosnippet>3567</a>        <span class="comment">// GH #234: a table without `live_search` has no shard to re-run, so a
-<a href=#3568 id=3568 data-nosnippet>3568</a>        // mutation replaces its region with the response's. That is only sound
-<a href=#3569 id=3569 data-nosnippet>3569</a>        // because the region is inert: no binding, no handler, nothing the
-<a href=#3570 id=3570 data-nosnippet>3570</a>        // replacement could leave dead. The refresh control's absence is the
-<a href=#3571 id=3571 data-nosnippet>3571</a>        // page's own answer to "can this table refresh in place?".
-<a href=#3572 id=3572 data-nosnippet>3572</a>        </span><span class="kw">let </span>cx = CxTestBuilder::new().build();
-<a href=#3573 id=3573 data-nosnippet>3573</a>        <span class="kw">let </span>tbl = Table::&lt;User&gt;::r#for(<span class="kw-2">&amp;</span>cx)
-<a href=#3574 id=3574 data-nosnippet>3574</a>            .id(|u| u.id.to_string())
-<a href=#3575 id=3575 data-nosnippet>3575</a>            .pk(|u| u.id.to_string())
-<a href=#3576 id=3576 data-nosnippet>3576</a>            .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()))
-<a href=#3577 id=3577 data-nosnippet>3577</a>            .with_delete(<span class="string">"/admin/users"</span>.to_string())
-<a href=#3578 id=3578 data-nosnippet>3578</a>            .with_bulk_delete(<span class="bool-val">true</span>);
-<a href=#3579 id=3579 data-nosnippet>3579</a>        <span class="kw">let </span>rows = <span class="macro">vec!</span>[User {
-<a href=#3580 id=3580 data-nosnippet>3580</a>            id: uuid::Uuid::nil(),
-<a href=#3581 id=3581 data-nosnippet>3581</a>            name: <span class="string">"Ada"</span>.to_string(),
-<a href=#3582 id=3582 data-nosnippet>3582</a>        }];
-<a href=#3583 id=3583 data-nosnippet>3583</a>        <span class="kw">let </span>html = tbl
-<a href=#3584 id=3584 data-nosnippet>3584</a>            .render_with_state(<span class="kw-2">&amp;</span>cx, rows.into(), <span class="kw-2">&amp;</span>TableState::default(), <span class="string">"/admin/users"</span>)
-<a href=#3585 id=3585 data-nosnippet>3585</a>            .<span class="kw">await
-<a href=#3586 id=3586 data-nosnippet>3586</a>            </span>.unwrap()
-<a href=#3587 id=3587 data-nosnippet>3587</a>            .single()
-<a href=#3588 id=3588 data-nosnippet>3588</a>            .<span class="kw">await
-<a href=#3589 id=3589 data-nosnippet>3589</a>            </span>.unwrap()
-<a href=#3590 id=3590 data-nosnippet>3590</a>            .render(<span class="kw-2">&amp;</span>cx);
-<a href=#3591 id=3591 data-nosnippet>3591</a>        <span class="macro">assert!</span>(
-<a href=#3592 id=3592 data-nosnippet>3592</a>            !html.contains(<span class="string">"data-table-revision"</span>),
-<a href=#3593 id=3593 data-nosnippet>3593</a>            <span class="string">"a static table must carry no refresh control, got {html}"
-<a href=#3594 id=3594 data-nosnippet>3594</a>        </span>);
-<a href=#3595 id=3595 data-nosnippet>3595</a>        <span class="macro">assert!</span>(
-<a href=#3596 id=3596 data-nosnippet>3596</a>            !html.contains(<span class="string">"data-topcoat-"</span>),
-<a href=#3597 id=3597 data-nosnippet>3597</a>            <span class="string">"a static table's region must be inert markup, got {html}"
-<a href=#3598 id=3598 data-nosnippet>3598</a>        </span>);
-<a href=#3599 id=3599 data-nosnippet>3599</a>    }
-<a href=#3600 id=3600 data-nosnippet>3600</a>
-<a href=#3601 id=3601 data-nosnippet>3601</a>    <span class="attr">#[tokio::test]
-<a href=#3602 id=3602 data-nosnippet>3602</a>    </span><span class="kw">async fn </span>skeleton_carries_the_action_column_for_view_only_chrome() {
-<a href=#3603 id=3603 data-nosnippet>3603</a>        <span class="comment">// The skeleton's action column must count every row link `render_inner`
-<a href=#3604 id=3604 data-nosnippet>3604</a>        // renders, `with_view` included, or the swap changes the table width.
-<a href=#3605 id=3605 data-nosnippet>3605</a>        </span><span class="kw">let </span>cx = CxTestBuilder::new().build();
-<a href=#3606 id=3606 data-nosnippet>3606</a>        <span class="kw">let </span>tbl = Table::&lt;User&gt;::r#for(<span class="kw-2">&amp;</span>cx)
-<a href=#3607 id=3607 data-nosnippet>3607</a>            .id(|u| u.id.to_string())
-<a href=#3608 id=3608 data-nosnippet>3608</a>            .pk(|u| u.id.to_string())
-<a href=#3609 id=3609 data-nosnippet>3609</a>            .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()))
-<a href=#3610 id=3610 data-nosnippet>3610</a>            .with_view(<span class="string">"/admin/users"</span>.to_string());
-<a href=#3611 id=3611 data-nosnippet>3611</a>        <span class="kw">let </span>skeleton = tbl
-<a href=#3612 id=3612 data-nosnippet>3612</a>            .render_skeleton(<span class="kw-2">&amp;</span>cx)
-<a href=#3613 id=3613 data-nosnippet>3613</a>            .<span class="kw">await
-<a href=#3614 id=3614 data-nosnippet>3614</a>            </span>.unwrap()
-<a href=#3615 id=3615 data-nosnippet>3615</a>            .single()
-<a href=#3616 id=3616 data-nosnippet>3616</a>            .<span class="kw">await
-<a href=#3617 id=3617 data-nosnippet>3617</a>            </span>.unwrap()
-<a href=#3618 id=3618 data-nosnippet>3618</a>            .render(<span class="kw-2">&amp;</span>cx);
-<a href=#3619 id=3619 data-nosnippet>3619</a>        <span class="kw">let </span>rows = <span class="macro">vec!</span>[User {
-<a href=#3620 id=3620 data-nosnippet>3620</a>            id: uuid::Uuid::nil(),
-<a href=#3621 id=3621 data-nosnippet>3621</a>            name: <span class="string">"Ada"</span>.to_string(),
-<a href=#3622 id=3622 data-nosnippet>3622</a>        }];
-<a href=#3623 id=3623 data-nosnippet>3623</a>        <span class="kw">let </span>rendered = tbl
-<a href=#3624 id=3624 data-nosnippet>3624</a>            .render_with_state(<span class="kw-2">&amp;</span>cx, rows.into(), <span class="kw-2">&amp;</span>TableState::default(), <span class="string">"/admin/users"</span>)
-<a href=#3625 id=3625 data-nosnippet>3625</a>            .<span class="kw">await
-<a href=#3626 id=3626 data-nosnippet>3626</a>            </span>.unwrap()
-<a href=#3627 id=3627 data-nosnippet>3627</a>            .single()
-<a href=#3628 id=3628 data-nosnippet>3628</a>            .<span class="kw">await
-<a href=#3629 id=3629 data-nosnippet>3629</a>            </span>.unwrap()
-<a href=#3630 id=3630 data-nosnippet>3630</a>            .render(<span class="kw-2">&amp;</span>cx);
-<a href=#3631 id=3631 data-nosnippet>3631</a>        <span class="macro">assert_eq!</span>(
-<a href=#3632 id=3632 data-nosnippet>3632</a>            rendered.matches(<span class="string">"&gt;Actions&lt;/th&gt;"</span>).count(),
-<a href=#3633 id=3633 data-nosnippet>3633</a>            <span class="number">1</span>,
-<a href=#3634 id=3634 data-nosnippet>3634</a>            <span class="string">"the real table renders one action column, got {rendered}"
-<a href=#3635 id=3635 data-nosnippet>3635</a>        </span>);
-<a href=#3636 id=3636 data-nosnippet>3636</a>        <span class="macro">assert_eq!</span>(
-<a href=#3637 id=3637 data-nosnippet>3637</a>            skeleton.matches(<span class="string">"&gt;Actions&lt;/th&gt;"</span>).count(),
-<a href=#3638 id=3638 data-nosnippet>3638</a>            rendered.matches(<span class="string">"&gt;Actions&lt;/th&gt;"</span>).count(),
-<a href=#3639 id=3639 data-nosnippet>3639</a>            <span class="string">"the skeleton must match the swapped table's column count, got {skeleton}"
-<a href=#3640 id=3640 data-nosnippet>3640</a>        </span>);
-<a href=#3641 id=3641 data-nosnippet>3641</a>    }
-<a href=#3642 id=3642 data-nosnippet>3642</a>
-<a href=#3643 id=3643 data-nosnippet>3643</a>    <span class="attr">#[tokio::test]
-<a href=#3644 id=3644 data-nosnippet>3644</a>    </span><span class="kw">async fn </span>rendered_rows_carry_stable_dom_ids() {
-<a href=#3645 id=3645 data-nosnippet>3645</a>        <span class="comment">// GH #104: every rendered row exposes its morph id; re-rendering the
-<a href=#3646 id=3646 data-nosnippet>3646</a>        // same page yields the same ids.
-<a href=#3647 id=3647 data-nosnippet>3647</a>        </span><span class="kw">let </span>cx = CxTestBuilder::new().build();
-<a href=#3648 id=3648 data-nosnippet>3648</a>        <span class="kw">let </span>tbl = Table::&lt;User&gt;::r#for(<span class="kw-2">&amp;</span>cx)
-<a href=#3649 id=3649 data-nosnippet>3649</a>            .id(|u| u.id.to_string())
-<a href=#3650 id=3650 data-nosnippet>3650</a>            .pk(|u| u.id.to_string())
-<a href=#3651 id=3651 data-nosnippet>3651</a>            .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()));
-<a href=#3652 id=3652 data-nosnippet>3652</a>        <span class="kw">let </span>rows = <span class="macro">vec!</span>[
-<a href=#3653 id=3653 data-nosnippet>3653</a>            User {
-<a href=#3654 id=3654 data-nosnippet>3654</a>                id: uuid::Uuid::nil(),
-<a href=#3655 id=3655 data-nosnippet>3655</a>                name: <span class="string">"Ada"</span>.to_string(),
-<a href=#3656 id=3656 data-nosnippet>3656</a>            },
-<a href=#3657 id=3657 data-nosnippet>3657</a>            User {
-<a href=#3658 id=3658 data-nosnippet>3658</a>                id: uuid::Uuid::max(),
-<a href=#3659 id=3659 data-nosnippet>3659</a>                name: <span class="string">"Alan"</span>.to_string(),
-<a href=#3660 id=3660 data-nosnippet>3660</a>            },
-<a href=#3661 id=3661 data-nosnippet>3661</a>        ];
-<a href=#3662 id=3662 data-nosnippet>3662</a>        <span class="kw">let </span>render = <span class="kw">async </span>|rows: Vec&lt;User&gt;| {
-<a href=#3663 id=3663 data-nosnippet>3663</a>            tbl.render_with_state(<span class="kw-2">&amp;</span>cx, rows.into(), <span class="kw-2">&amp;</span>TableState::default(), <span class="string">"/admin/users"</span>)
-<a href=#3664 id=3664 data-nosnippet>3664</a>                .<span class="kw">await
-<a href=#3665 id=3665 data-nosnippet>3665</a>                </span>.unwrap()
-<a href=#3666 id=3666 data-nosnippet>3666</a>                .single()
-<a href=#3667 id=3667 data-nosnippet>3667</a>                .<span class="kw">await
-<a href=#3668 id=3668 data-nosnippet>3668</a>                </span>.unwrap()
-<a href=#3669 id=3669 data-nosnippet>3669</a>                .render(<span class="kw-2">&amp;</span>cx)
-<a href=#3670 id=3670 data-nosnippet>3670</a>        };
-<a href=#3671 id=3671 data-nosnippet>3671</a>        <span class="kw">let </span>first = render(rows.clone()).<span class="kw">await</span>;
-<a href=#3672 id=3672 data-nosnippet>3672</a>        <span class="macro">assert!</span>(
-<a href=#3673 id=3673 data-nosnippet>3673</a>            first.contains(<span class="string">"id=\"row-00000000-0000-0000-0000-000000000000-"</span>),
-<a href=#3674 id=3674 data-nosnippet>3674</a>            <span class="string">"missing morph id for first row, got {first}"
-<a href=#3675 id=3675 data-nosnippet>3675</a>        </span>);
-<a href=#3676 id=3676 data-nosnippet>3676</a>        <span class="macro">assert!</span>(
-<a href=#3677 id=3677 data-nosnippet>3677</a>            first.contains(<span class="string">"id=\"row-ffffffff-ffff-ffff-ffff-ffffffffffff-"</span>),
-<a href=#3678 id=3678 data-nosnippet>3678</a>            <span class="string">"missing morph id for second row, got {first}"
-<a href=#3679 id=3679 data-nosnippet>3679</a>        </span>);
-<a href=#3680 id=3680 data-nosnippet>3680</a>        <span class="kw">let </span>second = render(rows).<span class="kw">await</span>;
-<a href=#3681 id=3681 data-nosnippet>3681</a>        <span class="macro">assert_eq!</span>(
-<a href=#3682 id=3682 data-nosnippet>3682</a>            first.matches(<span class="string">"id=\"row-"</span>).count(),
-<a href=#3683 id=3683 data-nosnippet>3683</a>            second.matches(<span class="string">"id=\"row-"</span>).count(),
-<a href=#3684 id=3684 data-nosnippet>3684</a>            <span class="string">"reruns must keep stable row ids"
-<a href=#3685 id=3685 data-nosnippet>3685</a>        </span>);
-<a href=#3686 id=3686 data-nosnippet>3686</a>    }
-<a href=#3687 id=3687 data-nosnippet>3687</a>}
+<a href=#3390 id=3390 data-nosnippet>3390</a>    <span class="doccomment">/// GH #205: a table render builds the row-action URLs from one shared base
+<a href=#3391 id=3391 data-nosnippet>3391</a>    /// — the encoded filter transport — before the row loop, so every row's
+<a href=#3392 id=3392 data-nosnippet>3392</a>    /// dialog opener is that base plus its own `delete=` key.
+<a href=#3393 id=3393 data-nosnippet>3393</a>    ///
+<a href=#3394 id=3394 data-nosnippet>3394</a>    /// The base cannot be observed as a count: `filters_param` is a pure
+<a href=#3395 id=3395 data-nosnippet>3395</a>    /// function of the state, so a per-row rebuild produces identical bytes.
+<a href=#3396 id=3396 data-nosnippet>3396</a>    /// This pins the shape instead — every opener shares byte-identical bytes
+<a href=#3397 id=3397 data-nosnippet>3397</a>    /// before `delete=`, independent of the page size.
+<a href=#3398 id=3398 data-nosnippet>3398</a>    </span><span class="attr">#[tokio::test]
+<a href=#3399 id=3399 data-nosnippet>3399</a>    </span><span class="kw">async fn </span>table_render_reuses_one_filter_transport_base_across_rows() {
+<a href=#3400 id=3400 data-nosnippet>3400</a>        <span class="kw">let </span>cx = CxTestBuilder::new().build();
+<a href=#3401 id=3401 data-nosnippet>3401</a>        <span class="kw">let </span>state = filters_state(<span class="kw-2">&amp;</span>[(<span class="string">"status"</span>, <span class="string">"published"</span>), (<span class="string">"featured"</span>, <span class="string">"true"</span>)]);
+<a href=#3402 id=3402 data-nosnippet>3402</a>        <span class="kw">let </span>tbl = Table::&lt;User&gt;::r#for(<span class="kw-2">&amp;</span>cx)
+<a href=#3403 id=3403 data-nosnippet>3403</a>            .id(|u: <span class="kw-2">&amp;</span>User| u.id.to_string())
+<a href=#3404 id=3404 data-nosnippet>3404</a>            <span class="comment">// Every row renders a delete-dialog link, so the table needs the
+<a href=#3405 id=3405 data-nosnippet>3405</a>            // record key those URLs carry (GH #168).
+<a href=#3406 id=3406 data-nosnippet>3406</a>            </span>.pk(|u: <span class="kw-2">&amp;</span>User| u.id.to_string())
+<a href=#3407 id=3407 data-nosnippet>3407</a>            .with_delete(<span class="string">"/admin/users"</span>.to_string())
+<a href=#3408 id=3408 data-nosnippet>3408</a>            .columns(TextColumn::r#for(User::fields().name(), |u: <span class="kw-2">&amp;</span>User| {
+<a href=#3409 id=3409 data-nosnippet>3409</a>                u.name.clone()
+<a href=#3410 id=3410 data-nosnippet>3410</a>            }));
+<a href=#3411 id=3411 data-nosnippet>3411</a>        <span class="kw">let </span>rows = |n: usize| -&gt; Vec&lt;User&gt; {
+<a href=#3412 id=3412 data-nosnippet>3412</a>            (<span class="number">0</span>..n)
+<a href=#3413 id=3413 data-nosnippet>3413</a>                .map(|i| User {
+<a href=#3414 id=3414 data-nosnippet>3414</a>                    id: uuid::Uuid::from_u128(i <span class="kw">as </span>u128),
+<a href=#3415 id=3415 data-nosnippet>3415</a>                    name: <span class="macro">format!</span>(<span class="string">"user-{i}"</span>),
+<a href=#3416 id=3416 data-nosnippet>3416</a>                })
+<a href=#3417 id=3417 data-nosnippet>3417</a>                .collect()
+<a href=#3418 id=3418 data-nosnippet>3418</a>        };
+<a href=#3419 id=3419 data-nosnippet>3419</a>        <span class="kw">let </span>render = <span class="kw">async </span>|page: TablePage&lt;User&gt;| {
+<a href=#3420 id=3420 data-nosnippet>3420</a>            tbl.render_with_state(<span class="kw-2">&amp;</span>cx, page, <span class="kw-2">&amp;</span>state, <span class="string">"/admin/users"</span>)
+<a href=#3421 id=3421 data-nosnippet>3421</a>                .<span class="kw">await
+<a href=#3422 id=3422 data-nosnippet>3422</a>                </span>.unwrap()
+<a href=#3423 id=3423 data-nosnippet>3423</a>                .single()
+<a href=#3424 id=3424 data-nosnippet>3424</a>                .<span class="kw">await
+<a href=#3425 id=3425 data-nosnippet>3425</a>                </span>.unwrap()
+<a href=#3426 id=3426 data-nosnippet>3426</a>                .render(<span class="kw-2">&amp;</span>cx)
+<a href=#3427 id=3427 data-nosnippet>3427</a>        };
+<a href=#3428 id=3428 data-nosnippet>3428</a>        <span class="comment">// Each row's opener, keyed off the one attribute only an action link
+<a href=#3429 id=3429 data-nosnippet>3429</a>        // carries, with the per-row `delete` key stripped: what is left is the
+<a href=#3430 id=3430 data-nosnippet>3430</a>        // page's shared base.
+<a href=#3431 id=3431 data-nosnippet>3431</a>        </span><span class="kw">fn </span>delete_bases(html: <span class="kw-2">&amp;</span>str) -&gt; Vec&lt;<span class="kw-2">&amp;</span>str&gt; {
+<a href=#3432 id=3432 data-nosnippet>3432</a>            html.split(<span class="string">"href=\""</span>)
+<a href=#3433 id=3433 data-nosnippet>3433</a>                .skip(<span class="number">1</span>)
+<a href=#3434 id=3434 data-nosnippet>3434</a>                .filter_map(|chunk| chunk.split(<span class="string">'"'</span>).next())
+<a href=#3435 id=3435 data-nosnippet>3435</a>                .filter(|href| href.contains(<span class="string">"delete="</span>))
+<a href=#3436 id=3436 data-nosnippet>3436</a>                .map(|href| href.split(<span class="string">"delete="</span>).next().unwrap())
+<a href=#3437 id=3437 data-nosnippet>3437</a>                .collect()
+<a href=#3438 id=3438 data-nosnippet>3438</a>        }
+<a href=#3439 id=3439 data-nosnippet>3439</a>
+<a href=#3440 id=3440 data-nosnippet>3440</a>        <span class="kw">let </span>one_html = render(TablePage::from(rows(<span class="number">1</span>))).<span class="kw">await</span>;
+<a href=#3441 id=3441 data-nosnippet>3441</a>        <span class="kw">let </span>eight_html = render(TablePage::from(rows(<span class="number">8</span>))).<span class="kw">await</span>;
+<a href=#3442 id=3442 data-nosnippet>3442</a>        <span class="kw">let </span>one_row = delete_bases(<span class="kw-2">&amp;</span>one_html);
+<a href=#3443 id=3443 data-nosnippet>3443</a>        <span class="kw">let </span>eight_rows = delete_bases(<span class="kw-2">&amp;</span>eight_html);
+<a href=#3444 id=3444 data-nosnippet>3444</a>        <span class="macro">assert_eq!</span>(one_row.len(), <span class="number">1</span>, <span class="string">"one row, one dialog opener"</span>);
+<a href=#3445 id=3445 data-nosnippet>3445</a>        <span class="macro">assert_eq!</span>(eight_rows.len(), <span class="number">8</span>, <span class="string">"eight rows, eight dialog openers"</span>);
+<a href=#3446 id=3446 data-nosnippet>3446</a>        <span class="comment">// The sorted, query-encoded transport every row's link must carry.
+<a href=#3447 id=3447 data-nosnippet>3447</a>        </span><span class="kw">let </span>transport = <span class="string">"filters=featured%3Atrue%2Cstatus%3Apublished"</span>;
+<a href=#3448 id=3448 data-nosnippet>3448</a>        <span class="kw">for </span>base <span class="kw">in </span>one_row.iter().chain(eight_rows.iter()) {
+<a href=#3449 id=3449 data-nosnippet>3449</a>            <span class="macro">assert!</span>(
+<a href=#3450 id=3450 data-nosnippet>3450</a>                base.contains(transport),
+<a href=#3451 id=3451 data-nosnippet>3451</a>                <span class="string">"every opener must carry the page's filter transport, got {base}"
+<a href=#3452 id=3452 data-nosnippet>3452</a>            </span>);
+<a href=#3453 id=3453 data-nosnippet>3453</a>            <span class="macro">assert_eq!</span>(
+<a href=#3454 id=3454 data-nosnippet>3454</a>                <span class="kw-2">*</span>base, one_row[<span class="number">0</span>],
+<a href=#3455 id=3455 data-nosnippet>3455</a>                <span class="string">"rows must reuse the page's one encoded base, not rebuild it per row"
+<a href=#3456 id=3456 data-nosnippet>3456</a>            </span>);
+<a href=#3457 id=3457 data-nosnippet>3457</a>        }
+<a href=#3458 id=3458 data-nosnippet>3458</a>    }
+<a href=#3459 id=3459 data-nosnippet>3459</a>
+<a href=#3460 id=3460 data-nosnippet>3460</a>    <span class="attr">#[tokio::test]
+<a href=#3461 id=3461 data-nosnippet>3461</a>    </span><span class="kw">async fn </span>void_window_links_back_to_first_page() {
+<a href=#3462 id=3462 data-nosnippet>3462</a>        <span class="comment">// GH #98: a cursor past the last row (rows deleted under pagination)
+<a href=#3463 id=3463 data-nosnippet>3463</a>        // must offer navigation, never a pager-less dead end.
+<a href=#3464 id=3464 data-nosnippet>3464</a>        </span><span class="kw">let </span>cx = CxTestBuilder::new().build();
+<a href=#3465 id=3465 data-nosnippet>3465</a>        <span class="kw">let </span>tbl = Table::&lt;User&gt;::r#for(<span class="kw-2">&amp;</span>cx)
+<a href=#3466 id=3466 data-nosnippet>3466</a>            .id(|u| u.id.to_string())
+<a href=#3467 id=3467 data-nosnippet>3467</a>            .pk(|u| u.id.to_string())
+<a href=#3468 id=3468 data-nosnippet>3468</a>            .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()).sortable())
+<a href=#3469 id=3469 data-nosnippet>3469</a>            .paginate(<span class="number">1</span>);
+<a href=#3470 id=3470 data-nosnippet>3470</a>        <span class="kw">let </span>void_page = TablePage {
+<a href=#3471 id=3471 data-nosnippet>3471</a>            rows: Vec::new(),
+<a href=#3472 id=3472 data-nosnippet>3472</a>            next_cursor: <span class="prelude-val">None</span>,
+<a href=#3473 id=3473 data-nosnippet>3473</a>            prev_cursor: <span class="prelude-val">None</span>,
+<a href=#3474 id=3474 data-nosnippet>3474</a>        };
+<a href=#3475 id=3475 data-nosnippet>3475</a>        <span class="kw">let </span>state = TableState {
+<a href=#3476 id=3476 data-nosnippet>3476</a>            after: <span class="prelude-val">Some</span>(<span class="string">"abc"</span>.to_string()),
+<a href=#3477 id=3477 data-nosnippet>3477</a>            sort: <span class="prelude-val">Some</span>(Sort {
+<a href=#3478 id=3478 data-nosnippet>3478</a>                column: <span class="string">"name"</span>.to_string(),
+<a href=#3479 id=3479 data-nosnippet>3479</a>                descending: <span class="bool-val">false</span>,
+<a href=#3480 id=3480 data-nosnippet>3480</a>            }),
+<a href=#3481 id=3481 data-nosnippet>3481</a>            ..TableState::default()
+<a href=#3482 id=3482 data-nosnippet>3482</a>        };
+<a href=#3483 id=3483 data-nosnippet>3483</a>        <span class="kw">let </span>html = tbl
+<a href=#3484 id=3484 data-nosnippet>3484</a>            .render_with_state(<span class="kw-2">&amp;</span>cx, void_page, <span class="kw-2">&amp;</span>state, <span class="string">"/admin/users"</span>)
+<a href=#3485 id=3485 data-nosnippet>3485</a>            .<span class="kw">await
+<a href=#3486 id=3486 data-nosnippet>3486</a>            </span>.unwrap()
+<a href=#3487 id=3487 data-nosnippet>3487</a>            .single()
+<a href=#3488 id=3488 data-nosnippet>3488</a>            .<span class="kw">await
+<a href=#3489 id=3489 data-nosnippet>3489</a>            </span>.unwrap()
+<a href=#3490 id=3490 data-nosnippet>3490</a>            .render(<span class="kw-2">&amp;</span>cx);
+<a href=#3491 id=3491 data-nosnippet>3491</a>        <span class="macro">assert!</span>(
+<a href=#3492 id=3492 data-nosnippet>3492</a>            html.contains(<span class="string">"Back to first page"</span>),
+<a href=#3493 id=3493 data-nosnippet>3493</a>            <span class="string">"void window must link home, got {html}"
+<a href=#3494 id=3494 data-nosnippet>3494</a>        </span>);
+<a href=#3495 id=3495 data-nosnippet>3495</a>
+<a href=#3496 id=3496 data-nosnippet>3496</a>        <span class="comment">// A genuinely empty first page stays pager-less (its empty-state
+<a href=#3497 id=3497 data-nosnippet>3497</a>        // already offers Clear links).
+<a href=#3498 id=3498 data-nosnippet>3498</a>        </span><span class="kw">let </span>empty_first = TablePage {
+<a href=#3499 id=3499 data-nosnippet>3499</a>            rows: Vec::new(),
+<a href=#3500 id=3500 data-nosnippet>3500</a>            next_cursor: <span class="prelude-val">None</span>,
+<a href=#3501 id=3501 data-nosnippet>3501</a>            prev_cursor: <span class="prelude-val">None</span>,
+<a href=#3502 id=3502 data-nosnippet>3502</a>        };
+<a href=#3503 id=3503 data-nosnippet>3503</a>        <span class="kw">let </span>html = tbl
+<a href=#3504 id=3504 data-nosnippet>3504</a>            .render_with_state(<span class="kw-2">&amp;</span>cx, empty_first, <span class="kw-2">&amp;</span>TableState::default(), <span class="string">"/admin/users"</span>)
+<a href=#3505 id=3505 data-nosnippet>3505</a>            .<span class="kw">await
+<a href=#3506 id=3506 data-nosnippet>3506</a>            </span>.unwrap()
+<a href=#3507 id=3507 data-nosnippet>3507</a>            .single()
+<a href=#3508 id=3508 data-nosnippet>3508</a>            .<span class="kw">await
+<a href=#3509 id=3509 data-nosnippet>3509</a>            </span>.unwrap()
+<a href=#3510 id=3510 data-nosnippet>3510</a>            .render(<span class="kw-2">&amp;</span>cx);
+<a href=#3511 id=3511 data-nosnippet>3511</a>        <span class="macro">assert!</span>(
+<a href=#3512 id=3512 data-nosnippet>3512</a>            !html.contains(<span class="string">"Back to first page"</span>),
+<a href=#3513 id=3513 data-nosnippet>3513</a>            <span class="string">"empty first page must stay pager-less, got {html}"
+<a href=#3514 id=3514 data-nosnippet>3514</a>        </span>);
+<a href=#3515 id=3515 data-nosnippet>3515</a>    }
+<a href=#3516 id=3516 data-nosnippet>3516</a>
+<a href=#3517 id=3517 data-nosnippet>3517</a>    <span class="attr">#[tokio::test]
+<a href=#3518 id=3518 data-nosnippet>3518</a>    </span><span class="kw">async fn </span>skeleton_shares_the_table_root_with_the_swapped_body() {
+<a href=#3519 id=3519 data-nosnippet>3519</a>        <span class="kw">let </span>cx = CxTestBuilder::new().build();
+<a href=#3520 id=3520 data-nosnippet>3520</a>        <span class="kw">let </span>tbl = Table::&lt;User&gt;::r#for(<span class="kw-2">&amp;</span>cx)
+<a href=#3521 id=3521 data-nosnippet>3521</a>            .id(|u| u.id.to_string())
+<a href=#3522 id=3522 data-nosnippet>3522</a>            .pk(|u| u.id.to_string())
+<a href=#3523 id=3523 data-nosnippet>3523</a>            .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()));
+<a href=#3524 id=3524 data-nosnippet>3524</a>        <span class="kw">let </span>html = tbl
+<a href=#3525 id=3525 data-nosnippet>3525</a>            .render_skeleton(<span class="kw-2">&amp;</span>cx)
+<a href=#3526 id=3526 data-nosnippet>3526</a>            .<span class="kw">await
+<a href=#3527 id=3527 data-nosnippet>3527</a>            </span>.unwrap()
+<a href=#3528 id=3528 data-nosnippet>3528</a>            .single()
+<a href=#3529 id=3529 data-nosnippet>3529</a>            .<span class="kw">await
+<a href=#3530 id=3530 data-nosnippet>3530</a>            </span>.unwrap()
+<a href=#3531 id=3531 data-nosnippet>3531</a>            .render(<span class="kw-2">&amp;</span>cx);
+<a href=#3532 id=3532 data-nosnippet>3532</a>        <span class="macro">assert!</span>(
+<a href=#3533 id=3533 data-nosnippet>3533</a>            html.contains(<span class="string">"data-table-root"</span>),
+<a href=#3534 id=3534 data-nosnippet>3534</a>            <span class="string">"skeleton must share table root, got {html}"
+<a href=#3535 id=3535 data-nosnippet>3535</a>        </span>);
+<a href=#3536 id=3536 data-nosnippet>3536</a>        <span class="macro">assert!</span>(
+<a href=#3537 id=3537 data-nosnippet>3537</a>            html.contains(<span class="string">"aria-busy"</span>),
+<a href=#3538 id=3538 data-nosnippet>3538</a>            <span class="string">"skeleton must announce loading, got {html}"
+<a href=#3539 id=3539 data-nosnippet>3539</a>        </span>);
+<a href=#3540 id=3540 data-nosnippet>3540</a>        <span class="macro">assert_eq!</span>(
+<a href=#3541 id=3541 data-nosnippet>3541</a>            html.matches(<span class="string">"aria-busy=\"true\""</span>).count(),
+<a href=#3542 id=3542 data-nosnippet>3542</a>            <span class="number">2</span>,
+<a href=#3543 id=3543 data-nosnippet>3543</a>            <span class="string">"busy must ride on the morph boundary and the table root (GH #160), got {html}"
+<a href=#3544 id=3544 data-nosnippet>3544</a>        </span>);
+<a href=#3545 id=3545 data-nosnippet>3545</a>        <span class="macro">assert!</span>(
+<a href=#3546 id=3546 data-nosnippet>3546</a>            html.contains(<span class="string">"aria-hidden"</span>),
+<a href=#3547 id=3547 data-nosnippet>3547</a>            <span class="string">"skeleton must hold chrome placeholders, got {html}"
+<a href=#3548 id=3548 data-nosnippet>3548</a>        </span>);
+<a href=#3549 id=3549 data-nosnippet>3549</a>        <span class="comment">// The skeleton and the swapped table must declare the same layout, or
+<a href=#3550 id=3550 data-nosnippet>3550</a>        // the swap re-measures the columns (GH #240): comparing the two
+<a href=#3551 id=3551 data-nosnippet>3551</a>        // opening tags states that without pinning a class literal.
+<a href=#3552 id=3552 data-nosnippet>3552</a>        </span><span class="kw">let </span>skeleton_table = table_tag(<span class="kw-2">&amp;</span>html).to_string();
+<a href=#3553 id=3553 data-nosnippet>3553</a>        <span class="comment">// The swap payload is the table itself, under the same boundary region.
+<a href=#3554 id=3554 data-nosnippet>3554</a>        </span><span class="kw">let </span>rows = <span class="macro">vec!</span>[User {
+<a href=#3555 id=3555 data-nosnippet>3555</a>            id: uuid::Uuid::nil(),
+<a href=#3556 id=3556 data-nosnippet>3556</a>            name: <span class="string">"Ada"</span>.to_string(),
+<a href=#3557 id=3557 data-nosnippet>3557</a>        }];
+<a href=#3558 id=3558 data-nosnippet>3558</a>        <span class="kw">let </span>html = tbl
+<a href=#3559 id=3559 data-nosnippet>3559</a>            .render_with_state(<span class="kw-2">&amp;</span>cx, rows.into(), <span class="kw-2">&amp;</span>TableState::default(), <span class="string">"/admin/users"</span>)
+<a href=#3560 id=3560 data-nosnippet>3560</a>            .<span class="kw">await
+<a href=#3561 id=3561 data-nosnippet>3561</a>            </span>.unwrap()
+<a href=#3562 id=3562 data-nosnippet>3562</a>            .single()
+<a href=#3563 id=3563 data-nosnippet>3563</a>            .<span class="kw">await
+<a href=#3564 id=3564 data-nosnippet>3564</a>            </span>.unwrap()
+<a href=#3565 id=3565 data-nosnippet>3565</a>            .render(<span class="kw-2">&amp;</span>cx);
+<a href=#3566 id=3566 data-nosnippet>3566</a>        <span class="macro">assert!</span>(
+<a href=#3567 id=3567 data-nosnippet>3567</a>            html.contains(<span class="string">"data-table-root"</span>) &amp;&amp; html.contains(<span class="string">"data-boundary=\"table\""</span>),
+<a href=#3568 id=3568 data-nosnippet>3568</a>            <span class="string">"the swapped table must land in the skeleton's region, got {html}"
+<a href=#3569 id=3569 data-nosnippet>3569</a>        </span>);
+<a href=#3570 id=3570 data-nosnippet>3570</a>        <span class="macro">assert!</span>(
+<a href=#3571 id=3571 data-nosnippet>3571</a>            html.contains(<span class="string">"Ada"</span>),
+<a href=#3572 id=3572 data-nosnippet>3572</a>            <span class="string">"swap payload must be rows, got {html}"
+<a href=#3573 id=3573 data-nosnippet>3573</a>        </span>);
+<a href=#3574 id=3574 data-nosnippet>3574</a>        <span class="macro">assert_eq!</span>(
+<a href=#3575 id=3575 data-nosnippet>3575</a>            table_tag(<span class="kw-2">&amp;</span>html),
+<a href=#3576 id=3576 data-nosnippet>3576</a>            skeleton_table,
+<a href=#3577 id=3577 data-nosnippet>3577</a>            <span class="string">"the swapped table must declare the skeleton's layout (GH #240), got {html}"
+<a href=#3578 id=3578 data-nosnippet>3578</a>        </span>);
+<a href=#3579 id=3579 data-nosnippet>3579</a>    }
+<a href=#3580 id=3580 data-nosnippet>3580</a>
+<a href=#3581 id=3581 data-nosnippet>3581</a>    <span class="attr">#[tokio::test]
+<a href=#3582 id=3582 data-nosnippet>3582</a>    </span><span class="kw">async fn </span>a_static_table_renders_no_runtime_bindings_at_all() {
+<a href=#3583 id=3583 data-nosnippet>3583</a>        <span class="comment">// GH #234: a table without `live_search` has no shard to re-run, so a
+<a href=#3584 id=3584 data-nosnippet>3584</a>        // mutation replaces its region with the response's. That is only sound
+<a href=#3585 id=3585 data-nosnippet>3585</a>        // because the region is inert: no binding, no handler, nothing the
+<a href=#3586 id=3586 data-nosnippet>3586</a>        // replacement could leave dead. The refresh control's absence is the
+<a href=#3587 id=3587 data-nosnippet>3587</a>        // page's own answer to "can this table refresh in place?".
+<a href=#3588 id=3588 data-nosnippet>3588</a>        </span><span class="kw">let </span>cx = CxTestBuilder::new().build();
+<a href=#3589 id=3589 data-nosnippet>3589</a>        <span class="kw">let </span>tbl = Table::&lt;User&gt;::r#for(<span class="kw-2">&amp;</span>cx)
+<a href=#3590 id=3590 data-nosnippet>3590</a>            .id(|u| u.id.to_string())
+<a href=#3591 id=3591 data-nosnippet>3591</a>            .pk(|u| u.id.to_string())
+<a href=#3592 id=3592 data-nosnippet>3592</a>            .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()))
+<a href=#3593 id=3593 data-nosnippet>3593</a>            .with_delete(<span class="string">"/admin/users"</span>.to_string())
+<a href=#3594 id=3594 data-nosnippet>3594</a>            .with_bulk_delete(<span class="bool-val">true</span>);
+<a href=#3595 id=3595 data-nosnippet>3595</a>        <span class="kw">let </span>rows = <span class="macro">vec!</span>[User {
+<a href=#3596 id=3596 data-nosnippet>3596</a>            id: uuid::Uuid::nil(),
+<a href=#3597 id=3597 data-nosnippet>3597</a>            name: <span class="string">"Ada"</span>.to_string(),
+<a href=#3598 id=3598 data-nosnippet>3598</a>        }];
+<a href=#3599 id=3599 data-nosnippet>3599</a>        <span class="kw">let </span>html = tbl
+<a href=#3600 id=3600 data-nosnippet>3600</a>            .render_with_state(<span class="kw-2">&amp;</span>cx, rows.into(), <span class="kw-2">&amp;</span>TableState::default(), <span class="string">"/admin/users"</span>)
+<a href=#3601 id=3601 data-nosnippet>3601</a>            .<span class="kw">await
+<a href=#3602 id=3602 data-nosnippet>3602</a>            </span>.unwrap()
+<a href=#3603 id=3603 data-nosnippet>3603</a>            .single()
+<a href=#3604 id=3604 data-nosnippet>3604</a>            .<span class="kw">await
+<a href=#3605 id=3605 data-nosnippet>3605</a>            </span>.unwrap()
+<a href=#3606 id=3606 data-nosnippet>3606</a>            .render(<span class="kw-2">&amp;</span>cx);
+<a href=#3607 id=3607 data-nosnippet>3607</a>        <span class="macro">assert!</span>(
+<a href=#3608 id=3608 data-nosnippet>3608</a>            !html.contains(<span class="string">"data-table-revision"</span>),
+<a href=#3609 id=3609 data-nosnippet>3609</a>            <span class="string">"a static table must carry no refresh control, got {html}"
+<a href=#3610 id=3610 data-nosnippet>3610</a>        </span>);
+<a href=#3611 id=3611 data-nosnippet>3611</a>        <span class="macro">assert!</span>(
+<a href=#3612 id=3612 data-nosnippet>3612</a>            !html.contains(<span class="string">"data-topcoat-"</span>),
+<a href=#3613 id=3613 data-nosnippet>3613</a>            <span class="string">"a static table's region must be inert markup, got {html}"
+<a href=#3614 id=3614 data-nosnippet>3614</a>        </span>);
+<a href=#3615 id=3615 data-nosnippet>3615</a>    }
+<a href=#3616 id=3616 data-nosnippet>3616</a>
+<a href=#3617 id=3617 data-nosnippet>3617</a>    <span class="attr">#[tokio::test]
+<a href=#3618 id=3618 data-nosnippet>3618</a>    </span><span class="kw">async fn </span>skeleton_carries_the_action_column_for_view_only_chrome() {
+<a href=#3619 id=3619 data-nosnippet>3619</a>        <span class="comment">// The skeleton's action column must count every row link `render_inner`
+<a href=#3620 id=3620 data-nosnippet>3620</a>        // renders, `with_view` included, or the swap changes the table width.
+<a href=#3621 id=3621 data-nosnippet>3621</a>        </span><span class="kw">let </span>cx = CxTestBuilder::new().build();
+<a href=#3622 id=3622 data-nosnippet>3622</a>        <span class="kw">let </span>tbl = Table::&lt;User&gt;::r#for(<span class="kw-2">&amp;</span>cx)
+<a href=#3623 id=3623 data-nosnippet>3623</a>            .id(|u| u.id.to_string())
+<a href=#3624 id=3624 data-nosnippet>3624</a>            .pk(|u| u.id.to_string())
+<a href=#3625 id=3625 data-nosnippet>3625</a>            .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()))
+<a href=#3626 id=3626 data-nosnippet>3626</a>            .with_view(<span class="string">"/admin/users"</span>.to_string());
+<a href=#3627 id=3627 data-nosnippet>3627</a>        <span class="kw">let </span>skeleton = tbl
+<a href=#3628 id=3628 data-nosnippet>3628</a>            .render_skeleton(<span class="kw-2">&amp;</span>cx)
+<a href=#3629 id=3629 data-nosnippet>3629</a>            .<span class="kw">await
+<a href=#3630 id=3630 data-nosnippet>3630</a>            </span>.unwrap()
+<a href=#3631 id=3631 data-nosnippet>3631</a>            .single()
+<a href=#3632 id=3632 data-nosnippet>3632</a>            .<span class="kw">await
+<a href=#3633 id=3633 data-nosnippet>3633</a>            </span>.unwrap()
+<a href=#3634 id=3634 data-nosnippet>3634</a>            .render(<span class="kw-2">&amp;</span>cx);
+<a href=#3635 id=3635 data-nosnippet>3635</a>        <span class="kw">let </span>rows = <span class="macro">vec!</span>[User {
+<a href=#3636 id=3636 data-nosnippet>3636</a>            id: uuid::Uuid::nil(),
+<a href=#3637 id=3637 data-nosnippet>3637</a>            name: <span class="string">"Ada"</span>.to_string(),
+<a href=#3638 id=3638 data-nosnippet>3638</a>        }];
+<a href=#3639 id=3639 data-nosnippet>3639</a>        <span class="kw">let </span>rendered = tbl
+<a href=#3640 id=3640 data-nosnippet>3640</a>            .render_with_state(<span class="kw-2">&amp;</span>cx, rows.into(), <span class="kw-2">&amp;</span>TableState::default(), <span class="string">"/admin/users"</span>)
+<a href=#3641 id=3641 data-nosnippet>3641</a>            .<span class="kw">await
+<a href=#3642 id=3642 data-nosnippet>3642</a>            </span>.unwrap()
+<a href=#3643 id=3643 data-nosnippet>3643</a>            .single()
+<a href=#3644 id=3644 data-nosnippet>3644</a>            .<span class="kw">await
+<a href=#3645 id=3645 data-nosnippet>3645</a>            </span>.unwrap()
+<a href=#3646 id=3646 data-nosnippet>3646</a>            .render(<span class="kw-2">&amp;</span>cx);
+<a href=#3647 id=3647 data-nosnippet>3647</a>        <span class="macro">assert_eq!</span>(
+<a href=#3648 id=3648 data-nosnippet>3648</a>            rendered.matches(<span class="string">"&gt;Actions&lt;/th&gt;"</span>).count(),
+<a href=#3649 id=3649 data-nosnippet>3649</a>            <span class="number">1</span>,
+<a href=#3650 id=3650 data-nosnippet>3650</a>            <span class="string">"the real table renders one action column, got {rendered}"
+<a href=#3651 id=3651 data-nosnippet>3651</a>        </span>);
+<a href=#3652 id=3652 data-nosnippet>3652</a>        <span class="macro">assert_eq!</span>(
+<a href=#3653 id=3653 data-nosnippet>3653</a>            skeleton.matches(<span class="string">"&gt;Actions&lt;/th&gt;"</span>).count(),
+<a href=#3654 id=3654 data-nosnippet>3654</a>            rendered.matches(<span class="string">"&gt;Actions&lt;/th&gt;"</span>).count(),
+<a href=#3655 id=3655 data-nosnippet>3655</a>            <span class="string">"the skeleton must match the swapped table's column count, got {skeleton}"
+<a href=#3656 id=3656 data-nosnippet>3656</a>        </span>);
+<a href=#3657 id=3657 data-nosnippet>3657</a>    }
+<a href=#3658 id=3658 data-nosnippet>3658</a>
+<a href=#3659 id=3659 data-nosnippet>3659</a>    <span class="attr">#[tokio::test]
+<a href=#3660 id=3660 data-nosnippet>3660</a>    </span><span class="kw">async fn </span>rendered_rows_carry_stable_dom_ids() {
+<a href=#3661 id=3661 data-nosnippet>3661</a>        <span class="comment">// GH #104: every rendered row exposes its morph id; re-rendering the
+<a href=#3662 id=3662 data-nosnippet>3662</a>        // same page yields the same ids.
+<a href=#3663 id=3663 data-nosnippet>3663</a>        </span><span class="kw">let </span>cx = CxTestBuilder::new().build();
+<a href=#3664 id=3664 data-nosnippet>3664</a>        <span class="kw">let </span>tbl = Table::&lt;User&gt;::r#for(<span class="kw-2">&amp;</span>cx)
+<a href=#3665 id=3665 data-nosnippet>3665</a>            .id(|u| u.id.to_string())
+<a href=#3666 id=3666 data-nosnippet>3666</a>            .pk(|u| u.id.to_string())
+<a href=#3667 id=3667 data-nosnippet>3667</a>            .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()));
+<a href=#3668 id=3668 data-nosnippet>3668</a>        <span class="kw">let </span>rows = <span class="macro">vec!</span>[
+<a href=#3669 id=3669 data-nosnippet>3669</a>            User {
+<a href=#3670 id=3670 data-nosnippet>3670</a>                id: uuid::Uuid::nil(),
+<a href=#3671 id=3671 data-nosnippet>3671</a>                name: <span class="string">"Ada"</span>.to_string(),
+<a href=#3672 id=3672 data-nosnippet>3672</a>            },
+<a href=#3673 id=3673 data-nosnippet>3673</a>            User {
+<a href=#3674 id=3674 data-nosnippet>3674</a>                id: uuid::Uuid::max(),
+<a href=#3675 id=3675 data-nosnippet>3675</a>                name: <span class="string">"Alan"</span>.to_string(),
+<a href=#3676 id=3676 data-nosnippet>3676</a>            },
+<a href=#3677 id=3677 data-nosnippet>3677</a>        ];
+<a href=#3678 id=3678 data-nosnippet>3678</a>        <span class="kw">let </span>render = <span class="kw">async </span>|rows: Vec&lt;User&gt;| {
+<a href=#3679 id=3679 data-nosnippet>3679</a>            tbl.render_with_state(<span class="kw-2">&amp;</span>cx, rows.into(), <span class="kw-2">&amp;</span>TableState::default(), <span class="string">"/admin/users"</span>)
+<a href=#3680 id=3680 data-nosnippet>3680</a>                .<span class="kw">await
+<a href=#3681 id=3681 data-nosnippet>3681</a>                </span>.unwrap()
+<a href=#3682 id=3682 data-nosnippet>3682</a>                .single()
+<a href=#3683 id=3683 data-nosnippet>3683</a>                .<span class="kw">await
+<a href=#3684 id=3684 data-nosnippet>3684</a>                </span>.unwrap()
+<a href=#3685 id=3685 data-nosnippet>3685</a>                .render(<span class="kw-2">&amp;</span>cx)
+<a href=#3686 id=3686 data-nosnippet>3686</a>        };
+<a href=#3687 id=3687 data-nosnippet>3687</a>        <span class="kw">let </span>first = render(rows.clone()).<span class="kw">await</span>;
+<a href=#3688 id=3688 data-nosnippet>3688</a>        <span class="macro">assert!</span>(
+<a href=#3689 id=3689 data-nosnippet>3689</a>            first.contains(<span class="string">"id=\"row-00000000-0000-0000-0000-000000000000-"</span>),
+<a href=#3690 id=3690 data-nosnippet>3690</a>            <span class="string">"missing morph id for first row, got {first}"
+<a href=#3691 id=3691 data-nosnippet>3691</a>        </span>);
+<a href=#3692 id=3692 data-nosnippet>3692</a>        <span class="macro">assert!</span>(
+<a href=#3693 id=3693 data-nosnippet>3693</a>            first.contains(<span class="string">"id=\"row-ffffffff-ffff-ffff-ffff-ffffffffffff-"</span>),
+<a href=#3694 id=3694 data-nosnippet>3694</a>            <span class="string">"missing morph id for second row, got {first}"
+<a href=#3695 id=3695 data-nosnippet>3695</a>        </span>);
+<a href=#3696 id=3696 data-nosnippet>3696</a>        <span class="kw">let </span>second = render(rows).<span class="kw">await</span>;
+<a href=#3697 id=3697 data-nosnippet>3697</a>        <span class="macro">assert_eq!</span>(
+<a href=#3698 id=3698 data-nosnippet>3698</a>            first.matches(<span class="string">"id=\"row-"</span>).count(),
+<a href=#3699 id=3699 data-nosnippet>3699</a>            second.matches(<span class="string">"id=\"row-"</span>).count(),
+<a href=#3700 id=3700 data-nosnippet>3700</a>            <span class="string">"reruns must keep stable row ids"
+<a href=#3701 id=3701 data-nosnippet>3701</a>        </span>);
+<a href=#3702 id=3702 data-nosnippet>3702</a>    }
+<a href=#3703 id=3703 data-nosnippet>3703</a>}
 </code></pre></div></section></main></body></html>
