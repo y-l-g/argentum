@@ -11,6 +11,10 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+# `target/debug/incremental` measured 28 of 66 GB locally: it busts the
+# shared action-cache budget, so CI disables incremental compilation and
+# trades a slower cold link for cache hits.
+  CARGO_INCREMENTAL: 0
 # Warning denial lives in [workspace.lints.rust] (Cargo.toml), not in RUSTFLAGS:
 # RUSTFLAGS is hashed into every unit's fingerprint, so setting it here forced a
 # from-scratch rebuild whenever it differed from a contributor's local build.
@@ -126,7 +130,17 @@ jobs:
             echo "--- fmt --check $bench"
             (cd "$bench" && cargo fmt -- --check)
           done
+      - name: Restore topcoat CLI cache
+        # `cargo install` builds the CLI from source (~4 minutes); the binary
+        # is rev-pinned, so a cache keyed on Cargo.lock restores exactly the
+        # revision `topcoat fmt` requires.
+        id: cache-topcoat
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/topcoat
+          key: topcoat-cli-${{ hashFiles('Cargo.lock') }}
       - name: Install topcoat CLI (for `topcoat fmt`)
+        if: steps.cache-topcoat.outputs.cache-hit != 'true'
         # Install the formatter built from the same topcoat revision the
         # workspace locks (Cargo.lock) — the version-matched install the CLI
         # itself recommends ("depends on topcoat 0.6.2, but the topcoat CLI
