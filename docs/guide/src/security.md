@@ -16,10 +16,14 @@ The defaults Argentum ships with, and the deployment assumptions they depend on.
   `escape_like_pattern`), never a raw pattern. Do not interpolate raw input into SQL.
 - Session, CSRF, and notification cookies use hardened `__Host-` + `Secure` settings. Localhost is
   exempt; non-localhost deploys need HTTPS or browsers drop them and mutations 403.
-- Responses carry `Content-Security-Policy: frame-ancestors 'self'`, so an admin page cannot be
-  clickjacked from another origin. `Panel::frame_ancestors(..)` widens it for a deployment that
-  frames the panel, `Panel::without_frame_ancestors()` sends none for a proxy that owns the whole
-  policy, and an app's own `Content-Security-Policy` always wins — the layer only fills the gap.
+- Every response the panel's layer chain produces, including the router's own 404 and 405, carries
+  `Content-Security-Policy: frame-ancestors 'self'`, so an admin page cannot be clickjacked from
+  another origin. `Panel::frame_ancestors(..)` widens it for a deployment that frames the panel,
+  `Panel::without_frame_ancestors()` sends none for a proxy that owns the whole policy, and an
+  app's own `Content-Security-Policy` on a handler response always wins — the layer only fills the
+  gap. Three router responses are built outside every registered layer, so no layer can harden them: the 403 for a
+  cross-site request, the 400 for a malformed `x-topcoat-identity` header, and the bare 500 for a
+  panic.
 - Redirects: `Err(redirect(..))` (307) for GETs, `Err(see_other(..))` (303 PRG) after mutations.
   Mid-stream they degrade to `window.location.replace`; streamed regions own their failure
   rendering. Wrap `Slot` in `error_boundary` for branded error pages.
@@ -27,5 +31,6 @@ The defaults Argentum ships with, and the deployment assumptions they depend on.
   directory route serves carries `X-Content-Type-Options: nosniff`, a fixed sandboxing
   `Content-Security-Policy`, and `Content-Disposition: attachment` unless the file is a common raster
   image, audio/video or `text/plain`. An app that serves active documents mounts them on its own
-  origin; the policy is not configurable. A 404 keeps Topcoat's `text/plain` error page; a 405
-  carries only `Allow` and an empty body. Neither carries user content.
+  origin; the policy is not configurable. The directory route's own failures keep Topcoat's
+  `text/plain` 404 page and an `Allow`-only empty 405, so they carry none of the served-file policy
+  and no user content; the panel's `frame-ancestors` layer still covers both.

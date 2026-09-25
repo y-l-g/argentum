@@ -12,7 +12,10 @@
 use http::{StatusCode, header};
 use topcoat::{
     context::Cx,
-    router::{Body, Layer, LayerFuture, Next, Path, PathBuf, response::Response},
+    router::{
+        Body, Layer, LayerFuture, Next, Path, PathBuf,
+        response::{Response, response_headers},
+    },
 };
 
 /// Response header carrying the policy.
@@ -22,15 +25,26 @@ const CSP: header::HeaderName = header::CONTENT_SECURITY_POLICY;
 pub(crate) const DEFAULT_FRAME_ANCESTORS: &str = "'self'";
 
 /// Emits `Content-Security-Policy: frame-ancestors <directive>` on every
-/// response that does not already carry a `Content-Security-Policy` header.
+/// response the panel's layer chain produces, including the router's own 404
+/// and 405.
 ///
 /// `frame-ancestors` is the one CSP directive a `<meta>` tag cannot express, so
 /// it has to ride the response — which is also why it belongs here and not in
 /// [`render_document`](super::shell::Panel::render_document)'s markup.
 ///
-/// An app that sets its own policy (its own layer or route) wins: this layer
-/// only fills the gap, so a full `Content-Security-Policy` never fights a
-/// second one.
+/// A handler's response is hardened in place, and skipped when it already
+/// carries a policy, so on the `Ok` path an app that sets its own policy (its
+/// own layer or route) wins. An `Err` has no response yet — the router builds
+/// the 404 or 405 after the layers have returned — so the directive is queued
+/// through the router's [`response_headers`] slot instead, the mechanism the
+/// cookie layer uses to put `Set-Cookie` on an error response; the queue
+/// appends, so a layer outside this one that turns the error into a response
+/// carrying its own policy emits two `Content-Security-Policy` headers.
+///
+/// The router builds three responses outside every registered layer, so no
+/// layer can harden them: the origin layer's 403 for a cross-site request, the
+/// 400 for a malformed `x-topcoat-identity` header, and the bare 500 it answers
+/// a panic with.
 #[derive(Debug, Clone)]
 pub(crate) struct FrameAncestors {
     directive: String,
@@ -52,18 +66,39 @@ impl FrameAncestors {
 
 impl Layer for FrameAncestors {
     fn path(&self) -> Option<&Path> {
-        // Every response, not just the panel prefix: a 404 or a login redirect
-        // is frameable too, and a path-less layer is the only one that sees
-        // unmatched routes.
+        // No path scope: the panel prefix is not the only thing worth
+        // hardening — a 404 or a login redirect is frameable too, and a
+        // path-less layer is the only one that sees unmatched routes.
         None
     }
 
     fn handle<'a>(&'a self, cx: &'a Cx, body: Body, next: Next<'a>) -> LayerFuture<'a> {
         Box::pin(async move {
-            let mut response = next.run(cx, body).await?;
-            insert_frame_ancestors(&mut response, &self.directive);
-            Ok(response)
+            match next.run(cx, body).await {
+                Ok(mut response) => {
+                    insert_frame_ancestors(&mut response, &self.directive);
+                    Ok(response)
+                }
+                Err(error) => {
+                    queue_frame_ancestors(cx, &self.directive);
+                    Err(error)
+                }
+            }
         })
+    }
+}
+
+/// Queue the directive for the error response the router builds after the
+/// layers have returned (GH #295).
+///
+/// There is no response to inspect on this path, so the header is appended
+/// rather than inserted: the router's own error responses carry no policy for
+/// it to defer to. A layer outside this one that turns the error into a
+/// response carrying its own policy therefore emits two
+/// `Content-Security-Policy` headers.
+fn queue_frame_ancestors(cx: &Cx, directive: &str) {
+    if let Ok(value) = header::HeaderValue::from_str(&format!("frame-ancestors {directive}")) {
+        response_headers(cx).append(CSP, value);
     }
 }
 

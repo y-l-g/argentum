@@ -137,8 +137,11 @@ pub fn set_notification(cx: &Cx, notification: Notification) {
 /// Delivery: the flash rides a `Set-Cookie`, and Topcoat's cookie layer writes
 /// pending cookies on **both** paths — on `Err` it stashes them in
 /// `response_headers`, which the router applies once the error response exists
-/// (`topcoat-router/src/router.rs`). So the toast renders on the 500 page too,
-/// which is the whole point of setting it before returning the error.
+/// (`topcoat-router/src/router.rs`), so the 500 response carries the cookie. Its
+/// body is Topcoat's plain-text error page, which renders no toast: the message
+/// appears on the next panel page, whose shell consumes the flash
+/// ([`take_notification`]). `a_failed_write_toasts_on_the_next_panel_page` pins
+/// that delivery.
 pub(crate) fn notify_write_failure(cx: &Cx, action: &str) {
     set_notification(
         cx,

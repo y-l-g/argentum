@@ -544,6 +544,13 @@ impl Panel {
                 builder = crate::auth::install(builder, &prefix);
                 let login_path = route_path(&format!("{prefix}/login"));
                 let logout_path = route_path(&format!("{prefix}/logout"));
+                // A credential POST carries no upload (GH #295): the login route
+                // gets its own cap, scoped by path so it wins over the panel's
+                // 10 MiB form cap.
+                builder = builder.layer(
+                    topcoat::router::BodyLimit::max(crate::auth::MAX_LOGIN_BYTES)
+                        .at(login_path.clone()),
+                );
                 builder = builder
                     .route(RouteFn::new(
                         http::Method::GET,
@@ -674,11 +681,18 @@ fn is_directory_pattern(path: &str) -> bool {
 /// `Resource::slug()` override, or a segment of the panel prefix.
 ///
 /// Both reach a route path and, through the panel, a response body. A hostile
-/// value — quote, backslash, CR/LF, `..`, slash, URL punctuation — must fail at
-/// registration rather than at request time, so this is the export filename
-/// sanitizer's rule tightened to what a URL segment can be: the export drops
-/// the offending characters because it must still produce a download, while a
-/// route has no meaningful fallback.
+/// value — quote, backslash, CR/LF, `..`, slash, URL punctuation, a route
+/// pattern character — must fail at registration rather than at request time,
+/// so this is the export filename sanitizer's rule tightened to what a URL
+/// segment can be: the export drops the offending characters because it must
+/// still produce a download, while a route has no meaningful fallback.
+///
+/// The route pattern characters that a literal segment cannot carry (`{`, `}`,
+/// `(`, `)`) are rejected rather than escaped (GH #295): `Path::from_str` treats
+/// `{`/`(` as the start of a parameter or group segment, so a balanced pair
+/// silently becomes a pattern and an unbalanced one panics [`route_path`]. `*`
+/// stays accepted — it is a literal in a static segment — and the catch-all
+/// spelling `{*name}` needs the `{` this rule already refuses.
 fn validate_route_segment(kind: &str, segment: &str) -> Result<(), String> {
     if segment.is_empty() {
         return Err(format!("{kind}: path segment must not be empty"));
@@ -691,10 +705,13 @@ fn validate_route_segment(kind: &str, segment: &str) -> Result<(), String> {
     if let Some(bad) = segment.chars().find(|c| {
         c.is_control()
             || c.is_whitespace()
-            || matches!(c, '"' | '\\' | '/' | '?' | '#' | '%' | '&' | '=')
+            || matches!(
+                c,
+                '"' | '\\' | '/' | '?' | '#' | '%' | '&' | '=' | '{' | '}' | '(' | ')'
+            )
     }) {
         return Err(format!(
-            "{kind} '{segment}': a path segment may not contain {bad:?} (quotes, backslashes, control characters, whitespace, and URL punctuation are rejected)"
+            "{kind} '{segment}': a path segment may not contain {bad:?} (quotes, backslashes, control characters, whitespace, URL punctuation and the route pattern characters '{{', '}}', '(' and ')' are rejected)"
         ));
     }
     Ok(())
@@ -1771,6 +1788,210 @@ mod tests {
         assert!(
             format!("{error}").contains("Resource::slug"),
             "the error must name the offending slug, got {error}"
+        );
+    }
+
+    /// GH #174/#295: a slug carrying a route pattern character a literal segment
+    /// cannot hold is a declared registration error, not a panic in
+    /// [`route_path`]. `Path::from_str` starts a parameter segment at `{` and a
+    /// group at `(`, so an unbalanced pair panics the route builder and a
+    /// balanced one silently makes the slug a pattern.
+    #[test]
+    fn panel_build_rejects_route_pattern_characters_in_a_slug() {
+        use crate::resource::Resource;
+
+        #[derive(Debug, toasty::Model, Clone)]
+        struct Dummy {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            name: String,
+        }
+
+        macro_rules! pattern_resource {
+            ($name:ident, $slug:literal) => {
+                struct $name;
+                impl Resource for $name {
+                    type Model = Dummy;
+                    fn slug() -> String {
+                        $slug.to_string()
+                    }
+                }
+            };
+        }
+        pattern_resource!(BraceOpen, "a{b");
+        pattern_resource!(BraceClose, "a}b");
+        pattern_resource!(ParenOpen, "a(b");
+        pattern_resource!(ParenClose, "a)b");
+
+        macro_rules! rejects {
+            ($name:ident, $slug:literal) => {{
+                let Err(error) = Panel::new("admin").resource::<$name>().build() else {
+                    panic!("a slug containing {} must not build", $slug);
+                };
+                let error = format!("{error}");
+                assert!(
+                    error.contains("Resource::slug") && error.contains($slug),
+                    "the error must name the offending slug {:?}, got {error}",
+                    $slug
+                );
+            }};
+        }
+        rejects!(BraceOpen, "a{b");
+        rejects!(BraceClose, "a}b");
+        rejects!(ParenOpen, "a(b");
+        rejects!(ParenClose, "a)b");
+
+        // The prefix goes through the same rule, once per segment.
+        let Err(error) = Panel::new("adm{in}").build() else {
+            panic!("a panel prefix with a route pattern character must not build");
+        };
+        assert!(
+            format!("{error}").contains("panel prefix"),
+            "the error must name the panel prefix, got {error}"
+        );
+    }
+
+    /// A slug made of ordinary URL-segment characters still builds, and its
+    /// list route resolves (GH #295): rejecting the pattern characters must not
+    /// reject the accepted ones.
+    #[tokio::test]
+    async fn a_plain_slug_builds_and_resolves() {
+        use crate::resource::Resource;
+
+        #[derive(Debug, toasty::Model, Clone)]
+        struct Dummy {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            name: String,
+        }
+        struct PlainResource;
+        impl Resource for PlainResource {
+            type Model = Dummy;
+            fn slug() -> String {
+                "user-profiles_2".to_string()
+            }
+            fn can_view_any(_cx: &Cx) -> bool {
+                true
+            }
+            fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
+                crate::resource::Table::r#for(cx)
+                    .id(|d: &Dummy| d.id.to_string())
+                    .pk(|d: &Dummy| d.id.to_string())
+                    .paginate(25)
+                    .columns(crate::resource::TextColumn::r#for(
+                        Dummy::fields().name(),
+                        |d: &Dummy| d.name.clone(),
+                    ))
+            }
+        }
+
+        let db = Db::builder()
+            .models(toasty::models!(Dummy))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        let router = Panel::new("admin")
+            .app_context(db)
+            .resource::<PlainResource>()
+            .auth(crate::Auth::disabled())
+            .build()
+            .expect("a plain slug builds");
+        let request = http::Request::builder()
+            .method(http::Method::GET)
+            .uri("/admin/user-profiles_2")
+            .body(Body::empty())
+            .unwrap();
+        let response = router.handle(request).await;
+        assert_eq!(
+            response.status(),
+            http::StatusCode::OK,
+            "the list route a plain slug builds must resolve"
+        );
+        let html = String::from_utf8_lossy(
+            &http_body_util::BodyExt::collect(response.into_body())
+                .await
+                .unwrap()
+                .to_bytes(),
+        )
+        .to_string();
+        assert!(
+            html.contains("Dummies</h1>"),
+            "the resolved list page must render its title: {html}"
+        );
+    }
+
+    /// A slug containing `*` builds and resolves (GH #295): `*` is a literal
+    /// static segment in the router, so rejecting it would break a slug that
+    /// worked; only the `{*name}` catch-all spelling carries meaning, and the
+    /// `{` it needs is already refused.
+    #[tokio::test]
+    async fn a_star_slug_builds_and_resolves() {
+        use crate::resource::Resource;
+
+        #[derive(Debug, toasty::Model, Clone)]
+        struct Dummy {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            name: String,
+        }
+        struct StarResource;
+        impl Resource for StarResource {
+            type Model = Dummy;
+            fn slug() -> String {
+                "user*profiles".to_string()
+            }
+            fn can_view_any(_cx: &Cx) -> bool {
+                true
+            }
+            fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
+                crate::resource::Table::r#for(cx)
+                    .id(|d: &Dummy| d.id.to_string())
+                    .pk(|d: &Dummy| d.id.to_string())
+                    .paginate(25)
+                    .columns(crate::resource::TextColumn::r#for(
+                        Dummy::fields().name(),
+                        |d: &Dummy| d.name.clone(),
+                    ))
+            }
+        }
+
+        let db = Db::builder()
+            .models(toasty::models!(Dummy))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        let router = Panel::new("admin")
+            .app_context(db)
+            .resource::<StarResource>()
+            .auth(crate::Auth::disabled())
+            .build()
+            .expect("a slug containing `*` builds");
+        let request = http::Request::builder()
+            .method(http::Method::GET)
+            .uri("/admin/user*profiles")
+            .body(Body::empty())
+            .unwrap();
+        let response = router.handle(request).await;
+        assert_eq!(
+            response.status(),
+            http::StatusCode::OK,
+            "the list route a `*` slug builds must resolve"
+        );
+        let html = String::from_utf8_lossy(
+            &http_body_util::BodyExt::collect(response.into_body())
+                .await
+                .unwrap()
+                .to_bytes(),
+        )
+        .to_string();
+        assert!(
+            html.contains("Dummies</h1>"),
+            "the resolved list page must render its title: {html}"
         );
     }
 

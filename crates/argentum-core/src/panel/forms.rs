@@ -78,9 +78,16 @@ pub(crate) async fn parse_form_body(cx: &Cx, body: Body) -> Result<FormParts, to
         // parser is the one place that knows whether an uploader exists.
         return parse_multipart_values(cx, body, crate::upload::installed(cx)).await;
     }
-    let bytes = Bytes::from_request(cx, body)
-        .await
-        .map_err(|_| topcoat::router::error::bad_request("cannot read form body"))?;
+    let bytes = Bytes::from_request(cx, body).await.map_err(|error| {
+        // A body over the route's limit is the extractor's 413, not a malformed
+        // form (GH #295); any other read failure is the 400. The multipart half
+        // propagates the same over-limit error untouched.
+        if error.is::<topcoat::router::error::ContentTooLargeError>() {
+            error
+        } else {
+            topcoat::router::error::bad_request("cannot read form body").into()
+        }
+    })?;
     Ok(FormParts {
         values: form_values_from_request_parts(content_type.as_deref(), bytes.as_ref())?,
         files: HashMap::new(),

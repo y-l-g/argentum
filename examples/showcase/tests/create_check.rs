@@ -396,3 +396,116 @@ async fn users_create_static_selects_set_role_and_active() {
     assert_eq!(created.role, "admin");
     assert!(!created.active);
 }
+
+/// GH #295: a write that fails after validation answers a 500 whose body is
+/// Topcoat's plain text, so the failure toast cannot render there. The flash
+/// cookie rides the 500 response and the toast appears on the next panel page.
+/// `notify_write_failure`'s doc comment describes this delivery.
+#[tokio::test]
+async fn a_failed_write_toasts_on_the_next_panel_page() {
+    use std::collections::HashMap;
+
+    use argentum_core::{Resource, Schema, Table, TextColumn, TextInput};
+    use topcoat::context::Cx;
+
+    #[derive(Debug, toasty::Model, Clone)]
+    struct Widget {
+        #[key]
+        #[auto]
+        id: uuid::Uuid,
+        name: String,
+    }
+    struct FailingResource;
+    impl Resource for FailingResource {
+        type Model = Widget;
+        fn slug() -> String {
+            "widgets".to_string()
+        }
+        fn can_view_any(_cx: &Cx) -> bool {
+            true
+        }
+        fn can_create(_cx: &Cx) -> bool {
+            true
+        }
+        fn table(cx: &Cx) -> Table<Widget> {
+            Table::r#for(cx)
+                .id(|w: &Widget| w.id.to_string())
+                .pk(|w: &Widget| w.id.to_string())
+                .paginate(25)
+                .columns(TextColumn::r#for(Widget::fields().name(), |w: &Widget| {
+                    w.name.clone()
+                }))
+        }
+        fn form(_cx: &Cx) -> Schema {
+            Schema::new(TextInput::r#for(Widget::fields().name()))
+        }
+        async fn create_record(
+            _cx: &Cx,
+            _values: HashMap<String, String>,
+            _ex: &mut dyn toasty::Executor,
+        ) -> topcoat::Result<Widget> {
+            // Validation passed; the write itself did not land.
+            Err(std::io::Error::other("the write did not land").into())
+        }
+    }
+
+    let db = Db::builder()
+        .models(toasty::models!(Widget))
+        .connect("sqlite::memory:")
+        .await
+        .unwrap();
+    db.push_schema().await.unwrap();
+    let router = argentum_core::Panel::new("admin")
+        .app_context(db)
+        .auth(argentum_core::Auth::disabled())
+        .resource::<FailingResource>()
+        .build()
+        .expect("panel builds");
+    let client = TestClient::new(&router);
+
+    let csrf = uuid::Uuid::new_v4().to_string();
+    let resp = client
+        .csrf(&csrf)
+        .post_form(
+            "/admin/widgets/create",
+            format!("name=Widget&csrf_token={csrf}"),
+        )
+        .await;
+    assert_eq!(
+        resp.status(),
+        500,
+        "a failed write is a 500, got {}",
+        resp.status()
+    );
+    // The flash cookie rides the 500 response...
+    let flash = set_cookie_header(&resp, "__Host-argentum_notification")
+        .expect("the flash cookie must ride the 500 response");
+    let cookie_value = flash
+        .split(';')
+        .next()
+        .and_then(|pair| pair.split_once('='))
+        .map(|(_, value)| value.to_string())
+        .expect("the Set-Cookie names a value");
+    // ...whose body is Topcoat's plain text, so it renders no toast.
+    let body = body_string(resp).await;
+    assert!(
+        !body.contains("data-sonner-toast"),
+        "the 500 body is plain text, so it renders no toast: {body}"
+    );
+
+    // The next panel page consumes the flash and renders the toast.
+    let page = client
+        .cookie("__Host-argentum_notification", &cookie_value)
+        .get("/admin/widgets")
+        .await;
+    assert!(
+        page.status().is_success(),
+        "the list page after the failure must answer, got {}",
+        page.status()
+    );
+    let html = body_string(page).await;
+    assert!(
+        html.contains("data-type=\"error\""),
+        "the next panel page must render the failure toast: {html}"
+    );
+}
