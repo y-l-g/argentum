@@ -47,14 +47,15 @@ A resource list page runs, in order:
    tenant.
 3. `R::can_view_any(cx)` — the list-level policy check, before any row is loaded.
 4. Parse `TableState` from the URL (`?q=`, `?sort=`, `?dir=`, `?after=`, `?filters=`, `?group_by=`).
-5. Load through `scoped_query::<R>(cx)`, which is `R::query(cx)` with the framework's tenant filter
-   ANDed on.
+5. Load through `scoped_query_with::<R>(cx, &table.include_needs())` — `R::query_with(cx, needs)`
+   with the framework's tenant filter ANDed on — so the list loads the includes its columns declared.
 6. Render the table inside a `suspense` region: the skeleton is sent with the shell, the loaded rows
    swap in.
 
 The list checks `can_view_any` only, so pagination stays honest; per-row `can_view` trims the export
-and the relationship option lists. A detail page loads through the same scoped query, so an unknown
-id and one outside the tenant are the same 404, while a row the caller may not view is a 403.
+and the relationship option lists. A detail page loads through `scoped_query` — the full base query,
+because `view_relations` has no include declaration — so an unknown id and one outside the tenant are
+the same 404, while a row the caller may not view is a 403.
 
 ## A write request
 

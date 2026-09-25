@@ -72,16 +72,15 @@ omission has to fail loudly instead of quietly:
   returns, at every loader (GH #223), so restating it here is redundant.
 - `query_with(cx, needs)` is the same base query narrowed to the relations a loader declared
   (GH #298). The default ignores `needs` and returns `query(cx)` unchanged, so a resource that
-  overrides nothing loads exactly what it did before. Override it to split the base query into one
-  branch per declared name — an include `query` carries for the detail page then stops riding along
-  on the list, the edit page, delete, the bulk fetch, the unique probe, the relationship option lists
-  and the pagination probes. The list and the export pass their table's
-  `Table::include_needs()` (the union of the columns' `TextColumn::needs(..)` declarations); the
-  edit, delete, bulk, option and probe loaders pass an empty set. Keep the resource's own scope and
-  whatever your `can_view` reads in every branch — the *tenant* half is not the override's to keep,
-  the framework ANDs it onto what `query_with` returns exactly as it does for `query`. The option
-  loaders run `query_with` with an empty set, so an option label must project the related record's
-  own columns.
+  overrides nothing loads the full base query at every loader. Override it to split the base query
+  into one branch per declared name: a loader then loads an include only when it asks for it by name.
+  The list and the export pass their table's `Table::include_needs()` (the union of the columns'
+  `TextColumn::needs(..)` declarations); the edit page, delete, the bulk fetch, the unique probe,
+  the relationship option lists and their targeted FK existence check, and the pagination probes
+  pass an empty set. Keep the resource's own scope and whatever your `can_view` reads in every
+  branch — the *tenant* half is not the override's to keep, the framework ANDs it onto what
+  `query_with` returns exactly as it does for `query`. The option loaders run `query_with` with an
+  empty set, so an option label must project the related record's own columns.
 - `export_query(cx, needs)` is the export's seed; its default delegates to `query_with`, so
   overriding `query_with` narrows the export too (GH #177, GH #298, ADR-0018). Override
   `export_query` itself only when the CSV needs a branch the other loaders do not.

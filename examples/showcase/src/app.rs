@@ -505,9 +505,9 @@ impl Resource for PostResource {
 
     /// The list and export load the includes their columns declared
     /// (GH #177, GH #298); the edit, delete, bulk and option loaders ask for
-    /// none, so a Comment form's post options no longer carry every post's
-    /// comments. The export inherits this branch through its default
-    /// [`export_query`](Resource::export_query).
+    /// none, so a Comment form's post options carry the posts' own columns and
+    /// not every post's comments. The export inherits this branch through its
+    /// default [`export_query`](Resource::export_query).
     fn query_with(_cx: &Cx, needs: &IncludeNeeds) -> toasty::stmt::Query<toasty::stmt::List<Post>> {
         Self::base(needs)
     }

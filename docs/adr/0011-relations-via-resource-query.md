@@ -1,6 +1,6 @@
 # Relations: no new Relation trait, includes declared where they are read
 
-Date: 2026-08-31 — Status: accepted — Amended: 2026-09-10, 2026-09-15, 2026-09-18, 2026-09-22
+Date: 2026-08-31 — Status: accepted — Amended: 2026-09-10, 2026-09-15, 2026-09-18, 2026-09-22, 2026-09-25
 
 ## Decision
 
@@ -32,10 +32,12 @@ whole load — no options and not the stored value, and the field surfaces `{lab
 is reported as invalid. The option cap counts the raw bounded fetch, before that filtering (GH #91).
 
 **Tenancy.** The option loaders are generic over `schema::OptionSource`, whose `scoped_query` is a
-required method; `option_query` runs `R::scoped_query(cx)`, so every related load carries the
-framework's tenant predicate and a related resource whose tenancy cannot be scoped is a `Misdeclared`
-option error rather than an unscoped fetch (GH #208, ADR-0002). `Select::relationship` still takes
-the resource's `query` fn for type inference only; the loader does not call it directly.
+required method; `option_query` runs `R::options_query(cx)`, which defaults to `R::scoped_query(cx)`
+and narrows to an empty include set for a `Resource` (2026-09-25 amendment, GH #298), so every
+related load carries the framework's tenant predicate and a related resource whose tenancy cannot be
+scoped is a `Misdeclared` option error rather than an unscoped fetch (GH #208, ADR-0002).
+`Select::relationship` still takes the resource's `query` fn for type inference only; the loader does
+not call it directly.
 
 **Option search (GH #150).** Above the cap the failure splits into `Overflow` (distinct from a driver
 `LoadFailed`): a searchable select degrades to type-to-search, a non-searchable one keeps the retry
@@ -45,11 +47,11 @@ no option-specific hook; zero searchable columns means the hard-cap fallback. Th
 `Select` in the parent's form (400 otherwise), `q` trimmed and clamped to the shared query bound,
 bounded at `limit(201)`, `can_view` before labels, `Denied` → 403, driver failure → 500, filtered
 overflow → 200 with a keep-typing hint option, and never a whole-table load. Validation for an
-overflowed searchable select is a targeted `pk_eq_expr` + `R::query` + `can_view` check (viewable →
-pass, hidden/not-found → `invalid`, denied → `not available`, DB failure → retry); bounded sets keep
-membership validation. The UI is a native `<select>` plus `selects.js` (debounced 200 ms, aborts
-in-flight requests, preserves selection and placeholder); without JavaScript the plain select keeps
-working.
+overflowed searchable select is a targeted `pk_eq_expr` + `R::options_query` + `can_view` check
+(viewable → pass, hidden/not-found → `invalid`, denied → `not available`, DB failure → retry); bounded
+sets keep membership validation. The UI is a native `<select>` plus `selects.js` (debounced 200 ms,
+aborts in-flight requests, preserves selection and placeholder); without JavaScript the plain select
+keeps working.
 
 **Row identity.** `Table::id` is display-only (keyed diffs, DOM ids) and `Table::pk` feeds
 edit/delete URLs and bulk checkbox values, resolved by handlers as the model's typed PK. Rendering

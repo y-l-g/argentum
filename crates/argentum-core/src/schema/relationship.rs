@@ -78,22 +78,23 @@ pub trait OptionSource: Sized + Send + Sync + 'static {
     /// `OptionLoadError::Misdeclared` rather than a retryable failure.
     fn scoped_query(cx: &Cx) -> Result<Query<List<Self::Model>>>;
 
-    /// The seed query an **option load** runs: [`Self::scoped_query`], narrowed
-    /// to the relations the option projection reads (GH #298).
+    /// The seed query an **option load** runs (GH #298).
     ///
     /// An option load renders a value and a label per row. Both projections are
-    /// opaque closures the framework cannot inspect, and it reads no relation
-    /// itself, so this default asks for none and delegates to
-    /// [`Self::scoped_query`]. The blanket impl for a
-    /// [`Resource`](crate::resource::Resource) forwards to the resource's
-    /// needs-aware base query with an empty set, so a resource that narrows its
-    /// loaders narrows option loads too; a resource that overrides nothing keeps
-    /// its full base query.
+    /// opaque closures the framework cannot inspect, and the loaders read no
+    /// relation of their own, so the query only has to carry the related
+    /// record's own columns. The default returns [`Self::scoped_query`]
+    /// unchanged — a source states its scope once — and narrowing is the
+    /// blanket impl's job: for a
+    /// [`Resource`](crate::resource::Resource) it forwards to the resource's
+    /// needs-aware base query with an empty set, so a resource that overrides
+    /// [`query_with`](crate::resource::Resource::query_with) narrows option
+    /// loads too, while a resource that overrides nothing keeps its full base
+    /// query.
     ///
     /// The contract this states: an option label projects the related record's
     /// own columns. A source whose option label reads a relation cannot declare
-    /// that here, and a narrowed source that does so renders against an unloaded
-    /// relation.
+    /// that here, and a narrowed source that does so panics in `Deferred::get`.
     fn options_query(cx: &Cx) -> Result<Query<List<Self::Model>>> {
         Self::scoped_query(cx)
     }

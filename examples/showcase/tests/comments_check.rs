@@ -110,10 +110,10 @@ async fn comments_create_form_shows_post_select() {
 
 /// GH #298: a Comment form's Post options are loaded through the resource's
 /// needs-aware query, which asks for no relation includes, so the option load
-/// no longer pulls every comment of every post. This pins the branch the
-/// loader runs: the empty set leaves both relations unloaded, while the
-/// list/detail `query` keeps the includes its columns and `view_relations`
-/// read.
+/// selects the posts' own columns and not every comment of every post. This
+/// pins the branch the loader runs: the empty set leaves both relations
+/// unloaded, while the list/detail `query` keeps the includes its columns and
+/// `view_relations` read.
 #[tokio::test]
 async fn post_options_do_not_load_every_posts_comments() {
     use argentum_core::{IncludeNeeds, Resource, Tenant, db::db as db_handle};

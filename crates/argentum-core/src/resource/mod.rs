@@ -299,8 +299,9 @@ pub trait Resource: Sized + Send + Sync + 'static {
     /// **Tenancy is not this method's job (GH #223).** When
     /// [`requires_tenant`](Self::requires_tenant) is `true` the framework ANDs
     /// the tenant filter — derived from the model's `tenant_id` column — onto
-    /// whatever this returns, at every loader, through [`scoped_query`]. Do not
-    /// re-state `tenant_id().eq(tenant_id(cx))` here: the copy is redundant,
+    /// whatever this returns, at every loader, through [`scoped_query`] or the
+    /// loader's narrowed `scoped_query_with`. Do not re-state
+    /// `tenant_id().eq(tenant_id(cx))` here: the copy is redundant,
     /// and one that disagreed with the derived column would hide rows rather
     /// than widen access. The gate that makes a missing tenant a 403 is
     /// unchanged (GH #87).
@@ -320,9 +321,11 @@ pub trait Resource: Sized + Send + Sync + 'static {
     ///
     /// # Keep unique constraints in step with this scope (GH #88)
     ///
-    /// The app-side unique pre-check probes submitted values **through
-    /// [`scoped_query`]**, so it only sees the rows that query returns. A
-    /// `#[unique]` index *broader* than the scope is therefore invisible to it:
+    /// The app-side unique pre-check probes submitted values **through the
+    /// tenant-scoped query** — `scoped_query_with` with an empty include set,
+    /// the same scope [`scoped_query`] applies (GH #298) — so it only sees the
+    /// rows that query returns. A `#[unique]` index *broader* than the scope is
+    /// therefore invisible to it:
     /// the probe misses the colliding row, the database refuses the write, and
     /// the user gets a 500 instead of the inline "has already been taken".
     ///
@@ -367,7 +370,8 @@ pub trait Resource: Sized + Send + Sync + 'static {
     /// - The **detail page** reads [`view_relations`](Self::view_relations), whose projection is an
     ///   opaque hook with no declaration, so it loads [`Self::query`] unchanged.
     /// - The **edit page, delete, bulk delete, the unique-value probe, the relationship option
-    ///   lists and the pagination probes** read no relation, so they ask for an empty set.
+    ///   lists and their targeted FK existence check, and the pagination probes** read no relation,
+    ///   so they ask for an empty set.
     fn query_with(cx: &Cx, _needs: &IncludeNeeds) -> toasty::stmt::Query<List<Self::Model>> {
         Self::query(cx)
     }

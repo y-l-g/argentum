@@ -240,10 +240,11 @@ async fn forged_delete_runs_no_record_query() {
 
     use argentum_core::{Resource, Schema, Table, TextColumn, TextInput};
 
-    // Every load (find_by_key, the tx fetch) starts from `scoped_query`,
-    // which calls the resource's `query` — so a counter on that override
-    // proves "no find_by_key query observed" (GH #144 acceptance) instead of
-    // inferring it from a status.
+    // Every load (find_by_key, the tx fetch) starts from the tenant-scoped
+    // query, which calls the resource's `query_with` — and `CountingResource`
+    // overrides no `query_with`, so that default calls the `query` override
+    // the counter sits on. A counter there proves "no find_by_key query
+    // observed" (GH #144 acceptance) instead of inferring it from a status.
     static QUERIES: AtomicUsize = AtomicUsize::new(0);
     fn counted_query(_cx: &topcoat::context::Cx) -> toasty::stmt::Query<toasty::stmt::List<Dummy>> {
         QUERIES.fetch_add(1, Ordering::SeqCst);

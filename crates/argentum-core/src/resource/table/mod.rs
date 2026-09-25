@@ -744,8 +744,9 @@ impl<M> Table<M> {
     /// reimplement filtering, ordering, or cursor validation.
     ///
     /// The cursor-existence probes reuse `query`, so they pay the query's
-    /// relation includes. A caller that can name a narrower probe seed — one
-    /// with the same scope but no includes — uses `load_with_probe`.
+    /// relation includes. The panel's resource-list loader seeds them from a
+    /// narrower query with the same scope and no includes; this entry point has
+    /// no such seed, so its probes carry the query's includes.
     pub async fn load(
         &self,
         cx: &Cx,

@@ -61,13 +61,12 @@ to `query(cx)`, so a resource that overrides nothing is unchanged and narrowing 
 `export_query` now defaults to `query_with`, so one override narrows the list and the export together.
 
 The loaders that read no relation — the edit page (both loads), delete, bulk delete, the unique-value
-probe, the relationship option lists and the pagination probes — pass an empty set. The list and the
-export pass `Table::include_needs()`. The detail page keeps `query`, because `view_relations` is an
-opaque hook the framework cannot inspect for a declaration. The export's visibility scan also passes an
-empty set: it renders no cell, so it needs only what `can_view` reads, which an override states
-unconditionally.
+probe, the relationship option lists and their targeted FK existence check, and the pagination
+probes — pass an empty set. The list and the export pass `Table::include_needs()`. The detail page
+keeps `query`, because `view_relations` is an opaque hook the framework cannot inspect for a
+declaration. The export's visibility scan also passes an empty set: it renders no cell, so it needs
+only what `can_view` reads, which an override states unconditionally.
 
 Consequence the option case states: an option load renders a value and a label per row, and both
 projections are opaque closures, so the option loader asks for nothing. An option label therefore
-projects the related record's own columns; a label that reads a relation would render against an
-unloaded `Deferred`.
+projects the related record's own columns; a label that reads a relation panics in `Deferred::get`.
