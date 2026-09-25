@@ -992,9 +992,9 @@ impl Resource for PostResource {
 /// predicate is the framework's to apply.
 ///
 /// The queue moderates: row and bulk delete are enabled, which is
-/// what `can_delete`, `delete_record` and `bulk_delete_records` were already
-/// written for. A resource that wants a read-only queue overrides
-/// [`Resource::deletable`] to `false` instead.
+/// what `can_delete` and `delete_record` are written for — bulk delete rides
+/// the framework default that loops `delete_record`. A resource that wants a
+/// read-only queue overrides [`Resource::deletable`] to `false` instead.
 pub struct CommentResource;
 
 /// Re-resolve a comment's parent post through the tenant-scoped
