@@ -1,4 +1,4 @@
-// Unit test for the two pure decisions in `bulk.js` (GH #235).
+// Unit test for the two pure decisions in `bulk.js`.
 //
 // There is no JS test runner in this workspace — the assets are plain browser
 // scripts loaded through `asset!` — so this runs on Node's built-in runner and

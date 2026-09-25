@@ -1,4 +1,4 @@
-// Unit test for the filter transport `filters.js` composes (GH #93, GH #294).
+// Unit test for the filter transport `filters.js` composes.
 //
 // The assets are plain browser scripts loaded through `asset!`, so this runs on
 // Node's built-in test runner and reaches the script through the guarded

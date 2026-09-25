@@ -1,4 +1,4 @@
-// Which embedded variant's fields a form shows (GH #191).
+// Which embedded variant's fields a form shows.
 //
 // An embedded enum's derived form renders a variant `Select`
 // (`[data-variant-select]`, carrying the discriminant column) and **every**
@@ -9,9 +9,9 @@
 // The server renders all of them and parses whichever variant the select
 // names, so this script is display only: it hides the groups whose variant is
 // not the chosen one, and leaves every control enabled so the submission still
-// carries the payload the server reads. With JavaScript off nothing is hidden
-// — the pre-#191 behaviour, every variant's controls visible — so no field the
-// server still accepts is lost.
+// carries the payload the server reads. With JavaScript off nothing is hidden —
+// every variant's controls visible — so no field the server still accepts is
+// lost.
 //
 // An empty select (a create form: no stored variant to hydrate) shows no
 // variant's group until one is chosen, and the server keeps its own payload

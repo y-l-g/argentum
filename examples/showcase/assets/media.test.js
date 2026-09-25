@@ -1,4 +1,4 @@
-// Unit tests for `media.js` (GH #248).
+// Unit tests for `media.js`.
 //
 // There is no JS test runner in this workspace — the assets are plain browser
 // scripts loaded through `asset!` — so this runs on Node's built-in runner and

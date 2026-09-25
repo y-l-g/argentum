@@ -127,7 +127,7 @@ pub fn primitives_dir() -> PathBuf {
 /// pinned by `Cargo.lock`. The registry directory is read from the data
 /// crate's `[package.metadata.topcoat-ui] registry` declaration.
 fn locate_registry() -> anyhow::Result<(Registry, String)> {
-    // Anchored at xtask's own manifest (GH #175): a bare `cargo metadata`
+    // Anchored at xtask's own manifest: a bare `cargo metadata`
     // resolves the caller's CWD, so invoking from a detached workspace
     // (e.g. benchmarks/argentum, which has no topcoat-ui-registry in its
     // graph) failed with a misleading "must be a dependency of xtask".
@@ -230,7 +230,7 @@ pub fn sync_topcoat_ui(dry_run: bool, prune: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Delete vendored files absent from [`VENDORED_PRIMITIVES`] (GH #175): the
+/// Delete vendored files absent from [`VENDORED_PRIMITIVES`]: the
 /// same expected-set as the `verify_sync` orphan guard (`mod.rs` included — it
 /// is regenerated, never pruned). Dry runs only report.
 fn prune_orphans(
@@ -359,7 +359,7 @@ pub fn verify_sync() -> anyhow::Result<()> {
         )),
     }
 
-    // Orphan guard (GH #103): a component no longer in the vendored set must
+    // Orphan guard: a component no longer in the vendored set must
     // not linger as a stale vendored file that still compiles when referenced.
     // Flag any file in primitives/ the set does not own.
     {
@@ -417,7 +417,7 @@ pub fn assets_dir() -> PathBuf {
         .join("crates/argentum-ui/assets")
 }
 
-/// Shell JS assets (GH #152, ADR-0014): the file under `assets/` plus the
+/// Shell JS assets (ADR-0014): the file under `assets/` plus the
 /// `argentum-ui` constant that wires it into the document head.
 pub const ASSET_FILES: &[(&str, &str)] = &[
     ("sidebar.js", "SIDEBAR_JS"),
@@ -432,7 +432,7 @@ pub const ASSET_FILES: &[(&str, &str)] = &[
     ("mutation-submit.js", "MUTATION_SUBMIT_JS"),
 ];
 
-/// One hook-contract entry (GH #152, ADR-0014): `js` must appear in the
+/// One hook-contract entry (ADR-0014): `js` must appear in the
 /// asset's source and `rust` must appear somewhere in the Rust render sources
 /// (`argentum-ui/src` + `argentum-core/src`; test modules and comment-only
 /// lines are stripped). Usually both are the same attribute hook;
@@ -447,7 +447,7 @@ pub struct AssetHook {
     pub rust: &'static str,
 }
 
-/// The checked-in hook list (GH #152). Deliberately attribute hooks only —
+/// The checked-in hook list. Deliberately attribute hooks only —
 /// structural selectors (`.relative`, `pre code`, `select option`,
 /// `dialog[open]`, `#mobile-sidebar-sheet`, which has no JS consumer: the
 /// sheet backdrop is a runtime `@click` handler) and the inverse direction (a
@@ -490,7 +490,7 @@ pub const ASSET_HOOKS: &[AssetHook] = &[
         js: "dialogOpenParam",
         rust: "data-dialog-open-param",
     },
-    // The row-delete dialog (GH #233): the trigger names its table's dialog and
+    // The row-delete dialog: the trigger names its table's dialog and
     // carries the record's POST target, which the dialog's form takes.
     AssetHook {
         asset: "dialog.js",
@@ -517,7 +517,7 @@ pub const ASSET_HOOKS: &[AssetHook] = &[
         js: "data-table-root",
         rust: "data-table-root",
     },
-    // The confirmation dialog (GH #184): the trigger opens it, and the dialog
+    // The confirmation dialog: the trigger opens it, and the dialog
     // carries the `confirm` field the handler refuses a POST without.
     AssetHook {
         asset: "bulk.js",
@@ -569,7 +569,7 @@ pub const ASSET_HOOKS: &[AssetHook] = &[
         js: "data-filters-live",
         rust: "data-filters-live",
     },
-    // The live-search debounce (GH #172). The boundary rule carries weight
+    // The live-search debounce. The boundary rule carries weight
     // here: `data-live-search` must be found as the host attribute itself, and
     // `data-live-search-input`'s prefix must not stand in for it.
     AssetHook {
@@ -602,7 +602,7 @@ pub const ASSET_HOOKS: &[AssetHook] = &[
         js: "data-options-filter",
         rust: "data-options-filter",
     },
-    // The overflow search (GH #150, GH #293): the wrapper flags a server-backed
+    // The overflow search: the wrapper flags a server-backed
     // set and names the field the debounced fetch queries, the input and its
     // listbox form the combobox, and the list receives the server's options.
     AssetHook {
@@ -625,7 +625,7 @@ pub const ASSET_HOOKS: &[AssetHook] = &[
         js: "data-options-list",
         rust: "data-options-list",
     },
-    // The embedded-enum variant toggle (GH #191). `data-variant` must be found
+    // The embedded-enum variant toggle. `data-variant` must be found
     // as the group's own attribute, and neither `data-variant-of`'s nor
     // `data-variant-select`'s prefix may stand in for it.
     AssetHook {
@@ -658,7 +658,7 @@ pub const ASSET_HOOKS: &[AssetHook] = &[
         js: "dataset.mounted",
         rust: "data-mounted",
     },
-    // The confirmed mutation (GH #234): the marker both delete confirms carry,
+    // The confirmed mutation: the marker both delete confirms carry,
     // the live table's refresh control, the region the response's table
     // replaces, and the toaster the response's toast mounts into.
     AssetHook {

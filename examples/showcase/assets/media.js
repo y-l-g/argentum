@@ -1,4 +1,4 @@
-// The media library's upload widget (GH #248).
+// The media library's upload widget.
 //
 // The form holds a file input (`[data-media-file]`), a preview region
 // (`[data-media-preview]`) and a clear control (`[data-media-clear]`). Picking
@@ -82,10 +82,8 @@ function install() {
 
 if (typeof document !== 'undefined') install();
 
-// Exposed for the Node unit test (`media.test.js`). There is no JS test runner
-// in this workspace and this file must stay a plain browser script loaded
-// through `asset!`, so it cannot be an ES module. The guard keeps the browser
-// branch inert.
+// Exposed for the Node unit test (`media.test.js`); see `bulk.js` for the
+// guard.
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { showPreview, clearPreview };
 }

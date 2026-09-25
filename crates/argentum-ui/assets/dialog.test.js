@@ -1,5 +1,5 @@
 // Unit test for the row-delete trigger wiring and the dismissal rules in
-// `dialog.js` (GH #233, GH #293).
+// `dialog.js`.
 //
 // There is no JS test runner in this workspace — the assets are plain browser
 // scripts loaded through `asset!` — so this runs on Node's built-in runner and

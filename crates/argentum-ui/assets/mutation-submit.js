@@ -1,4 +1,4 @@
-// Confirmed destructive submits, applied without a navigation (GH #234).
+// Confirmed destructive submits, applied without a navigation.
 //
 // A form marked `data-mutation-submit` — the row-delete confirm and the bulk
 // confirm — POSTs through `fetch`, follows the 303, and applies the response
@@ -185,7 +185,7 @@ async function send(form, action, submitter) {
   const index = row ? Array.from(row.parentElement.children).indexOf(row) : -1;
   if (submitter) submitter.disabled = true;
   // The confirm dialog belongs to the write until its response lands
-  // (GH #293): `dialog.js` reads this marker, so a backdrop click or Escape
+  // `dialog.js` reads this marker, so a backdrop click or Escape
   // cannot close it and leave the response to close whatever dialog the next
   // click opened in its place.
   if (dialog) dialog.dataset.dialogBusy = 'true';
@@ -362,10 +362,8 @@ function afterRegionChange(region, run) {
 
 if (typeof document !== 'undefined') install();
 
-// Exposed for the Node unit test (`mutation-submit.test.js`). There is no JS
-// test runner in this workspace and this file must stay a plain browser script
-// loaded through `asset!`, so it cannot be an ES module. The guard keeps the
-// browser branch inert.
+// Exposed for the Node unit test (`mutation-submit.test.js`); see `bulk.js`
+// for the guard.
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     deletedKey,

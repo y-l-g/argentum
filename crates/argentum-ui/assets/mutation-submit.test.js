@@ -1,4 +1,4 @@
-// Unit test for the confirmed-mutation wiring in `mutation-submit.js` (GH #234).
+// Unit test for the confirmed-mutation wiring in `mutation-submit.js`.
 //
 // There is no JS test runner in this workspace — the assets are plain browser
 // scripts loaded through `asset!` — so this runs on Node's built-in runner and
@@ -13,7 +13,7 @@
 // removed from the bulk selection, which submits this script answers at all —
 // a form the page cannot serve must keep the browser's own submit — and what
 // it does with a response the server answered itself: the fetched page is
-// shown in place, and the mutation is not posted again (GH #293).
+// shown in place, and the mutation is not posted again.
 //
 // The DOM half of the script (the shard re-render, `DOMParser`) has no
 // stand-in here; it is verified against a running panel instead. The fetch
@@ -337,7 +337,7 @@ test('a form without the marker is left alone', () => {
   });
 });
 
-// --- a response the server answered itself (GH #293) ------------------------
+// -- a response the server answered itself ------------------------
 
 // A form stand-in that records a browser submit, so "the delete is not sent
 // again" is an observation rather than a reading of the listener.
@@ -421,7 +421,7 @@ test('a refused submit shows the response without repeating the request', async 
 
 test('the confirm dialog is held while the mutation is in flight', async () => {
   // `dialog.js` refuses to dismiss a dialog carrying this marker, so the write
-  // owns it until its response is in hand (GH #293).
+  // owns it until its response is in hand.
   await withServerAnswer(
     {
       redirected: false,
