@@ -30,51 +30,80 @@ function armToast(el) {
 
   // Sonner pauses the lifetime on hover/focus and resumes with the remaining
   // time, so a toast the reader is looking at does not vanish under them.
+  // Hover and focus are independent pause sources (GH #293): the countdown
+  // runs only while *none* of them is active, and a resume from one leaves
+  // the countdown stopped while another still holds it. One timer, always
+  // cleared before the next is armed.
   let remaining = TOAST_LIFETIME;
   let startedAt = 0;
   let timer = null;
+  const pauses = new Set();
   const start = () => {
+    if (pauses.size > 0 || timer !== null) return;
     startedAt = Date.now();
     timer = window.setTimeout(() => dismissToast(el), remaining);
   };
-  const pause = () => {
-    if (!timer) return;
+  const pause = (source) => {
+    if (pauses.has(source)) return;
+    pauses.add(source);
+    if (timer === null) return;
     window.clearTimeout(timer);
     timer = null;
     remaining = Math.max(0, remaining - (Date.now() - startedAt));
   };
-  el.addEventListener('mouseenter', pause);
-  el.addEventListener('mouseleave', start);
-  el.addEventListener('focusin', pause);
-  el.addEventListener('focusout', start);
+  const resume = (source) => {
+    if (!pauses.delete(source)) return;
+    start();
+  };
+  el.addEventListener('mouseenter', () => pause('hover'));
+  el.addEventListener('mouseleave', () => resume('hover'));
+  el.addEventListener('focusin', () => pause('focus'));
+  el.addEventListener('focusout', (e) => {
+    // Focus moving inside the toast is still focus on it; only leaving resumes.
+    if (!el.contains || !el.contains(e.relatedTarget)) resume('focus');
+  });
   start();
 }
 
-document.addEventListener('click', (e) => {
-  const close = e.target.closest('[data-close-button]');
-  if (!close) return;
-  const toast = close.closest('[data-sonner-toast]');
-  if (toast) dismissToast(toast);
-});
+// Everything below only makes sense with a document. It lives in a function so
+// this file can also be `require`d by its Node unit test
+// (`notifications.test.js`), which has no DOM: loading the script must not
+// touch one.
+function install() {
+  document.addEventListener('click', (e) => {
+    const close = e.target.closest('[data-close-button]');
+    if (!close) return;
+    const toast = close.closest('[data-sonner-toast]');
+    if (toast) dismissToast(toast);
+  });
 
-document.addEventListener('DOMContentLoaded', () => {
-  document.querySelectorAll('[data-sonner-toast]').forEach(armToast);
-});
+  document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('[data-sonner-toast]').forEach(armToast);
+  });
 
-// Catch toasts swapped in after load (streamed suspense regions).
-if (typeof MutationObserver !== 'undefined') {
-  const observer = new MutationObserver((mutations) => {
-    for (const m of mutations) {
-      for (const node of m.addedNodes) {
-        if (node.nodeType !== 1) continue;
-        if (node.matches && node.matches('[data-sonner-toast]')) armToast(node);
-        if (node.querySelectorAll) {
-          node.querySelectorAll('[data-sonner-toast]').forEach(armToast);
+  // Catch toasts swapped in after load (streamed suspense regions).
+  if (typeof MutationObserver !== 'undefined' && document.documentElement) {
+    const observer = new MutationObserver((mutations) => {
+      for (const m of mutations) {
+        for (const node of m.addedNodes) {
+          if (node.nodeType !== 1) continue;
+          if (node.matches && node.matches('[data-sonner-toast]')) armToast(node);
+          if (node.querySelectorAll) {
+            node.querySelectorAll('[data-sonner-toast]').forEach(armToast);
+          }
         }
       }
-    }
-  });
-  if (document.documentElement) {
+    });
     observer.observe(document.documentElement, { childList: true, subtree: true });
   }
+}
+
+if (typeof document !== 'undefined') install();
+
+// Exposed for the Node unit test (`notifications.test.js`). There is no JS test
+// runner in this workspace and this file must stay a plain browser script
+// loaded through `asset!`, so it cannot be an ES module. The guard keeps the
+// browser branch inert.
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { TOAST_EXIT_MS, TOAST_LIFETIME, armToast, dismissToast };
 }

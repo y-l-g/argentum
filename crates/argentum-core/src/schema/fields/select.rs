@@ -162,6 +162,13 @@ impl Select {
     /// `Panel::render_document` on every document with shell assets
     /// (see ADR-0014). Without it the input is inert and the plain select
     /// keeps working.
+    ///
+    /// The input is the combobox: it carries `role="combobox"`,
+    /// `aria-controls` naming the listbox, `aria-autocomplete="list"` and a
+    /// collapsed `aria-expanded`, and `selects.js` keeps `aria-expanded` and
+    /// `aria-activedescendant` in step with the popup. On an edit form the
+    /// input starts on the current option's label, so the box over the hidden
+    /// select shows what is stored.
     pub fn searchable(mut self) -> Self {
         self.searchable = true;
         self
@@ -544,6 +551,7 @@ impl Select {
             "ac-field"
         };
         let error_id = format!("{name}-error");
+        let list_id = format!("{name}-options-list");
         let filter_label = format!("Filter {label_text} options");
         // Server fetch only past the cap (GH #150): bounded searchable sets
         // keep the client-side label-substring filter (GH #91), so the
@@ -581,10 +589,20 @@ impl Select {
                     // renders its own filtered list here and writes the chosen
                     // value onto the select. Without the script the input is
                     // inert and the plain select keeps working.
+                    //
+                    // The input and the list are one combobox (GH #293): the
+                    // input carries the static ARIA (its role, the list it
+                    // controls, list autocompletion), starts collapsed over the
+                    // hidden list, and `selects.js` keeps `aria-expanded` and
+                    // `aria-activedescendant` in step with the popup.
                     <div class="relative" data-options-combobox="">
                         ui_input(
                             attrs: attributes! {
                                 type="search"
+                                role="combobox"
+                                aria-expanded="false"
+                                aria-controls=(list_id.clone())
+                                aria-autocomplete="list"
                                 aria-label=(filter_label.clone())
                                 placeholder="Filter…"
                                 data-options-filter=""
@@ -593,6 +611,7 @@ impl Select {
                             }
                         )
                         <ul
+                            id=(list_id.clone())
                             data-options-list=""
                             role="listbox"
                             aria-label=(filter_label.clone())
@@ -641,7 +660,7 @@ mod tests {
     use topcoat::context::CxTestBuilder;
 
     use super::{
-        super::test_support::{DummyUser, FkRef, opening_tag_at},
+        super::test_support::{DummyUser, FkRef, attributes_of, opening_tag_at},
         *,
     };
     use crate::schema::Schema;
@@ -722,6 +741,29 @@ mod tests {
         assert!(
             html[list_tag_start..list_tag_start + list_tag_end].contains("hidden=\"\""),
             "the list must render hidden until the field is used, got {html}"
+        );
+        // GH #293: the input is the combobox, statically wired to the list it
+        // filters. It starts collapsed over the hidden list, and names the
+        // listbox; `selects.js` keeps `aria-expanded` and
+        // `aria-activedescendant` in step with the popup.
+        let filter_attrs = attributes_of(&html, "data-options-filter");
+        for expected in [
+            "role=\"combobox\"",
+            "aria-expanded=\"false\"",
+            "aria-controls=\"name-options-list\"",
+            "aria-autocomplete=\"list\"",
+        ] {
+            assert!(
+                filter_attrs.iter().any(|attr| attr == expected),
+                "the filter input must carry {expected}, got {filter_attrs:?}"
+            );
+        }
+        let list_attrs = attributes_of(&html, "data-options-list");
+        assert!(
+            list_attrs
+                .iter()
+                .any(|attr| attr == "id=\"name-options-list\""),
+            "the listbox must carry the id the combobox controls, got {list_attrs:?}"
         );
     }
 

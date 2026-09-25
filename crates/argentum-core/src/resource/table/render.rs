@@ -2654,6 +2654,13 @@ mod tests {
             !dialog_tag.contains("open=\""),
             "the bulk confirm dialog must render closed, got {dialog_tag}"
         );
+        // GH #293: `dialog.js` refuses to dismiss an alert dialog on a backdrop
+        // click, so the role is the contract that keeps the confirm dialog
+        // waiting for an answer rather than treating a stray click as one.
+        assert!(
+            dialog_tag.contains("role=\"alertdialog\""),
+            "the bulk confirm dialog must be an alert dialog, got {dialog_tag}"
+        );
         // The dialog is the decision, not decoration (GH #184): it asks, and
         // it offers a way out that is not deleting. Absorbed from the showcase
         // duplicate (GH #217) so the one test that owns bulk chrome owns all

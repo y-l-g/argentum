@@ -53,6 +53,18 @@ function escapeAttr(s) {
     .replace(/'/g, '&#39;');
 }
 
+// The `<option>` a server answer has to carry for the current value, or null
+// when the answer already echoes it (or nothing is selected). The label is the
+// one the option showed before the swap (GH #293): the answer covers the
+// needle, not the selection, and the value is a primary key, so using it as the
+// label would show a raw UUID. The label is escaped: it comes from a record.
+function preservedOption(current, label, html) {
+  if (current === '') return null;
+  const escCurrent = escapeAttr(current);
+  if (html.includes(`value="${escCurrent}"`)) return null;
+  return `<option value="${escCurrent}" selected>${escapeAttr(label)}</option>`;
+}
+
 async function serverSearch(filter, wrap, select, field, needle) {
   const prev = serverControllers.get(filter);
   if (prev) prev.abort();
@@ -78,16 +90,20 @@ async function serverSearch(filter, wrap, select, field, needle) {
   }
   const placeholder = select.querySelector('option[value=""]');
   const placeholderHtml = placeholder ? placeholder.outerHTML : '<option value="">-- Select --</option>';
-  // Preserve the current selection across swaps (D2): the server never
-  // echoes it, so re-attach when absent. Escape the PK for attribute use.
+  // Preserve the current selection across swaps (D2): the server answers the
+  // needle and never echoes the current record, so re-attach it when absent.
+  // Its label is only in the option the swap is about to drop (GH #293): the
+  // PK is the value, never the thing to show.
+  const currentOption = optionFor(select, current);
+  const currentLabel = currentOption
+    ? (currentOption.textContent || '').trim()
+    : current;
+  const preserved = preservedOption(current, currentLabel, html) || '';
   const escCurrent = escapeAttr(current);
   const hasCurrent = current !== '' && html.includes(`value="${escCurrent}"`);
-  const preserved = current !== '' && !hasCurrent
-    ? `<option value="${escCurrent}" selected>${escCurrent}</option>`
-    : '';
   // Mark the fetched current as selected when it matches (string replace,
   // no regex: PKs are opaque strings).
-  if (current !== '' && hasCurrent) {
+  if (hasCurrent) {
     html = html.split(`value="${escCurrent}"`).join(`value="${escCurrent}" selected`);
   }
   select.innerHTML = `${placeholderHtml}${preserved}${html}`;
@@ -157,14 +173,51 @@ function closeList(combo) {
   if (!list) return;
   list.hidden = true;
   list.replaceChildren();
+  // The combobox contract: a closed popup is collapsed, and nothing in it is
+  // active any more.
+  const filter = combo.querySelector('[data-options-filter]');
+  setExpanded(filter, false);
+  setActiveDescendant(filter, null);
 }
 
-function messageRow(list, text) {
+function messageRow(parts, text) {
+  const { list, filter } = parts;
   const item = document.createElement('li');
   item.className = 'px-2 py-1.5 text-muted-foreground';
   item.textContent = text;
   list.replaceChildren(item);
   list.hidden = false;
+  // The popup is showing, but it holds a status line and no option to be
+  // active — which is what lets Enter fall through without picking anything.
+  setExpanded(filter, true);
+  setActiveDescendant(filter, null);
+}
+
+// The id a rendered row carries, so `aria-activedescendant` can name the row
+// the keyboard is on. Derived from the list's server-rendered id, which is
+// unique per field.
+function optionRowId(list, index) {
+  return `${list.id || 'options-list'}-option-${index}`;
+}
+
+// `aria-expanded` mirrors the popup: the filter and the list are one
+// combobox, so the input carries the state (GH #293).
+function setExpanded(filter, expanded) {
+  if (filter && filter.setAttribute) {
+    filter.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+  }
+}
+
+// `aria-activedescendant` names the row the keyboard is on, or nothing when no
+// row can be active (closed, or a status line). Guarded: a partial markup
+// without the input keeps working.
+function setActiveDescendant(filter, item) {
+  if (!filter || !filter.setAttribute) return;
+  if (item && item.id) {
+    filter.setAttribute('aria-activedescendant', item.id);
+  } else if (filter.removeAttribute) {
+    filter.removeAttribute('aria-activedescendant');
+  }
 }
 
 function renderList({ combo, filter, list, select }) {
@@ -174,15 +227,19 @@ function renderList({ combo, filter, list, select }) {
   if (rows.length === 0) {
     // "Nothing matched" is the whole reason this list exists, so it says so
     // instead of leaving an empty box.
-    messageRow(list, needle === '' ? 'No options' : 'No matching options');
+    messageRow(
+      { combo, filter, list, select },
+      needle === '' ? 'No options' : 'No matching options',
+    );
     return;
   }
   list.replaceChildren();
-  rows.forEach((row) => {
+  rows.forEach((row, index) => {
     const item = document.createElement('li');
     item.setAttribute('role', 'option');
     item.setAttribute('aria-selected', row.selected ? 'true' : 'false');
     item.dataset.value = row.value;
+    item.id = optionRowId(list, index);
     item.className =
       'cursor-pointer rounded-md px-2 py-1.5 hover:bg-foreground/5'
       + (row.selected ? ' font-medium' : '');
@@ -190,6 +247,8 @@ function renderList({ combo, filter, list, select }) {
     list.appendChild(item);
   });
   list.hidden = false;
+  setExpanded(filter, true);
+  setActiveDescendant(filter, activeItem(list));
 }
 
 // The option behind a list row, matched on the property (never an escaped
@@ -251,6 +310,14 @@ function nativeControl({ wrap, select }) {
 function hideNativeSelect(parts) {
   if (!shouldHideNativeSelect(parts)) return;
   nativeControl(parts).hidden = true;
+  // The box that replaces the control starts on the current option's label
+  // (GH #293): without it an edit form renders an empty box over a selected
+  // record. A choice writes the same label into the input (`chooseOption`), so
+  // the two paths agree; the placeholder is not a choice and leaves it empty.
+  if (parts.filter.value === '' && parts.select.value !== '') {
+    const current = optionFor(parts.select, parts.select.value);
+    if (current) parts.filter.value = (current.textContent || '').trim();
+  }
   if (parts.select.required) {
     parts.select.required = false;
     parts.filter.setAttribute('aria-required', 'true');
@@ -280,7 +347,7 @@ function install() {
     const field = parts.wrap.getAttribute('data-options-field');
     const server = parts.wrap.getAttribute('data-options-server') === 'true';
     if (server && field) {
-      messageRow(parts.list, 'Searching…');
+      messageRow(parts, 'Searching…');
       parts.wrap.dataset.optionsSearching = 'true';
       const prevTimer = serverTimers.get(parts.filter);
       if (prevTimer) clearTimeout(prevTimer);
@@ -314,11 +381,23 @@ function install() {
   });
 
   // Arrows move through the list, Enter picks, Escape closes. Focus stays in the
-  // input, which is what makes typing-to-narrow continuous.
+  // input, which is what makes typing-to-narrow continuous. The input is a
+  // combobox, not a text box with an implicit submit: Enter while it has focus
+  // is the list's, and never the form's (GH #293) — when the list is showing a
+  // status line ("Searching…", "No matching options") there is no row to pick,
+  // and the keystroke still must not submit the record the reader is editing.
   document.addEventListener('keydown', (e) => {
     if (!e.target.closest('[data-options-filter]')) return;
     const parts = partsOf(e.target);
     if (!parts.select || !parts.list) return;
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (!parts.list.hidden) {
+        const item = activeItem(parts.list);
+        chooseOption(parts, item && optionFor(parts.select, item.dataset.value));
+      }
+      return;
+    }
     if (parts.list.hidden) {
       if (e.key === 'ArrowDown') {
         e.preventDefault();
@@ -335,11 +414,8 @@ function install() {
       const next = items[(current + step + items.length) % items.length];
       items.forEach((item) => item.setAttribute('aria-selected', 'false'));
       next.setAttribute('aria-selected', 'true');
+      setActiveDescendant(parts.filter, next);
       next.scrollIntoView({ block: 'nearest' });
-    } else if (e.key === 'Enter') {
-      e.preventDefault();
-      const item = activeItem(parts.list);
-      chooseOption(parts, item && optionFor(parts.select, item.dataset.value));
     } else if (e.key === 'Escape') {
       closeList(parts.combo);
     }
@@ -403,5 +479,10 @@ if (typeof document !== 'undefined') install();
 // loaded through `asset!`, so it cannot be an ES module. The guard keeps the
 // browser branch inert.
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { matchingOptions, MAX_LIST_ITEMS, shouldHideNativeSelect };
+  module.exports = {
+    MAX_LIST_ITEMS,
+    matchingOptions,
+    preservedOption,
+    shouldHideNativeSelect,
+  };
 }

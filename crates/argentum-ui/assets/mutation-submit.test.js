@@ -10,12 +10,14 @@
 // What it protects: which region a mutation response hands over (the rendered
 // table inside the streamed swap envelope, never the loading skeleton the
 // response also carries), which toast surfaces mount, which keys a write
-// removed from the bulk selection, and which submits this script answers at
-// all — a form the page cannot serve must keep the browser's own submit.
+// removed from the bulk selection, which submits this script answers at all —
+// a form the page cannot serve must keep the browser's own submit — and what
+// it does with a response the server answered itself: the fetched page is
+// shown in place, and the mutation is not posted again (GH #293).
 //
-// The DOM half of the script (fetch, DOMParser, the shard re-render) has no
-// stand-in here; it is verified against a running panel instead. These are the
-// decisions, which is where the coupling lives.
+// The DOM half of the script (the shard re-render, `DOMParser`) has no
+// stand-in here; it is verified against a running panel instead. The fetch
+// stand-in below covers the failure branch, which is where the re-send lived.
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -212,10 +214,12 @@ test('every toast surface the response carries is handed over', () => {
 
 // `install()` reads `document` and `window` from the global scope and every
 // listener is document-delegated, so the stand-ins have to be in place before
-// the script is required and stay there while its listeners run.
+// the script is required and stay there while its listeners run. `written`
+// records the page `showResponse` replaces the document with.
 function standInDocument() {
   const byType = new Map();
   return {
+    written: [],
     addEventListener(type, handler) {
       if (!byType.has(type)) byType.set(type, []);
       byType.get(type).push(handler);
@@ -227,26 +231,40 @@ function standInDocument() {
     // and the dialog it was confirmed in.
     querySelectorAll: () => [],
     querySelector: () => null,
+    // `showResponse` renders the fetched answer into the document.
+    open() {},
+    write(html) {
+      this.written.push(html);
+    },
+    close() {},
   };
 }
 
 // A form stand-in: the marker answers the listener's `closest`, the action is
-// what the case gives it. `new FormData(form)` cannot serialize this, which is
-// the point — the post is never reached, only the decision is under test.
-const submitForm = ({ marked = true, action = '/admin/users/ada/delete' } = {}) => {
+// what the case gives it, and `dialog` is the confirm dialog the row form
+// lives in. `new FormData(form)` cannot serialize this, which is the point —
+// the post is never reached, only the decision is under test.
+const submitForm = ({
+  marked = true,
+  action = '/admin/users/ada/delete',
+  dialog = null,
+} = {}) => {
   const form = {
     getAttribute: (name) => (name === 'action' ? action : null),
     matches: () => marked,
-    closest: (selector) =>
-      marked && selector === 'form[data-mutation-submit]' ? form : null,
-    querySelector: () => null,
+    closest: (selector) => {
+      if (selector === 'dialog') return dialog;
+      return marked && selector === 'form[data-mutation-submit]' ? form : null;
+    },
+    querySelector: (selector) => (selector === 'dialog' ? dialog : null),
   };
   return form;
 };
 
 // Load a fresh copy of the script against the stand-ins, run the case, and
 // drop them: a fresh copy re-runs `install()`, so each case gets its own
-// listener set.
+// listener set. An async case keeps the globals until it settles, because
+// `send` reads them after the fetch resolves.
 function withGlobals(run) {
   const document = standInDocument();
   const calls = { reloaded: 0, assigned: [] };
@@ -262,13 +280,23 @@ function withGlobals(run) {
     clearTimeout() {},
   };
   delete require.cache[SCRIPT];
-  try {
-    require(SCRIPT);
-    return run({ document, calls });
-  } finally {
+  const drop = () => {
     delete global.document;
     delete global.window;
+  };
+  let result;
+  try {
+    require(SCRIPT);
+    result = run({ document, calls });
+  } catch (error) {
+    drop();
+    throw error;
   }
+  if (result && typeof result.then === 'function') {
+    return result.finally(drop);
+  }
+  drop();
+  return result;
 }
 
 // A submit event as the browser hands it to the listener.
@@ -313,4 +341,116 @@ test('a form without the marker is left alone', () => {
     document.listeners('submit').forEach((handler) => handler(event));
     assert.equal(event.prevented, false, 'the browser posts it');
   });
+});
+
+// --- a response the server answered itself (GH #293) ------------------------
+
+// A form stand-in that records a browser submit, so "the delete is not sent
+// again" is an observation rather than a reading of the listener.
+function recordableForm(options) {
+  const form = submitForm(options);
+  form.submits = 0;
+  form.submit = () => {
+    form.submits += 1;
+  };
+  return form;
+}
+
+// `send` reads `FormData` and `fetch` from the global scope. The fetch answers
+// with a response that never redirected: the server answered the POST itself.
+async function withServerAnswer(answer, run) {
+  return withGlobals(async (context) => {
+    const realFormData = global.FormData;
+    const realFetch = global.fetch;
+    global.FormData = class {
+      constructor(form) {
+        this.form = form;
+      }
+    };
+    global.fetch = async () => answer;
+    try {
+      return await run(context);
+    } finally {
+      global.FormData = realFormData;
+      global.fetch = realFetch;
+    }
+  });
+}
+
+test('a server-answered failure is shown, not posted again', async () => {
+  // The server can commit the write and then fail — a panic in `after_commit`
+  // answers 500 — so the response does not mean "nothing happened". The page
+  // the no-JS POST would have rendered is shown in place, and the delete is
+  // never sent a second time.
+  await withServerAnswer(
+    {
+      redirected: false,
+      ok: false,
+      status: 500,
+      text: async () => '<!doctype html><p>the write failed</p>',
+    },
+    async ({ document }) => {
+      const form = recordableForm();
+      const event = submitEvent(form);
+      document.listeners('submit').forEach((handler) => handler(event));
+      await new Promise((resolve) => setImmediate(resolve));
+      assert.equal(form.submits, 0, 'the committed delete must not be re-sent');
+      assert.deepEqual(
+        document.written,
+        ['<!doctype html><p>the write failed</p>'],
+        'the server answer is shown where the browser would have shown it',
+      );
+    },
+  );
+});
+
+test('a refused submit shows the response without repeating the request', async () => {
+  // A 4xx is the server refusing the write, but the client still does not know
+  // the record is untouched, so it applies the same rule: show, never re-send.
+  await withServerAnswer(
+    {
+      redirected: false,
+      ok: false,
+      status: 403,
+      text: async () => '<!doctype html><p>not allowed</p>',
+    },
+    async ({ document }) => {
+      const form = recordableForm();
+      const event = submitEvent(form);
+      document.listeners('submit').forEach((handler) => handler(event));
+      await new Promise((resolve) => setImmediate(resolve));
+      assert.equal(form.submits, 0, 'the refused delete is not posted again');
+      assert.deepEqual(document.written, ['<!doctype html><p>not allowed</p>']);
+    },
+  );
+});
+
+test('the confirm dialog is held while the mutation is in flight', async () => {
+  // `dialog.js` refuses to dismiss a dialog carrying this marker, so the write
+  // owns it until its response is in hand (GH #293).
+  await withServerAnswer(
+    {
+      redirected: false,
+      ok: false,
+      status: 500,
+      text: async () => '<!doctype html><p>the write failed</p>',
+    },
+    async ({ document }) => {
+      const dialog = { dataset: {} };
+      const form = recordableForm({ dialog });
+      const event = submitEvent(form);
+      document.listeners('submit').forEach((handler) => handler(event));
+      assert.equal(
+        dialog.dataset.dialogBusy,
+        'true',
+        'the dialog belongs to the write while it is outstanding',
+      );
+      await new Promise((resolve) => setImmediate(resolve));
+      assert.equal(
+        dialog.dataset.dialogBusy,
+        undefined,
+        'the response hands the dialog back',
+      );
+    },
+  );
 });
