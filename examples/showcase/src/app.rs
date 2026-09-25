@@ -19,7 +19,8 @@ use topcoat::{
 };
 
 use crate::models::{
-    Author, BLOCKED_TENANT, Comment, Media, Post, PostStats, Publication, Seo, User,
+    Author, BLOCKED_TENANT, Comment, Media, Post, PostStats, Publication, REMOVED_COMMENT_BODY,
+    Seo, User,
 };
 
 /// The theme's sans font, pulled from Fontsource and self-hosted as a Topcoat
@@ -573,6 +574,9 @@ impl Resource for PostResource {
     /// the guard the list columns use: drop the include from `query` and this
     /// says so instead of panicking inside `Deferred::get`, so
     /// `detail_relation_check` fails on a message rather than a stack trace.
+    ///
+    /// The table names `CommentResource`, so the related resource's `can_view`
+    /// decides which loaded comments render (GH #296).
     fn view_relations<'a>(cx: &'a Cx, record: &Post) -> Option<topcoat::view::BoxView<'a>> {
         if record.comments.is_unloaded() {
             return Some(
@@ -589,7 +593,10 @@ impl Resource for PostResource {
             RelationColumn::computed("Comment", |c: &Comment| c.body.clone()),
             RelationColumn::computed("Post", |c: &Comment| c.post_id.to_string()),
         ));
-        Some(render_relation(
+        // `CommentResource` is named at the relation, so the table applies the
+        // related resource's `can_view` and the policy cannot drift from the
+        // comments queue's (GH #296).
+        Some(render_relation::<CommentResource>(
             cx,
             "Comments",
             columns,
@@ -1164,8 +1171,13 @@ impl Resource for CommentResource {
     fn can_view_any(_cx: &Cx) -> bool {
         true
     }
-    fn can_view(_cx: &Cx, _record: &Comment) -> bool {
-        true
+    /// A removed comment keeps its row as a placeholder (GH #296): there is no
+    /// content to read, so this refuses it and the post's relation omits it.
+    /// The framework withholds the queue's row actions from a record this
+    /// refuses (GH #235), which is the same answer — a placeholder has nothing
+    /// to edit or delete.
+    fn can_view(_cx: &Cx, record: &Comment) -> bool {
+        record.body != REMOVED_COMMENT_BODY
     }
     fn can_create(_cx: &Cx) -> bool {
         true

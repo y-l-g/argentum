@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 use showcase::{
     app::router_for_tests as router,
-    models::{Comment, Post},
+    models::{Comment, Post, REMOVED_COMMENT_BODY},
 };
 
 use crate::common::{TestClient, body_string, demo_client, full_db};
@@ -59,12 +59,17 @@ async fn detail_page_shows_the_records_own_related_rows() {
     // The commented post's page shows its comments' *rows*. The heading is not
     // asserted: "Comments" is the sidebar nav label present on every panel page
     // (GH #216), and `render_relation`'s own heading is pinned in core
-    // (`a_relation_table_renders_every_row_and_column`).
+    // (`a_relation_table_renders_every_row_and_column`). The removed
+    // placeholder is a related row the policy refuses; its denial has its own
+    // test below, so this one stays on the viewable set.
     let html = body_string(client.get(&format!("/admin/posts/{}", commented.id)).await).await;
-    for comment in &related {
+    for comment in related
+        .iter()
+        .filter(|comment| comment.body != REMOVED_COMMENT_BODY)
+    {
         assert!(
             html.contains(&comment.body),
-            "every related row renders: missing {:?} in {html}",
+            "every viewable related row renders: missing {:?} in {html}",
             comment.body
         );
     }
@@ -84,6 +89,53 @@ async fn detail_page_shows_the_records_own_related_rows() {
         other.contains("None."),
         "an empty relation says so instead of rendering an empty table: {other}"
     );
+}
+
+/// The relation applies the related resource's `can_view` (GH #296).
+///
+/// The reader sees the parent post and the comments that policy admits; the
+/// removed placeholder `CommentResource::can_view` refuses does not render. A
+/// relation drawn through `render_relation` therefore cannot show a related row
+/// the reader may not see, and the row is refused by the resource rather than
+/// by a filter the hook could drop.
+#[tokio::test]
+async fn detail_relation_omits_a_row_the_comment_policy_refuses() {
+    let db = full_db().await;
+    let router = router(db.clone());
+    let client = demo_client(&router, &db).await;
+    let mut db_q = db.clone();
+    let (commented, _) = fixture_posts(&mut db_q).await;
+
+    let related = Comment::all()
+        .filter(Comment::fields().post_id().eq(commented.id))
+        .exec(&mut db_q)
+        .await
+        .unwrap();
+    let denied = related
+        .iter()
+        .find(|comment| comment.body == REMOVED_COMMENT_BODY)
+        .expect("the fixture seeds a removed comment on Hello Toasty");
+    let visible: Vec<&Comment> = related
+        .iter()
+        .filter(|comment| comment.body != REMOVED_COMMENT_BODY)
+        .collect();
+    assert!(
+        !visible.is_empty(),
+        "the fixture must leave viewable comments to contrast with the denied one"
+    );
+
+    let html = body_string(client.get(&format!("/admin/posts/{}", commented.id)).await).await;
+    assert!(
+        !html.contains(&denied.body),
+        "a row the related resource refuses must not render: {html}"
+    );
+    for comment in visible {
+        assert!(
+            html.contains(&comment.body),
+            "a row the policy admits renders: missing {:?} in {html}",
+            comment.body
+        );
+    }
 }
 
 #[tokio::test]

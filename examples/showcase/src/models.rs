@@ -5,8 +5,8 @@ use toasty::Deferred;
 /// module; re-exported so the panel, the binary and the tests keep one import
 /// path.
 pub use crate::seed::{
-    BLOCKED_TENANT, DEMO_ADMIN_EMAIL, DEMO_ADMIN_PASSWORD, DEMO_TENANT, TENANTLESS_ADMIN_EMAIL,
-    create_admin, seed, seed_phase2,
+    BLOCKED_TENANT, DEMO_ADMIN_EMAIL, DEMO_ADMIN_PASSWORD, DEMO_TENANT, REMOVED_COMMENT_BODY,
+    TENANTLESS_ADMIN_EMAIL, create_admin, seed, seed_phase2,
 };
 
 /// User shown in the admin list — the realistic spec model (US16, GH #13):

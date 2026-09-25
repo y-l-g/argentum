@@ -57,9 +57,12 @@ fn view_relations<'a>(cx: &'a Cx, record: &Post) -> Option<BoxView<'a>> {
             .boxed(),
         );
     }
-    Some(render_relation(cx, "Comments", RelationColumns::columns(
-        RelationColumn::computed("Comment", |c: &Comment| c.body.clone()),
-    ), record.comments.get()))
+    Some(render_relation::<CommentResource>(
+        cx,
+        "Comments",
+        RelationColumns::columns(RelationColumn::computed("Comment", |c: &Comment| c.body.clone())),
+        record.comments.get(),
+    ))
 }
 ```
 
@@ -67,8 +70,11 @@ It is a typed method and not a Schema field because a Schema renders the record'
 projection* while a relation is a list of records — and `Resource::view(cx)` is handed no record at
 all, so a Schema node could not read one. Reading `record.comments.get()` issues no query: it is the
 row the include loaded, and a test counts the statements a detail page runs to hold that
-(`the_relation_issues_no_query_of_its_own`). Related rows render read-only: no pager, no search, no
-bulk column, no row actions.
+(`the_relation_issues_no_query_of_its_own`). The call names the related `Resource`
+(`render_relation::<CommentResource>`), so the table applies that resource's `can_view` to every
+loaded row, and it renders at most `MAX_RELATION_ROWS` rows, printing a line that names the cap and
+the total when it truncates. Related rows render read-only: no pager, no search, no bulk column, no
+row actions.
 - A typed column (`Uuid`, `jiff::Timestamp`) is readable: bind it with `TextInput::typed` (GH #192)
   and the view renders its stored value as text. A foreign key therefore reads as its stored id
   rather than the related record's label — render the relation through `view_relations` when the
