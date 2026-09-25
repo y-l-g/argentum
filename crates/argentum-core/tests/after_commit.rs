@@ -1,4 +1,4 @@
-//! The post-commit seam, end to end (GH #112): a side effect that must not
+//! The post-commit seam, end to end: a side effect that must not
 //! survive a rollback runs once per committed write, never when the write did
 //! not land, and cannot undo a write that did.
 //!
@@ -143,7 +143,7 @@ impl Resource for AuditedResource {
         .await
         .map_err(|error| -> topcoat::Error { error.into() })?;
         // The instance update reloads the row, so this is the committed state
-        // the hook must see (GH #112).
+        // the hook must see.
         Ok(record)
     }
 
@@ -181,7 +181,7 @@ impl Resource for AuditedResource {
 }
 
 /// A resource that declares no hook: the default is a no-op, so nothing about
-/// its writes changes (GH #112's "existing resources are unaffected").
+/// its writes changes ('s "existing resources are unaffected").
 struct PlainResource;
 
 impl Resource for PlainResource {
@@ -526,6 +526,6 @@ async fn a_resource_without_the_hook_writes_exactly_as_before() {
 
     assert_eq!(notes(&db).await.len(), 1);
     // No `audits` assertion here: this resource declares no hook, so nothing in
-    // the framework could write that table and the check could never fail
-    // (GH #216). The hook-bearing tests above own it.
+    // the framework could write that table and the check could never fail.
+    // The hook-bearing tests above own it.
 }

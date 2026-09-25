@@ -48,20 +48,20 @@ pub struct Schema {
 }
 
 impl Schema {
-    /// Whether this schema declares nothing to render (GH #138).
+    /// Whether this schema declares nothing to render.
     ///
     /// `Panel::build` refuses a resource that allows create but declares no
     /// fields: the form would render empty and silently accept nothing. Public
-    /// since GH #187, where `Resource::view`'s default is the empty schema and
-    /// [`Resource::viewed`](crate::resource::Resource::viewed) reads it as "no
-    /// detail page declared".
+    /// because [`Resource::view`](crate::resource::Resource::view) defaults to
+    /// this and [`Resource::viewed`](crate::resource::Resource::viewed) reads it
+    /// as "no detail page declared".
     pub fn is_empty(&self) -> bool {
         self.nodes.is_empty()
     }
 
     /// Build a `Schema` from any `IntoSchema` (single node, tuple, or `Schema`).
     ///
-    /// Panics on duplicate field names (GH #100): two inputs sharing one name
+    /// Panics on duplicate field names: two inputs sharing one name
     /// render two `<input name="x">`, POST one value to both, and collapse to
     /// one validation rule via last-wins `map.insert`.
     pub fn new(children: impl IntoSchema) -> Self {
@@ -80,7 +80,7 @@ impl Schema {
         self.render_with(cx, &HashMap::new(), &HashMap::new()).await
     }
 
-    /// Render the schema read-only (GH #187): the detail page's side of the
+    /// Render the schema read-only: the detail page's side of the
     /// same declaration.
     ///
     /// Every field shows the record's stored value in place of its control, so
@@ -105,33 +105,26 @@ impl Schema {
         .await
     }
 
-    /// Rewrite submitted values into their fields' stored spelling (GH #192).
+    /// Rewrite submitted values into their fields' stored spelling.
     ///
     /// Runs after validation and before a record fn sees the map, so a typed
     /// field's `Display` — not the browser's spelling — is what gets written.
     /// That is what makes an untouched edit round-trip: the form hydrates a
     /// stored value, the browser echoes it, and this puts back the same string
-    /// the record fn would have produced rather than a re-spelling of it.
+    /// the record fn would have produced.
     ///
-    /// A `Select` takes its trimmed submission (GH #297): its presence rule and
-    /// its option-existence check both read `value.trim()`, so the trimmed
-    /// value is the one that passed — writing the untrimmed spelling would
-    /// store a value no rule authorised.
+    /// A `Select` takes its trimmed submission: its presence rule and its
+    /// option-existence check both read `value.trim()`, so the trimmed value is
+    /// the one that passed, and storing the untrimmed spelling would store a
+    /// value no rule authorised.
     ///
-    /// A value the caller has not validated cannot be normalised, so a parse
-    /// failure here leaves the submission untouched and reports nothing: it is
-    /// unreachable from the handlers (validation refuses it first), and a
-    /// silent rewrite would hide a bypass rather than surface it. A field with
-    /// no submission keeps its absence — an update writes only present keys.
-    ///
-    /// An **empty** submission is left empty for the same reason (GH #192): a
-    /// typed column has no spelling for "no value" — `""` is not an `i64` and
-    /// not a `Timestamp` — so inventing one here would put a value in a record
-    /// the user never gave. Empty is the presence rule's business, which is
-    /// where the panel already answers it: `.required()` refuses it inline, and
-    /// an optional typed field reaches its record fn as `""` for the record fn's
-    /// own default. The record fn therefore reads a typed field through the same
-    /// "present or absent" check it uses for any other optional column.
+    /// A parse failure here leaves the submission untouched and reports nothing:
+    /// it is unreachable from the handlers, and a silent rewrite would hide a
+    /// bypass rather than surface it. A field with no submission keeps its
+    /// absence (an update writes only present keys), and an **empty** submission
+    /// stays empty: a typed column has no spelling for "no value", so empty is
+    /// the presence rule's business — `.required()` refuses it inline, and an
+    /// optional typed field reaches its record fn as `""`.
     pub fn normalize_values(&self, values: &mut HashMap<String, String>) {
         for (name, input) in self.text_inputs() {
             let Some(submitted) = values.get(&name) else {
@@ -155,7 +148,7 @@ impl Schema {
         }
     }
 
-    /// Append another schema's nodes after this one's (GH #191).
+    /// Append another schema's nodes after this one's.
     ///
     /// [`Schema::new`] composes through `IntoSchema`, whose tuple form stops at
     /// eight nodes; a derived embedded form has one control per leaf column and
@@ -221,7 +214,7 @@ impl Schema {
         out
     }
 
-    /// Keys in `values` that no declared input owns, sorted (GH #89).
+    /// Keys in `values` that no declared input owns, sorted.
     ///
     /// Framework-level allow-list seam, enforced by the create/edit POST
     /// handlers (unknown keys → 400): record handlers already whitelist via
@@ -229,7 +222,7 @@ impl Schema {
     /// silently promote `role`/`tenant_id`/handler keys (`csrf_token`,
     /// `confirm`, `ids`) to client-controlled writes. The transport keys the
     /// handlers own (`csrf_token`, `clear_<field>`, `keep_<field>`) are
-    /// stripped before the record fns run (GH #148), so a generic impl cannot
+    /// stripped before the record fns run, so a generic impl cannot
     /// promote those either; `confirm`/`ids` are only read, never written.
     /// Callers should reject or ignore the rest (at least `debug_assert!` in
     /// tests); handler keys must be filtered by the caller before calling this.
@@ -257,7 +250,7 @@ impl Schema {
     }
 
     /// Every leaf `pick` selects, keyed by field name — the one walk behind the
-    /// per-kind accessors (GH #209). `pick` answers a node's `(field name,
+    /// per-kind accessors. `pick` answers a node's `(field name,
     /// leaf)`, or `None` when the node is not that kind.
     fn leaves<T>(&self, pick: impl Fn(&Node) -> Option<(&str, T)>) -> HashMap<String, T> {
         let mut map = HashMap::new();
@@ -272,7 +265,7 @@ impl Schema {
     }
 
     /// Whether any leaf satisfies `pick` — the allocation-free counterpart of
-    /// [`Self::leaves`] for a yes/no question (GH #209).
+    /// [`Self::leaves`] for a yes/no question.
     fn any_leaf(&self, pick: impl Fn(&Node) -> bool) -> bool {
         let mut found = false;
         for node in &self.nodes {
@@ -307,24 +300,24 @@ impl Schema {
 
     /// Whether this schema (including nested Section/Group/Grid/Repeater/Tabs)
     /// contains a [`FileUpload`]. `Panel` uses it to emit
-    /// `enctype="multipart/form-data"` only on forms that need it (GH #73).
+    /// `enctype="multipart/form-data"` only on forms that need it.
     pub fn has_file_upload(&self) -> bool {
         self.any_leaf(|n| matches!(n, Node::FileUpload(_)))
     }
 
-    /// Validate submitted values against declared inputs (GH #89).
+    /// Validate submitted values against declared inputs.
     ///
     /// Absent keys are treated as `""` for validation; update record fns must
     /// therefore only write keys present in the submission, or an omitted
     /// optional field silently blanks the stored value. Use
     /// [`Self::unknown_keys`] to allow-list POST keys.
     ///
-    /// A field a submission hides is not validated (GH #297): an all-empty
-    /// Repeater group is absent (GH #147), and a variant group the submission's
+    /// A field a submission hides is not validated: an all-empty
+    /// Repeater group is absent, and a variant group the submission's
     /// discriminant does not name is not rendered by `variant.js`, so neither
     /// can fail the submit for a value the user cannot see.
     pub fn validate(&self, values: &HashMap<String, String>) -> HashMap<String, Vec<String>> {
-        // Classify the groups first (GH #147, GH #297): an all-empty group is
+        // Classify the groups first: an all-empty group is
         // "absent" — an untouched group submits empty strings (or omits the
         // keys), both treated as absent — so its inner inputs must not fail
         // the submit for any requiredness. A `required` repeater answers with
@@ -334,12 +327,12 @@ impl Schema {
         // usual. Whitespace-only values count as empty, matching the
         // codebase-wide trim convention. A variant group the submission's
         // discriminant does not name is hidden with its subtree, which is what
-        // makes validation agree with the render (GH #297).
+        // makes validation agree with the render.
         let mut errors: HashMap<String, Vec<String>> = HashMap::new();
         let mut skip: HashSet<String> = HashSet::new();
         walk_absent_groups(&self.nodes, values, &mut skip, &mut errors, false);
         // One walk, one match per node (`validate_leaf`): the single place a
-        // field kind joins validation (GH #209).
+        // field kind joins validation.
         for node in &self.nodes {
             for_each_field(node, &mut |n| {
                 let Some((name, errs)) = validate_leaf(n, values) else {
@@ -353,7 +346,7 @@ impl Schema {
         errors
     }
 
-    /// Field names a submission leaves out of validation (GH #147, GH #297):
+    /// Field names a submission leaves out of validation:
     /// the same classification `validate` uses — an all-empty Repeater group
     /// is absent, and a variant group the discriminant does not name is hidden
     /// — minus the required-group errors, which validation already reported.
@@ -369,7 +362,7 @@ impl Schema {
 
     /// Async validation for Select relationship existence (tenancy-aware).
     ///
-    /// A field `validate` skipped is skipped here too (GH #297): an absent
+    /// A field `validate` skipped is skipped here too: an absent
     /// repeater group or a hidden variant group holds no value the user can
     /// see, so its select must not be probed for existence.
     pub async fn validate_async(
@@ -498,7 +491,7 @@ mod tests {
     }
 
     /// GH #191: a derived form is built by appending, so `extend` carries the
-    /// same duplicate-name guard `Schema::new` does (GH #100).
+    /// same duplicate-name guard `Schema::new` does.
     #[test]
     #[should_panic(expected = "duplicate field name 'name'")]
     fn extend_keeps_the_duplicate_field_guard() {

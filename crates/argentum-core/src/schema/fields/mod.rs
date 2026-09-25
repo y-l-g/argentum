@@ -18,7 +18,7 @@ pub use text_input::TextInput;
 pub use textarea::Textarea;
 use topcoat::{Result, context::Cx, view::*};
 
-/// How a read-only value is presented (GH #187).
+/// How a read-only value is presented.
 ///
 /// Two shapes, because the difference is content, not styling: prose wraps
 /// mid-word never, and an identifier (a stored path, an address) has no spaces
@@ -33,7 +33,7 @@ pub(crate) enum ValueKind {
     Machine,
 }
 
-/// The read-only half of a field (GH #187): the label with the record's stored
+/// The read-only half of a field: the label with the record's stored
 /// value under it, no control and no validation slot.
 ///
 /// Every field type renders its view through this, so a detail page reads
@@ -43,7 +43,7 @@ pub(crate) enum ValueKind {
 /// the two pages.
 ///
 /// An absent value and an empty one render the same, deliberately: the
-/// framework stores `""` rather than NULL (GH #89), so a stored record cannot
+/// framework stores `""` rather than NULL, so a stored record cannot
 /// tell them apart and the page must not pretend otherwise.
 fn render_value<'a>(
     cx: &'a Cx,
@@ -60,10 +60,10 @@ fn render_value<'a>(
     render_value_view(cx, label, value)
 }
 
-/// The field chrome `render_value` puts around a rendered value (GH #187), for
+/// The field chrome `render_value` puts around a rendered value, for
 /// a field whose read-only value is not a plain string.
 ///
-/// A `FileUpload` renders its stored path as a link (GH #242) and supplies that
+/// A `FileUpload` renders its stored path as a link and supplies that
 /// view here, so the label, the `field` family and the `ac-field` marker stay
 /// the ones every other read-only field renders through.
 fn render_value_view<'a>(cx: &'a Cx, label: &str, value: BoxView<'a>) -> Result<BoxView<'a>> {
@@ -87,7 +87,7 @@ fn render_value_view<'a>(cx: &'a Cx, label: &str, value: BoxView<'a>) -> Result<
 ///
 /// A field is invalid when it carries an error or when it has a `fallback`
 /// message of its own — the relationship denial a `Select` surfaces on GET
-/// (GH #108), which has no `errors` entry yet.
+/// which has no `errors` entry yet.
 pub(crate) struct FieldChrome {
     name: String,
     error_id: String,
@@ -126,7 +126,7 @@ impl FieldChrome {
 
 /// The chrome every form control renders: the `field` wrapper carrying
 /// `ac-field` / `ac-field--error`, the label with the required marker, the
-/// control, and the error slot (GH #12, GH #189).
+/// control, and the error slot.
 ///
 /// `attributes` carries the extra wrapper attributes a control needs — the
 /// `Select` option and filter hooks.
@@ -267,7 +267,7 @@ mod test_support {
     }
 
     /// `Select`/`FileUpload` follow the same required-default as `TextInput`
-    /// (GH #147): non-nullable lenses default required, `.optional()` opts
+    /// non-nullable lenses default required, `.optional` opts
     /// out, `.required()` forces it back.
     #[test]
     fn select_and_file_upload_required_defaults_follow_nullability() {
@@ -311,7 +311,7 @@ mod test_support {
                 .any(|e| e.contains("is required"))
         );
 
-        // Nullable lenses default optional (GH #100 parity).
+        // Nullable lenses default optional (parity).
         let select = Select::r#for(NullableRef::fields().parent_id());
         assert!(
             select.validate("").is_empty(),

@@ -12,7 +12,7 @@ use super::{
 
 /// FileUpload field — stores a String path with file input handling.
 ///
-/// Storage contract (GH #73, GH #188): the field always binds a `String` column
+/// Storage contract: the field always binds a `String` column
 /// holding a *path*, never bytes. Forms containing a `FileUpload` render
 /// `enctype="multipart/form-data"` (see `Panel`) and the POST parser extracts
 /// the file part; where the bytes go is the app's decision, expressed by the
@@ -23,8 +23,8 @@ use super::{
 /// attribute, which browsers ignore for security.
 ///
 /// `render_with` and `validate` own the rest: the stored value as a link and
-/// its `clear_<field>` checkbox (GH #188, GH #242), and the edit-time
-/// `required` rule (GH #184).
+/// its `clear_<field>` checkbox, and the edit-time
+/// `required` rule.
 #[derive(Debug, Clone)]
 pub struct FileUpload {
     name: String,
@@ -35,7 +35,7 @@ pub struct FileUpload {
 impl FileUpload {
     /// Create a `FileUpload` bound to the given field lens.
     ///
-    /// Required defaults from the lens's nullability (GH #100, GH #147),
+    /// Required defaults from the lens's nullability,
     /// same as `TextInput`/`Select`. The `String` lens type only binds
     /// non-nullable columns (`Option<String>` fields do not typecheck), so
     /// the default is always required and `.optional()` is the form-level
@@ -58,7 +58,7 @@ impl FileUpload {
         self
     }
 
-    /// Opt out of the required default (GH #147): `r#for` only binds
+    /// Opt out of the required default: `r#for` only binds
     /// non-nullable `String` columns (an `Option<String>` field is
     /// `Path<M, Option<String>>` and does not typecheck), so the default is
     /// always required and this is the only way to treat a required-backed
@@ -79,11 +79,11 @@ impl FileUpload {
     }
 
     /// The label as the user sees it, for the errors the framework words
-    /// (GH #188: a failed upload is reported against this label).
+    /// (: a failed upload is reported against this label).
     ///
     /// `pub(crate)`, unlike `TextInput::label_str`: the upload seam is what
     /// needs it, and the issue's contract is that nothing about the `Schema`
-    /// surface changes when an app installs a store (GH #188).
+    /// surface changes when an app installs a store.
     pub(crate) fn label_str(&self) -> &str {
         &self.label
     }
@@ -100,14 +100,14 @@ impl FileUpload {
         mode: Mode,
     ) -> Result<BoxView<'a>> {
         // The detail page shows the stored path, never a file control
-        // (GH #187): an empty `FileUpload` on an edit is the panel's "keep the
+        // an empty `FileUpload` on an edit is the panel's "keep the
         // stored file" affordance, which is a statement about a form, not about
         // a record.
         if mode == Mode::View {
             return stored_upload_value(cx, &self.label, value);
         }
         let name = self.name.clone();
-        // An edit hydrates the stored path; a create does not (GH #184). See
+        // An edit hydrates the stored path; a create does not. See
         // the type docs: the control is required only when nothing is stored,
         // since a file input cannot be pre-filled.
         let stored = stored_path(value);
@@ -115,15 +115,14 @@ impl FileUpload {
         let control_required = self.required && !is_edit;
         let chrome = FieldChrome::new(&name, errors, None);
         let hint_id = format!("{name}-hint");
-        // The clear flag is a framework transport key, not a field (GH #148):
+        // The clear flag is a framework transport key, not a field:
         // it names the stored value's owner and is stripped before any record
         // fn, so it can never be written as a field of its own.
         let clear_name = format!("clear_{name}");
-        // The stored value as a link to the file it names (GH #242). Nothing
+        // The stored value as a link to the file it names. Nothing
         // here guesses a URL convention — the app decides what it stores (the
         // uploader's return value) — and a value that is not a rooted path or
-        // an `http(s)` URL renders as text rather than as a clickable scheme
-        // (GH #277).
+        // an `http(s)` URL renders as text rather than as a clickable scheme.
         let stored_display: Option<BoxView<'a>> =
             stored.map(|current| stored_upload_row(cx, current));
         let aria_invalid = chrome.aria_invalid();
@@ -156,10 +155,10 @@ impl FileUpload {
                     "Leave empty to keep the current file."
                 </div>
                 // The one control that says "remove it" rather than "leave
-                // it alone" (GH #188). It carries `value="1"` so the
+                // it alone". It carries `value="1"` so the
                 // framework's own `truthy` vocabulary reads it, and it is a
                 // declared transport key, so a generic record fn never sees
-                // it (GH #148).
+                // it.
                 <div class="mt-2 flex items-center gap-2">
                     ui_checkbox(
                         attrs: attributes! {
@@ -201,7 +200,7 @@ fn stored_path(value: Option<&str>) -> Option<String> {
         .filter(|v| !v.is_empty())
 }
 
-/// Whether a stored value may become an `href` (GH #277): a rooted path
+/// Whether a stored value may become an `href`: a rooted path
 /// (`/uploads/x.png`, not the scheme-relative `//host`) or an absolute
 /// `http(s)` URL. Anything else — a bare basename, `javascript:`, `data:` —
 /// renders as text: the framework stores what it is handed, so the render is
@@ -213,7 +212,7 @@ fn is_linkable(path: &str) -> bool {
         || lower.starts_with("http://")
 }
 
-/// The `Current: …` row a `FileUpload` shows for a stored value (GH #188).
+/// The `Current: …` row a `FileUpload` shows for a stored value.
 ///
 /// Takes the path by value: the rendered view has to outlive the field's
 /// `render_with`, and a rendering coroutine may not hold a borrow of it.
@@ -221,7 +220,7 @@ fn stored_upload_row<'a>(cx: &'a Cx, path: String) -> BoxView<'a> {
     // The link is the only way to reach the file, and the path is what it
     // says; each node owns its own copy of it.
     let text = path.clone();
-    // A value that is not a safe URL renders as plain text (GH #277): the
+    // A value that is not a safe URL renders as plain text: the
     // wrapper and the label stay, only the anchor goes.
     let inner: BoxView<'a> = if is_linkable(&path) {
         let href = path.clone();
@@ -243,8 +242,8 @@ fn stored_upload_row<'a>(cx: &'a Cx, path: String) -> BoxView<'a> {
     .boxed()
 }
 
-/// A `FileUpload` read rather than edited (GH #187): the label over the stored
-/// path, as a link to the file when it is one (GH #242, GH #277).
+/// A `FileUpload` read rather than edited: the label over the stored
+/// path, as a link to the file when it is one.
 ///
 /// The reader asks the same "is the stored value right?" question the editor
 /// asks, and following the link is how they answer it. `underline` is the
@@ -256,7 +255,7 @@ fn stored_upload_value<'a>(cx: &'a Cx, label: &str, value: Option<&str>) -> Resu
     let Some(path) = stored_path(value) else {
         return render_value(cx, label, value, ValueKind::Machine);
     };
-    // A value that is not a safe URL is not a link (GH #277): it renders
+    // A value that is not a safe URL is not a link: it renders
     // through the same machine-value path an empty value takes, so the detail
     // page shows the stored text without an `href` to click.
     if !is_linkable(&path) {
@@ -313,7 +312,7 @@ mod tests {
             html.contains("type=\"file\""),
             "missing file input in {html}"
         );
-        // Browsers ignore/mask file-input value (GH #73) — must never render.
+        // Browsers ignore/mask file-input value — must never render.
         assert!(
             !html.contains("value=\"/tmp/old.jpg\""),
             "file input must not carry value in {html}"

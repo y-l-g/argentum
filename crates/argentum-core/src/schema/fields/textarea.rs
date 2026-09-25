@@ -10,7 +10,7 @@ use super::{
     FieldChrome, ValueKind, render_field, render_value,
 };
 
-/// Typed multi-line text field bound to a Toasty field lens (GH #184).
+/// Typed multi-line text field bound to a Toasty field lens.
 ///
 /// `TextInput` renders `<input type="text">`, which is the wrong control for a
 /// column holding prose — a post body, a description, a note. This is the same
@@ -35,7 +35,7 @@ impl Textarea {
     /// Create a `Textarea` bound to the given field lens.
     ///
     /// Only `String` lenses compile, and `required` defaults from the field's
-    /// nullability exactly as `TextInput::r#for` documents (GH #100).
+    /// nullability exactly as `TextInput::r#for` documents.
     ///
     /// There is deliberately no `.unique()`: the app-side unique check builds
     /// its probe from `TextInput::eq_filter`, so a uniqueness modifier here
@@ -58,7 +58,7 @@ impl Textarea {
     }
 
     /// Create a `Textarea` bound to a lens inside an embedded struct or a
-    /// `#[document]` (GH #185), resolving through the request's app schema so
+    /// `#[document]`, resolving through the request's app schema so
     /// the leaf arrives as its flattened storage column. Same contract as
     /// `TextInput::r#for_context`, including the not-required default.
     pub fn r#for_context<M>(cx: &Cx, path: toasty::stmt::Path<M, String>) -> Self
@@ -80,7 +80,7 @@ impl Textarea {
         self
     }
 
-    /// Opt out of the non-nullable default (GH #100), as
+    /// Opt out of the non-nullable default, as
     /// [`TextInput::optional`](crate::schema::TextInput::optional).
     pub fn optional(mut self) -> Self {
         self.required = false;
@@ -231,7 +231,7 @@ mod tests {
             "optional() must opt out of the required default"
         );
 
-        // An omitted key is validated as empty, matching TextInput (GH #89).
+        // An omitted key is validated as empty, matching TextInput.
         let whitespace = schema.validate(&HashMap::from([("name".to_string(), "   ".to_string())]));
         assert_eq!(
             whitespace.get("name"),

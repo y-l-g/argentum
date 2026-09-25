@@ -1,8 +1,8 @@
-//! Embedded lens resolution through the request's app schema (GH #185).
+//! Embedded lens resolution through the request's app schema.
 //!
 //! `TextInput::r#for` binds a top-level field: it resolves against the owned
 //! `app::Model`, which cannot see embedded models, so a path through an
-//! embedded struct is rejected as a traversal lens (GH #100). `r#for_context`
+//! embedded struct is rejected as a traversal lens. `r#for_context`
 //! resolves through the request's app schema instead, so the leaf arrives as
 //! its flattened storage column.
 //!
@@ -146,7 +146,7 @@ async fn the_flattened_name_participates_in_allow_list_and_validation() {
 /// A traversal lens over a relation is not an embedded step, and this walk is
 /// for embedded binding only. It must fail loudly rather than bind anything —
 /// `author_id` and `name` are different columns, so a silent misbind here would
-/// write the wrong one (GH #100). No `lenses.rs` test reaches this branch: its
+/// write the wrong one. No `lenses.rs` test reaches this branch: its
 /// panic rows come from the missing/foreign-root model check, not from a
 /// relation hop in the walk.
 #[tokio::test]

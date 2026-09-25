@@ -1,79 +1,46 @@
-//! First-class embedded **values** (GH #191): a typed value and the flat form
-//! map, converted in one declared place.
+//! First-class embedded **values**: a typed value and the flat form map,
+//! converted in one declared place.
 //!
-//! Embedded *leaves* bind one column at a time (GH #185): a lens through an
-//! embedded struct, an enum variant, or a `#[document]` resolves to its
-//! flattened storage column and a `TextInput` posts it. The **value** those
-//! leaves belong to had no seam at all — every app reassembled it by hand from
-//! the flat map, and the enum's variant was recovered from *which payload
-//! columns happened to be non-empty*:
+//! Embedded *leaves* bind one column at a time: a lens through an embedded
+//! struct, an enum variant, or a `#[document]` resolves to its flattened
+//! storage column and a `TextInput` posts it. A **value** converts as a whole.
+//! An embedded enum has a discriminant column (Toasty stores the variant
+//! there), so the form carries the discriminant explicitly, hydration writes
+//! the stored variant, and an edit names the variant it means. Every key comes
+//! from the compiled mapping, as it does for a leaf, so the app never spells a
+//! flattened name.
 //!
-//! ```text
-//! let publication = if !field(values, "publication_canonical_url").is_empty() {
-//!     Publication::Published { published_at: timestamp, canonical_url: … }
-//! } else if … // and so on, per app, per type
-//! ```
-//!
-//! That inference is the bug this module removes. An embedded enum *has* a
-//! discriminant column — Toasty stores the variant there — so the form carries
-//! the discriminant explicitly, hydration writes the stored variant, and an
-//! edit names the variant it means.
-//!
-//! Payloads still decide **one** case, and only when the submission carries no
-//! discriminant at all: the create form has no stored variant to hydrate, so a
-//! payload of the author's own selects the variant (a `#[shared(..)]` column
-//! never does, because it belongs to several). That is the panel's pre-#191
-//! rule, reimplemented from the keys the schema resolves rather than remembered
-//! column names — and a discriminant the submission *does* name always wins,
-//! with an unknown one refused loudly rather than read as something else.
+//! A payload selects the variant only when the submission carries no
+//! discriminant at all (the create form has nothing to hydrate); a
+//! `#[shared(..)]` column belongs to several variants and never selects one. A
+//! named discriminant always wins, and an unknown one is refused loudly.
 //!
 //! # What an app writes
-//!
-//! Derive [`EmbeddedForm`] on the embedded type and call the four entry points:
 //!
 //! ```ignore
 //! #[derive(Clone, toasty::Embed, argentum_core::EmbeddedForm)]
 //! pub struct Seo { pub title: String, pub description: String }
 //!
-//! // form declaration: the controls, derived from the metadata
-//! Section::new("SEO").schema(Seo::form(cx, Post::fields().seo()))
-//!
-//! // hydration (edit/view): the record's value, written under its columns
+//! Section::new("SEO").schema(Seo::form(cx, Post::fields().seo()));
 //! write_embedded(cx, Post::fields().seo(), &record.seo, &mut values);
-//!
-//! // record fn: the value back, with its variant chosen by discriminant
 //! let seo = read_embedded(cx, Post::fields().seo(), &values);
 //! ```
 //!
-//! Every key comes from the resolver — the compiled mapping names the column,
-//! exactly as it does for a leaf (GH #185). The app never spells a flattened
-//! name, and nothing here re-derives Toasty's naming.
-//!
 //! # What is not covered
 //!
-//! - A `#[document]` **inside** an embedded value: its fields share one column, so there is no
-//!   per-field binding, and the walk refuses rather than hand one column back for several fields.
-//!   Leaf binding of a document still works (GH #185).
-//! - A relation inside an embedded value: relations are not stored in the row.
-//! - An embedded enum nested **inside an enum variant**: value resolution starts at a model root,
-//!   and a variant-rooted path addresses one variant's leaf (which leaf binding does handle).
-//!   Nesting inside *structs* works at any depth.
-//! - The variant **control** is a `Select` over the discriminant column ([`discriminant_select`]),
-//!   one option per variant — submitting the value the column stores, reading as the variant's name
-//!   — and each variant's payload renders inside a `Group` marked with that variant's value, so the
-//!   client can show the chosen variant alone (GH #191). The grouping is the derive's, the marker
-//!   is [`Group::variant`](crate::schema::Group::variant), and the toggle is `assets/variant.js`;
-//!   with JavaScript off every group renders, which is what the panel has always done.
+//! A `#[document]` inside an embedded value (its fields share one column, so no
+//! per-field binding; leaf binding of a document still works), a relation
+//! inside one, and an embedded enum nested inside an enum variant. Nesting
+//! inside *structs* works at any depth. The variant control is a `Select` over
+//! the discriminant column ([`discriminant_select`]), each variant's payload
+//! renders in a `Group` marked with
+//! [`Group::variant`](crate::schema::Group::variant), and `variant.js` toggles
+//! them; with JavaScript off every group renders.
 //!
-//! # What a derived control declares
-//!
-//! Every leaf under an embedded step is **not required** by default — the
+//! Every leaf under an embedded step is **not required** by default: the
 //! resolver reports `nullable=true` by binding policy, since only the matching
-//! variant writes a variant payload column — which is what the hand-written
-//! forms spelled `.optional()` for. That is the binding default, not a storage
-//! fact: the flattened column of a required embedded struct is `NOT NULL`. A
-//! leaf that must be present says so on the field's type or the app marks the
-//! control in its own layout.
+//! variant writes a variant payload column. The flattened column of a required
+//! embedded struct is still `NOT NULL`.
 
 use std::collections::HashMap;
 
@@ -93,8 +60,7 @@ fn resolver(cx: &Cx) -> FieldResolver<'_> {
     resolver
 }
 
-/// An embedded value that can be read from, and written to, the flat form map
-/// (GH #191).
+/// An embedded value that can be read from, and written to, the flat form map.
 ///
 /// Derive it with [`argentum_core::EmbeddedForm`](crate::EmbeddedForm); the
 /// derive knows the type's shape, this module knows the columns. A hand-written
@@ -116,16 +82,15 @@ pub trait EmbeddedForm: Sized {
     /// submission that names one it does not declare is refused loudly, and one
     /// that carries no discriminant at all falls back to the first variant
     /// whose own payload was submitted (the create form, a hand-written POST),
-    /// else the first variant. That fallback is the panel's pre-#191 rule,
-    /// reimplemented from the keys the schema resolves rather than remembered
-    /// column names.
+    /// else the first variant. The fallback reads the keys the schema resolves
+    /// rather than remembered column names.
     fn read_form<M>(cx: &Cx, parent: Path<M, Self>, values: &HashMap<String, String>) -> Self
     where
         M: toasty::schema::Model;
 
-    /// Whether a submission mentions any key of this value (GH #191).
+    /// Whether a submission mentions any key of this value.
     ///
-    /// The presence rule (GH #89) at the *value* level: an update that never
+    /// The presence rule at the *value* level: an update that never
     /// mentions a value leaves it alone, and "mentions" is decided by the keys
     /// the schema resolves — the discriminant included, at every nesting
     /// level. Generated code answers it, so a nested value composes; the parent
@@ -147,7 +112,7 @@ where
     resolver(cx).resolve(path.into()).name
 }
 
-/// An embedded enum's discriminant column and variants (GH #191).
+/// An embedded enum's discriminant column and variants.
 ///
 /// A variant carries two things, and they are not interchangeable: the **value**
 /// its discriminant column stores (`2`, or a string discriminant's own text),
@@ -235,7 +200,7 @@ impl EnumSpec {
 /// Panics when `parent` names no embedded value at all: every caller is a
 /// declaration (`#[derive(EmbeddedForm)]` on an enum, or a form built from
 /// one), and a lens that resolves to nothing is a wiring bug, not user input
-/// (the GH #100 policy).
+/// (the policy).
 pub fn enum_spec<M, T>(cx: &Cx, parent: impl Into<Path<M, T>>) -> Option<EnumSpec>
 where
     M: toasty::schema::Model,
@@ -280,9 +245,9 @@ where
     keys
 }
 
-/// Whether a submission carries any key of the value at `parent` (GH #191).
+/// Whether a submission carries any key of the value at `parent`.
 ///
-/// The update half of the presence rule (GH #89): a submit that never mentions
+/// The update half of the presence rule: a submit that never mentions
 /// this value leaves it alone, and "mentions" is decided by the columns the
 /// schema resolves rather than by a name the app spells.
 pub fn submitted<M, T>(
@@ -298,7 +263,7 @@ where
         .any(|key| values.contains_key(key))
 }
 
-/// The variant control for an embedded enum (GH #191): a `Select` over the
+/// The variant control for an embedded enum: a `Select` over the
 /// discriminant column, one option per variant the app schema declares.
 ///
 /// Each option **submits the variant's stored discriminant** and **reads as its
@@ -335,7 +300,7 @@ where
 }
 
 /// Write the typed `value` into the form map, under the columns the schema
-/// resolves for `parent` (GH #191).
+/// resolves for `parent`.
 pub fn write_embedded<M, T>(
     cx: &Cx,
     parent: impl Into<Path<M, T>>,
@@ -348,7 +313,7 @@ pub fn write_embedded<M, T>(
     value.write_form(cx, parent.into(), out);
 }
 
-/// Read the typed value back from a submission (GH #191).
+/// Read the typed value back from a submission.
 pub fn read_embedded<M, T>(
     cx: &Cx,
     parent: impl Into<Path<M, T>>,
@@ -361,10 +326,10 @@ where
     T::read_form(cx, parent.into(), values)
 }
 
-/// Read one leaf out of a submission, by its resolved key (GH #191).
+/// Read one leaf out of a submission, by its resolved key.
 ///
 /// Trimmed; an absent or empty value is the type's `Default`, which is the
-/// panel's rule for a typed column with no spelling for "no value" (GH #192) —
+/// panel's rule for a typed column with no spelling for "no value" —
 /// an optional typed leaf left blank reaches its record fn as that default.
 ///
 /// A value the type **cannot** parse panics instead: typed controls refuse

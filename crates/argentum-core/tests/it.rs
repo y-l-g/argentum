@@ -1,4 +1,4 @@
-//! One integration-test binary for `argentum-core` (GH #179, ADR-0015).
+//! One integration-test binary for `argentum-core` (ADR-0015).
 //!
 //! Same consolidation as the showcase tests: three separate targets each linked
 //! the full topcoat/toasty stack (~80 MB apiece) to run a handful of tests. The

@@ -1,10 +1,10 @@
-//! The upload seam end to end (GH #188): what an installed [`Uploader`] does
+//! The upload seam end to end: what an installed [`Uploader`] does
 //! with a `FileUpload`'s bytes, what happens when it refuses, what the clear
 //! control empties, and that `Panel::serve_dir` hands a stored path back.
 //!
-//! The pre-#188 contract is pinned here too: with no uploader installed the
-//! sanitized basename is still the stored value, so installing the seam is
-//! additive for every app that never installs one.
+//! With no uploader installed the sanitized basename is still the stored
+//! value, so installing the seam is additive for every app that never installs
+//! one.
 
 use std::{
     collections::HashMap,
@@ -31,7 +31,7 @@ use crate::common::{
 };
 
 /// A document with one required and one optional upload: the two ends of the
-/// clear-control rule (GH #188).
+/// clear-control rule.
 #[derive(Debug, Clone, toasty::Model)]
 struct Doc {
     #[key]
@@ -135,7 +135,7 @@ impl Resource for DocResource {
         values: HashMap<String, String>,
         ex: &mut dyn toasty::Executor,
     ) -> topcoat::Result<Doc> {
-        // Absent keys store "" (GH #89) — the shape every showcase record fn
+        // Absent keys store "" — the shape every showcase record fn
         // has, so the upload path reaches the row the ordinary way.
         let (title, cover, attachment) = stored_values(&values);
         toasty::create!(Doc {
@@ -154,7 +154,7 @@ impl Resource for DocResource {
         values: HashMap<String, String>,
         ex: &mut dyn toasty::Executor,
     ) -> topcoat::Result<Doc> {
-        // Absent keys keep the stored value (GH #89); a cleared upload arrives
+        // Absent keys keep the stored value; a cleared upload arrives
         // as a present, empty value.
         for (name, value) in [
             ("title", &mut record.title),
@@ -305,8 +305,8 @@ async fn an_installed_uploader_stores_the_bytes_and_the_path_reaches_the_record(
 
 #[tokio::test]
 async fn without_an_uploader_the_sanitized_basename_is_still_stored() {
-    // The pre-#188 contract, and the reason the seam is additive: an app that
-    // installs nothing keeps exactly what it had.
+    // The seam is additive: an app that installs nothing keeps exactly what it
+    // had.
     let db = seeded_db().await;
     let router = router(db.clone(), None::<RecordingUploader>);
     let csrf = new_csrf();
@@ -314,7 +314,7 @@ async fn without_an_uploader_the_sanitized_basename_is_still_stored() {
         "B",
         &[
             ("title", None, "Notes"),
-            // A path-carrying client name is sanitized to its basename (GH #90).
+            // A path-carrying client name is sanitized to its basename.
             ("cover", Some("../../etc/cover.png"), "PNG-BYTES"),
             ("csrf_token", None, &csrf),
         ],
@@ -373,7 +373,7 @@ async fn an_untouched_file_input_keeps_the_stored_path_and_a_chosen_one_replaces
     let doc = seed_doc(&db, "Original", "cover.png", "spec.pdf").await;
 
     // A browser submits every file input; untouched ones arrive with an empty
-    // filename (GH #90/GH #184).
+    // filename.
     let csrf = new_csrf();
     let body = multipart_body(
         "B",
@@ -701,7 +701,7 @@ async fn clearing_an_optional_upload_empties_the_stored_path() {
             ("title", None, "Original"),
             ("cover", Some(""), ""),
             ("attachment", Some(""), ""),
-            // The framework's own control posts this (GH #188).
+            // The framework's own control posts this.
             ("clear_attachment", None, "1"),
             ("csrf_token", None, &csrf),
         ],
@@ -725,7 +725,7 @@ async fn clearing_an_optional_upload_empties_the_stored_path() {
 async fn clearing_a_required_upload_is_refused_inline() {
     // `required` is not waived by an explicit clear: a record that must have a
     // file cannot lose it, and the refusal is the ordinary required error
-    // rather than a silent empty write (GH #188).
+    // rather than a silent empty write.
     let db = seeded_db().await;
     let router = router(db.clone(), Some(RecordingUploader::default()));
     let doc = seed_doc(&db, "Original", "cover.png", "spec.pdf").await;
@@ -766,7 +766,7 @@ async fn clearing_a_required_upload_is_refused_inline() {
 async fn a_refused_edit_upload_keeps_showing_the_stored_file() {
     // The store refused, so nothing changed: the re-rendered form must still
     // show what is stored rather than the empty value a cleared field would
-    // have (GH #188).
+    // have.
     let db = seeded_db().await;
     let router = router(db.clone(), Some(FailingUploader));
     let doc = seed_doc(&db, "Notes", "/uploads/old.png", "spec.pdf").await;
@@ -960,7 +960,7 @@ async fn a_served_directory_is_reachable_without_a_session() {
 #[tokio::test]
 async fn served_active_content_is_inert() {
     // A served directory shares the panel's origin, so a document a user
-    // uploads must not run its script there (GH #278): every file the directory
+    // uploads must not run its script there: every file the directory
     // route serves is sniff-proof and sandboxed, and only the passive
     // allow-list opens inline.
     let db = seeded_db().await;
@@ -1058,7 +1058,7 @@ async fn served_active_content_is_inert() {
 #[tokio::test]
 async fn a_serve_dir_path_without_a_catch_all_fails_the_build() {
     // `DirectoryRoute::new` panics on a pattern it cannot resolve; the panel
-    // reports instead of panicking (GH #174), which is what `Panel::build`
+    // reports instead of panicking, which is what `Panel::build`
     // returns a `Result` for.
     let db = seeded_db().await;
     let Err(error) = Panel::new("admin")

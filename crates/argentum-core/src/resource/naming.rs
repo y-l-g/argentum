@@ -86,7 +86,7 @@ pub(crate) fn pluralize(word: &str) -> String {
 /// Convert a CamelCase identifier to kebab-case: `BlogPost` → `blog-post`,
 /// `APIKey` → `api-key`.
 ///
-/// Delegates to `heck::ToKebabCase` (GH #139): digits split words
+/// Delegates to `heck::ToKebabCase`: digits split words
 /// (`User2FA` → `user2-fa`) and so do underscores (`Audit_Log` → `audit-log`).
 /// Name resources without underscores or override
 /// [`Resource::slug`](crate::Resource::slug).
@@ -118,7 +118,7 @@ mod tests {
         assert_eq!(kebab_case("Users"), "users");
         assert_eq!(kebab_case("BlogPost"), "blog-post");
         assert_eq!(kebab_case("APIKey"), "api-key");
-        // The heck delegate (GH #139): digit boundaries split (`User2FA` →
+        // The heck delegate: digit boundaries split (`User2FA` →
         // `user2-fa`) and underscores split words — pinned so a heck upgrade
         // cannot silently change slugs.
         assert_eq!(kebab_case("User2FA"), "user2-fa");

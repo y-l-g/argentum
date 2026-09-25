@@ -1,4 +1,4 @@
-//! CSRF protection via double-submit cookie (GH #99).
+//! CSRF protection via double-submit cookie.
 //!
 //! Every state-changing form embeds `csrf_token`, and every POST handler
 //! verifies the form value matches the cookie. No server-side session is
@@ -23,7 +23,7 @@ use topcoat::{
 };
 
 /// Cookie carrying the CSRF token (`__Host-` prefix: `Secure` + `Path=/` +
-/// no `Domain` are required by the prefix contract, GH #149).
+/// no `Domain` are required by the prefix contract).
 pub const COOKIE_NAME: &str = "__Host-argentum_csrf";
 /// Hidden form field carrying the CSRF token.
 pub const FIELD_NAME: &str = "csrf_token";
@@ -57,7 +57,7 @@ pub fn ensure_token(cx: &Cx) -> String {
     token
 }
 
-/// Read the current token without setting one (GH #99).
+/// Read the current token without setting one.
 ///
 /// Safe inside streamed `suspense` children that outlive header send: renders
 /// embed the already-ensured token, or `""` when none was ensured.
@@ -80,7 +80,7 @@ pub fn current_token(cx: &Cx) -> String {
 /// `suspense` child) is the site's decision, and a helper that guessed would
 /// either panic after header send or silently embed nothing. What the helper
 /// owns is the spelling — [`FIELD_NAME`] is what [`verify`] reads, so a rename
-/// that missed a form would be a silent 403 on every POST (GH #212).
+/// that missed a form would be a silent 403 on every POST.
 pub fn field<'a>(cx: &'a Cx, token: &str) -> topcoat::view::BoxView<'a> {
     use topcoat::view::ViewExt;
 
@@ -91,10 +91,10 @@ pub fn field<'a>(cx: &'a Cx, token: &str) -> topcoat::view::BoxView<'a> {
     topcoat::view::view! { cx => <input type="hidden" name=(FIELD_NAME) value=(token)> }.boxed()
 }
 
-/// Verify the submitted form token matches the cookie (GH #99).
+/// Verify the submitted form token matches the cookie.
 ///
 /// Fails closed: missing cookie, missing field, or mismatch all yield 403.
-/// The mismatch compare is constant-time (GH #149) so a failed double-submit
+/// The mismatch compare is constant-time so a failed double-submit
 /// cannot be probed byte-by-byte; the token itself stays a random UUID, so
 /// a length difference is not a secret.
 pub fn verify(
@@ -151,7 +151,7 @@ mod tests {
         );
     }
 
-    /// The issued cookie carries the hardened `__Host-` contract (GH #149),
+    /// The issued cookie carries the hardened `__Host-` contract,
     /// matching the session cookie: `Secure`, `HttpOnly`, `SameSite=Lax`,
     /// `Path=/`, no `Domain`.
     #[test]

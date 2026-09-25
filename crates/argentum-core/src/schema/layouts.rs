@@ -73,8 +73,8 @@ impl Section {
         } else {
             // Header-only on purpose: the card is `flex flex-col gap-5`, so an
             // empty `card_content` would be a zero-height flex item that still
-            // takes a gap slot and adds 20px below the title for nothing
-            // (GH #238). The gap-6 class rides `card_content` only where there
+            // takes a gap slot and adds 20px below the title for nothing.
+            // The gap-6 class rides `card_content` only where there
             // are children to space.
             Ok(view! {
                 cx =>
@@ -94,8 +94,7 @@ impl Section {
 /// ([`Group::variant`]): it then renders `data-variant` / `data-variant-of`,
 /// the hooks `variant.js` reads to keep only the chosen variant's group
 /// visible. The marker rides the existing block rather than a new schema node,
-/// and it is **markup only**: with JavaScript off every group renders, which is
-/// the pre-#191 behaviour (every variant's controls visible at once), so no
+/// and it is **markup only**: with JavaScript off every group renders, so no
 /// field the server still parses is lost.
 #[derive(Debug)]
 pub struct Group {
@@ -103,7 +102,7 @@ pub struct Group {
     variant: Option<VariantMarker>,
 }
 
-/// Which embedded value a group holds a variant of, and which variant (GH #191).
+/// Which embedded value a group holds a variant of, and which variant.
 #[derive(Debug)]
 struct VariantMarker {
     /// The discriminant column (`publication`) — the enum's identity, so two
@@ -134,7 +133,7 @@ impl Group {
     }
 
     /// Mark this group as variant `value` of the embedded value whose
-    /// discriminant column is `owner` (GH #191).
+    /// discriminant column is `owner`.
     ///
     /// The derived form of an embedded enum calls this once per variant, with
     /// the same value the discriminant `Select` offers as an option, so the
@@ -147,7 +146,7 @@ impl Group {
         self
     }
 
-    /// Whether a submission leaves this variant group unrendered (GH #297).
+    /// Whether a submission leaves this variant group unrendered.
     ///
     /// A group with no variant marker is never hidden. A marked group is hidden
     /// when the submission names a discriminant — `values[owner]`, trimmed and
@@ -247,14 +246,14 @@ impl Grid {
 
 /// Repeater — nested Schema repeated as a group (in-memory for v1, no DB array).
 ///
-/// v1 honesty (GH #73): this is a single-entry group, not a multi-row repeater —
+/// v1 honesty: this is a single-entry group, not a multi-row repeater —
 /// one titled fieldset with its nested schema once, no add/remove UI, no JS, no
 /// indexed field names (`tags[0]`). Indexed multi-entry semantics, per-entry
 /// validation, and hydration via split/join or a real relation are deferred.
 /// `required` means "the inner fields must not all be empty" and its error is
-/// keyed by label and rendered inline (GH #78).
+/// keyed by label and rendered inline.
 ///
-/// The fieldset keeps its border while `Group` and `Tabs` draw none (GH #239):
+/// The fieldset keeps its border while `Group` and `Tabs` draw none:
 /// it delimits repeated rows, whereas a `Section` groups a page's sections.
 #[derive(Debug)]
 pub struct Repeater {
@@ -292,7 +291,7 @@ impl Repeater {
         source: &RenderSource<'_>,
     ) -> Result<BoxView<'a>> {
         let title = self.label.clone();
-        // A view renders the group's label over its children's values (GH #187):
+        // A view renders the group's label over its children's values:
         // a required group is a statement about a submit that cannot happen
         // here, so no `*`, no `aria-invalid`, no error slot.
         if source.mode == Mode::View {
@@ -319,14 +318,14 @@ impl Repeater {
         let required = self.required;
         // Own error lives under the label key (see `walk_absent_groups`).
         // Field errors key by field name; repeaters have no field name yet, so the
-        // label is the only stable key until repeaters become field-bound (GH #78).
+        // label is the only stable key until repeaters become field-bound.
         // `errors_for` is the one place "view mode has no errors" lives, so a
         // second layout that reads errors cannot forget it.
         let own_errors: &[String] = source.errors_for(&self.label);
         let has_error = !own_errors.is_empty();
         let error_text = own_errors.first().cloned().unwrap_or_default();
         // The group's error is described by the fieldset, so it needs an id to
-        // be referenced by; the label is the key (GH #78), and a label is not
+        // be referenced by; the label is the key, and a label is not
         // usable as one (ids cannot carry whitespace).
         let error_id = repeater_error_id(&self.label);
         let container_class = if has_error {
@@ -408,7 +407,7 @@ impl Repeater {
 /// The DOM id of a repeater's error node.
 ///
 /// Repeaters are keyed by their label until they become field-bound
-/// (GH #78), and an id may not carry the label's whitespace, so the label is
+/// and an id may not carry the label's whitespace, so the label is
 /// slugged: ASCII alphanumerics lowercased, every other run collapsed to one
 /// `-`.
 fn repeater_error_id(label: &str) -> String {
@@ -425,8 +424,8 @@ fn repeater_error_id(label: &str) -> String {
 
 /// Tabs — layout primitive for tabbed content (in-memory for v1, no JS).
 ///
-/// Static `div` grouping for v1 (GH #73): a stacked column until tab JS lands.
-/// Documented, not a placeholder bug. The container is layout-only (GH #239): a
+/// Static `div` grouping for v1: a stacked column until tab JS lands.
+/// Documented, not a placeholder bug. The container is layout-only: a
 /// flex column carrying the vertical rhythm, with no border, background or
 /// padding — `Section` is the only container that draws a card.
 #[derive(Debug)]
@@ -559,7 +558,7 @@ mod tests {
         // an `<h3>`; a `<div>` title would sit at the field's own depth and this
         // comparison would have to anchor on the header element instead. The
         // wrapper's gap is a class and class literals are not asserted
-        // (GH #216); that the wrapper exists is structure, so it is stated as
+        // that the wrapper exists is structure, so it is stated as
         // nesting rather than as a class.
         assert!(
             div_depth_of(&html, "data-slot=\"field\"") > div_depth_of(&html, "Account"),
@@ -598,7 +597,7 @@ mod tests {
         // one static literal per count (Tailwind only sees literal substrings —
         // see `Grid::render_source`), so the class is its *only* transport. It
         // is asserted as a derived `grid-cols-{cols}` over the whole table
-        // rather than as one pinned literal per caller (GH #216): the mapping
+        // rather than as one pinned literal per caller: the mapping
         // stays covered, and the other fourteen class literals this test used
         // to pin are gone.
         let cx = cx();
@@ -640,7 +639,7 @@ mod tests {
             .unwrap()
             .render(&cx);
         assert!(html.contains("Tabbed"), "missing child in {html}");
-        // "One shared container" without naming its classes (GH #216): the
+        // "One shared container" without naming its classes: the
         // rendering is a single root `<div>`. The bug this guards is a second
         // wrapper around the same children, which would open a second root.
         let opens = |tag: &str| {
@@ -721,7 +720,7 @@ mod tests {
     #[tokio::test]
     async fn repeater_required_error_renders_inline() {
         let cx = cx();
-        // Single-entry repeater (GH #78): the required error is keyed by label
+        // Single-entry repeater: the required error is keyed by label
         // until repeaters become field-bound.
         let schema = Schema::new(
             Repeater::new("Tags")
@@ -748,7 +747,7 @@ mod tests {
         );
         // Same inline error contract as TextInput, wired to the group: the
         // fieldset carries the invalid state and describes itself with the
-        // error node's id. The legend's colour is paint, not state (GH #216):
+        // error node's id. The legend's colour is paint, not state:
         // these three state hooks are what a regression would break.
         assert!(
             html.contains("data-invalid=\"true\"")
@@ -805,7 +804,7 @@ mod tests {
     }
 
     /// An optional Repeater with a `required` inner input must not fail an
-    /// empty submit (GH #147): group-empty means "absent". A `required`
+    /// empty submit: group-empty means "absent". A `required`
     /// repeater answers an empty submit with exactly one label-keyed error,
     /// and a partially filled optional group still enforces inner `required`.
     #[test]
@@ -841,7 +840,7 @@ mod tests {
         );
         // ...the required group answers with exactly one label-keyed error —
         // the inner input's own required error is suppressed with the absent
-        // group, so the label carries the whole story (GH #147).
+        // group, so the label carries the whole story.
         let errors = required.validate(&HashMap::new());
         assert_eq!(
             errors.len(),
@@ -870,7 +869,7 @@ mod tests {
     }
 
     /// A `required` repeater nested inside an all-empty OPTIONAL group is
-    /// suppressed with it (GH #147): an untouched outer group means nothing
+    /// suppressed with it: an untouched outer group means nothing
     /// inside it was intended, so the inner label error must not fire.
     #[test]
     fn required_repeater_inside_absent_optional_group_is_suppressed() {

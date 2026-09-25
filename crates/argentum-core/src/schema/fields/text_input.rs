@@ -10,7 +10,7 @@ use super::{
     FieldChrome, ValueKind, render_field, render_value,
 };
 
-/// The equality expression a typed leaf's unique probe binds (GH #297).
+/// The equality expression a typed leaf's unique probe binds.
 ///
 /// Built where the declared type is known — the lens constructor — so a typed
 /// field compares as its declared type rather than as its text. `None` means
@@ -21,7 +21,7 @@ type EqProbe = std::sync::Arc<dyn Fn(&str) -> Option<toasty::stmt::Expr<bool>> +
 /// The equality probe a typed leaf binds: the submission is parsed into the
 /// declared type and compared through that type's own path, so a value that is
 /// unique as text but not as the type (or the reverse) is checked for what the
-/// record will store (GH #297).
+/// record will store.
 ///
 /// The index resolves inside the closure rather than here: the name is the
 /// leaf's **app field name**, and for a context-bound leaf that is its flattened
@@ -56,9 +56,9 @@ pub struct TextInput {
     required: bool,
     unique: bool,
     placeholder: Option<String>,
-    /// The email and typed-parse rules (GH #243), with their messages.
+    /// The email and typed-parse rules, with their messages.
     rules: Rules,
-    /// The typed leaf's unique probe, absent on a text leaf (GH #297): a text
+    /// The typed leaf's unique probe, absent on a text leaf: a text
     /// leaf's comparison is built from the model the handler queries.
     typed_probe: Option<EqProbe>,
 }
@@ -101,7 +101,7 @@ impl TextInput {
         Self {
             name,
             label: label_str,
-            // Non-nullable columns are required by default (GH #100): an
+            // Non-nullable columns are required by default: an
             // empty submit would die at the driver instead of failing
             // inline. Override with `.optional()` for nullable columns.
             required: !field.nullable(),
@@ -113,7 +113,7 @@ impl TextInput {
     }
 
     /// Create a `TextInput` bound to a lens inside an embedded struct or a
-    /// `#[document]` (GH #185).
+    /// `#[document]`.
     ///
     /// The plain `Self::r#for` resolves a lens against the model alone, which
     /// is why it can only bind a top-level field: the owned `app::Model` cannot
@@ -147,39 +147,30 @@ impl TextInput {
         }
     }
 
-    /// Create a `TextInput` bound to a lens whose leaf is **not** a `String`
-    /// (GH #192).
+    /// Create a `TextInput` bound to a lens whose leaf is **not** a `String`.
     ///
-    /// The untyped `Self::r#for` takes `Path<M, String>`, which is what makes
-    /// a wrong lens a compile error rather than a runtime mismatch (GH #100,
-    /// ADR-0001) — and also what made a typed column unbindable. This
-    /// constructor keeps that guarantee for its own call sites: the lens must
-    /// still address one field of the model, and `T` must be the leaf's actual
-    /// type, so `TextInput::typed::<User, Uuid>(User::fields().name())` does
-    /// not compile either. What it adds is the value's spelling rule:
+    /// `Self::r#for` takes a `Path<M, String>`, which makes a wrong lens a
+    /// compile error rather than a runtime mismatch (ADR-0001) — and also makes
+    /// a typed column unbindable. This constructor keeps that guarantee: the
+    /// lens must address one field of the model and `T` must be the leaf's
+    /// actual type, so `TextInput::typed::<User, Uuid>(User::fields().name())`
+    /// does not compile either. It adds the value's spelling rule:
     ///
     /// - the control renders the value's `Display`;
-    /// - a submission that `T` cannot parse is an **inline field error** naming the offending input
-    ///   (`` `2024-13-01` is not a valid timestamp ``), not a 500 and not a silent default;
-    /// - what is stored is `T`'s own `Display` of the parsed value, so a value re-submitted
-    ///   unchanged is written back in the same shape it was read.
+    /// - a submission `T` cannot parse is an **inline field error** naming the offending input (``
+    ///   `2024-13-01` is not a valid timestamp ``);
+    /// - what is stored is `T`'s `Display` of the parsed value, so a value re-submitted unchanged
+    ///   is written back in the shape it was read.
     ///
     /// The record fn still receives `String`s: the panel's value map is
     /// text-keyed, and a typed field is a *validated* string, not a second
-    /// channel. A record fn re-parsing a typed field can therefore fail only if
-    /// validation was bypassed.
+    /// channel.
     ///
     /// `TypedValue` is implemented for the types a panel binds — the integer
-    /// types, `bool`, `f32`, `f64`, `Uuid`, `jiff::Timestamp` — rather than as
-    /// a blanket over `FromStr`, because the error a user sees has to name what
-    /// was expected. A type that needs different words implements the trait
-    /// itself.
-    ///
-    /// `T` must also be [`toasty::stmt::IntoExpr`] of itself, which is what
-    /// lets the app-side unique probe compare a submission through the value it
-    /// parses into rather than through its text (GH #297). Every scalar toasty
-    /// stores implements it, and a newtype wraps one by implementing it the way
-    /// toasty documents.
+    /// types, `bool`, `f32`, `f64`, `Uuid`, `jiff::Timestamp` — rather than as a
+    /// blanket over `FromStr`, because the error names what was expected; `T`
+    /// must be [`toasty::stmt::IntoExpr`] of itself so the unique probe compares
+    /// through the parsed value rather than its text.
     pub fn typed<M, T>(path: toasty::stmt::Path<M, T>) -> Self
     where
         M: toasty::schema::Model,
@@ -189,7 +180,7 @@ impl TextInput {
         let field = lens_field(path, &model);
         let label_str = lens_label(&field);
         // A typed field declares no index and is not marked unique by default;
-        // when the app marks it, the probe binds the declared type (GH #297).
+        // when the app marks it, the probe binds the declared type.
         let name = field.name.app_unwrap().to_string();
         let probe = eq_probe_typed::<M, T>(&name);
         Self {
@@ -205,7 +196,7 @@ impl TextInput {
 
     /// [`Self::typed`] for a lens inside an embedded struct or a `#[document]`,
     /// resolving through the request's app schema exactly as
-    /// `Self::r#for_context` does (GH #185).
+    /// `Self::r#for_context` does.
     ///
     /// A leaf under an embedded step is never required by default: the resolver
     /// reports `nullable=true` by binding policy, since only the matching enum
@@ -235,7 +226,7 @@ impl TextInput {
         self
     }
 
-    /// Opt out of the non-nullable default (GH #100): for nullable columns
+    /// Opt out of the non-nullable default: for nullable columns
     /// where an empty submit is legitimate.
     pub fn optional(mut self) -> Self {
         self.required = false;
@@ -250,8 +241,8 @@ impl TextInput {
     /// Mark the field as backed by a unique constraint, which the app-side
     /// pre-check probes before the write.
     ///
-    /// **Uniqueness implies presence** (GH #189): the framework stores `""`,
-    /// never NULL (GH #89), so an empty value is one the index admits only
+    /// **Uniqueness implies presence**: the framework stores `""`,
+    /// never NULL, so an empty value is one the index admits only
     /// once — an empty submit is refused inline as `"<Label> is required"`
     /// instead of being written, and the probe never sees it. `.optional()`
     /// does not lift that rule, whichever order the two are called in. The
@@ -300,11 +291,11 @@ impl TextInput {
         &self.label
     }
 
-    /// The equality expression the app-side unique check probes with (GH #297).
+    /// The equality expression the app-side unique check probes with.
     ///
     /// A text leaf compares its submission's text through `M`'s own path — the
     /// model the handler queries, which is also the model a context-bound
-    /// leaf's flattened column belongs to (GH #185). A typed leaf instead
+    /// leaf's flattened column belongs to. A typed leaf instead
     /// parses the submission into its declared type and compares that, so the
     /// probe sees the value the record will store rather than its spelling —
     /// `01` and `1` are one value to an integer column. `None` when a typed
@@ -321,13 +312,12 @@ impl TextInput {
         probe(value)
     }
 
-    /// Validate a raw string value against the configured rules (GH #243).
+    /// Validate a raw string value against the configured rules.
     pub fn validate(&self, value: &str) -> Vec<String> {
         self.rules.validate(&self.label, self.is_required(), value)
     }
 
-    /// The stored spelling of a submission the caller has already validated
-    /// (GH #192).
+    /// The stored spelling of a submission the caller has already validated.
     ///
     /// The typed parse's `Display` for a typed field, the trimmed submission
     /// for a text one — so a value the user left alone is written back in the
@@ -352,8 +342,8 @@ impl TextInput {
         }
         let name = self.name.clone();
         // The marker reads the same predicate validation uses, so a unique
-        // field is never refused for emptiness while rendering as optional
-        // (GH #189). `self.required` alone would do exactly that.
+        // field is never refused for emptiness while rendering as optional.
+        // `self.required` alone would do exactly that.
         let required = self.is_required();
         let placeholder = self.placeholder.clone();
         let input_type = if self.rules.is_email() {
@@ -443,7 +433,7 @@ mod tests {
         assert!(html.contains(">Name"), "missing label in {html}");
     }
 
-    /// A typed field shows its stored value on a detail page (GH #192).
+    /// A typed field shows its stored value on a detail page.
     ///
     /// `TextInput::typed` returns a `TextInput`, so the view path is the one
     /// above: `render_readonly` sets `Mode::View` and the field renders its
@@ -645,8 +635,8 @@ mod tests {
             "email should accept valid"
         );
         // `.optional()` still accepts an empty submit on a non-unique,
-        // nullable column (GH #100). `DummyUser.email` is `#[unique]`, so
-        // there `.optional()` cannot lift the required rule (GH #189).
+        // nullable column. `DummyUser.email` is `#[unique]`, so
+        // there `.optional` cannot lift the required rule.
         assert!(
             Select::r#for(NullableRef::fields().parent_id())
                 .optional()
@@ -730,7 +720,7 @@ mod tests {
         );
     }
 
-    /// The email rule is `email_address` (GH #243).
+    /// The email rule is `email_address`.
     #[test]
     fn text_input_email_edges() {
         let input = TextInput::r#for(DummyUser::fields().email()).email();
@@ -787,7 +777,7 @@ mod tests {
     }
 
     /// An empty submit is the presence rule's business: the email rule skips
-    /// it, and presence reports first (GH #243).
+    /// it, and presence reports first.
     #[test]
     fn email_rule_leaves_an_empty_value_to_presence() {
         let input = TextInput::r#for(DummyUser::fields().email())

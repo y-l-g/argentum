@@ -7,58 +7,37 @@
 //! The loaders are generic over [`OptionSource`] — the source surface they
 //! read — rather than over `Resource`, so the dependency runs one way:
 //! `resource` depends on `schema`, and the blanket impl in
-//! [`crate::resource`] makes every `Resource` an option source (GH #208).
+//! [`crate::resource`] makes every `Resource` an option source.
 
 use toasty::stmt::{Expr, List, OrderByExpr, Query};
 use topcoat::{Result, context::Cx};
 
 /// Everything the relationship option loaders read from the thing they load
-/// options from (GH #208).
+/// options from.
 ///
-/// The loaders ask eight things: the **tenant-scoped** seed query, the
-/// option-load seed query (the same scope, narrowed to the relations an option
-/// projection reads), the two policy predicates, the tenant declaration, a name
-/// for the log fields, and the related source's search and default-ordering
-/// expressions. It is a *source* surface rather than a second resource trait:
-/// for a `Resource`, five of the eight forward straight to the matching method
-/// (`can_view_any`, `can_view`, `requires_tenant`, `slug`), the two query
-/// methods compose the framework's tenant-scoped query, and the last two read
-/// the declared table (see the blanket impl in [`crate::resource`]). What it
-/// buys is that `schema` names no part of `Resource` — the dependency runs one
-/// way — and that a test fixture declares a model plus the one predicate it
-/// exercises instead of a whole resource with a table.
+/// The loaders ask for the **tenant-scoped** seed query, the narrowed
+/// option-load seed, the policy predicates, the tenant declaration, a name for
+/// the log fields, and the source's search and ordering expressions. It is a
+/// *source* surface rather than a second resource trait, so `schema` names no
+/// part of `Resource`: for a `Resource`, the policy and declaration methods
+/// forward straight through and the two query methods compose the framework's
+/// tenant-scoped query (see the blanket impl in [`crate::resource`]).
 ///
-/// [`scoped_query`](Self::scoped_query) is **required**: a source states its
-/// own scope, so a gated source cannot end up unscoped by omission. The rest
-/// have defaults — none of them fail-closed in the abstract, each the answer
-/// that keeps a source declaring nothing honest:
+/// [`scoped_query`](Self::scoped_query) is **required**: a source states its own
+/// scope, so a gated source cannot end up unscoped by omission. The rest have
+/// the default that keeps a source declaring nothing honest — the policy
+/// predicates deny, the search and ordering expressions answer `None`,
+/// [`requires_tenant`](Self::requires_tenant) is `false`, and
+/// [`slug`](Self::slug) falls back to the type name.
 ///
-/// - [`can_view_any`](Self::can_view_any) and [`can_view`](Self::can_view) deny — the default-deny
-///   policy `Resource` also declares.
-/// - [`search_expr`](Self::search_expr) and [`order_by`](Self::order_by) answer `None`: no
-///   narrowing (the D1a bounded-head fallback) and no ordering.
-/// - [`requires_tenant`](Self::requires_tenant) is `false` — no tenant gate, the default-open
-///   declaration `Resource` also makes.
-/// - [`slug`](Self::slug) falls back to the type name, which only reaches the log fields.
-///
-/// # Why it is public
-///
-/// Because [`Select::relationship`](crate::schema::Select::relationship)'s
-/// bound names it: a `pub(crate)` trait there is a `private_bounds` warning,
-/// and this workspace denies warnings. It is deliberately **not** re-exported
-/// at the crate root beside `Select`/`Schema`/`Resource`: its method names are
-/// `Resource`'s, so an app that glob-imports the crate root would get E0034 on
-/// every `MyResource::slug()`-style path. It is reachable as
-/// `schema::OptionSource`.
-///
-/// # Implementors
-///
-/// Every [`Resource`](crate::resource::Resource) is one, through the blanket
-/// impl in [`crate::resource`]: `scoped_query` forwards to the framework's
-/// tenant-scoped query, so a real resource keeps the tenant gate and the
-/// derived tenant filter on every option load (GH #223). Implement this
-/// directly only for an option source that is not a resource — and state the
-/// scope, because nothing else will.
+/// It is public because [`Select::relationship`](crate::schema::Select::relationship)'s
+/// bound names it, and a `pub(crate)` trait there is a `private_bounds` warning.
+/// It is not re-exported at the crate root, because its method names are
+/// `Resource`'s and a glob import would collide; it is reachable as
+/// `schema::OptionSource`. Every [`Resource`](crate::resource::Resource) is one
+/// through the blanket impl, so a real resource keeps the tenant gate and
+/// derived filter on every option load; implement it directly only for a source
+/// that is not a resource, and state the scope.
 pub trait OptionSource: Sized + Send + Sync + 'static {
     /// The model whose rows become options.
     type Model: toasty::schema::Model + Send + Sync + 'static;
@@ -78,7 +57,7 @@ pub trait OptionSource: Sized + Send + Sync + 'static {
     /// `OptionLoadError::Misdeclared` rather than a retryable failure.
     fn scoped_query(cx: &Cx) -> Result<Query<List<Self::Model>>>;
 
-    /// The seed query an **option load** runs (GH #298).
+    /// The seed query an **option load** runs.
     ///
     /// An option load renders a value and a label per row. Both projections are
     /// opaque closures the framework cannot inspect, and the loaders read no
@@ -100,20 +79,19 @@ pub trait OptionSource: Sized + Send + Sync + 'static {
     }
 
     /// Whether the current user may see the source's records at all: `false`
-    /// fails the whole option load closed (GH #108), never an empty set that
+    /// fails the whole option load closed, never an empty set that
     /// validates as "invalid".
     fn can_view_any(_cx: &Cx) -> bool {
         false
     }
 
     /// Whether the current user may view one loaded row: `false` keeps it out
-    /// of the options — and out of validation — before its label renders
-    /// (GH #108).
+    /// of the options — and out of validation — before its label renders.
     fn can_view(_cx: &Cx, _record: &Self::Model) -> bool {
         false
     }
 
-    /// Whether the source's rows are tenant-owned (GH #87): `true` fails a
+    /// Whether the source's rows are tenant-owned: `true` fails a
     /// tenantless request closed, and is the declaration
     /// [`Self::scoped_query`] is expected to scope for.
     fn requires_tenant() -> bool {
@@ -127,7 +105,7 @@ pub trait OptionSource: Sized + Send + Sync + 'static {
     }
 
     /// The related source's search predicate for `term`, or `None` when it
-    /// declares no searchable column (GH #150 D1). A resource answers from its
+    /// declares no searchable column (D1). A resource answers from its
     /// declared `searchable()` columns.
     ///
     /// `None` on a non-blank term is the documented fallback: the option
@@ -138,7 +116,7 @@ pub trait OptionSource: Sized + Send + Sync + 'static {
     }
 
     /// The related source's declared default ordering — its first sortable
-    /// column, ascending, or `None` (GH #210). A resource answers from its
+    /// column, ascending, or `None`. A resource answers from its
     /// declared `sortable()` columns.
     ///
     /// The option search applies it so a narrowed result keeps the list's
@@ -149,13 +127,13 @@ pub trait OptionSource: Sized + Send + Sync + 'static {
     }
 }
 
-/// Why a relationship option load produced no options (GH #108).
+/// Why a relationship option load produced no options.
 ///
 /// Distinguishes a policy denial from a structural/transient failure so
 /// `validate_async` can say "not available" instead of "retry", and so the
 /// render path never re-labels a value the user may not view.
 ///
-/// `Overflow` (GH #150) is distinct from `LoadFailed`: the related table
+/// `Overflow` is distinct from `LoadFailed`: the related table
 /// exceeds the option cap. A searchable `Select` degrades to "type to
 /// search" instead of a retry error, while a genuine DB failure stays
 /// retryable.
@@ -166,11 +144,11 @@ pub(crate) enum OptionLoadError {
     Denied,
     /// The driver failed.
     LoadFailed,
-    /// The related table overflows the option cap (GH #150).
+    /// The related table overflows the option cap.
     Overflow,
     /// The related resource's tenancy cannot be scoped at all: it requires a
     /// tenant, its model has no derivable `tenant_id`, and it declares no
-    /// `tenant_scope` (GH #223).
+    /// `tenant_scope`.
     ///
     /// Distinct from [`Self::LoadFailed`] because retrying cannot fix a broken
     /// declaration: the option UI must not offer a retry, and the search
@@ -179,8 +157,8 @@ pub(crate) enum OptionLoadError {
 }
 
 /// The boxed future a relationship loader returns — the bounded load and the
-/// server-side *search* (GH #150) hand back the same shape, so they share one
-/// alias (GH #204).
+/// server-side *search* hand back the same shape, so they share one
+/// alias.
 pub(crate) type RelationshipLoadFuture = std::pin::Pin<
     Box<dyn std::future::Future<Output = Result<Vec<(String, String)>, OptionLoadError>> + Send>,
 >;
@@ -193,7 +171,7 @@ pub(crate) type RelationshipLoader =
 pub(crate) type RelationshipSearchLoader =
     std::sync::Arc<dyn Fn(&Cx, String) -> RelationshipLoadFuture + Send + Sync>;
 
-/// The boxed future a targeted existence check returns (GH #150 D4).
+/// The boxed future a targeted existence check returns (D4).
 pub(crate) type RelationshipCheckFuture = std::pin::Pin<
     Box<dyn std::future::Future<Output = Result<RelatedCheck, OptionLoadError>> + Send>,
 >;
@@ -216,14 +194,14 @@ where
     if R::requires_tenant() && crate::tenancy::tenant_id(cx).is_none() {
         // The panel gates every handler through `enforce_tenant::<R>`;
         // option loads must not be the one tenantless path into the related
-        // resource's scoped query (GH #223).
+        // resource's scoped query.
         return Err(OptionLoadError::Denied);
     }
     Ok(())
 }
 
 /// The relationship option loaders' seed query: [`OptionSource::options_query`]
-/// with the load's own error kind (GH #223, GH #298).
+/// with the load's own error kind.
 ///
 /// Every loader below starts here rather than at an unscoped base so option
 /// loads inherit the framework's tenant scope (`ensure_option_access` above
@@ -247,34 +225,34 @@ where
     })
 }
 
-/// Max options a relationship `Select` will load (GH #91): the loader carries
+/// Max options a relationship `Select` will load: the loader carries
 /// `limit(Self + 1)` and fails past the cap instead of scanning a 10k-row
 /// table per select per submit.
 pub const MAX_RELATIONSHIP_OPTIONS: usize = 200;
 
 /// The related model's primary key type — the identity a relationship option
-/// stores (GH #108). Fully qualified because the `Model` trait is a bound of
+/// stores. Fully qualified because the `Model` trait is a bound of
 /// `OptionSource::Model`, not a supertrait of `OptionSource`.
 pub(crate) type RelatedPrimaryKey<R> =
     <<R as OptionSource>::Model as toasty::schema::Model>::PrimaryKey;
 
-/// Option records for one related resource, memoized per request (GH #91).
+/// Option records for one related resource, memoized per request.
 ///
 /// Every relationship `Select` over the same `R` shares one bounded load per
 /// `(request, tenant)` instead of scanning the table per select per validate
 /// plus re-render scans. `tenant` is an explicit cache key: memoize tracking
 /// alone cannot distinguish header-tenanted callers sharing one `Parts`, so
 /// tenancy isolation never rides on scope resolution. The tenant-scoped query
-/// (GH #223) stays the only data seam; value and label mapping stay in the
+/// stays the only data seam; value and label mapping stay in the
 /// caller so selects with different projections share the hit.
 ///
-/// Policy is part of the load (GH #108): `can_view_any` (and the related
+/// Policy is part of the load: `can_view_any` (and the related
 /// resource's tenant gate) denies the whole load — fail closed, never an
 /// empty set that validates as "invalid"; loaded rows are filtered through
 /// `can_view` before any label is rendered.
 ///
 /// The cap is checked on the **raw** bounded fetch, before `can_view`
-/// filtering (GH #91): counting filtered rows would let one hidden record
+/// filtering: counting filtered rows would let one hidden record
 /// defeat the cap and silently truncate a larger table, misreporting
 /// legitimate FKs as "invalid".
 #[topcoat::context::memoize(as_ref)]
@@ -301,7 +279,7 @@ where
 /// rows the caller cannot view.
 ///
 /// The cap is checked on the **raw** bounded fetch, before `can_view`
-/// filtering (GH #91): counting filtered rows would let one hidden record
+/// filtering: counting filtered rows would let one hidden record
 /// defeat the cap and silently truncate a larger table, misreporting
 /// legitimate FKs as "invalid". `failed` and `overflow` are the warning
 /// messages the caller's load reports.
@@ -328,10 +306,10 @@ where
             OptionLoadError::LoadFailed
         })?;
     if records.len() > MAX_RELATIONSHIP_OPTIONS {
-        // Fail visibly (GH #91): validating against a silent truncation
+        // Fail visibly: validating against a silent truncation
         // would reject legitimate FKs as "invalid" while rendering a
         // misleading subset. Counted before policy filtering. Distinct
-        // `Overflow` (GH #150) so searchable selects degrade to type-to-
+        // `Overflow` so searchable selects degrade to type-to-
         // search instead of a retry error.
         tracing::warn!(
             resource = R::slug(),
@@ -344,7 +322,7 @@ where
     Ok(records)
 }
 
-/// Bounded server-side option search (GH #150).
+/// Bounded server-side option search.
 ///
 /// Reuses the related table's declared `searchable()` columns via
 /// `R::search_expr(cx, q)` (D1): documented as "option search searches
@@ -399,7 +377,7 @@ where
     .await
 }
 
-/// Outcome of the targeted existence check for overflowed selects (GH #150 D4).
+/// Outcome of the targeted existence check for overflowed selects (D4).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum RelatedCheck {
     /// PK parses and resolves through the tenant-scoped query and passes
@@ -411,7 +389,7 @@ pub(crate) enum RelatedCheck {
     NotFound,
 }
 
-/// Targeted FK existence check for overflowed sets (GH #150 D4).
+/// Targeted FK existence check for overflowed sets (D4).
 ///
 /// Membership in the bounded set cannot validate overflowed selects (the full
 /// set exceeds the cap), so validate the submitted value directly: parse via
@@ -469,12 +447,12 @@ mod tests {
 
     use super::*;
     use crate::schema::{FieldLens, Mode, Select};
-    /// Related-source fixtures shared by the option-policy tests (GH #108).
+    /// Related-source fixtures shared by the option-policy tests.
     ///
     /// Each one implements only the [`OptionSource`] surface its test reads —
-    /// no `Resource`, no `Table` (GH #208). `tenant_id` is optional so the
+    /// no `Resource`, no `Table`. `tenant_id` is optional so the
     /// fixtures that do not care about tenancy keep creating rows without one;
-    /// `TenantScopedAuthors` (GH #223) needs a discoverable `tenant_id` column
+    /// `TenantScopedAuthors` needs a discoverable `tenant_id` column
     /// for the framework to derive its scope from, and the test that uses it
     /// creates its row with a tenant.
     #[derive(Debug, toasty::Model, Clone)]
@@ -526,7 +504,7 @@ mod tests {
         type Model = PolicyAuthor;
 
         /// Mirrors `Resource`'s blanket impl (`resource::scoped_query`), which
-        /// `schema` cannot call without re-creating the cycle (GH #208).
+        /// `schema` cannot call without re-creating the cycle.
         fn scoped_query(cx: &Cx) -> Result<Query<List<PolicyAuthor>>> {
             let tenant = crate::tenancy::require_tenant(cx)?;
             let filter = crate::tenancy::derived_tenant_filter::<PolicyAuthor>(tenant)
@@ -596,13 +574,13 @@ mod tests {
             |a: &RefAuthor| a.name.clone(),
         );
         // Over the cap: bounded work, visible retry error — never an
-        // empty-options passthrough (GH #91).
+        // empty-options passthrough.
         let errs = select.validate_async(&cx, "whatever").await;
         assert!(
             errs.iter().any(|e| e.contains("could not load options")),
             "overflow must surface retry error, got {errs:?}"
         );
-        // An overflowed load keeps the stored FK selectable (GH #91): a
+        // An overflowed load keeps the stored FK selectable: a
         // failed load must not blank the relation into a required-error.
         let html = select
             .render_with(&cx, Some("stored-fk"), &[], Mode::Form)
@@ -620,10 +598,10 @@ mod tests {
 
     #[tokio::test]
     async fn relationship_option_values_are_primary_keys_not_table_ids() {
-        // GH #108: `Table::id` is a display projection (GH #85) — option
+        // `Table::id` is a display projection — option
         // values must come from the record's typed PK, or a display string
         // silently stores a label in the FK column. The source surface has no
-        // table row-key projection to reach for at all (GH #208), so the
+        // table row-key projection to reach for at all, so the
         // caller's typed projection is the only option-value seam.
         #[derive(Debug, toasty::Model, Clone)]
         struct RefAuthor {
@@ -691,7 +669,7 @@ mod tests {
 
     #[tokio::test]
     async fn relationship_load_fails_closed_when_can_view_any_denies() {
-        // GH #108: a related source that denies `can_view_any` must not
+        // a related source that denies `can_view_any` must not
         // leak labels or ids through a dependent form, and the error must be
         // "not available" — retrying cannot fix a permission decision.
 
@@ -744,7 +722,7 @@ mod tests {
 
     #[tokio::test]
     async fn relationship_load_denies_tenantless_requests_for_tenant_scoped_targets() {
-        // GH #108, GH #223: option loads are another path into the related
+        // option loads are another path into the related
         // resource's rows; a tenant-scoped related resource must not serve
         // unscoped options just because the parent form is reachable without a
         // tenant, and the derived filter must narrow the load to the request
@@ -796,7 +774,7 @@ mod tests {
 
     #[tokio::test]
     async fn relationship_load_filters_rows_by_can_view() {
-        // GH #108: `can_view`-denied rows are absent from options and
+        // `can_view`-denied rows are absent from options and
         // validation — a value outside the viewable set is invalid, not
         // merely unlisted.
 
@@ -895,7 +873,7 @@ mod tests {
 
     #[tokio::test]
     async fn relationship_can_view_filtering_out_every_row_yields_invalid() {
-        // GH #108: `can_view` filtering happens before labels render, so a
+        // `can_view` filtering happens before labels render, so a
         // row the user may not view is absent from options and does not
         // validate — and the stored value is not re-rendered on the form.
 
@@ -938,7 +916,7 @@ mod tests {
 
     #[tokio::test]
     async fn relationship_options_share_one_load_per_request_and_tenant() {
-        // GH #91: selects over one source share a single bounded load per
+        // selects over one source share a single bounded load per
         // (request, tenant) — validate and re-render share the one load.
         use std::sync::atomic::{AtomicUsize, Ordering};
 

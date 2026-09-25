@@ -1,38 +1,26 @@
 //! Field lenses — typed Toasty paths and their app-level metadata.
 //!
-//! Base bridge layer (with `pk`): these two modules are the only schema
-//! modules that name `toasty_core` (upstream #114/#183), so upstream
-//! churn has one blast radius. Everything above reads lenses through
-//! `FieldLens` and the helpers here.
+//! Base bridge layer (with `pk`): these two modules are the only schema modules
+//! that name `toasty_core` (upstream #114/#183), so upstream churn has one
+//! blast radius.
 //!
 //! [`lens_field`] hands callers the built `app::Field`, so name, label,
-//! nullability, storage name, `FieldTy`, `auto`, and `constraints` all come
-//! from one walk. [`lens_field_unique`] covers the one property `Field` does
-//! not carry, because Toasty keeps uniqueness on the model's index list.
+//! nullability, storage name, `FieldTy`, `auto` and `constraints` all come from
+//! one walk; [`lens_field_unique`] covers uniqueness, which `Field` does not
+//! carry because Toasty keeps it on the model's index list.
 //!
-//! [`FieldResolver`] is the schema-aware walk (GH #185): with the app schema
-//! in hand an embedded path resolves to its **flattened storage column**, so
-//! `TextInput::r#for_post(...)`-style bindings can reach a field inside an
-//! embedded struct or a `#[document]`. Without a schema the single-segment
-//! rule (GH #100) still applies — the owned `app::Model` cannot see embedded
-//! models, which is exactly what the schema adds.
-//!
-//! The walk is covered directly by the test module at the foot of this file,
-//! over a fixture built for the shapes it resolves: a leaf inside an embedded
-//! struct, a variant-rooted path through nested structs and through a struct
-//! that holds the enum, a `#[shared]` column (one column for every variant that
-//! declares it), and a `#[document]`. A plain leaf is covered too, but it never
-//! enters the walk — a single segment on a model root reads the owned app field.
-//! The identity guard is covered on both entries, and `resolve_embedded_value`
-//! for both the value shapes (struct, enum, struct holding an enum) and the
-//! paths it refuses (variant root, leaf, document, foreign root, no schema).
+//! [`FieldResolver`] is the schema-aware walk: with the app schema in hand an
+//! embedded path resolves to its **flattened storage column**, so
+//! `TextInput::r#for_post(...)`-style bindings reach a field inside an embedded
+//! struct or a `#[document]`. Without a schema the single-segment rule applies,
+//! because the owned `app::Model` cannot see embedded models.
 
 use toasty_core::stmt::PathRoot;
 use topcoat::context::Cx;
 
 /// Spec alias — ADR-0001 typed lens. Currently uses `toasty::stmt::Path` directly;
 /// a richer `FieldLens` trait will replace this alias if Toasty exposes the
-/// metadata walk directly (see GH #11, upstream issue #183).
+/// metadata walk directly (see, upstream issue #183).
 pub type FieldLens<M, T> = toasty::stmt::Path<M, T>;
 
 /// The storage column an embedded path flattens to, plus the metadata field
@@ -64,7 +52,7 @@ pub(crate) struct LeafField {
 /// embedded lens without opening a connection.
 ///
 /// Borrowed, never cloned, and optional: a bare `CxTestBuilder` has no `Db`, and
-/// then the single-segment rule (GH #100) applies, so a schema-less test fails
+/// then the single-segment rule applies, so a schema-less test fails
 /// loudly on a traversal lens rather than silently binding the first segment.
 fn request_schema(cx: &Cx) -> Option<&toasty_core::Schema> {
     topcoat::context::try_app_context::<toasty::Db>(cx).map(|db| &**db.schema())
@@ -93,8 +81,7 @@ impl<'a> FieldResolver<'a> {
     ///
     /// The leaf constructors fall back to the single-segment rule without one;
     /// a *value* binding has no fallback — every key comes from the schema — so
-    /// its entry points say so rather than reporting a traversal-lens error
-    /// (GH #191).
+    /// its entry points say so rather than reporting a traversal-lens error.
     pub(crate) fn has_schema(&self) -> bool {
         self.schema.is_some()
     }
@@ -104,7 +91,7 @@ impl<'a> FieldResolver<'a> {
     /// With a schema this walks the whole projection, so an embedded step lands
     /// on the flattened column. Without one it falls back to the single-segment
     /// rule and panics on a traversal lens — loudly, because silently binding
-    /// the first segment misbinds in release (GH #100).
+    /// the first segment misbinds in release.
     pub(crate) fn resolve<M, T>(&self, path: FieldLens<M, T>) -> LeafField
     where
         M: toasty::schema::Model,
@@ -133,7 +120,7 @@ impl<'a> FieldResolver<'a> {
         }
         // No schema: the single-segment rule is all an owned `app::Model` can
         // answer, so resolve the first step against `ModelRoot.fields` and let
-        // `require_single_segment` reject a traversal lens (GH #100).
+        // `require_single_segment` reject a traversal lens.
         require_single_segment(&core_path, "lens");
         let idx = core_path
             .projection
@@ -165,29 +152,20 @@ impl<'a> FieldResolver<'a> {
     ///
     /// - the **app schema** drives the traversal, because it is the only side that knows a field is
     ///   a `#[document]` — a *primitive* whose storage is a model, so its inner fields collapse
-    ///   into the one column named after it, and a path through one has steps left over on arrival;
+    ///   into the one column named after it;
     /// - the **compiled mapping** names the column. `Db::schema().mapping` records, per model,
     ///   which column every field resolves to — flattened embedded structs, enum discriminant and
     ///   payload columns, shared columns, and a document's single column alike — so this reads the
-    ///   name off `db::Table` rather than re-deriving Toasty's naming rules. An earlier revision
-    ///   accumulated names from `app::Field.name` and had to encode those rules itself.
+    ///   name off `db::Table` rather than re-deriving Toasty's naming rules.
     ///
-    /// Probed against the pinned rev the two agree for every reachable shape,
-    /// including the cases that are easy to get wrong: `#[shared(..)]` payloads
-    /// collapse onto one column (`publication_timestamp`), and a `#[document]`
-    /// is a single `Primitive` column named after the field (`stats`), not one
-    /// column per inner field.
-    ///
-    /// Two roots reach here:
-    ///
-    /// - a **model** root, for a plain path (`seo.title`);
-    /// - a **variant** root, for an enum payload accessor (`media.video().poster().url()`): the
-    ///   generated accessor rebases onto the variant, so the root carries the parent path *to the
-    ///   enum field* while the projection's steps are **variant-local**.
+    /// Two roots reach here: a **model** root for a plain path (`seo.title`), and
+    /// a **variant** root for an enum payload accessor
+    /// (`media.video().poster().url()`), where the generated accessor rebases
+    /// onto the variant and the projection's steps are variant-local.
     ///
     /// Only embedded steps are followed. A relation hop yields `None`: this
-    /// exists for embedded binding (GH #185), and binding anything else here
-    /// would reintroduce the misbind GH #100 guards against.
+    /// exists for embedded binding, and binding anything else would reintroduce
+    /// the misbind the single-segment rule guards against.
     fn walk_embedded(
         &self,
         schema: &'a toasty_core::Schema,
@@ -245,9 +223,7 @@ impl<'a> FieldResolver<'a> {
         }
     }
 
-    /// Enumerate the bindable surface of the embedded **value** at `path`
-    /// (GH #191).
-    ///
+    /// Enumerate the bindable surface of the embedded **value** at `path`.
     /// [`Self::resolve`] answers "which column does this one leaf occupy"; this
     /// answers "what does this whole value consist of" — every leaf column,
     /// plus the discriminant for an enum — which is what a value codec and a
@@ -317,7 +293,7 @@ fn column_name(schema: &toasty_core::Schema, field: &MappingField) -> Option<Str
 /// Collect every leaf column under one embedded level.
 ///
 /// A relation inside an embedded value is not bindable and yields `None`: this
-/// walk exists for value binding (GH #191), the same boundary GH #100 draws for
+/// walk exists for value binding, the same boundary GH #100 draws for
 /// single lenses.
 fn collect_columns(
     schema: &toasty_core::Schema,
@@ -330,7 +306,7 @@ fn collect_columns(
             // A `#[document]`'s inner fields share its one column, so a *value*
             // codec has nothing per-field to bind: refuse rather than hand back
             // one column for several fields (the misbind GH #100 guards
-            // against). Leaf binding still reaches a document's column (GH #185).
+            // against). Leaf binding still reaches a document's column.
             return None;
         }
         match &app_field.ty {
@@ -395,7 +371,7 @@ fn push_column(
     Some(())
 }
 
-/// The text an embedded enum's discriminant stores (GH #191).
+/// The text an embedded enum's discriminant stores.
 ///
 /// Toasty's discriminants are integers or strings, and the form carries that
 /// same text — so what a submission posts is what a row stores. Anything else
@@ -499,7 +475,7 @@ fn is_document(field: &toasty::schema::app::Field) -> bool {
     )
 }
 
-/// The bindable surface of one embedded **value** (GH #191): every column its
+/// The bindable surface of one embedded **value**: every column its
 /// fields occupy, plus — for an enum — the discriminant column and each
 /// variant's stored value.
 ///
@@ -606,9 +582,9 @@ fn mapping_field_at<'a>(fields: &'a [MappingField], steps: &[usize]) -> Option<&
 /// `Model::schema()` builds the model by value with no cache, so no borrow of
 /// it can escape — but only the one field is cloned.
 ///
-/// Traversal lenses are rejected (GH #100): a multi-step path has no single
+/// Traversal lenses are rejected: a multi-step path has no single
 /// field name, and silently binding its first segment misbinds in release.
-/// Use [`FieldResolver`] (GH #185) to bind an embedded path instead.
+/// Use [`FieldResolver`] to bind an embedded path instead.
 pub(crate) fn lens_field<M, T>(
     path: FieldLens<M, T>,
     model: &toasty::schema::app::Model,
@@ -649,26 +625,19 @@ pub(crate) fn lens_label(field: &toasty::schema::app::Field) -> String {
 /// excluded — a key column is unique by construction, not by a declared
 /// constraint.
 ///
-/// A **composite** unique index counts too (GH #88). `#[unique(tenant_id,
-/// email)]` is how a tenant-scoped resource expresses "unique within the
-/// tenant", and the app-side pre-check has to recognise it or the field's
-/// `unique()` declaration would be silently dead. Recognizing the index is not
-/// the same as checking it exactly: the pre-check probes the field's value
-/// inside the tenant-scoped query's scope (GH #223), so it enforces the
-/// constraint only when that
-/// scope matches the index's remaining components — which is the arrangement
-/// `#[unique(tenant_id, ..)]` on a tenant-scoped resource produces, and which
-/// `two_tenants_may_share_an_author_email` / `duplicate_email_within_one_tenant
-/// _is_reported_inline` in the showcase pin from both sides. Declaring `unique()`
-/// on a field whose index carries components *outside* the resource's scope
-/// stays a gap, and it is not checkable here because a query's filters are not
-/// introspectable; see `Resource::query`'s note and upstream #117, whose driver
-/// predicate is the real fix.
+/// A **composite** unique index counts too: `#[unique(tenant_id, email)]` is how
+/// a tenant-scoped resource expresses "unique within the tenant", and the
+/// app-side pre-check has to recognise it or the field's `unique()` declaration
+/// is silently dead. Recognizing the index is not checking it exactly: the
+/// pre-check probes inside the tenant-scoped query's scope, so it enforces the
+/// constraint only when that scope matches the index's remaining components.
+/// An index with components outside the scope stays a gap, and it is not
+/// checkable here because a query's filters are not introspectable; see
+/// `Resource::query`'s note and upstream #117.
 ///
-/// This reports declared schema uniqueness, not a global uniqueness guarantee:
-/// SQL permits multiple `NULL`s in a unique index, and enum-variant columns are
-/// storage-nullable, so a nullable unique field can still repeat. That is the
-/// same caveat the app-side pre-check has always carried (`panel/forms.rs`).
+/// This reports declared schema uniqueness, not a global guarantee: SQL permits
+/// multiple `NULL`s in a unique index, and enum-variant columns are
+/// storage-nullable, so a nullable unique field can still repeat.
 pub(crate) fn lens_field_unique(
     field: &toasty::schema::app::Field,
     model: &toasty::schema::app::ModelRoot,
@@ -678,7 +647,7 @@ pub(crate) fn lens_field_unique(
     })
 }
 
-/// Panic unless a lens path addresses exactly one field (GH #100).
+/// Panic unless a lens path addresses exactly one field.
 ///
 /// A traversal lens (relation hops, embedded steps) has no single field name,
 /// nullability, or uniqueness — silently binding its first segment misbinds in
@@ -698,7 +667,7 @@ pub(crate) fn require_single_segment(path: &toasty_core::stmt::Path, what: &str)
 /// spaces: `word_count` is "Word count", not "Word_count". A label is the one
 /// place a column name becomes prose, so it should not leak the identifier —
 /// which is what `Media_poster_url` and `Seo_title` did everywhere an embedded
-/// or document leaf rendered its own name (GH #185/#192). An explicit
+/// or document leaf rendered its own name (#192). An explicit
 /// [`.label(..)`](crate::schema::TextInput::label) still wins.
 pub(crate) fn capitalize(s: &str) -> String {
     let spaced = s.replace('_', " ");
@@ -1070,7 +1039,7 @@ mod tests {
     }
 
     /// ... and through `resolve` the same path panics instead of quietly
-    /// resolving to nothing (the GH #100 policy).
+    /// resolving to nothing (the policy).
     #[tokio::test]
     #[should_panic(expected = "does not resolve to a single column")]
     async fn a_root_model_the_schema_does_not_carry_refuses_a_leaf_lens() {
