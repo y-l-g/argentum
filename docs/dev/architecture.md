@@ -33,9 +33,10 @@ Registering a `Resource` on it adds that resource's routes and its sidebar entry
 one Toasty model to its admin UI: a base query, a `Table`, a `Schema`, a policy, and the record
 functions that perform writes.
 
-`Table` and `Schema` are declarations, not renderers. The Panel calls `table()` and `form()` once at
-boot, so they must not need request-scoped context; a declaration that cannot render fails
-`Panel::build` rather than a request.
+`Table` and `Schema` are declarations, not renderers. `Panel::build` calls `table()` and `form()` once
+per registered resource with a Db-only context to check the declaration, and each list or form request
+calls `table()` / `form()` again to render. Because the build check has only the Db, a declaration must
+not need request-scoped context; one that cannot render fails `Panel::build` rather than a request.
 
 ## A read request
 

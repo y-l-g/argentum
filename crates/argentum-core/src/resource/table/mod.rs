@@ -140,8 +140,7 @@ pub enum OrderMode {
     List,
     /// CSV export (GH #172): the chunked cursor walk needs a deterministic
     /// order whether or not the table paginates, so the PK fallback applies
-    /// whenever no sortable column is declared — previously whatever order the
-    /// database happened to return.
+    /// whenever no sortable column is declared.
     Export,
 }
 

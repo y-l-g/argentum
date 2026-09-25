@@ -1707,7 +1707,7 @@ mod tests {
             .await;
         assert_eq!(resp.status(), http::StatusCode::FORBIDDEN);
         // A server-set `Tenant` request extension supplies the tenant → gate
-        // passes (create page 200). The header no longer does (GH #131).
+        // passes (create page 200). A request header does not (GH #131).
         let tenant = uuid::Uuid::new_v4();
         let (mut parts, ()) = http::Request::builder()
             .uri("/admin/dummies/create")

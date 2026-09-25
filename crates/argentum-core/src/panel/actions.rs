@@ -342,8 +342,8 @@ fn export_wants_bom(cx: &Cx) -> bool {
 /// `max` bounds the parse itself, not just the final list (GH #85): a 10 MiB
 /// body of distinct ids stops at `max + 1` entries (which the handler then
 /// rejects with 400) instead of allocating millions of strings while the
-/// `MAX_BULK_IDS` check waits for the parse to finish. Deduping uses a set —
-/// the previous `Vec::contains` scan was quadratic.
+/// `MAX_BULK_IDS` check waits for the parse to finish. Deduping uses a set, so
+/// the scan stays linear in the number of ids.
 ///
 /// Known limit (GH #85): the split happens after url-decoding, so a
 /// `String`-PK id containing a literal comma (`%2C`) splits into phantom

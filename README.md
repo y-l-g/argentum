@@ -37,11 +37,11 @@ impl Resource for UserResource {
     fn table(cx: &Cx) -> Table<User> {
         Table::r#for(cx)
             .id(|u: &User| u.id.to_string())
-            .columns((
+            .columns(
                 TextColumn::r#for(User::fields().name(), |u: &User| u.name.clone())
                     .searchable()
                     .sortable(),
-            ))
+            )
             .paginate(20)
     }
 }

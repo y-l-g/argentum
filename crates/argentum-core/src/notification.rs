@@ -6,13 +6,12 @@
 //! `argentum-ui/assets/notifications.js` and dismissible through the toast's
 //! close button — the shadcn/Sonner toast surface (GH #151).
 //!
-//! The flash cookie is Topcoat's `CookieStore` (serde JSON, GH #139) instead
-//! of a hand-rolled wire format; the jar defaults carry the hardened
-//! attributes (HttpOnly, Secure, SameSite=Lax, Path=/ — the `__Host-` name
-//! requires them, GH #149) on writes and removals alike, so set and clear
-//! cannot drift again. One-time semantics ride the cookie alone: Topcoat
-//! flushes `Set-Cookie` on error responses too (topcoat#408), so the mutation
-//! `Err` redirects no longer need the old `?notification=` fallback.
+//! The flash cookie is Topcoat's `CookieStore` (serde JSON, GH #139); the jar
+//! defaults carry the hardened attributes (HttpOnly, Secure, SameSite=Lax,
+//! Path=/ — the `__Host-` name requires them, GH #149) on writes and removals
+//! alike, so set and clear cannot drift. One-time semantics ride the cookie
+//! alone: Topcoat flushes `Set-Cookie` on error responses too (topcoat#408), so
+//! the mutation `Err` redirects carry no `?notification=` query fallback.
 
 use argentum_ui::{
     icons, toast, toast_close, toast_content, toast_description, toast_icon, toast_title,
@@ -398,9 +397,9 @@ mod tests {
         assert_eq!(n.unwrap().title, "Created");
     }
 
-    /// Unreadable cookie garbage is expired, not toasted (same fail-open-to-
-    /// none as the old decode), and the removal still satisfies the `__Host-`
-    /// contract (GH #139).
+    /// Unreadable cookie garbage is expired, not toasted, so a malformed cookie
+    /// yields no toast; the removal still satisfies the `__Host-` contract
+    /// (GH #139).
     #[test]
     fn unreadable_flash_cookie_is_expired_silently() {
         let cx = cx_with_cookie(Some("not-json"));

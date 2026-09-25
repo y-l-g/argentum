@@ -1576,9 +1576,9 @@ impl<M> Table<M> {
         }
         let filtered = state.search.is_some() || !state.filters.is_empty();
         // Clear only the dimension the link names and keep the rest of the
-        // state (GH #93 follow-up): the old link rebuilt the URL from `sort`
-        // alone — dropping `group_by` — and cleared the filters too under a
-        // "Clear search" label when both a search and filters were active.
+        // state (GH #93 follow-up): the URL is rebuilt from the full state, so
+        // `group_by` survives, and a "Clear search" link leaves the filters
+        // alone.
         let clear_url = filtered.then(|| {
             if state.search.is_some() {
                 state.without_search(path)
@@ -2172,7 +2172,7 @@ mod tests {
             no_columns.render(&cx, page.clone()).await.is_err(),
             "render without columns must error"
         );
-        // Columns but no row key → error (replaces the old panic-on-unknown dispatch)
+        // Columns but no row key → error
         let no_key = Table::<User>::r#for(&cx)
             .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()));
         assert!(
@@ -2614,9 +2614,8 @@ mod tests {
             html.contains("data-bulk-select-all"),
             "missing select-all in {html}"
         );
-        // Bulk form keeps the hidden `ids` transport (GH #151 removed the
-        // visible free-text fallback) and a submit that ships disabled until
-        // `bulk.js` sees a checked row.
+        // Bulk form keeps the hidden `ids` transport (GH #151) and a submit
+        // that ships disabled until `bulk.js` sees a checked row.
         assert!(
             html.contains("data-bulk-form"),
             "missing bulk form in {html}"
@@ -3080,9 +3079,9 @@ mod tests {
 
     #[tokio::test]
     async fn empty_clear_links_preserve_the_untouched_state() {
-        // The empty-state link used to rebuild the URL from `sort` alone:
-        // `group_by` was always dropped, and with a search + filters active
-        // the "Clear search" link also cleared the filters.
+        // The empty-state link rebuilds the URL from the full state, clearing
+        // only the dimension it names: `group_by` survives, and with a search
+        // and filters active the "Clear search" link leaves the filters alone.
         let cx = CxTestBuilder::new().build();
         let tbl = Table::<Task>::r#for(&cx)
             .id(|t| t.id.to_string())

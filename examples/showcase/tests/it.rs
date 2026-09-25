@@ -1,12 +1,10 @@
 //! One integration-test binary for the showcase (GH #179, ADR-0015).
 //!
-//! The per-file targets each linked the full stack — fourteen executables of
-//! ~160-190 MB — so `cargo test --workspace` spent most of its link time
-//! building the same dependencies over and over. Every file is a module here:
-//! one binary, one link, and `tests/common` is compiled once.
+//! Every test file is a module of one binary: one link for the whole suite, and
+//! `tests/common` is compiled once.
 //!
 //! Filter per file with `cargo test --test it <module>::` (the module name is
-//! the old file name). Accepted costs: a compile error in any module fails the
+//! the file's name). Accepted costs: a compile error in any module fails the
 //! whole target, and there is no per-file binary isolation.
 
 mod common;

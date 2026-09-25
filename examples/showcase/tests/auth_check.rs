@@ -201,7 +201,7 @@ async fn logout_deletes_the_session_and_clears_the_cookie() {
     let mut db2 = db.clone();
     assert_eq!(AuthSession::all().exec(&mut db2).await.unwrap().len(), 0);
 
-    // The stale cookie no longer resolves a user: the gate redirects to login.
+    // The stale cookie resolves no user: the gate redirects to login.
     let stale = client.get("/admin/users").await;
     assert_eq!(stale.status(), 307, "ended session still resolved");
 }

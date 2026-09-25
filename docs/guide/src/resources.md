@@ -26,17 +26,21 @@ Every method is defaulted, so a resource compiles as soon as it names its model 
 omission has to fail loudly instead of quietly:
 
 - **At `Panel::build`** (which returns `Result<Router>`): the table must be renderable — `table()`
-  declares columns and a row key — and where `can_create` allows it, `form()` must declare fields.
-  A resource that overrides nothing fails the build, naming the type, instead of serving an error
-  state or an empty form. `table()`, `form()` and `can_create()` are declarations: the panel calls
-  them once at boot, so they must not need request-scoped context.
+  declares columns and a row key, plus `Table::pk` where the resource declares action chrome — and
+  where `can_create` allows it, `form()` must declare fields. A resource that overrides nothing fails
+  the build, naming the type, instead of serving an error state or an empty form. `table()`, `form()`
+  and `can_create()` are declarations: `Panel::build` calls them with a Db-only context to check them,
+  and each list and form request calls `table()` / `form()` again, so a declaration must not need
+  request-scoped context.
 - **At request time, loudly**: the record fns default to an error naming the type ("delete not
   implemented for …"), so a missing implementation never looks like a successful no-op.
 - **Chrome is opt-in, gated per record**: `deletable()` and `editable()` default to `false`, so a
   resource that never mentions them renders no Edit or Delete affordance — the routes still exist,
   and the default-deny `can_*` predicates answer them. A resource that wants the chrome declares the
   flag **and** the policy predicate it promises: `can_view()` + `can_delete()` for `deletable()`,
-  `can_view()` + `can_update()` for `editable()`. The flag is the whole-resource gate (GH #226); the
+  `can_view()` + `can_update()` for `editable()`. It also commits the table to `Table::pk(..)` — the
+  action URLs and bulk values carry that projection — and `Panel::build` refuses a table that declares
+  chrome without it. The flag is the whole-resource gate (GH #226); the
   predicates are
   applied **per row** (GH #235). The panel wires them into the table's row policy, so a row
   `can_update()` refuses renders no Edit link, a row `can_delete()` refuses renders no Delete link

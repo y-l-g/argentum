@@ -145,7 +145,7 @@ fn map(pairs: &[(&str, &str)]) -> HashMap<String, String> {
 }
 
 /// The framework names every key; the app never spells one. This pins the names
-/// the resolver produces against the ones the showcase used to write by hand.
+/// the resolver produces.
 #[tokio::test]
 async fn keys_come_from_the_compiled_mapping() {
     let cx = post_cx().await;

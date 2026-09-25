@@ -463,10 +463,9 @@ pub(crate) fn resource_create<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> 
 /// allow-list). `csrf_token` is a handler key, not a field, so it is filtered
 /// before the check, as are `clear_<field>` flags for declared `FileUpload`
 /// fields (GH #90 explicit-clear convention — `truthy`, GH #148); absent keys are fine
-/// (present-keys-only updates), unknown keys are a 400 — silently ignoring
-/// `role`/`tenant_id` smuggling is what the old code did, and a generic
-/// record fn iterating `values` would promote them to client-controlled
-/// writes.
+/// (present-keys-only updates), unknown keys are a 400 — accepting
+/// `role`/`tenant_id` smuggling would let a generic record fn iterating
+/// `values` promote them to client-controlled writes.
 fn reject_unknown_form_keys(
     schema: &crate::schema::Schema,
     values: &HashMap<String, String>,
@@ -489,8 +488,8 @@ fn reject_unknown_form_keys(
 }
 
 /// The one boolean-vocabulary check for framework form flags (GH #148):
-/// `confirm=1|true`, `clear_<field>=1|true`. `yes` used to be a delete-only
-/// extra; one vocabulary instead of two per-handler sets.
+/// `confirm=1|true`, `clear_<field>=1|true`. One vocabulary, not a per-handler
+/// set.
 pub(crate) fn truthy(v: &str) -> bool {
     v == "1" || v == "true"
 }
@@ -538,8 +537,7 @@ fn drop_client_typed_uploads(
 
 /// App-side uniqueness check over the form's `unique()`-marked text inputs.
 ///
-/// Generic over every marked field — the previous version was hard-coded to
-/// `email` with a dead full-table query behind it (GH #75 residue). Queries
+/// Generic over every marked field (GH #75). Queries
 /// through the tenant-scoped query (GH #223) and returns
 /// `field_name → ["<Label> has already been taken"]` per duplicated value.
 ///
@@ -1834,8 +1832,8 @@ mod tests {
                     ))
             }
             fn form(_cx: &Cx) -> Schema {
-                // `.optional()` is the declaration that used to make an empty
-                // submit probe instead of failing: uniqueness wins.
+                // `.optional()` lets an empty submit probe instead of failing
+                // on presence: uniqueness wins.
                 Schema::new(
                     TextInput::r#for(Subscriber::fields().email())
                         .unique()
@@ -1876,10 +1874,9 @@ mod tests {
             .expect("panel builds");
 
         let csrf = uuid::Uuid::new_v4().to_string();
-        // `+` decodes to a space and an empty pair to `""`: both are empty
-        // submits, and under the old rule the first stored `""` — so the second
-        // met the index via a trimmed probe match while a second space met it
-        // again at the driver. Neither is a duplicate, and neither may write.
+        // `+` decodes to a space and an empty pair to `""`: both trim to an
+        // empty submit, which the presence rule refuses and which must not
+        // reach the database. Neither may write.
         for (attempt, submitted) in ["+", ""].into_iter().enumerate() {
             let attempt = attempt + 1;
             let resp = router
@@ -2084,9 +2081,8 @@ mod tests {
 
     #[test]
     fn form_values_decode_utf8_plus_and_encoded_separators() {
-        // Multi-byte UTF-8: %C3%A9 must assemble to é (the old hand-rolled
-        // decoder pushed each byte through `byte as char` → "Ã©", GH #75
-        // item 6).
+        // Multi-byte UTF-8: %C3%A9 must assemble to é, not the per-byte
+        // mojibake `byte as char` would emit (GH #75 item 6).
         let got = form_values_from_bytes(b"name=R%C3%A9mi");
         assert_eq!(got.get("name").map(String::as_str), Some("Rémi"));
 

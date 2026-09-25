@@ -47,7 +47,15 @@ fn view_relations<'a>(cx: &'a Cx, record: &Post) -> Option<BoxView<'a>> {
     // the list columns use: drop the include and the page says so instead of
     // panicking inside `Deferred::get`.
     if record.comments.is_unloaded() {
-        return Some(missing_include_notice(cx, "Comments"));
+        return Some(
+            view! {
+                cx =>
+                <p class="text-sm text-destructive">
+                    "Comments were not loaded by this query — add them to Resource::query's include."
+                </p>
+            }
+            .boxed(),
+        );
     }
     Some(render_relation(cx, "Comments", RelationColumns::columns(
         RelationColumn::computed("Comment", |c: &Comment| c.body.clone()),

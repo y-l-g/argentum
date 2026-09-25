@@ -120,8 +120,8 @@ async fn a_select_without_a_matching_option_shows_the_stored_value() {
 }
 
 /// A group is a layout, so a view renders its label over its children's
-/// values — and none of a form's affordances. A required group used to emit
-/// the `*` marker and `aria-invalid` on the detail page, because the repeater
+/// values — and none of a form's affordances. A required group emits no `*`
+/// marker and no `aria-invalid` on the detail page, because the repeater
 /// renders through its own path rather than a field's `render_with` (GH #187).
 #[tokio::test]
 async fn a_repeater_renders_its_children_without_form_affordances() {

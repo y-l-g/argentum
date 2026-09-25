@@ -1453,10 +1453,8 @@ mod tests {
         assert_eq!(bare.url(), Some("/admin/dummies"));
     }
 
-    /// GH #165: `Resource::navigation()` used to be dead API — `Panel::resource`
-    /// read `navigation_label` + `slug` directly, so an override only ever
-    /// changed the label. The override now reaches the sidebar, and its order
-    /// is what the rendered shell sorts by.
+    /// GH #165: `Resource::navigation()` reaches the sidebar, and its order is
+    /// what the rendered shell sorts by.
     #[test]
     fn panel_navigation_item_honours_override_order_with_prefix_adjusted_url() {
         use crate::resource::{NavigationItem, Resource};
@@ -1501,12 +1499,9 @@ mod tests {
         assert_eq!(panel.nav_item::<PlainResource>().order, 0);
     }
 
-    /// GH #165: the override reaches *rendered* sidebar order — the symptom in
-    /// the issue was an overridden `order` having no effect on the shell.
+    /// GH #165: the override reaches *rendered* sidebar order.
     /// Rendered on a non-`/admin` panel, so the same test also pins the URL
-    /// half: the sidebar links under `/backoffice`, never the origin `/admin`
-    /// (the hard-coded mount the removed `NavigationItem::from_resource` used to
-    /// emit).
+    /// half: the sidebar links under `/backoffice`, never the origin `/admin`.
     #[tokio::test]
     async fn panel_sidebar_renders_overridden_navigation_order_first() {
         use topcoat::{
@@ -1653,7 +1648,7 @@ mod tests {
 
         // The same URL spelled out on the resource's *own* slug is the author's
         // too: `Derived` is what the Panel resolves, never a URL that happens to
-        // match the origin mount (the old heuristic's blind spot).
+        // match the origin mount.
         struct OwnSlugResource;
         impl Resource for OwnSlugResource {
             type Model = Dummy;
@@ -1959,8 +1954,7 @@ mod tests {
     /// GH #207 part 1: `R::table(cx)` carries no action chrome —
     /// `wire_table_actions` attaches it — so the record-key requirement is only
     /// knowable from the same declaration the wiring reads. A resource with
-    /// action chrome and no `.pk(..)` used to pass `build` and then render an
-    /// error state on every list page.
+    /// action chrome and no `.pk(..)` fails `build`.
     #[tokio::test]
     async fn panel_build_rejects_action_chrome_without_a_record_key() {
         use crate::{
