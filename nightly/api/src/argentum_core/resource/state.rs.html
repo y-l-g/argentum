@@ -1166,255 +1166,294 @@
 <a href=#1166 id=1166 data-nosnippet>1166</a>    }
 <a href=#1167 id=1167 data-nosnippet>1167</a>
 <a href=#1168 id=1168 data-nosnippet>1168</a>    <span class="attr">#[test]
-<a href=#1169 id=1169 data-nosnippet>1169</a>    </span><span class="kw">fn </span>path_segment_encoding_keeps_uuids_and_escapes_reserved() {
-<a href=#1170 id=1170 data-nosnippet>1170</a>        <span class="kw">let </span>uuid = uuid::Uuid::nil().to_string();
-<a href=#1171 id=1171 data-nosnippet>1171</a>        <span class="macro">assert_eq!</span>(encode_path_segment(<span class="kw-2">&amp;</span>uuid), uuid);
-<a href=#1172 id=1172 data-nosnippet>1172</a>        <span class="macro">assert_eq!</span>(encode_path_segment(<span class="string">"a/b"</span>), <span class="string">"a%2Fb"</span>);
-<a href=#1173 id=1173 data-nosnippet>1173</a>        <span class="macro">assert_eq!</span>(encode_path_segment(<span class="string">"a+b@c.com"</span>), <span class="string">"a%2Bb%40c.com"</span>);
-<a href=#1174 id=1174 data-nosnippet>1174</a>        <span class="macro">assert_eq!</span>(encode_path_segment(<span class="string">"100%"</span>), <span class="string">"100%25"</span>);
-<a href=#1175 id=1175 data-nosnippet>1175</a>        <span class="macro">assert_eq!</span>(encode_path_segment(<span class="string">"a?b#c"</span>), <span class="string">"a%3Fb%23c"</span>);
-<a href=#1176 id=1176 data-nosnippet>1176</a>    }
-<a href=#1177 id=1177 data-nosnippet>1177</a>
-<a href=#1178 id=1178 data-nosnippet>1178</a>    <span class="attr">#[test]
-<a href=#1179 id=1179 data-nosnippet>1179</a>    </span><span class="kw">fn </span>row_dom_ids_are_stable_and_html_safe() {
-<a href=#1180 id=1180 data-nosnippet>1180</a>        <span class="comment">// GH #104: morph follows `id`s across reruns — derived from the row
-<a href=#1181 id=1181 data-nosnippet>1181</a>        // key (record-stable), never a loop index, sanitized to tokens.
-<a href=#1182 id=1182 data-nosnippet>1182</a>        </span><span class="macro">assert_eq!</span>(
-<a href=#1183 id=1183 data-nosnippet>1183</a>            row_dom_id(<span class="string">"550e8400-e29b-41d4-a716-446655440000"</span>),
-<a href=#1184 id=1184 data-nosnippet>1184</a>            row_dom_id(<span class="string">"550e8400-e29b-41d4-a716-446655440000"</span>),
-<a href=#1185 id=1185 data-nosnippet>1185</a>            <span class="string">"ids must be stable per key"
-<a href=#1186 id=1186 data-nosnippet>1186</a>        </span>);
-<a href=#1187 id=1187 data-nosnippet>1187</a>        <span class="kw">let </span>uuid_id = row_dom_id(<span class="string">"550e8400-e29b-41d4-a716-446655440000"</span>);
-<a href=#1188 id=1188 data-nosnippet>1188</a>        <span class="macro">assert!</span>(uuid_id.starts_with(<span class="string">"row-550e8400-e29b-41d4-a716-446655440000-"</span>));
-<a href=#1189 id=1189 data-nosnippet>1189</a>        <span class="macro">assert!</span>(
-<a href=#1190 id=1190 data-nosnippet>1190</a>            uuid_id.is_ascii(),
-<a href=#1191 id=1191 data-nosnippet>1191</a>            <span class="string">"id stays an ASCII token, got {uuid_id:?}"
-<a href=#1192 id=1192 data-nosnippet>1192</a>        </span>);
-<a href=#1193 id=1193 data-nosnippet>1193</a>        <span class="comment">// Keys that sanitize to the same token must not collide.
-<a href=#1194 id=1194 data-nosnippet>1194</a>        </span><span class="macro">assert_ne!</span>(row_dom_id(<span class="string">"Ada Lovelace"</span>), row_dom_id(<span class="string">"Ada-Lovelace"</span>));
-<a href=#1195 id=1195 data-nosnippet>1195</a>        <span class="macro">assert_ne!</span>(row_dom_id(<span class="string">"a/b?c"</span>), row_dom_id(<span class="string">"a-b-c"</span>));
-<a href=#1196 id=1196 data-nosnippet>1196</a>    }
-<a href=#1197 id=1197 data-nosnippet>1197</a>
-<a href=#1198 id=1198 data-nosnippet>1198</a>    <span class="attr">#[test]
-<a href=#1199 id=1199 data-nosnippet>1199</a>    </span><span class="kw">fn </span>group_header_dom_ids_are_stable_and_distinct_from_row_ids() {
-<a href=#1200 id=1200 data-nosnippet>1200</a>        <span class="comment">// GH #219: the injected group header is moved and removed as the page
-<a href=#1201 id=1201 data-nosnippet>1201</a>        // is re-sorted, so it needs a stable id of its own — and it must never
-<a href=#1202 id=1202 data-nosnippet>1202</a>        // collide with a row id, or the morph would follow the wrong element.
-<a href=#1203 id=1203 data-nosnippet>1203</a>        </span><span class="macro">assert_eq!</span>(
-<a href=#1204 id=1204 data-nosnippet>1204</a>            group_header_dom_id(<span class="string">"draft"</span>),
-<a href=#1205 id=1205 data-nosnippet>1205</a>            group_header_dom_id(<span class="string">"draft"</span>),
-<a href=#1206 id=1206 data-nosnippet>1206</a>            <span class="string">"ids must be stable per label"
-<a href=#1207 id=1207 data-nosnippet>1207</a>        </span>);
-<a href=#1208 id=1208 data-nosnippet>1208</a>        <span class="kw">let </span>draft = group_header_dom_id(<span class="string">"draft"</span>);
-<a href=#1209 id=1209 data-nosnippet>1209</a>        <span class="macro">assert!</span>(
-<a href=#1210 id=1210 data-nosnippet>1210</a>            draft.starts_with(<span class="string">"group-draft-"</span>),
-<a href=#1211 id=1211 data-nosnippet>1211</a>            <span class="string">"the id names its group, got {draft:?}"
-<a href=#1212 id=1212 data-nosnippet>1212</a>        </span>);
-<a href=#1213 id=1213 data-nosnippet>1213</a>        <span class="macro">assert!</span>(
-<a href=#1214 id=1214 data-nosnippet>1214</a>            group_header_dom_id(<span class="string">"New York"</span>).starts_with(<span class="string">"group-New-York-"</span>),
-<a href=#1215 id=1215 data-nosnippet>1215</a>            <span class="string">"labels sanitize to HTML-safe tokens, got {:?}"</span>,
-<a href=#1216 id=1216 data-nosnippet>1216</a>            group_header_dom_id(<span class="string">"New York"</span>)
-<a href=#1217 id=1217 data-nosnippet>1217</a>        );
-<a href=#1218 id=1218 data-nosnippet>1218</a>        <span class="comment">// Two labels sanitizing to one token must not collide, and a group id
-<a href=#1219 id=1219 data-nosnippet>1219</a>        // is never a row id even for the same text.
-<a href=#1220 id=1220 data-nosnippet>1220</a>        </span><span class="macro">assert_ne!</span>(
-<a href=#1221 id=1221 data-nosnippet>1221</a>            group_header_dom_id(<span class="string">"New York"</span>),
-<a href=#1222 id=1222 data-nosnippet>1222</a>            group_header_dom_id(<span class="string">"New-York"</span>)
-<a href=#1223 id=1223 data-nosnippet>1223</a>        );
-<a href=#1224 id=1224 data-nosnippet>1224</a>        <span class="macro">assert_ne!</span>(group_header_dom_id(<span class="string">"draft"</span>), row_dom_id(<span class="string">"draft"</span>));
-<a href=#1225 id=1225 data-nosnippet>1225</a>    }
-<a href=#1226 id=1226 data-nosnippet>1226</a>
-<a href=#1227 id=1227 data-nosnippet>1227</a>    <span class="doccomment">/// Fully populated projection source (GH #153): every intent projects
-<a href=#1228 id=1228 data-nosnippet>1228</a>    /// from this through the real parser (`from_cx`), asserting the typed
-<a href=#1229 id=1229 data-nosnippet>1229</a>    /// delta — state, not URL bytes.
-<a href=#1230 id=1230 data-nosnippet>1230</a>    </span><span class="kw">fn </span>populated_state() -&gt; TableState {
-<a href=#1231 id=1231 data-nosnippet>1231</a>        TableState {
-<a href=#1232 id=1232 data-nosnippet>1232</a>            search: <span class="prelude-val">Some</span>(<span class="string">"Ada"</span>.to_string()),
-<a href=#1233 id=1233 data-nosnippet>1233</a>            sort: <span class="prelude-val">Some</span>(Sort {
-<a href=#1234 id=1234 data-nosnippet>1234</a>                column: <span class="string">"name"</span>.to_string(),
-<a href=#1235 id=1235 data-nosnippet>1235</a>                descending: <span class="bool-val">true</span>,
-<a href=#1236 id=1236 data-nosnippet>1236</a>            }),
-<a href=#1237 id=1237 data-nosnippet>1237</a>            after: <span class="prelude-val">Some</span>(<span class="string">"after-cur"</span>.to_string()),
-<a href=#1238 id=1238 data-nosnippet>1238</a>            before: <span class="prelude-val">Some</span>(<span class="string">"before-cur"</span>.to_string()),
-<a href=#1239 id=1239 data-nosnippet>1239</a>            filters: HashMap::from([(<span class="string">"status"</span>.to_string(), <span class="string">"published"</span>.to_string())]),
-<a href=#1240 id=1240 data-nosnippet>1240</a>            malformed_filters: <span class="macro">vec!</span>[<span class="string">"bogus"</span>.to_string()],
-<a href=#1241 id=1241 data-nosnippet>1241</a>            group_by: <span class="prelude-val">Some</span>(<span class="string">"status"</span>.to_string()),
-<a href=#1242 id=1242 data-nosnippet>1242</a>            delete: <span class="prelude-val">Some</span>(<span class="string">"row-1"</span>.to_string()),
-<a href=#1243 id=1243 data-nosnippet>1243</a>            open: <span class="prelude-val">Some</span>(<span class="bool-val">false</span>),
-<a href=#1244 id=1244 data-nosnippet>1244</a>        }
-<a href=#1245 id=1245 data-nosnippet>1245</a>    }
-<a href=#1246 id=1246 data-nosnippet>1246</a>
-<a href=#1247 id=1247 data-nosnippet>1247</a>    <span class="doccomment">/// Project through an intent and re-parse the URL with the real parser.
-<a href=#1248 id=1248 data-nosnippet>1248</a>    </span><span class="kw">fn </span>reparse(url: <span class="kw-2">&amp;</span>str) -&gt; TableState {
-<a href=#1249 id=1249 data-nosnippet>1249</a>        <span class="kw">let </span>query = url.split_once(<span class="string">'?'</span>).map(|(<span class="kw">_</span>, q)| q).unwrap_or(<span class="string">""</span>);
-<a href=#1250 id=1250 data-nosnippet>1250</a>        TableState::from_cx(<span class="kw-2">&amp;</span>cx_with_query(query))
-<a href=#1251 id=1251 data-nosnippet>1251</a>    }
-<a href=#1252 id=1252 data-nosnippet>1252</a>
-<a href=#1253 id=1253 data-nosnippet>1253</a>    <span class="attr">#[test]
-<a href=#1254 id=1254 data-nosnippet>1254</a>    </span><span class="kw">fn </span>projection_list_url_round_trips_full_state() {
-<a href=#1255 id=1255 data-nosnippet>1255</a>        <span class="comment">// GH #153: full state including cursors; never `delete`/`open`.
-<a href=#1256 id=1256 data-nosnippet>1256</a>        </span><span class="kw">let </span>source = populated_state();
-<a href=#1257 id=1257 data-nosnippet>1257</a>        <span class="kw">let </span><span class="kw-2">mut </span>expected = source.clone();
-<a href=#1258 id=1258 data-nosnippet>1258</a>        expected.delete = <span class="prelude-val">None</span>;
-<a href=#1259 id=1259 data-nosnippet>1259</a>        expected.open = <span class="prelude-val">None</span>;
-<a href=#1260 id=1260 data-nosnippet>1260</a>        <span class="macro">assert_eq!</span>(reparse(<span class="kw-2">&amp;</span>source.list_url(<span class="string">"/admin/users"</span>)), expected);
-<a href=#1261 id=1261 data-nosnippet>1261</a>    }
-<a href=#1262 id=1262 data-nosnippet>1262</a>
-<a href=#1263 id=1263 data-nosnippet>1263</a>    <span class="attr">#[test]
-<a href=#1264 id=1264 data-nosnippet>1264</a>    </span><span class="kw">fn </span>projection_without_search_drops_query() {
-<a href=#1265 id=1265 data-nosnippet>1265</a>        <span class="comment">// GH #153: drops `q` (and its result set's cursors + dialog); keeps
-<a href=#1266 id=1266 data-nosnippet>1266</a>        // the `filters` transport including malformed segments.
-<a href=#1267 id=1267 data-nosnippet>1267</a>        </span><span class="kw">let </span>source = populated_state();
-<a href=#1268 id=1268 data-nosnippet>1268</a>        <span class="kw">let </span><span class="kw-2">mut </span>expected = source.clone();
-<a href=#1269 id=1269 data-nosnippet>1269</a>        expected.search = <span class="prelude-val">None</span>;
-<a href=#1270 id=1270 data-nosnippet>1270</a>        expected.after = <span class="prelude-val">None</span>;
-<a href=#1271 id=1271 data-nosnippet>1271</a>        expected.before = <span class="prelude-val">None</span>;
-<a href=#1272 id=1272 data-nosnippet>1272</a>        expected.delete = <span class="prelude-val">None</span>;
-<a href=#1273 id=1273 data-nosnippet>1273</a>        expected.open = <span class="prelude-val">None</span>;
-<a href=#1274 id=1274 data-nosnippet>1274</a>        <span class="macro">assert_eq!</span>(reparse(<span class="kw-2">&amp;</span>source.without_search(<span class="string">"/admin/users"</span>)), expected);
-<a href=#1275 id=1275 data-nosnippet>1275</a>    }
-<a href=#1276 id=1276 data-nosnippet>1276</a>
-<a href=#1277 id=1277 data-nosnippet>1277</a>    <span class="attr">#[test]
-<a href=#1278 id=1278 data-nosnippet>1278</a>    </span><span class="kw">fn </span>projection_without_filters_drops_filters() {
-<a href=#1279 id=1279 data-nosnippet>1279</a>        <span class="comment">// GH #153: drops `filters` and malformed segments (and their result
-<a href=#1280 id=1280 data-nosnippet>1280</a>        // set's cursors + dialog); keeps the search term.
-<a href=#1281 id=1281 data-nosnippet>1281</a>        </span><span class="kw">let </span>source = populated_state();
-<a href=#1282 id=1282 data-nosnippet>1282</a>        <span class="kw">let </span><span class="kw-2">mut </span>expected = source.clone();
-<a href=#1283 id=1283 data-nosnippet>1283</a>        expected.filters = HashMap::new();
-<a href=#1284 id=1284 data-nosnippet>1284</a>        expected.malformed_filters = Vec::new();
-<a href=#1285 id=1285 data-nosnippet>1285</a>        expected.after = <span class="prelude-val">None</span>;
-<a href=#1286 id=1286 data-nosnippet>1286</a>        expected.before = <span class="prelude-val">None</span>;
-<a href=#1287 id=1287 data-nosnippet>1287</a>        expected.delete = <span class="prelude-val">None</span>;
-<a href=#1288 id=1288 data-nosnippet>1288</a>        expected.open = <span class="prelude-val">None</span>;
-<a href=#1289 id=1289 data-nosnippet>1289</a>        <span class="macro">assert_eq!</span>(reparse(<span class="kw-2">&amp;</span>source.without_filters(<span class="string">"/admin/users"</span>)), expected);
+<a href=#1169 id=1169 data-nosnippet>1169</a>    </span><span class="kw">fn </span>client_transport_parses_to_the_client_value() {
+<a href=#1170 id=1170 data-nosnippet>1170</a>        <span class="comment">// The literals are the ones `filters.js` composes: the same fixtures
+<a href=#1171 id=1171 data-nosnippet>1171</a>        // run in `crates/argentum-ui/assets/filters.test.js`. Pinning them
+<a href=#1172 id=1172 data-nosnippet>1172</a>        // here joins the two halves — change `encode_filter_component` and the
+<a href=#1173 id=1173 data-nosnippet>1173</a>        // browser's literal stops decoding to its value, change the browser's
+<a href=#1174 id=1174 data-nosnippet>1174</a>        // encoder and the literal it emits stops matching this test.
+<a href=#1175 id=1175 data-nosnippet>1175</a>        </span><span class="kw">let </span>cases = [
+<a href=#1176 id=1176 data-nosnippet>1176</a>            (<span class="string">"name:Smith%2C John"</span>, <span class="string">"name"</span>, <span class="string">"Smith, John"</span>),
+<a href=#1177 id=1177 data-nosnippet>1177</a>            (<span class="string">"name:a%3Ab"</span>, <span class="string">"name"</span>, <span class="string">"a:b"</span>),
+<a href=#1178 id=1178 data-nosnippet>1178</a>            (<span class="string">"name:100%25"</span>, <span class="string">"name"</span>, <span class="string">"100%"</span>),
+<a href=#1179 id=1179 data-nosnippet>1179</a>            (<span class="string">"name:Ada Lovelace"</span>, <span class="string">"name"</span>, <span class="string">"Ada Lovelace"</span>),
+<a href=#1180 id=1180 data-nosnippet>1180</a>            (<span class="string">"name:%253A%252C%2525"</span>, <span class="string">"name"</span>, <span class="string">"%3A%2C%25"</span>),
+<a href=#1181 id=1181 data-nosnippet>1181</a>            <span class="comment">// The key is escaped with the value.
+<a href=#1182 id=1182 data-nosnippet>1182</a>            </span>(<span class="string">"a%2Cb%3Ac:x"</span>, <span class="string">"a,b:c"</span>, <span class="string">"x"</span>),
+<a href=#1183 id=1183 data-nosnippet>1183</a>        ];
+<a href=#1184 id=1184 data-nosnippet>1184</a>        <span class="kw">for </span>(transport, key, value) <span class="kw">in </span>cases {
+<a href=#1185 id=1185 data-nosnippet>1185</a>            <span class="kw">let </span>(filters, malformed) = parse_filters_param(transport);
+<a href=#1186 id=1186 data-nosnippet>1186</a>            <span class="macro">assert!</span>(
+<a href=#1187 id=1187 data-nosnippet>1187</a>                malformed.is_empty(),
+<a href=#1188 id=1188 data-nosnippet>1188</a>                <span class="string">"{transport:?} must parse clean, got {malformed:?}"
+<a href=#1189 id=1189 data-nosnippet>1189</a>            </span>);
+<a href=#1190 id=1190 data-nosnippet>1190</a>            <span class="macro">assert_eq!</span>(
+<a href=#1191 id=1191 data-nosnippet>1191</a>                filters.get(key).map(String::as_str),
+<a href=#1192 id=1192 data-nosnippet>1192</a>                <span class="prelude-val">Some</span>(value),
+<a href=#1193 id=1193 data-nosnippet>1193</a>                <span class="string">"{transport:?} must decode to {value:?}"
+<a href=#1194 id=1194 data-nosnippet>1194</a>            </span>);
+<a href=#1195 id=1195 data-nosnippet>1195</a>        }
+<a href=#1196 id=1196 data-nosnippet>1196</a>        <span class="comment">// The empty value clears the filter: `filters.js` emits no segment.
+<a href=#1197 id=1197 data-nosnippet>1197</a>        </span><span class="kw">let </span>(empty, malformed) = parse_filters_param(<span class="string">""</span>);
+<a href=#1198 id=1198 data-nosnippet>1198</a>        <span class="macro">assert!</span>(empty.is_empty() &amp;&amp; malformed.is_empty());
+<a href=#1199 id=1199 data-nosnippet>1199</a>        <span class="comment">// Several controls join with `,`, and a value's own comma stays inside
+<a href=#1200 id=1200 data-nosnippet>1200</a>        // its segment.
+<a href=#1201 id=1201 data-nosnippet>1201</a>        </span><span class="kw">let </span>(pair, malformed) = parse_filters_param(<span class="string">"status:published,q:a%2Cb"</span>);
+<a href=#1202 id=1202 data-nosnippet>1202</a>        <span class="macro">assert!</span>(malformed.is_empty(), <span class="string">"got {malformed:?}"</span>);
+<a href=#1203 id=1203 data-nosnippet>1203</a>        <span class="macro">assert_eq!</span>(pair.get(<span class="string">"status"</span>).map(String::as_str), <span class="prelude-val">Some</span>(<span class="string">"published"</span>));
+<a href=#1204 id=1204 data-nosnippet>1204</a>        <span class="macro">assert_eq!</span>(pair.get(<span class="string">"q"</span>).map(String::as_str), <span class="prelude-val">Some</span>(<span class="string">"a,b"</span>));
+<a href=#1205 id=1205 data-nosnippet>1205</a>    }
+<a href=#1206 id=1206 data-nosnippet>1206</a>
+<a href=#1207 id=1207 data-nosnippet>1207</a>    <span class="attr">#[test]
+<a href=#1208 id=1208 data-nosnippet>1208</a>    </span><span class="kw">fn </span>path_segment_encoding_keeps_uuids_and_escapes_reserved() {
+<a href=#1209 id=1209 data-nosnippet>1209</a>        <span class="kw">let </span>uuid = uuid::Uuid::nil().to_string();
+<a href=#1210 id=1210 data-nosnippet>1210</a>        <span class="macro">assert_eq!</span>(encode_path_segment(<span class="kw-2">&amp;</span>uuid), uuid);
+<a href=#1211 id=1211 data-nosnippet>1211</a>        <span class="macro">assert_eq!</span>(encode_path_segment(<span class="string">"a/b"</span>), <span class="string">"a%2Fb"</span>);
+<a href=#1212 id=1212 data-nosnippet>1212</a>        <span class="macro">assert_eq!</span>(encode_path_segment(<span class="string">"a+b@c.com"</span>), <span class="string">"a%2Bb%40c.com"</span>);
+<a href=#1213 id=1213 data-nosnippet>1213</a>        <span class="macro">assert_eq!</span>(encode_path_segment(<span class="string">"100%"</span>), <span class="string">"100%25"</span>);
+<a href=#1214 id=1214 data-nosnippet>1214</a>        <span class="macro">assert_eq!</span>(encode_path_segment(<span class="string">"a?b#c"</span>), <span class="string">"a%3Fb%23c"</span>);
+<a href=#1215 id=1215 data-nosnippet>1215</a>    }
+<a href=#1216 id=1216 data-nosnippet>1216</a>
+<a href=#1217 id=1217 data-nosnippet>1217</a>    <span class="attr">#[test]
+<a href=#1218 id=1218 data-nosnippet>1218</a>    </span><span class="kw">fn </span>row_dom_ids_are_stable_and_html_safe() {
+<a href=#1219 id=1219 data-nosnippet>1219</a>        <span class="comment">// GH #104: morph follows `id`s across reruns — derived from the row
+<a href=#1220 id=1220 data-nosnippet>1220</a>        // key (record-stable), never a loop index, sanitized to tokens.
+<a href=#1221 id=1221 data-nosnippet>1221</a>        </span><span class="macro">assert_eq!</span>(
+<a href=#1222 id=1222 data-nosnippet>1222</a>            row_dom_id(<span class="string">"550e8400-e29b-41d4-a716-446655440000"</span>),
+<a href=#1223 id=1223 data-nosnippet>1223</a>            row_dom_id(<span class="string">"550e8400-e29b-41d4-a716-446655440000"</span>),
+<a href=#1224 id=1224 data-nosnippet>1224</a>            <span class="string">"ids must be stable per key"
+<a href=#1225 id=1225 data-nosnippet>1225</a>        </span>);
+<a href=#1226 id=1226 data-nosnippet>1226</a>        <span class="kw">let </span>uuid_id = row_dom_id(<span class="string">"550e8400-e29b-41d4-a716-446655440000"</span>);
+<a href=#1227 id=1227 data-nosnippet>1227</a>        <span class="macro">assert!</span>(uuid_id.starts_with(<span class="string">"row-550e8400-e29b-41d4-a716-446655440000-"</span>));
+<a href=#1228 id=1228 data-nosnippet>1228</a>        <span class="macro">assert!</span>(
+<a href=#1229 id=1229 data-nosnippet>1229</a>            uuid_id.is_ascii(),
+<a href=#1230 id=1230 data-nosnippet>1230</a>            <span class="string">"id stays an ASCII token, got {uuid_id:?}"
+<a href=#1231 id=1231 data-nosnippet>1231</a>        </span>);
+<a href=#1232 id=1232 data-nosnippet>1232</a>        <span class="comment">// Keys that sanitize to the same token must not collide.
+<a href=#1233 id=1233 data-nosnippet>1233</a>        </span><span class="macro">assert_ne!</span>(row_dom_id(<span class="string">"Ada Lovelace"</span>), row_dom_id(<span class="string">"Ada-Lovelace"</span>));
+<a href=#1234 id=1234 data-nosnippet>1234</a>        <span class="macro">assert_ne!</span>(row_dom_id(<span class="string">"a/b?c"</span>), row_dom_id(<span class="string">"a-b-c"</span>));
+<a href=#1235 id=1235 data-nosnippet>1235</a>    }
+<a href=#1236 id=1236 data-nosnippet>1236</a>
+<a href=#1237 id=1237 data-nosnippet>1237</a>    <span class="attr">#[test]
+<a href=#1238 id=1238 data-nosnippet>1238</a>    </span><span class="kw">fn </span>group_header_dom_ids_are_stable_and_distinct_from_row_ids() {
+<a href=#1239 id=1239 data-nosnippet>1239</a>        <span class="comment">// GH #219: the injected group header is moved and removed as the page
+<a href=#1240 id=1240 data-nosnippet>1240</a>        // is re-sorted, so it needs a stable id of its own — and it must never
+<a href=#1241 id=1241 data-nosnippet>1241</a>        // collide with a row id, or the morph would follow the wrong element.
+<a href=#1242 id=1242 data-nosnippet>1242</a>        </span><span class="macro">assert_eq!</span>(
+<a href=#1243 id=1243 data-nosnippet>1243</a>            group_header_dom_id(<span class="string">"draft"</span>),
+<a href=#1244 id=1244 data-nosnippet>1244</a>            group_header_dom_id(<span class="string">"draft"</span>),
+<a href=#1245 id=1245 data-nosnippet>1245</a>            <span class="string">"ids must be stable per label"
+<a href=#1246 id=1246 data-nosnippet>1246</a>        </span>);
+<a href=#1247 id=1247 data-nosnippet>1247</a>        <span class="kw">let </span>draft = group_header_dom_id(<span class="string">"draft"</span>);
+<a href=#1248 id=1248 data-nosnippet>1248</a>        <span class="macro">assert!</span>(
+<a href=#1249 id=1249 data-nosnippet>1249</a>            draft.starts_with(<span class="string">"group-draft-"</span>),
+<a href=#1250 id=1250 data-nosnippet>1250</a>            <span class="string">"the id names its group, got {draft:?}"
+<a href=#1251 id=1251 data-nosnippet>1251</a>        </span>);
+<a href=#1252 id=1252 data-nosnippet>1252</a>        <span class="macro">assert!</span>(
+<a href=#1253 id=1253 data-nosnippet>1253</a>            group_header_dom_id(<span class="string">"New York"</span>).starts_with(<span class="string">"group-New-York-"</span>),
+<a href=#1254 id=1254 data-nosnippet>1254</a>            <span class="string">"labels sanitize to HTML-safe tokens, got {:?}"</span>,
+<a href=#1255 id=1255 data-nosnippet>1255</a>            group_header_dom_id(<span class="string">"New York"</span>)
+<a href=#1256 id=1256 data-nosnippet>1256</a>        );
+<a href=#1257 id=1257 data-nosnippet>1257</a>        <span class="comment">// Two labels sanitizing to one token must not collide, and a group id
+<a href=#1258 id=1258 data-nosnippet>1258</a>        // is never a row id even for the same text.
+<a href=#1259 id=1259 data-nosnippet>1259</a>        </span><span class="macro">assert_ne!</span>(
+<a href=#1260 id=1260 data-nosnippet>1260</a>            group_header_dom_id(<span class="string">"New York"</span>),
+<a href=#1261 id=1261 data-nosnippet>1261</a>            group_header_dom_id(<span class="string">"New-York"</span>)
+<a href=#1262 id=1262 data-nosnippet>1262</a>        );
+<a href=#1263 id=1263 data-nosnippet>1263</a>        <span class="macro">assert_ne!</span>(group_header_dom_id(<span class="string">"draft"</span>), row_dom_id(<span class="string">"draft"</span>));
+<a href=#1264 id=1264 data-nosnippet>1264</a>    }
+<a href=#1265 id=1265 data-nosnippet>1265</a>
+<a href=#1266 id=1266 data-nosnippet>1266</a>    <span class="doccomment">/// Fully populated projection source (GH #153): every intent projects
+<a href=#1267 id=1267 data-nosnippet>1267</a>    /// from this through the real parser (`from_cx`), asserting the typed
+<a href=#1268 id=1268 data-nosnippet>1268</a>    /// delta — state, not URL bytes.
+<a href=#1269 id=1269 data-nosnippet>1269</a>    </span><span class="kw">fn </span>populated_state() -&gt; TableState {
+<a href=#1270 id=1270 data-nosnippet>1270</a>        TableState {
+<a href=#1271 id=1271 data-nosnippet>1271</a>            search: <span class="prelude-val">Some</span>(<span class="string">"Ada"</span>.to_string()),
+<a href=#1272 id=1272 data-nosnippet>1272</a>            sort: <span class="prelude-val">Some</span>(Sort {
+<a href=#1273 id=1273 data-nosnippet>1273</a>                column: <span class="string">"name"</span>.to_string(),
+<a href=#1274 id=1274 data-nosnippet>1274</a>                descending: <span class="bool-val">true</span>,
+<a href=#1275 id=1275 data-nosnippet>1275</a>            }),
+<a href=#1276 id=1276 data-nosnippet>1276</a>            after: <span class="prelude-val">Some</span>(<span class="string">"after-cur"</span>.to_string()),
+<a href=#1277 id=1277 data-nosnippet>1277</a>            before: <span class="prelude-val">Some</span>(<span class="string">"before-cur"</span>.to_string()),
+<a href=#1278 id=1278 data-nosnippet>1278</a>            filters: HashMap::from([(<span class="string">"status"</span>.to_string(), <span class="string">"published"</span>.to_string())]),
+<a href=#1279 id=1279 data-nosnippet>1279</a>            malformed_filters: <span class="macro">vec!</span>[<span class="string">"bogus"</span>.to_string()],
+<a href=#1280 id=1280 data-nosnippet>1280</a>            group_by: <span class="prelude-val">Some</span>(<span class="string">"status"</span>.to_string()),
+<a href=#1281 id=1281 data-nosnippet>1281</a>            delete: <span class="prelude-val">Some</span>(<span class="string">"row-1"</span>.to_string()),
+<a href=#1282 id=1282 data-nosnippet>1282</a>            open: <span class="prelude-val">Some</span>(<span class="bool-val">false</span>),
+<a href=#1283 id=1283 data-nosnippet>1283</a>        }
+<a href=#1284 id=1284 data-nosnippet>1284</a>    }
+<a href=#1285 id=1285 data-nosnippet>1285</a>
+<a href=#1286 id=1286 data-nosnippet>1286</a>    <span class="doccomment">/// Project through an intent and re-parse the URL with the real parser.
+<a href=#1287 id=1287 data-nosnippet>1287</a>    </span><span class="kw">fn </span>reparse(url: <span class="kw-2">&amp;</span>str) -&gt; TableState {
+<a href=#1288 id=1288 data-nosnippet>1288</a>        <span class="kw">let </span>query = url.split_once(<span class="string">'?'</span>).map(|(<span class="kw">_</span>, q)| q).unwrap_or(<span class="string">""</span>);
+<a href=#1289 id=1289 data-nosnippet>1289</a>        TableState::from_cx(<span class="kw-2">&amp;</span>cx_with_query(query))
 <a href=#1290 id=1290 data-nosnippet>1290</a>    }
 <a href=#1291 id=1291 data-nosnippet>1291</a>
 <a href=#1292 id=1292 data-nosnippet>1292</a>    <span class="attr">#[test]
-<a href=#1293 id=1293 data-nosnippet>1293</a>    </span><span class="kw">fn </span>projection_without_cursor_drops_pagination() {
-<a href=#1294 id=1294 data-nosnippet>1294</a>        <span class="comment">// GH #153 (GH #110): drops `after`/`before`; keeps everything else.
+<a href=#1293 id=1293 data-nosnippet>1293</a>    </span><span class="kw">fn </span>projection_list_url_round_trips_full_state() {
+<a href=#1294 id=1294 data-nosnippet>1294</a>        <span class="comment">// GH #153: full state including cursors; never `delete`/`open`.
 <a href=#1295 id=1295 data-nosnippet>1295</a>        </span><span class="kw">let </span>source = populated_state();
 <a href=#1296 id=1296 data-nosnippet>1296</a>        <span class="kw">let </span><span class="kw-2">mut </span>expected = source.clone();
-<a href=#1297 id=1297 data-nosnippet>1297</a>        expected.after = <span class="prelude-val">None</span>;
-<a href=#1298 id=1298 data-nosnippet>1298</a>        expected.before = <span class="prelude-val">None</span>;
-<a href=#1299 id=1299 data-nosnippet>1299</a>        expected.delete = <span class="prelude-val">None</span>;
-<a href=#1300 id=1300 data-nosnippet>1300</a>        expected.open = <span class="prelude-val">None</span>;
-<a href=#1301 id=1301 data-nosnippet>1301</a>        <span class="macro">assert_eq!</span>(reparse(<span class="kw-2">&amp;</span>source.without_cursor(<span class="string">"/admin/users"</span>)), expected);
-<a href=#1302 id=1302 data-nosnippet>1302</a>    }
-<a href=#1303 id=1303 data-nosnippet>1303</a>
-<a href=#1304 id=1304 data-nosnippet>1304</a>    <span class="attr">#[test]
-<a href=#1305 id=1305 data-nosnippet>1305</a>    </span><span class="kw">fn </span>projection_with_after_sets_forward_cursor() {
-<a href=#1306 id=1306 data-nosnippet>1306</a>        <span class="comment">// GH #153: full state + `after`, drops `before` and the dialog.
-<a href=#1307 id=1307 data-nosnippet>1307</a>        </span><span class="kw">let </span>source = populated_state();
-<a href=#1308 id=1308 data-nosnippet>1308</a>        <span class="kw">let </span><span class="kw-2">mut </span>expected = source.clone();
-<a href=#1309 id=1309 data-nosnippet>1309</a>        expected.after = <span class="prelude-val">Some</span>(<span class="string">"tok2"</span>.to_string());
+<a href=#1297 id=1297 data-nosnippet>1297</a>        expected.delete = <span class="prelude-val">None</span>;
+<a href=#1298 id=1298 data-nosnippet>1298</a>        expected.open = <span class="prelude-val">None</span>;
+<a href=#1299 id=1299 data-nosnippet>1299</a>        <span class="macro">assert_eq!</span>(reparse(<span class="kw-2">&amp;</span>source.list_url(<span class="string">"/admin/users"</span>)), expected);
+<a href=#1300 id=1300 data-nosnippet>1300</a>    }
+<a href=#1301 id=1301 data-nosnippet>1301</a>
+<a href=#1302 id=1302 data-nosnippet>1302</a>    <span class="attr">#[test]
+<a href=#1303 id=1303 data-nosnippet>1303</a>    </span><span class="kw">fn </span>projection_without_search_drops_query() {
+<a href=#1304 id=1304 data-nosnippet>1304</a>        <span class="comment">// GH #153: drops `q` (and its result set's cursors + dialog); keeps
+<a href=#1305 id=1305 data-nosnippet>1305</a>        // the `filters` transport including malformed segments.
+<a href=#1306 id=1306 data-nosnippet>1306</a>        </span><span class="kw">let </span>source = populated_state();
+<a href=#1307 id=1307 data-nosnippet>1307</a>        <span class="kw">let </span><span class="kw-2">mut </span>expected = source.clone();
+<a href=#1308 id=1308 data-nosnippet>1308</a>        expected.search = <span class="prelude-val">None</span>;
+<a href=#1309 id=1309 data-nosnippet>1309</a>        expected.after = <span class="prelude-val">None</span>;
 <a href=#1310 id=1310 data-nosnippet>1310</a>        expected.before = <span class="prelude-val">None</span>;
 <a href=#1311 id=1311 data-nosnippet>1311</a>        expected.delete = <span class="prelude-val">None</span>;
 <a href=#1312 id=1312 data-nosnippet>1312</a>        expected.open = <span class="prelude-val">None</span>;
-<a href=#1313 id=1313 data-nosnippet>1313</a>        <span class="macro">assert_eq!</span>(
-<a href=#1314 id=1314 data-nosnippet>1314</a>            reparse(<span class="kw-2">&amp;</span>source.with_after(<span class="string">"/admin/users"</span>, <span class="string">"tok2"</span>)),
-<a href=#1315 id=1315 data-nosnippet>1315</a>            expected
-<a href=#1316 id=1316 data-nosnippet>1316</a>        );
-<a href=#1317 id=1317 data-nosnippet>1317</a>    }
-<a href=#1318 id=1318 data-nosnippet>1318</a>
-<a href=#1319 id=1319 data-nosnippet>1319</a>    <span class="attr">#[test]
-<a href=#1320 id=1320 data-nosnippet>1320</a>    </span><span class="kw">fn </span>projection_with_before_sets_backward_cursor() {
-<a href=#1321 id=1321 data-nosnippet>1321</a>        <span class="comment">// GH #153: full state + `before`, drops `after` and the dialog.
-<a href=#1322 id=1322 data-nosnippet>1322</a>        </span><span class="kw">let </span>source = populated_state();
-<a href=#1323 id=1323 data-nosnippet>1323</a>        <span class="kw">let </span><span class="kw-2">mut </span>expected = source.clone();
+<a href=#1313 id=1313 data-nosnippet>1313</a>        <span class="macro">assert_eq!</span>(reparse(<span class="kw-2">&amp;</span>source.without_search(<span class="string">"/admin/users"</span>)), expected);
+<a href=#1314 id=1314 data-nosnippet>1314</a>    }
+<a href=#1315 id=1315 data-nosnippet>1315</a>
+<a href=#1316 id=1316 data-nosnippet>1316</a>    <span class="attr">#[test]
+<a href=#1317 id=1317 data-nosnippet>1317</a>    </span><span class="kw">fn </span>projection_without_filters_drops_filters() {
+<a href=#1318 id=1318 data-nosnippet>1318</a>        <span class="comment">// GH #153: drops `filters` and malformed segments (and their result
+<a href=#1319 id=1319 data-nosnippet>1319</a>        // set's cursors + dialog); keeps the search term.
+<a href=#1320 id=1320 data-nosnippet>1320</a>        </span><span class="kw">let </span>source = populated_state();
+<a href=#1321 id=1321 data-nosnippet>1321</a>        <span class="kw">let </span><span class="kw-2">mut </span>expected = source.clone();
+<a href=#1322 id=1322 data-nosnippet>1322</a>        expected.filters = HashMap::new();
+<a href=#1323 id=1323 data-nosnippet>1323</a>        expected.malformed_filters = Vec::new();
 <a href=#1324 id=1324 data-nosnippet>1324</a>        expected.after = <span class="prelude-val">None</span>;
-<a href=#1325 id=1325 data-nosnippet>1325</a>        expected.before = <span class="prelude-val">Some</span>(<span class="string">"tok2"</span>.to_string());
+<a href=#1325 id=1325 data-nosnippet>1325</a>        expected.before = <span class="prelude-val">None</span>;
 <a href=#1326 id=1326 data-nosnippet>1326</a>        expected.delete = <span class="prelude-val">None</span>;
 <a href=#1327 id=1327 data-nosnippet>1327</a>        expected.open = <span class="prelude-val">None</span>;
-<a href=#1328 id=1328 data-nosnippet>1328</a>        <span class="macro">assert_eq!</span>(
-<a href=#1329 id=1329 data-nosnippet>1329</a>            reparse(<span class="kw-2">&amp;</span>source.with_before(<span class="string">"/admin/users"</span>, <span class="string">"tok2"</span>)),
-<a href=#1330 id=1330 data-nosnippet>1330</a>            expected
-<a href=#1331 id=1331 data-nosnippet>1331</a>        );
-<a href=#1332 id=1332 data-nosnippet>1332</a>    }
-<a href=#1333 id=1333 data-nosnippet>1333</a>
-<a href=#1334 id=1334 data-nosnippet>1334</a>    <span class="attr">#[test]
-<a href=#1335 id=1335 data-nosnippet>1335</a>    </span><span class="kw">fn </span>projection_sorted_by_replaces_sort() {
-<a href=#1336 id=1336 data-nosnippet>1336</a>        <span class="comment">// GH #153: replaces `sort`/`dir`, drops cursors and the dialog.
-<a href=#1337 id=1337 data-nosnippet>1337</a>        </span><span class="kw">let </span>source = populated_state();
-<a href=#1338 id=1338 data-nosnippet>1338</a>        <span class="kw">let </span><span class="kw-2">mut </span>expected = source.clone();
-<a href=#1339 id=1339 data-nosnippet>1339</a>        expected.sort = <span class="prelude-val">Some</span>(Sort {
-<a href=#1340 id=1340 data-nosnippet>1340</a>            column: <span class="string">"title"</span>.to_string(),
-<a href=#1341 id=1341 data-nosnippet>1341</a>            descending: <span class="bool-val">false</span>,
-<a href=#1342 id=1342 data-nosnippet>1342</a>        });
-<a href=#1343 id=1343 data-nosnippet>1343</a>        expected.after = <span class="prelude-val">None</span>;
-<a href=#1344 id=1344 data-nosnippet>1344</a>        expected.before = <span class="prelude-val">None</span>;
-<a href=#1345 id=1345 data-nosnippet>1345</a>        expected.delete = <span class="prelude-val">None</span>;
-<a href=#1346 id=1346 data-nosnippet>1346</a>        expected.open = <span class="prelude-val">None</span>;
-<a href=#1347 id=1347 data-nosnippet>1347</a>        <span class="macro">assert_eq!</span>(
-<a href=#1348 id=1348 data-nosnippet>1348</a>            reparse(<span class="kw-2">&amp;</span>source.sorted_by(<span class="string">"/admin/users"</span>, <span class="string">"title"</span>, <span class="bool-val">false</span>)),
-<a href=#1349 id=1349 data-nosnippet>1349</a>            expected
-<a href=#1350 id=1350 data-nosnippet>1350</a>        );
-<a href=#1351 id=1351 data-nosnippet>1351</a>    }
-<a href=#1352 id=1352 data-nosnippet>1352</a>
-<a href=#1353 id=1353 data-nosnippet>1353</a>    <span class="attr">#[test]
-<a href=#1354 id=1354 data-nosnippet>1354</a>    </span><span class="kw">fn </span>projection_row_url_base_adds_the_delete_dialog_key() {
-<a href=#1355 id=1355 data-nosnippet>1355</a>        <span class="comment">// GH #153 (GH #151): full state including cursors + `delete=key`;
-<a href=#1356 id=1356 data-nosnippet>1356</a>        // never `open`.
-<a href=#1357 id=1357 data-nosnippet>1357</a>        </span><span class="kw">let </span>source = populated_state();
-<a href=#1358 id=1358 data-nosnippet>1358</a>        <span class="kw">let </span><span class="kw-2">mut </span>expected = source.clone();
-<a href=#1359 id=1359 data-nosnippet>1359</a>        expected.delete = <span class="prelude-val">Some</span>(<span class="string">"row-9"</span>.to_string());
-<a href=#1360 id=1360 data-nosnippet>1360</a>        expected.open = <span class="prelude-val">None</span>;
-<a href=#1361 id=1361 data-nosnippet>1361</a>        <span class="comment">// Spelled as the page's shared base plus the row key — exactly what a
-<a href=#1362 id=1362 data-nosnippet>1362</a>        // table render does per row (GH #205).
-<a href=#1363 id=1363 data-nosnippet>1363</a>        </span><span class="macro">assert_eq!</span>(
-<a href=#1364 id=1364 data-nosnippet>1364</a>            reparse(<span class="kw-2">&amp;</span>source.row_url_base(<span class="string">"/admin/users"</span>).delete_dialog(<span class="string">"row-9"</span>)),
-<a href=#1365 id=1365 data-nosnippet>1365</a>            expected
-<a href=#1366 id=1366 data-nosnippet>1366</a>        );
-<a href=#1367 id=1367 data-nosnippet>1367</a>        <span class="comment">// A state with nothing else to project still opens the dialog.
-<a href=#1368 id=1368 data-nosnippet>1368</a>        </span><span class="macro">assert_eq!</span>(
-<a href=#1369 id=1369 data-nosnippet>1369</a>            TableState::default()
-<a href=#1370 id=1370 data-nosnippet>1370</a>                .row_url_base(<span class="string">"/admin/users"</span>)
-<a href=#1371 id=1371 data-nosnippet>1371</a>                .delete_dialog(<span class="string">"row-9"</span>),
-<a href=#1372 id=1372 data-nosnippet>1372</a>            <span class="string">"/admin/users?delete=row-9"
-<a href=#1373 id=1373 data-nosnippet>1373</a>        </span>);
-<a href=#1374 id=1374 data-nosnippet>1374</a>    }
-<a href=#1375 id=1375 data-nosnippet>1375</a>    <span class="doccomment">/// GH #166: the live cursor travels as one wire value, so the browser can
-<a href=#1376 id=1376 data-nosnippet>1376</a>    /// never hold `after` and `before` at once — the pair Toasty rejects
-<a href=#1377 id=1377 data-nosnippet>1377</a>    /// (GH #155) is unreachable from the live path.
-<a href=#1378 id=1378 data-nosnippet>1378</a>    </span><span class="attr">#[test]
-<a href=#1379 id=1379 data-nosnippet>1379</a>    </span><span class="kw">fn </span>cursor_wire_carries_at_most_one_direction() {
-<a href=#1380 id=1380 data-nosnippet>1380</a>        <span class="macro">assert_eq!</span>(cursor_after(<span class="string">"tok"</span>), <span class="string">"after:tok"</span>);
-<a href=#1381 id=1381 data-nosnippet>1381</a>        <span class="macro">assert_eq!</span>(cursor_before(<span class="string">"tok"</span>), <span class="string">"before:tok"</span>);
-<a href=#1382 id=1382 data-nosnippet>1382</a>        <span class="macro">assert_eq!</span>(cursor_none(), <span class="string">""</span>);
-<a href=#1383 id=1383 data-nosnippet>1383</a>        <span class="macro">assert_eq!</span>(
-<a href=#1384 id=1384 data-nosnippet>1384</a>            split_cursor(<span class="kw-2">&amp;</span>cursor_after(<span class="string">"tok"</span>)),
-<a href=#1385 id=1385 data-nosnippet>1385</a>            (<span class="prelude-val">Some</span>(<span class="string">"tok"</span>.into()), <span class="prelude-val">None</span>)
-<a href=#1386 id=1386 data-nosnippet>1386</a>        );
-<a href=#1387 id=1387 data-nosnippet>1387</a>        <span class="macro">assert_eq!</span>(
-<a href=#1388 id=1388 data-nosnippet>1388</a>            split_cursor(<span class="kw-2">&amp;</span>cursor_before(<span class="string">"tok"</span>)),
-<a href=#1389 id=1389 data-nosnippet>1389</a>            (<span class="prelude-val">None</span>, <span class="prelude-val">Some</span>(<span class="string">"tok"</span>.into()))
-<a href=#1390 id=1390 data-nosnippet>1390</a>        );
-<a href=#1391 id=1391 data-nosnippet>1391</a>        <span class="macro">assert_eq!</span>(split_cursor(<span class="kw-2">&amp;</span>cursor_none()), (<span class="prelude-val">None</span>, <span class="prelude-val">None</span>));
-<a href=#1392 id=1392 data-nosnippet>1392</a>        <span class="comment">// Whitespace from the signal is tolerated, like the GET path's trims.
-<a href=#1393 id=1393 data-nosnippet>1393</a>        </span><span class="macro">assert_eq!</span>(
-<a href=#1394 id=1394 data-nosnippet>1394</a>            split_cursor(<span class="string">"  after: tok  "</span>),
-<a href=#1395 id=1395 data-nosnippet>1395</a>            (<span class="prelude-val">Some</span>(<span class="string">"tok"</span>.to_string()), <span class="prelude-val">None</span>)
-<a href=#1396 id=1396 data-nosnippet>1396</a>        );
-<a href=#1397 id=1397 data-nosnippet>1397</a>        <span class="comment">// A tampered or half-written value degrades to no cursor (GH #110's
-<a href=#1398 id=1398 data-nosnippet>1398</a>        // drop-pagination retry contract) instead of erroring the table.
-<a href=#1399 id=1399 data-nosnippet>1399</a>        </span><span class="macro">assert_eq!</span>(split_cursor(<span class="string">"tok"</span>), (<span class="prelude-val">None</span>, <span class="prelude-val">None</span>));
-<a href=#1400 id=1400 data-nosnippet>1400</a>        <span class="macro">assert_eq!</span>(split_cursor(<span class="string">"after:"</span>), (<span class="prelude-val">None</span>, <span class="prelude-val">None</span>));
-<a href=#1401 id=1401 data-nosnippet>1401</a>        <span class="macro">assert_eq!</span>(split_cursor(<span class="string">"before:"</span>), (<span class="prelude-val">None</span>, <span class="prelude-val">None</span>));
-<a href=#1402 id=1402 data-nosnippet>1402</a>        <span class="comment">// Only the prefix is a direction; a token may contain colons.
-<a href=#1403 id=1403 data-nosnippet>1403</a>        </span><span class="macro">assert_eq!</span>(split_cursor(<span class="string">"after:a:b"</span>), (<span class="prelude-val">Some</span>(<span class="string">"a:b"</span>.to_string()), <span class="prelude-val">None</span>));
-<a href=#1404 id=1404 data-nosnippet>1404</a>    }
-<a href=#1405 id=1405 data-nosnippet>1405</a>
-<a href=#1406 id=1406 data-nosnippet>1406</a>    <span class="doccomment">/// GH #166: the bulk wire is delimited on both ends so membership is exact
-<a href=#1407 id=1407 data-nosnippet>1407</a>    /// (`b` is not selected by `,ab,`), and the delimiters ride through the
-<a href=#1408 id=1408 data-nosnippet>1408</a>    /// form transport the bulk handler already parses.
-<a href=#1409 id=1409 data-nosnippet>1409</a>    </span><span class="attr">#[test]
-<a href=#1410 id=1410 data-nosnippet>1410</a>    </span><span class="kw">fn </span>bulk_wire_membership_is_exact() {
-<a href=#1411 id=1411 data-nosnippet>1411</a>        <span class="kw">let </span>wire = <span class="string">",row-1,row-2,"</span>;
-<a href=#1412 id=1412 data-nosnippet>1412</a>        <span class="macro">assert!</span>(bulk_wire_contains(wire, <span class="string">"row-1"</span>));
-<a href=#1413 id=1413 data-nosnippet>1413</a>        <span class="macro">assert!</span>(bulk_wire_contains(wire, <span class="string">"row-2"</span>));
-<a href=#1414 id=1414 data-nosnippet>1414</a>        <span class="macro">assert!</span>(!bulk_wire_contains(wire, <span class="string">"row"</span>));
-<a href=#1415 id=1415 data-nosnippet>1415</a>        <span class="macro">assert!</span>(!bulk_wire_contains(wire, <span class="string">"row-1a"</span>));
-<a href=#1416 id=1416 data-nosnippet>1416</a>        <span class="macro">assert!</span>(!bulk_wire_contains(<span class="string">",row-12,"</span>, <span class="string">"row-1"</span>));
-<a href=#1417 id=1417 data-nosnippet>1417</a>        <span class="macro">assert!</span>(!bulk_wire_contains(<span class="string">""</span>, <span class="string">"row-1"</span>));
-<a href=#1418 id=1418 data-nosnippet>1418</a>    }
-<a href=#1419 id=1419 data-nosnippet>1419</a>}
+<a href=#1328 id=1328 data-nosnippet>1328</a>        <span class="macro">assert_eq!</span>(reparse(<span class="kw-2">&amp;</span>source.without_filters(<span class="string">"/admin/users"</span>)), expected);
+<a href=#1329 id=1329 data-nosnippet>1329</a>    }
+<a href=#1330 id=1330 data-nosnippet>1330</a>
+<a href=#1331 id=1331 data-nosnippet>1331</a>    <span class="attr">#[test]
+<a href=#1332 id=1332 data-nosnippet>1332</a>    </span><span class="kw">fn </span>projection_without_cursor_drops_pagination() {
+<a href=#1333 id=1333 data-nosnippet>1333</a>        <span class="comment">// GH #153 (GH #110): drops `after`/`before`; keeps everything else.
+<a href=#1334 id=1334 data-nosnippet>1334</a>        </span><span class="kw">let </span>source = populated_state();
+<a href=#1335 id=1335 data-nosnippet>1335</a>        <span class="kw">let </span><span class="kw-2">mut </span>expected = source.clone();
+<a href=#1336 id=1336 data-nosnippet>1336</a>        expected.after = <span class="prelude-val">None</span>;
+<a href=#1337 id=1337 data-nosnippet>1337</a>        expected.before = <span class="prelude-val">None</span>;
+<a href=#1338 id=1338 data-nosnippet>1338</a>        expected.delete = <span class="prelude-val">None</span>;
+<a href=#1339 id=1339 data-nosnippet>1339</a>        expected.open = <span class="prelude-val">None</span>;
+<a href=#1340 id=1340 data-nosnippet>1340</a>        <span class="macro">assert_eq!</span>(reparse(<span class="kw-2">&amp;</span>source.without_cursor(<span class="string">"/admin/users"</span>)), expected);
+<a href=#1341 id=1341 data-nosnippet>1341</a>    }
+<a href=#1342 id=1342 data-nosnippet>1342</a>
+<a href=#1343 id=1343 data-nosnippet>1343</a>    <span class="attr">#[test]
+<a href=#1344 id=1344 data-nosnippet>1344</a>    </span><span class="kw">fn </span>projection_with_after_sets_forward_cursor() {
+<a href=#1345 id=1345 data-nosnippet>1345</a>        <span class="comment">// GH #153: full state + `after`, drops `before` and the dialog.
+<a href=#1346 id=1346 data-nosnippet>1346</a>        </span><span class="kw">let </span>source = populated_state();
+<a href=#1347 id=1347 data-nosnippet>1347</a>        <span class="kw">let </span><span class="kw-2">mut </span>expected = source.clone();
+<a href=#1348 id=1348 data-nosnippet>1348</a>        expected.after = <span class="prelude-val">Some</span>(<span class="string">"tok2"</span>.to_string());
+<a href=#1349 id=1349 data-nosnippet>1349</a>        expected.before = <span class="prelude-val">None</span>;
+<a href=#1350 id=1350 data-nosnippet>1350</a>        expected.delete = <span class="prelude-val">None</span>;
+<a href=#1351 id=1351 data-nosnippet>1351</a>        expected.open = <span class="prelude-val">None</span>;
+<a href=#1352 id=1352 data-nosnippet>1352</a>        <span class="macro">assert_eq!</span>(
+<a href=#1353 id=1353 data-nosnippet>1353</a>            reparse(<span class="kw-2">&amp;</span>source.with_after(<span class="string">"/admin/users"</span>, <span class="string">"tok2"</span>)),
+<a href=#1354 id=1354 data-nosnippet>1354</a>            expected
+<a href=#1355 id=1355 data-nosnippet>1355</a>        );
+<a href=#1356 id=1356 data-nosnippet>1356</a>    }
+<a href=#1357 id=1357 data-nosnippet>1357</a>
+<a href=#1358 id=1358 data-nosnippet>1358</a>    <span class="attr">#[test]
+<a href=#1359 id=1359 data-nosnippet>1359</a>    </span><span class="kw">fn </span>projection_with_before_sets_backward_cursor() {
+<a href=#1360 id=1360 data-nosnippet>1360</a>        <span class="comment">// GH #153: full state + `before`, drops `after` and the dialog.
+<a href=#1361 id=1361 data-nosnippet>1361</a>        </span><span class="kw">let </span>source = populated_state();
+<a href=#1362 id=1362 data-nosnippet>1362</a>        <span class="kw">let </span><span class="kw-2">mut </span>expected = source.clone();
+<a href=#1363 id=1363 data-nosnippet>1363</a>        expected.after = <span class="prelude-val">None</span>;
+<a href=#1364 id=1364 data-nosnippet>1364</a>        expected.before = <span class="prelude-val">Some</span>(<span class="string">"tok2"</span>.to_string());
+<a href=#1365 id=1365 data-nosnippet>1365</a>        expected.delete = <span class="prelude-val">None</span>;
+<a href=#1366 id=1366 data-nosnippet>1366</a>        expected.open = <span class="prelude-val">None</span>;
+<a href=#1367 id=1367 data-nosnippet>1367</a>        <span class="macro">assert_eq!</span>(
+<a href=#1368 id=1368 data-nosnippet>1368</a>            reparse(<span class="kw-2">&amp;</span>source.with_before(<span class="string">"/admin/users"</span>, <span class="string">"tok2"</span>)),
+<a href=#1369 id=1369 data-nosnippet>1369</a>            expected
+<a href=#1370 id=1370 data-nosnippet>1370</a>        );
+<a href=#1371 id=1371 data-nosnippet>1371</a>    }
+<a href=#1372 id=1372 data-nosnippet>1372</a>
+<a href=#1373 id=1373 data-nosnippet>1373</a>    <span class="attr">#[test]
+<a href=#1374 id=1374 data-nosnippet>1374</a>    </span><span class="kw">fn </span>projection_sorted_by_replaces_sort() {
+<a href=#1375 id=1375 data-nosnippet>1375</a>        <span class="comment">// GH #153: replaces `sort`/`dir`, drops cursors and the dialog.
+<a href=#1376 id=1376 data-nosnippet>1376</a>        </span><span class="kw">let </span>source = populated_state();
+<a href=#1377 id=1377 data-nosnippet>1377</a>        <span class="kw">let </span><span class="kw-2">mut </span>expected = source.clone();
+<a href=#1378 id=1378 data-nosnippet>1378</a>        expected.sort = <span class="prelude-val">Some</span>(Sort {
+<a href=#1379 id=1379 data-nosnippet>1379</a>            column: <span class="string">"title"</span>.to_string(),
+<a href=#1380 id=1380 data-nosnippet>1380</a>            descending: <span class="bool-val">false</span>,
+<a href=#1381 id=1381 data-nosnippet>1381</a>        });
+<a href=#1382 id=1382 data-nosnippet>1382</a>        expected.after = <span class="prelude-val">None</span>;
+<a href=#1383 id=1383 data-nosnippet>1383</a>        expected.before = <span class="prelude-val">None</span>;
+<a href=#1384 id=1384 data-nosnippet>1384</a>        expected.delete = <span class="prelude-val">None</span>;
+<a href=#1385 id=1385 data-nosnippet>1385</a>        expected.open = <span class="prelude-val">None</span>;
+<a href=#1386 id=1386 data-nosnippet>1386</a>        <span class="macro">assert_eq!</span>(
+<a href=#1387 id=1387 data-nosnippet>1387</a>            reparse(<span class="kw-2">&amp;</span>source.sorted_by(<span class="string">"/admin/users"</span>, <span class="string">"title"</span>, <span class="bool-val">false</span>)),
+<a href=#1388 id=1388 data-nosnippet>1388</a>            expected
+<a href=#1389 id=1389 data-nosnippet>1389</a>        );
+<a href=#1390 id=1390 data-nosnippet>1390</a>    }
+<a href=#1391 id=1391 data-nosnippet>1391</a>
+<a href=#1392 id=1392 data-nosnippet>1392</a>    <span class="attr">#[test]
+<a href=#1393 id=1393 data-nosnippet>1393</a>    </span><span class="kw">fn </span>projection_row_url_base_adds_the_delete_dialog_key() {
+<a href=#1394 id=1394 data-nosnippet>1394</a>        <span class="comment">// GH #153 (GH #151): full state including cursors + `delete=key`;
+<a href=#1395 id=1395 data-nosnippet>1395</a>        // never `open`.
+<a href=#1396 id=1396 data-nosnippet>1396</a>        </span><span class="kw">let </span>source = populated_state();
+<a href=#1397 id=1397 data-nosnippet>1397</a>        <span class="kw">let </span><span class="kw-2">mut </span>expected = source.clone();
+<a href=#1398 id=1398 data-nosnippet>1398</a>        expected.delete = <span class="prelude-val">Some</span>(<span class="string">"row-9"</span>.to_string());
+<a href=#1399 id=1399 data-nosnippet>1399</a>        expected.open = <span class="prelude-val">None</span>;
+<a href=#1400 id=1400 data-nosnippet>1400</a>        <span class="comment">// Spelled as the page's shared base plus the row key — exactly what a
+<a href=#1401 id=1401 data-nosnippet>1401</a>        // table render does per row (GH #205).
+<a href=#1402 id=1402 data-nosnippet>1402</a>        </span><span class="macro">assert_eq!</span>(
+<a href=#1403 id=1403 data-nosnippet>1403</a>            reparse(<span class="kw-2">&amp;</span>source.row_url_base(<span class="string">"/admin/users"</span>).delete_dialog(<span class="string">"row-9"</span>)),
+<a href=#1404 id=1404 data-nosnippet>1404</a>            expected
+<a href=#1405 id=1405 data-nosnippet>1405</a>        );
+<a href=#1406 id=1406 data-nosnippet>1406</a>        <span class="comment">// A state with nothing else to project still opens the dialog.
+<a href=#1407 id=1407 data-nosnippet>1407</a>        </span><span class="macro">assert_eq!</span>(
+<a href=#1408 id=1408 data-nosnippet>1408</a>            TableState::default()
+<a href=#1409 id=1409 data-nosnippet>1409</a>                .row_url_base(<span class="string">"/admin/users"</span>)
+<a href=#1410 id=1410 data-nosnippet>1410</a>                .delete_dialog(<span class="string">"row-9"</span>),
+<a href=#1411 id=1411 data-nosnippet>1411</a>            <span class="string">"/admin/users?delete=row-9"
+<a href=#1412 id=1412 data-nosnippet>1412</a>        </span>);
+<a href=#1413 id=1413 data-nosnippet>1413</a>    }
+<a href=#1414 id=1414 data-nosnippet>1414</a>    <span class="doccomment">/// GH #166: the live cursor travels as one wire value, so the browser can
+<a href=#1415 id=1415 data-nosnippet>1415</a>    /// never hold `after` and `before` at once — the pair Toasty rejects
+<a href=#1416 id=1416 data-nosnippet>1416</a>    /// (GH #155) is unreachable from the live path.
+<a href=#1417 id=1417 data-nosnippet>1417</a>    </span><span class="attr">#[test]
+<a href=#1418 id=1418 data-nosnippet>1418</a>    </span><span class="kw">fn </span>cursor_wire_carries_at_most_one_direction() {
+<a href=#1419 id=1419 data-nosnippet>1419</a>        <span class="macro">assert_eq!</span>(cursor_after(<span class="string">"tok"</span>), <span class="string">"after:tok"</span>);
+<a href=#1420 id=1420 data-nosnippet>1420</a>        <span class="macro">assert_eq!</span>(cursor_before(<span class="string">"tok"</span>), <span class="string">"before:tok"</span>);
+<a href=#1421 id=1421 data-nosnippet>1421</a>        <span class="macro">assert_eq!</span>(cursor_none(), <span class="string">""</span>);
+<a href=#1422 id=1422 data-nosnippet>1422</a>        <span class="macro">assert_eq!</span>(
+<a href=#1423 id=1423 data-nosnippet>1423</a>            split_cursor(<span class="kw-2">&amp;</span>cursor_after(<span class="string">"tok"</span>)),
+<a href=#1424 id=1424 data-nosnippet>1424</a>            (<span class="prelude-val">Some</span>(<span class="string">"tok"</span>.into()), <span class="prelude-val">None</span>)
+<a href=#1425 id=1425 data-nosnippet>1425</a>        );
+<a href=#1426 id=1426 data-nosnippet>1426</a>        <span class="macro">assert_eq!</span>(
+<a href=#1427 id=1427 data-nosnippet>1427</a>            split_cursor(<span class="kw-2">&amp;</span>cursor_before(<span class="string">"tok"</span>)),
+<a href=#1428 id=1428 data-nosnippet>1428</a>            (<span class="prelude-val">None</span>, <span class="prelude-val">Some</span>(<span class="string">"tok"</span>.into()))
+<a href=#1429 id=1429 data-nosnippet>1429</a>        );
+<a href=#1430 id=1430 data-nosnippet>1430</a>        <span class="macro">assert_eq!</span>(split_cursor(<span class="kw-2">&amp;</span>cursor_none()), (<span class="prelude-val">None</span>, <span class="prelude-val">None</span>));
+<a href=#1431 id=1431 data-nosnippet>1431</a>        <span class="comment">// Whitespace from the signal is tolerated, like the GET path's trims.
+<a href=#1432 id=1432 data-nosnippet>1432</a>        </span><span class="macro">assert_eq!</span>(
+<a href=#1433 id=1433 data-nosnippet>1433</a>            split_cursor(<span class="string">"  after: tok  "</span>),
+<a href=#1434 id=1434 data-nosnippet>1434</a>            (<span class="prelude-val">Some</span>(<span class="string">"tok"</span>.to_string()), <span class="prelude-val">None</span>)
+<a href=#1435 id=1435 data-nosnippet>1435</a>        );
+<a href=#1436 id=1436 data-nosnippet>1436</a>        <span class="comment">// A tampered or half-written value degrades to no cursor (GH #110's
+<a href=#1437 id=1437 data-nosnippet>1437</a>        // drop-pagination retry contract) instead of erroring the table.
+<a href=#1438 id=1438 data-nosnippet>1438</a>        </span><span class="macro">assert_eq!</span>(split_cursor(<span class="string">"tok"</span>), (<span class="prelude-val">None</span>, <span class="prelude-val">None</span>));
+<a href=#1439 id=1439 data-nosnippet>1439</a>        <span class="macro">assert_eq!</span>(split_cursor(<span class="string">"after:"</span>), (<span class="prelude-val">None</span>, <span class="prelude-val">None</span>));
+<a href=#1440 id=1440 data-nosnippet>1440</a>        <span class="macro">assert_eq!</span>(split_cursor(<span class="string">"before:"</span>), (<span class="prelude-val">None</span>, <span class="prelude-val">None</span>));
+<a href=#1441 id=1441 data-nosnippet>1441</a>        <span class="comment">// Only the prefix is a direction; a token may contain colons.
+<a href=#1442 id=1442 data-nosnippet>1442</a>        </span><span class="macro">assert_eq!</span>(split_cursor(<span class="string">"after:a:b"</span>), (<span class="prelude-val">Some</span>(<span class="string">"a:b"</span>.to_string()), <span class="prelude-val">None</span>));
+<a href=#1443 id=1443 data-nosnippet>1443</a>    }
+<a href=#1444 id=1444 data-nosnippet>1444</a>
+<a href=#1445 id=1445 data-nosnippet>1445</a>    <span class="doccomment">/// GH #166: the bulk wire is delimited on both ends so membership is exact
+<a href=#1446 id=1446 data-nosnippet>1446</a>    /// (`b` is not selected by `,ab,`), and the delimiters ride through the
+<a href=#1447 id=1447 data-nosnippet>1447</a>    /// form transport the bulk handler already parses.
+<a href=#1448 id=1448 data-nosnippet>1448</a>    </span><span class="attr">#[test]
+<a href=#1449 id=1449 data-nosnippet>1449</a>    </span><span class="kw">fn </span>bulk_wire_membership_is_exact() {
+<a href=#1450 id=1450 data-nosnippet>1450</a>        <span class="kw">let </span>wire = <span class="string">",row-1,row-2,"</span>;
+<a href=#1451 id=1451 data-nosnippet>1451</a>        <span class="macro">assert!</span>(bulk_wire_contains(wire, <span class="string">"row-1"</span>));
+<a href=#1452 id=1452 data-nosnippet>1452</a>        <span class="macro">assert!</span>(bulk_wire_contains(wire, <span class="string">"row-2"</span>));
+<a href=#1453 id=1453 data-nosnippet>1453</a>        <span class="macro">assert!</span>(!bulk_wire_contains(wire, <span class="string">"row"</span>));
+<a href=#1454 id=1454 data-nosnippet>1454</a>        <span class="macro">assert!</span>(!bulk_wire_contains(wire, <span class="string">"row-1a"</span>));
+<a href=#1455 id=1455 data-nosnippet>1455</a>        <span class="macro">assert!</span>(!bulk_wire_contains(<span class="string">",row-12,"</span>, <span class="string">"row-1"</span>));
+<a href=#1456 id=1456 data-nosnippet>1456</a>        <span class="macro">assert!</span>(!bulk_wire_contains(<span class="string">""</span>, <span class="string">"row-1"</span>));
+<a href=#1457 id=1457 data-nosnippet>1457</a>    }
+<a href=#1458 id=1458 data-nosnippet>1458</a>}
 </code></pre></div></section></main></body></html>
