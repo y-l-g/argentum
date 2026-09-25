@@ -8,13 +8,13 @@ records the registry version <em>and</em> the sha256 content hash of the source
 the copy is verbatim, drift — a hand edit, a stale file, a component the
 vendored set gained or dropped — is detectable by <a href="fn.verify_sync.html" title="fn xtask::verify_sync"><code>verify_sync</code></a>, which
 the <code>xtask</code> test suite runs as a guard.</p>
-</div></details><h2 id="structs" class="section-header">Structs<a href="#structs" class="anchor">§</a></h2><dl class="item-table"><dt><a class="struct" href="struct.AssetHook.html" title="struct xtask::AssetHook">Asset<wbr>Hook</a></dt><dd>One hook-contract entry (GH #152, ADR-0014): <code>js</code> must appear in the
+</div></details><h2 id="structs" class="section-header">Structs<a href="#structs" class="anchor">§</a></h2><dl class="item-table"><dt><a class="struct" href="struct.AssetHook.html" title="struct xtask::AssetHook">Asset<wbr>Hook</a></dt><dd>One hook-contract entry (ADR-0014): <code>js</code> must appear in the
 asset’s source and <code>rust</code> must appear somewhere in the Rust render sources
 (<code>argentum-ui/src</code> + <code>argentum-core/src</code>; test modules and comment-only
 lines are stripped). Usually both are the same attribute hook;
 dataset-mapped hooks name each side’s spelling (<code>dialogOpenParam</code> reads
-<code>data-dialog-open-param</code>).</dd></dl><h2 id="constants" class="section-header">Constants<a href="#constants" class="anchor">§</a></h2><dl class="item-table"><dt><a class="constant" href="constant.ASSET_FILES.html" title="constant xtask::ASSET_FILES">ASSET_<wbr>FILES</a></dt><dd>Shell JS assets (GH #152, ADR-0014): the file under <code>assets/</code> plus the
-<code>argentum-ui</code> constant that wires it into the document head.</dd><dt><a class="constant" href="constant.ASSET_HOOKS.html" title="constant xtask::ASSET_HOOKS">ASSET_<wbr>HOOKS</a></dt><dd>The checked-in hook list (GH #152). Deliberately attribute hooks only —
+<code>data-dialog-open-param</code>).</dd></dl><h2 id="constants" class="section-header">Constants<a href="#constants" class="anchor">§</a></h2><dl class="item-table"><dt><a class="constant" href="constant.ASSET_FILES.html" title="constant xtask::ASSET_FILES">ASSET_<wbr>FILES</a></dt><dd>Shell JS assets (ADR-0014): the file under <code>assets/</code> plus the
+<code>argentum-ui</code> constant that wires it into the document head.</dd><dt><a class="constant" href="constant.ASSET_HOOKS.html" title="constant xtask::ASSET_HOOKS">ASSET_<wbr>HOOKS</a></dt><dd>The checked-in hook list. Deliberately attribute hooks only —
 structural selectors (<code>.relative</code>, <code>pre code</code>, <code>select option</code>,
 <code>dialog[open]</code>, <code>#mobile-sidebar-sheet</code>, which has no JS consumer: the
 sheet backdrop is a runtime <code>@click</code> handler) and the inverse direction (a

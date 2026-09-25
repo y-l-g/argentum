@@ -3,7 +3,7 @@
 lens: Toasty stores it as one discriminant column plus one nullable column
 per variant field. The caller therefore supplies prebuilt expressions —
 typically <code>User::fields().vehicule().is_moto()</code> — one per option. Display
-stays <code>TextColumn::computed</code> (see GH #77).</p>
+stays <code>TextColumn::computed</code> (see).</p>
 </div></details><h2 id="implementations" class="section-header">Implementations<a href="#implementations" class="anchor">§</a></h2><div id="implementations-list"><details class="toggle implementors-toggle" open><summary><section id="impl-VariantFilter%3CM%3E" class="impl"><a class="src rightside" href="../../src/argentum_core/resource/filter.rs.html#232-265">Source</a><a href="#impl-VariantFilter%3CM%3E" class="anchor">§</a><h3 class="code-header">impl&lt;M&gt; <a class="struct" href="struct.VariantFilter.html" title="struct argentum_core::resource::VariantFilter">VariantFilter</a>&lt;M&gt;<div class="where">where
     M: Model,</div></h3></section></summary><div class="impl-items"><details class="toggle method-toggle" open><summary><section id="method.for" class="method"><a class="src rightside" href="../../src/argentum_core/resource/filter.rs.html#238-249">Source</a><h4 class="code-header">pub fn <a href="#method.for" class="fn">for</a>(
     name: impl <a class="trait" href="https://doc.rust-lang.org/1.98.1/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;<a class="struct" href="https://doc.rust-lang.org/1.98.1/alloc/string/struct.String.html" title="struct alloc::string::String">String</a>&gt;,

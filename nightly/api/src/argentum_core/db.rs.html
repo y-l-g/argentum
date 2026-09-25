@@ -12,7 +12,7 @@
 <a href=#12 id=12 data-nosnippet>12</a>/// Cloning the `Db` is cheap; Toasty statements need `&amp;mut Db`, so callers do
 <a href=#13 id=13 data-nosnippet>13</a>/// `let mut db = db(cx); ...exec(&amp;mut db).await?`.
 <a href=#14 id=14 data-nosnippet>14</a>///
-<a href=#15 id=15 data-nosnippet>15</a>/// Pool discipline (GH #84): while a framework transaction holds its
+<a href=#15 id=15 data-nosnippet>15</a>/// Pool discipline: while a framework transaction holds its
 <a href=#16 id=16 data-nosnippet>16</a>/// connection, no other handle may run statements — with a single-connection
 <a href=#17 id=17 data-nosnippet>17</a>/// pool (notably `sqlite::memory:`) a second handle blocks forever. Mutation
 <a href=#18 id=18 data-nosnippet>18</a>/// handlers therefore keep the tx strictly around check + write + commit and
@@ -24,7 +24,7 @@
 <a href=#24 id=24 data-nosnippet>24</a>}
 <a href=#25 id=25 data-nosnippet>25</a>
 <a href=#26 id=26 data-nosnippet>26</a><span class="doccomment">/// Map a database infrastructure failure (pool/tx open, probe/exec, commit)
-<a href=#27 id=27 data-nosnippet>27</a>/// to an opaque 500 (GH #174): the driver/SQL text is logged for operators
+<a href=#27 id=27 data-nosnippet>27</a>/// to an opaque 500: the driver/SQL text is logged for operators
 <a href=#28 id=28 data-nosnippet>28</a>/// but never reaches the error page. The streamed list already holds this
 <a href=#29 id=29 data-nosnippet>29</a>/// contract through its generic `ErrorState` (logged once at
 <a href=#30 id=30 data-nosnippet>30</a>/// `table_error_view`); mutation/export paths must match it.
@@ -38,11 +38,11 @@
 <a href=#38 id=38 data-nosnippet>38</a>    topcoat::Error::from(std::io::Error::other(<span class="string">"database unavailable"</span>))
 <a href=#39 id=39 data-nosnippet>39</a>}
 <a href=#40 id=40 data-nosnippet>40</a>
-<a href=#41 id=41 data-nosnippet>41</a><span class="doccomment">/// Map a failed record hook to the error the response carries (GH #229).
+<a href=#41 id=41 data-nosnippet>41</a><span class="doccomment">/// Map a failed record hook to the error the response carries.
 <a href=#42 id=42 data-nosnippet>42</a>///
 <a href=#43 id=43 data-nosnippet>43</a>/// A hook (`create_record`, `update_record`, `delete_record`, …) is app code,
 <a href=#44 id=44 data-nosnippet>44</a>/// so its error is one of two things: the app's own — a guard's 404, a config
-<a href=#45 id=45 data-nosnippet>45</a>/// error, the default stub's "not implemented" — or the driver's. GH #174
+<a href=#45 id=45 data-nosnippet>45</a>/// error, the default stub's "not implemented" — or the driver's.
 <a href=#46 id=46 data-nosnippet>46</a>/// keeps the app's mapping (a guard must still answer 404, not a 500), while
 <a href=#47 id=47 data-nosnippet>47</a>/// the driver's is an infra failure and takes [`unavailable`]: its text goes
 <a href=#48 id=48 data-nosnippet>48</a>/// to the log, and the page never echoes it. The error's own type settles

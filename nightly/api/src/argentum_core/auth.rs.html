@@ -36,7 +36,7 @@
 <a href=#36 id=36 data-nosnippet>36</a><span class="doccomment">/// How long a session stays valid: seven days, fixed (ADR-0013).
 <a href=#37 id=37 data-nosnippet>37</a></span><span class="kw">pub const </span>SESSION_LIFETIME: Duration = Duration::from_hours(<span class="number">24 </span>* <span class="number">7</span>);
 <a href=#38 id=38 data-nosnippet>38</a>
-<a href=#39 id=39 data-nosnippet>39</a><span class="doccomment">/// Max body the login route accepts (GH #295): 64 KiB.
+<a href=#39 id=39 data-nosnippet>39</a><span class="doccomment">/// Max body the login route accepts: 64 KiB.
 <a href=#40 id=40 data-nosnippet>40</a>///
 <a href=#41 id=41 data-nosnippet>41</a>/// A credential form submits an email, a password, a `next` and a CSRF token,
 <a href=#42 id=42 data-nosnippet>42</a>/// all short strings; the panel's 10 MiB form cap is for multipart uploads,
@@ -58,7 +58,7 @@
 <a href=#58 id=58 data-nosnippet>58</a></span><span class="kw">const </span>GENERIC_ERROR: <span class="kw-2">&amp;</span>str = <span class="string">"Invalid email or password."</span>;
 <a href=#59 id=59 data-nosnippet>59</a>
 <a href=#60 id=60 data-nosnippet>60</a><span class="doccomment">/// What a failed login attempt renders when the database behind it could not
-<a href=#61 id=61 data-nosnippet>61</a>/// answer (GH #230).
+<a href=#61 id=61 data-nosnippet>61</a>/// answer.
 <a href=#62 id=62 data-nosnippet>62</a>///
 <a href=#63 id=63 data-nosnippet>63</a>/// [`GENERIC_ERROR`] is deliberately non-specific about *why* credentials were
 <a href=#64 id=64 data-nosnippet>64</a>/// refused, so reusing it for an outage would tell a user their password was
@@ -147,7 +147,7 @@
 <a href=#147 id=147 data-nosnippet>147</a>/// error: the login response is one generic message for all of them. An
 <a href=#148 id=148 data-nosnippet>148</a>/// infrastructure failure is not a credential verdict, so an implementation
 <a href=#149 id=149 data-nosnippet>149</a>/// that cannot reach its store may return the driver's error instead — the
-<a href=#150 id=150 data-nosnippet>150</a>/// login handler maps it to the opaque outage page (GH #230), which is what
+<a href=#150 id=150 data-nosnippet>150</a>/// login handler maps it to the opaque outage page, which is what
 <a href=#151 id=151 data-nosnippet>151</a>/// keeps a database outage from rendering as a rejected password. An
 <a href=#152 id=152 data-nosnippet>152</a>/// implementation's own error keeps its own mapping.
 <a href=#153 id=153 data-nosnippet>153</a></span><span class="kw">pub trait </span>Authenticator: Send + Sync + <span class="lifetime">'static </span>{
@@ -172,7 +172,7 @@
 <a href=#172 id=172 data-nosnippet>172</a>}
 <a href=#173 id=173 data-nosnippet>173</a>
 <a href=#174 id=174 data-nosnippet>174</a><span class="doccomment">/// The opaque error an infrastructure failure on an auth or session path
-<a href=#175 id=175 data-nosnippet>175</a>/// carries (GH #230).
+<a href=#175 id=175 data-nosnippet>175</a>/// carries.
 <a href=#176 id=176 data-nosnippet>176</a>///
 <a href=#177 id=177 data-nosnippet>177</a>/// Its `Display` is [`UNAVAILABLE_ERROR`], so nothing driver-shaped can travel
 <a href=#178 id=178 data-nosnippet>178</a>/// inside it, and its concrete type is what lets the login handler recognise
@@ -189,7 +189,7 @@
 <a href=#189 id=189 data-nosnippet>189</a><span class="kw">impl </span>std::error::Error <span class="kw">for </span>Unavailable {}
 <a href=#190 id=190 data-nosnippet>190</a>
 <a href=#191 id=191 data-nosnippet>191</a><span class="doccomment">/// Map a failed auth or session operation to the error the response carries
-<a href=#192 id=192 data-nosnippet>192</a>/// (GH #230) — the counterpart of [`crate::db::hook_failure`] for this module.
+<a href=#192 id=192 data-nosnippet>192</a>/// The counterpart of [`crate::db::hook_failure`] for this module.
 <a href=#193 id=193 data-nosnippet>193</a>///
 <a href=#194 id=194 data-nosnippet>194</a>/// An error that is the driver's is an infrastructure failure: it becomes
 <a href=#195 id=195 data-nosnippet>195</a>/// [`Unavailable`], and the driver's own text goes to the log under this
@@ -511,7 +511,7 @@
 <a href=#511 id=511 data-nosnippet>511</a>    <span class="prelude-val">Ok</span>(())
 <a href=#512 id=512 data-nosnippet>512</a>}
 <a href=#513 id=513 data-nosnippet>513</a>
-<a href=#514 id=514 data-nosnippet>514</a><span class="doccomment">/// Drop the expired session rows of `user_id` (GH #295).
+<a href=#514 id=514 data-nosnippet>514</a><span class="doccomment">/// Drop the expired session rows of `user_id`.
 <a href=#515 id=515 data-nosnippet>515</a>///
 <a href=#516 id=516 data-nosnippet>516</a>/// [`resolve`] purges a session row when its token is looked up expired, so
 <a href=#517 id=517 data-nosnippet>517</a>/// without this a row whose token is never presented again would stay in the
@@ -606,7 +606,7 @@
 <a href=#606 id=606 data-nosnippet>606</a>                <span class="kw">return </span>next.run(cx, body).<span class="kw">await</span>;
 <a href=#607 id=607 data-nosnippet>607</a>            };
 <a href=#608 id=608 data-nosnippet>608</a>            <span class="comment">// The logout route must answer for any resolved user, even one
-<a href=#609 id=609 data-nosnippet>609</a>            // whose panel access was revoked after login (GH #146) — clearing
+<a href=#609 id=609 data-nosnippet>609</a>            // whose panel access was revoked after login — clearing
 <a href=#610 id=610 data-nosnippet>610</a>            // the session row + cookie must not require panel permission, or
 <a href=#611 id=611 data-nosnippet>611</a>            // the session lingers to expiry. The bypass is POST-only at the
 <a href=#612 id=612 data-nosnippet>612</a>            // exact logout path: the route table registers nothing else
@@ -627,7 +627,7 @@
 <a href=#627 id=627 data-nosnippet>627</a>                </span>}
 <a href=#628 id=628 data-nosnippet>628</a>                <span class="comment">// Authenticated but not permitted: 403, indistinguishable
 <a href=#629 id=629 data-nosnippet>629</a>                // from bad credentials at login (ADR-0013). The logout route
-<a href=#630 id=630 data-nosnippet>630</a>                // is answered above (GH #146).
+<a href=#630 id=630 data-nosnippet>630</a>                // is answered above.
 <a href=#631 id=631 data-nosnippet>631</a>                </span><span class="prelude-val">Some</span>(<span class="kw">_</span>) =&gt; <span class="prelude-val">Err</span>(forbidden().into()),
 <a href=#632 id=632 data-nosnippet>632</a>                <span class="comment">// Pages redirect to the login route with a validated `next`;
 <a href=#633 id=633 data-nosnippet>633</a>                // runtime endpoints, non-GET requests, and page re-runs
@@ -650,7 +650,7 @@
 <a href=#650 id=650 data-nosnippet>650</a>}
 <a href=#651 id=651 data-nosnippet>651</a>
 <a href=#652 id=652 data-nosnippet>652</a><span class="doccomment">/// What a failed login attempt renders: the generic credential rejection, or
-<a href=#653 id=653 data-nosnippet>653</a>/// the sign-in outage (GH #230).
+<a href=#653 id=653 data-nosnippet>653</a>/// the sign-in outage.
 <a href=#654 id=654 data-nosnippet>654</a>///
 <a href=#655 id=655 data-nosnippet>655</a>/// Two variants and no more, each with its own copy and status, so a failed
 <a href=#656 id=656 data-nosnippet>656</a>/// attempt is always a deliberate answer: a driver failure is never rendered
@@ -729,7 +729,7 @@
 <a href=#729 id=729 data-nosnippet>729</a>                    <span class="prelude-val">Ok</span>(user) =&gt; user,
 <a href=#730 id=730 data-nosnippet>730</a>                    <span class="comment">// A driver failure is not a credential verdict: the page
 <a href=#731 id=731 data-nosnippet>731</a>                    // says sign-in is unavailable instead of rendering a
-<a href=#732 id=732 data-nosnippet>732</a>                    // rejection (GH #230). The seam logs the driver's text and
+<a href=#732 id=732 data-nosnippet>732</a>                    // rejection. The seam logs the driver's text and
 <a href=#733 id=733 data-nosnippet>733</a>                    // hands back an app-authored error untouched.
 <a href=#734 id=734 data-nosnippet>734</a>                    </span><span class="prelude-val">Err</span>(error) =&gt; {
 <a href=#735 id=735 data-nosnippet>735</a>                        <span class="kw">let </span>error = infrastructure_failure(error);
@@ -751,7 +751,7 @@
 <a href=#751 id=751 data-nosnippet>751</a>        </span><span class="kw">if let </span><span class="prelude-val">Some</span>(hash) = session::token_hash(cx).<span class="kw">await</span><span class="question-mark">? </span>{
 <a href=#752 id=752 data-nosnippet>752</a>            delete_session(cx, <span class="kw-2">&amp;</span>hash).<span class="kw">await</span><span class="question-mark">?</span>;
 <a href=#753 id=753 data-nosnippet>753</a>        }
-<a href=#754 id=754 data-nosnippet>754</a>        <span class="comment">// Bounded housekeeping (GH #295): the expired rows of the user signing
+<a href=#754 id=754 data-nosnippet>754</a>        <span class="comment">// Bounded housekeeping: the expired rows of the user signing
 <a href=#755 id=755 data-nosnippet>755</a>        // in go with the rotation. A failure is logged rather than fatal — a
 <a href=#756 id=756 data-nosnippet>756</a>        // credential that verified must not become a 503 because cleanup could
 <a href=#757 id=757 data-nosnippet>757</a>        // not run.
@@ -771,7 +771,7 @@
 <a href=#771 id=771 data-nosnippet>771</a>        <span class="kw">if let </span><span class="prelude-val">Err</span>(error) = recorded {
 <a href=#772 id=772 data-nosnippet>772</a>            <span class="comment">// The credentials were right; the session row could not be
 <a href=#773 id=773 data-nosnippet>773</a>            // recorded. Same outage page as a failed verification — never the
-<a href=#774 id=774 data-nosnippet>774</a>            // driver's text (GH #230).
+<a href=#774 id=774 data-nosnippet>774</a>            // driver's text.
 <a href=#775 id=775 data-nosnippet>775</a>            </span><span class="kw">let </span>error = infrastructure_failure(error);
 <a href=#776 id=776 data-nosnippet>776</a>            <span class="kw">if </span>error.is::&lt;Unavailable&gt;() {
 <a href=#777 id=777 data-nosnippet>777</a>                <span class="kw">return </span>login_response(cx, <span class="prelude-val">Some</span>(LoginError::Unavailable), next).<span class="kw">await</span>;
@@ -795,7 +795,7 @@
 <a href=#795 id=795 data-nosnippet>795</a>        <span class="comment">// Defense in depth: the route only exists on gated panels, but it
 <a href=#796 id=796 data-nosnippet>796</a>        // re-checks so a missing layer cannot leave logout ungated. Any
 <a href=#797 id=797 data-nosnippet>797</a>        // resolved identity may log out — the gate answers this route for a
-<a href=#798 id=798 data-nosnippet>798</a>        // `can_access_panel=false` user too (GH #146), so demanding panel
+<a href=#798 id=798 data-nosnippet>798</a>        // `can_access_panel=false` user too, so demanding panel
 <a href=#799 id=799 data-nosnippet>799</a>        // access here would strand their session row + cookie to expiry.
 <a href=#800 id=800 data-nosnippet>800</a>        </span><span class="kw">if </span>current_user(cx).is_none() {
 <a href=#801 id=801 data-nosnippet>801</a>            <span class="kw">return </span><span class="prelude-val">Err</span>(unauthenticated_error(cx));

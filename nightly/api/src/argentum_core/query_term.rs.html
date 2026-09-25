@@ -2,12 +2,12 @@
 <a href=#2 id=2 data-nosnippet>2</a>//!
 <a href=#3 id=3 data-nosnippet>3</a>//! A leaf: `resource` (the list state's transport parse and the live-search
 <a href=#4 id=4 data-nosnippet>4</a>//! shard) and `schema` (relationship option search) both clamp through here,
-<a href=#5 id=5 data-nosnippet>5</a>//! and neither depends on the other for it (GH #208).
+<a href=#5 id=5 data-nosnippet>5</a>//! and neither depends on the other for it.
 <a href=#6 id=6 data-nosnippet>6</a>
-<a href=#7 id=7 data-nosnippet>7</a>/// Longest search term accepted (`?q=` and the shard's `q`, GH #148): bounded
+<a href=#7 id=7 data-nosnippet>7</a>/// Longest search term accepted (`?q=` and the shard's `q`): bounded
 <a href=#8 id=8 data-nosnippet>8</a>/// echoed state. Applied by [`TableState::from_parts`], so the GET path, the
 <a href=#9 id=9 data-nosnippet>9</a>/// shard, and the public [`TableState::from_live_args`] all clamp alike
-<a href=#10 id=10 data-nosnippet>10</a>/// (GH #206), and by the relationship option search so a keystroke burst cannot
+<a href=#10 id=10 data-nosnippet>10</a>/// and by the relationship option search so a keystroke burst cannot
 <a href=#11 id=11 data-nosnippet>11</a>/// grow the pattern past the same bound.
 <a href=#12 id=12 data-nosnippet>12</a>///
 <a href=#13 id=13 data-nosnippet>13</a>/// [`TableState::from_parts`]: crate::resource::TableState

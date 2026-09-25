@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source of the Rust file `crates/argentum-core/src/csrf.rs`."><title>csrf.rs - source</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../static.files/rustdoc-1ed95124.css"><meta name="rustdoc-vars" data-root-path="../../" data-static-root-path="../../static.files/" data-current-crate="argentum_core" data-themes="" data-resource-suffix="" data-rustdoc-version="1.98.1 (48a229cea 2026-09-01)" data-channel="1.98.1" data-search-js="search-9944d736.js" data-stringdex-js="stringdex-2da4960a.js" data-settings-js="settings-170eb4bf.js" ><script src="../../static.files/storage-41dd4d93.js"></script><script defer src="../../static.files/src-script-813739b1.js"></script><script defer src="../../src-files.js"></script><script defer src="../../static.files/main-417ebf0a.js"></script><noscript><link rel="stylesheet" href="../../static.files/noscript-f7c3ffd8.css"></noscript><link rel="alternate icon" type="image/png" href="../../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../../static.files/favicon-044be391.svg"></head><body class="rustdoc src"><a class="skip-main-content" href="#main-content">Skip to main content</a><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="src-sidebar-title"><h2>Files</h2></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><section id="main-content" class="content" tabindex="-1"><div class="main-heading"><h1><div class="sub-heading">argentum_core/</div>csrf.rs</h1><rustdoc-toolbar></rustdoc-toolbar></div><div class="example-wrap digits-3"><pre class="rust"><code><a href=#1 id=1 data-nosnippet>1</a><span class="doccomment">//! CSRF protection via double-submit cookie (GH #99).
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source of the Rust file `crates/argentum-core/src/csrf.rs`."><title>csrf.rs - source</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../static.files/rustdoc-1ed95124.css"><meta name="rustdoc-vars" data-root-path="../../" data-static-root-path="../../static.files/" data-current-crate="argentum_core" data-themes="" data-resource-suffix="" data-rustdoc-version="1.98.1 (48a229cea 2026-09-01)" data-channel="1.98.1" data-search-js="search-9944d736.js" data-stringdex-js="stringdex-2da4960a.js" data-settings-js="settings-170eb4bf.js" ><script src="../../static.files/storage-41dd4d93.js"></script><script defer src="../../static.files/src-script-813739b1.js"></script><script defer src="../../src-files.js"></script><script defer src="../../static.files/main-417ebf0a.js"></script><noscript><link rel="stylesheet" href="../../static.files/noscript-f7c3ffd8.css"></noscript><link rel="alternate icon" type="image/png" href="../../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../../static.files/favicon-044be391.svg"></head><body class="rustdoc src"><a class="skip-main-content" href="#main-content">Skip to main content</a><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="src-sidebar-title"><h2>Files</h2></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><section id="main-content" class="content" tabindex="-1"><div class="main-heading"><h1><div class="sub-heading">argentum_core/</div>csrf.rs</h1><rustdoc-toolbar></rustdoc-toolbar></div><div class="example-wrap digits-3"><pre class="rust"><code><a href=#1 id=1 data-nosnippet>1</a><span class="doccomment">//! CSRF protection via double-submit cookie.
 <a href=#2 id=2 data-nosnippet>2</a>//!
 <a href=#3 id=3 data-nosnippet>3</a>//! Every state-changing form embeds `csrf_token`, and every POST handler
 <a href=#4 id=4 data-nosnippet>4</a>//! verifies the form value matches the cookie. No server-side session is
@@ -23,7 +23,7 @@
 <a href=#23 id=23 data-nosnippet>23</a>};
 <a href=#24 id=24 data-nosnippet>24</a>
 <a href=#25 id=25 data-nosnippet>25</a><span class="doccomment">/// Cookie carrying the CSRF token (`__Host-` prefix: `Secure` + `Path=/` +
-<a href=#26 id=26 data-nosnippet>26</a>/// no `Domain` are required by the prefix contract, GH #149).
+<a href=#26 id=26 data-nosnippet>26</a>/// no `Domain` are required by the prefix contract).
 <a href=#27 id=27 data-nosnippet>27</a></span><span class="kw">pub const </span>COOKIE_NAME: <span class="kw-2">&amp;</span>str = <span class="string">"__Host-argentum_csrf"</span>;
 <a href=#28 id=28 data-nosnippet>28</a><span class="doccomment">/// Hidden form field carrying the CSRF token.
 <a href=#29 id=29 data-nosnippet>29</a></span><span class="kw">pub const </span>FIELD_NAME: <span class="kw-2">&amp;</span>str = <span class="string">"csrf_token"</span>;
@@ -57,7 +57,7 @@
 <a href=#57 id=57 data-nosnippet>57</a>    token
 <a href=#58 id=58 data-nosnippet>58</a>}
 <a href=#59 id=59 data-nosnippet>59</a>
-<a href=#60 id=60 data-nosnippet>60</a><span class="doccomment">/// Read the current token without setting one (GH #99).
+<a href=#60 id=60 data-nosnippet>60</a><span class="doccomment">/// Read the current token without setting one.
 <a href=#61 id=61 data-nosnippet>61</a>///
 <a href=#62 id=62 data-nosnippet>62</a>/// Safe inside streamed `suspense` children that outlive header send: renders
 <a href=#63 id=63 data-nosnippet>63</a>/// embed the already-ensured token, or `""` when none was ensured.
@@ -80,7 +80,7 @@
 <a href=#80 id=80 data-nosnippet>80</a>/// `suspense` child) is the site's decision, and a helper that guessed would
 <a href=#81 id=81 data-nosnippet>81</a>/// either panic after header send or silently embed nothing. What the helper
 <a href=#82 id=82 data-nosnippet>82</a>/// owns is the spelling — [`FIELD_NAME`] is what [`verify`] reads, so a rename
-<a href=#83 id=83 data-nosnippet>83</a>/// that missed a form would be a silent 403 on every POST (GH #212).
+<a href=#83 id=83 data-nosnippet>83</a>/// that missed a form would be a silent 403 on every POST.
 <a href=#84 id=84 data-nosnippet>84</a></span><span class="kw">pub fn </span>field&lt;<span class="lifetime">'a</span>&gt;(cx: <span class="kw-2">&amp;</span><span class="lifetime">'a </span>Cx, token: <span class="kw-2">&amp;</span>str) -&gt; topcoat::view::BoxView&lt;<span class="lifetime">'a</span>&gt; {
 <a href=#85 id=85 data-nosnippet>85</a>    <span class="kw">use </span>topcoat::view::ViewExt;
 <a href=#86 id=86 data-nosnippet>86</a>
@@ -91,10 +91,10 @@
 <a href=#91 id=91 data-nosnippet>91</a>    <span class="macro">topcoat::view::view!</span> { cx =&gt; &lt;input <span class="kw">type</span>=<span class="string">"hidden" </span>name=(FIELD_NAME) value=(token)&gt; }.boxed()
 <a href=#92 id=92 data-nosnippet>92</a>}
 <a href=#93 id=93 data-nosnippet>93</a>
-<a href=#94 id=94 data-nosnippet>94</a><span class="doccomment">/// Verify the submitted form token matches the cookie (GH #99).
+<a href=#94 id=94 data-nosnippet>94</a><span class="doccomment">/// Verify the submitted form token matches the cookie.
 <a href=#95 id=95 data-nosnippet>95</a>///
 <a href=#96 id=96 data-nosnippet>96</a>/// Fails closed: missing cookie, missing field, or mismatch all yield 403.
-<a href=#97 id=97 data-nosnippet>97</a>/// The mismatch compare is constant-time (GH #149) so a failed double-submit
+<a href=#97 id=97 data-nosnippet>97</a>/// The mismatch compare is constant-time so a failed double-submit
 <a href=#98 id=98 data-nosnippet>98</a>/// cannot be probed byte-by-byte; the token itself stays a random UUID, so
 <a href=#99 id=99 data-nosnippet>99</a>/// a length difference is not a secret.
 <a href=#100 id=100 data-nosnippet>100</a></span><span class="kw">pub fn </span>verify(
@@ -151,7 +151,7 @@
 <a href=#151 id=151 data-nosnippet>151</a>        );
 <a href=#152 id=152 data-nosnippet>152</a>    }
 <a href=#153 id=153 data-nosnippet>153</a>
-<a href=#154 id=154 data-nosnippet>154</a>    <span class="doccomment">/// The issued cookie carries the hardened `__Host-` contract (GH #149),
+<a href=#154 id=154 data-nosnippet>154</a>    <span class="doccomment">/// The issued cookie carries the hardened `__Host-` contract,
 <a href=#155 id=155 data-nosnippet>155</a>    /// matching the session cookie: `Secure`, `HttpOnly`, `SameSite=Lax`,
 <a href=#156 id=156 data-nosnippet>156</a>    /// `Path=/`, no `Domain`.
 <a href=#157 id=157 data-nosnippet>157</a>    </span><span class="attr">#[test]

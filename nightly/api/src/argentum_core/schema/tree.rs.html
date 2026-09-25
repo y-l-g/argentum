@@ -75,20 +75,20 @@
 <a href=#75 id=75 data-nosnippet>75</a>}
 <a href=#76 id=76 data-nosnippet>76</a>
 <a href=#77 id=77 data-nosnippet>77</a><span class="doccomment">/// Where a schema render reads field values and errors from (GH #154 §4), and
-<a href=#78 id=78 data-nosnippet>78</a>/// which side of the record the render is for (GH #187).
+<a href=#78 id=78 data-nosnippet>78</a>/// which side of the record the render is for.
 <a href=#79 id=79 data-nosnippet>79</a>///
 <a href=#80 id=80 data-nosnippet>80</a>/// Plain maps, no bindings: `Mode::Form` is the create/edit path, and
 <a href=#81 id=81 data-nosnippet>81</a>/// `Mode::View` renders the detail page, where a field shows its stored value
 <a href=#82 id=82 data-nosnippet>82</a>/// instead of a control — `Select` its option label, `FileUpload` its path —
 <a href=#83 id=83 data-nosnippet>83</a>/// and layout keeps the structure it declares. A struct with one source shape
-<a href=#84 id=84 data-nosnippet>84</a>/// (`Mode::Form` or `Mode::View`) and no second case to name (GH #228).
+<a href=#84 id=84 data-nosnippet>84</a>/// (`Mode::Form` or `Mode::View`) and no second case to name.
 <a href=#85 id=85 data-nosnippet>85</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">struct </span>RenderSource&lt;<span class="lifetime">'a</span>&gt; {
 <a href=#86 id=86 data-nosnippet>86</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) values: <span class="kw-2">&amp;</span><span class="lifetime">'a </span>HashMap&lt;String, String&gt;,
 <a href=#87 id=87 data-nosnippet>87</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) errors: <span class="kw-2">&amp;</span><span class="lifetime">'a </span>HashMap&lt;String, Vec&lt;String&gt;&gt;,
 <a href=#88 id=88 data-nosnippet>88</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) mode: Mode,
 <a href=#89 id=89 data-nosnippet>89</a>}
 <a href=#90 id=90 data-nosnippet>90</a>
-<a href=#91 id=91 data-nosnippet>91</a><span class="doccomment">/// Which reading of a record a render is for (GH #187).
+<a href=#91 id=91 data-nosnippet>91</a><span class="doccomment">/// Which reading of a record a render is for.
 <a href=#92 id=92 data-nosnippet>92</a></span><span class="attr">#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 <a href=#93 id=93 data-nosnippet>93</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">enum </span>Mode {
 <a href=#94 id=94 data-nosnippet>94</a>    <span class="doccomment">/// Create/edit: fields render as controls, validation applies.
@@ -105,7 +105,7 @@
 <a href=#105 id=105 data-nosnippet>105</a>
 <a href=#106 id=106 data-nosnippet>106</a>    <span class="doccomment">/// The errors for `name`, if this render has any.
 <a href=#107 id=107 data-nosnippet>107</a>    ///
-<a href=#108 id=108 data-nosnippet>108</a>    /// View mode never has any (GH #187): the detail page renders a stored
+<a href=#108 id=108 data-nosnippet>108</a>    /// View mode never has any: the detail page renders a stored
 <a href=#109 id=109 data-nosnippet>109</a>    /// record, so a validation slot would describe a submit that cannot happen.
 <a href=#110 id=110 data-nosnippet>110</a>    /// The one place that rule lives, so a layout reading errors cannot forget
 <a href=#111 id=111 data-nosnippet>111</a>    /// it.
@@ -117,12 +117,12 @@
 <a href=#117 id=117 data-nosnippet>117</a>    }
 <a href=#118 id=118 data-nosnippet>118</a>}
 <a href=#119 id=119 data-nosnippet>119</a>
-<a href=#120 id=120 data-nosnippet>120</a><span class="doccomment">/// The submitted value for `name`; an absent key validates as `""` (GH #89).
+<a href=#120 id=120 data-nosnippet>120</a><span class="doccomment">/// The submitted value for `name`; an absent key validates as `""`.
 <a href=#121 id=121 data-nosnippet>121</a></span><span class="kw">fn </span>value_of&lt;<span class="lifetime">'a</span>&gt;(values: <span class="kw-2">&amp;</span><span class="lifetime">'a </span>HashMap&lt;String, String&gt;, name: <span class="kw-2">&amp;</span>str) -&gt; <span class="kw-2">&amp;</span><span class="lifetime">'a </span>str {
 <a href=#122 id=122 data-nosnippet>122</a>    values.get(name).map(String::as_str).unwrap_or(<span class="string">""</span>)
 <a href=#123 id=123 data-nosnippet>123</a>}
 <a href=#124 id=124 data-nosnippet>124</a>
-<a href=#125 id=125 data-nosnippet>125</a><span class="doccomment">/// Validate the field leaf in `node` (GH #209): the field name and the errors
+<a href=#125 id=125 data-nosnippet>125</a><span class="doccomment">/// Validate the field leaf in `node`: the field name and the errors
 <a href=#126 id=126 data-nosnippet>126</a>/// for its submitted value, or `None` when `node` is a container or repeater.
 <a href=#127 id=127 data-nosnippet>127</a>///
 <a href=#128 id=128 data-nosnippet>128</a>/// The one match over field kinds in the validation path — a new kind is one
@@ -170,7 +170,7 @@
 <a href=#170 id=170 data-nosnippet>170</a>    }
 <a href=#171 id=171 data-nosnippet>171</a>}
 <a href=#172 id=172 data-nosnippet>172</a>
-<a href=#173 id=173 data-nosnippet>173</a><span class="doccomment">/// Classify the schema's groups against `values` (GH #147, GH #297): the
+<a href=#173 id=173 data-nosnippet>173</a><span class="doccomment">/// Classify the schema's groups against `values`: the
 <a href=#174 id=174 data-nosnippet>174</a>/// repeaters that are absent and the variant groups the submission hides.
 <a href=#175 id=175 data-nosnippet>175</a>///
 <a href=#176 id=176 data-nosnippet>176</a>/// For every Repeater, all its inner field names (as `field_names()` of the
@@ -188,7 +188,7 @@
 <a href=#188 id=188 data-nosnippet>188</a>/// group whose stored file path is non-empty counts as present there even if
 <a href=#189 id=189 data-nosnippet>189</a>/// the browser submitted it empty — a kept file is real group data.
 <a href=#190 id=190 data-nosnippet>190</a>///
-<a href=#191 id=191 data-nosnippet>191</a>/// A `Group` marked as one embedded enum variant's payload (GH #191) is
+<a href=#191 id=191 data-nosnippet>191</a>/// A `Group` marked as one embedded enum variant's payload is
 <a href=#192 id=192 data-nosnippet>192</a>/// **hidden** when the submission names a different variant
 <a href=#193 id=193 data-nosnippet>193</a>/// ([`Group::hidden`](super::layouts::Group::hidden)): `variant.js` keeps only
 <a href=#194 id=194 data-nosnippet>194</a>/// the named variant's group visible, so a value the user cannot see must not
@@ -341,7 +341,7 @@
 <a href=#341 id=341 data-nosnippet>341</a>        <span class="kw">let </span>schema =
 <a href=#342 id=342 data-nosnippet>342</a>            Schema::new((
 <a href=#343 id=343 data-nosnippet>343</a>                <span class="comment">// The discriminant carrier: the marker's owner names it, exactly as
-<a href=#344 id=344 data-nosnippet>344</a>                // a derived enum's variant `Select` does (GH #191).
+<a href=#344 id=344 data-nosnippet>344</a>                // a derived enum's variant `Select` does.
 <a href=#345 id=345 data-nosnippet>345</a>                </span>TextInput::r#for(DummyUser::fields().name()).label(<span class="string">"Kind"</span>),
 <a href=#346 id=346 data-nosnippet>346</a>                Group::new()
 <a href=#347 id=347 data-nosnippet>347</a>                    .variant(<span class="string">"name"</span>, <span class="string">"1"</span>)

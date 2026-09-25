@@ -4,11 +4,11 @@
 <a href=#4 id=4 data-nosnippet>4</a>//! top-level boundary so it survives `Table` swaps. Status + title (plus an
 <a href=#5 id=5 data-nosnippet>5</a>//! optional description), auto-dismissed after ~4s by
 <a href=#6 id=6 data-nosnippet>6</a>//! `argentum-ui/assets/notifications.js` and dismissible through the toast's
-<a href=#7 id=7 data-nosnippet>7</a>//! close button — the shadcn/Sonner toast surface (GH #151).
+<a href=#7 id=7 data-nosnippet>7</a>//! close button — the shadcn/Sonner toast surface.
 <a href=#8 id=8 data-nosnippet>8</a>//!
-<a href=#9 id=9 data-nosnippet>9</a>//! The flash cookie is Topcoat's `CookieStore` (serde JSON, GH #139); the jar
+<a href=#9 id=9 data-nosnippet>9</a>//! The flash cookie is Topcoat's `CookieStore` (serde JSON); the jar
 <a href=#10 id=10 data-nosnippet>10</a>//! defaults carry the hardened attributes (HttpOnly, Secure, SameSite=Lax,
-<a href=#11 id=11 data-nosnippet>11</a>//! Path=/ — the `__Host-` name requires them, GH #149) on writes and removals
+<a href=#11 id=11 data-nosnippet>11</a>//! Path=/ — the `__Host-` name requires them) on writes and removals
 <a href=#12 id=12 data-nosnippet>12</a>//! alike, so set and clear cannot drift. One-time semantics ride the cookie
 <a href=#13 id=13 data-nosnippet>13</a>//! alone: Topcoat flushes `Set-Cookie` on error responses too (topcoat#408), so
 <a href=#14 id=14 data-nosnippet>14</a>//! the mutation `Err` redirects carry the flash in the cookie alone.
@@ -27,7 +27,7 @@
 <a href=#27 id=27 data-nosnippet>27</a>
 <a href=#28 id=28 data-nosnippet>28</a><span class="doccomment">/// The kind of notification (status).
 <a href=#29 id=29 data-nosnippet>29</a>///
-<a href=#30 id=30 data-nosnippet>30</a>/// The serde tokens are lowercase so the JSON cookie reads naturally (GH #139).
+<a href=#30 id=30 data-nosnippet>30</a>/// The serde tokens are lowercase so the JSON cookie reads naturally.
 <a href=#31 id=31 data-nosnippet>31</a></span><span class="attr">#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 <a href=#32 id=32 data-nosnippet>32</a>#[serde(rename_all = <span class="string">"lowercase"</span>)]
 <a href=#33 id=33 data-nosnippet>33</a></span><span class="kw">pub enum </span>NotificationStatus {
@@ -95,10 +95,10 @@
 <a href=#95 id=95 data-nosnippet>95</a>
 <a href=#96 id=96 data-nosnippet>96</a><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">const </span>COOKIE_NAME: <span class="kw-2">&amp;</span>str = <span class="string">"__Host-argentum_notification"</span>;
 <a href=#97 id=97 data-nosnippet>97</a>
-<a href=#98 id=98 data-nosnippet>98</a><span class="doccomment">/// The jar defaults the flash cookie relies on (GH #139): `CookieStore`
+<a href=#98 id=98 data-nosnippet>98</a><span class="doccomment">/// The jar defaults the flash cookie relies on: `CookieStore`
 <a href=#99 id=99 data-nosnippet>99</a>/// commits a bare cookie, so the hardened attributes live here and apply to
 <a href=#100 id=100 data-nosnippet>100</a>/// writes *and* removals alike — the `Map` adapter transforms both. The
-<a href=#101 id=101 data-nosnippet>101</a>/// `__Host-` name requires Secure + Path=/ + no Domain (GH #149); the
+<a href=#101 id=101 data-nosnippet>101</a>/// `__Host-` name requires Secure + Path=/ + no Domain; the
 <a href=#102 id=102 data-nosnippet>102</a>/// session and CSRF cookies set their own attributes and are unaffected
 <a href=#103 id=103 data-nosnippet>103</a>/// (`default_*` only fills what is unset).
 <a href=#104 id=104 data-nosnippet>104</a></span><span class="kw">fn </span>hardened(jar: <span class="kw-2">&amp;</span>CookieJar) -&gt; <span class="kw">impl </span>Cookies + <span class="lifetime">'_ </span>{
@@ -114,9 +114,9 @@
 <a href=#114 id=114 data-nosnippet>114</a>        <span class="kw">return</span>;
 <a href=#115 id=115 data-nosnippet>115</a>    }
 <a href=#116 id=116 data-nosnippet>116</a>    <span class="comment">// `commit` serializes to JSON and queues the Set-Cookie — one hand-rolled
-<a href=#117 id=117 data-nosnippet>117</a>    // wire format less (GH #139). A failed commit must not fail the mutation
+<a href=#117 id=117 data-nosnippet>117</a>    // wire format less. A failed commit must not fail the mutation
 <a href=#118 id=118 data-nosnippet>118</a>    // it rides on, but swallowing it retries a completed write with no toast
-<a href=#119 id=119 data-nosnippet>119</a>    // (GH #174) — log it for operators instead.
+<a href=#119 id=119 data-nosnippet>119</a>    // Log it for operators instead.
 <a href=#120 id=120 data-nosnippet>120</a>    </span><span class="kw">if let </span><span class="prelude-val">Err</span>(error) = cookie_store::&lt;Notification, <span class="kw">_</span>&gt;(hardened(cookies(cx)), COOKIE_NAME)
 <a href=#121 id=121 data-nosnippet>121</a>        .set(notification)
 <a href=#122 id=122 data-nosnippet>122</a>        .commit()
@@ -125,370 +125,368 @@
 <a href=#125 id=125 data-nosnippet>125</a>    }
 <a href=#126 id=126 data-nosnippet>126</a>}
 <a href=#127 id=127 data-nosnippet>127</a>
-<a href=#128 id=128 data-nosnippet>128</a><span class="doccomment">/// Flash the failure of a write that passed validation but did not land
-<a href=#129 id=129 data-nosnippet>129</a>/// (GH #174).
-<a href=#130 id=130 data-nosnippet>130</a>///
-<a href=#131 id=131 data-nosnippet>131</a>/// Every mutation handler (create, update, delete, bulk delete) routes its
-<a href=#132 id=132 data-nosnippet>132</a>/// write and commit failures through this before returning the error, so the
-<a href=#133 id=133 data-nosnippet>133</a>/// user gets "couldn't …" instead of a bare 500 that leaves them guessing
-<a href=#134 id=134 data-nosnippet>134</a>/// whether the write went through. The title names the operation, never the
-<a href=#135 id=135 data-nosnippet>135</a>/// driver's text — internals stay in the server log (GH #174 §1).
-<a href=#136 id=136 data-nosnippet>136</a>///
-<a href=#137 id=137 data-nosnippet>137</a>/// Delivery: the flash rides a `Set-Cookie`, and Topcoat's cookie layer writes
-<a href=#138 id=138 data-nosnippet>138</a>/// pending cookies on **both** paths — on `Err` it stashes them in
-<a href=#139 id=139 data-nosnippet>139</a>/// `response_headers`, which the router applies once the error response exists
-<a href=#140 id=140 data-nosnippet>140</a>/// (`topcoat-router/src/router.rs`), so the 500 response carries the cookie. Its
-<a href=#141 id=141 data-nosnippet>141</a>/// body is Topcoat's plain-text error page, which renders no toast: the message
-<a href=#142 id=142 data-nosnippet>142</a>/// appears on the next panel page, whose shell consumes the flash
-<a href=#143 id=143 data-nosnippet>143</a>/// ([`take_notification`]). `a_failed_write_toasts_on_the_next_panel_page` pins
-<a href=#144 id=144 data-nosnippet>144</a>/// that delivery.
-<a href=#145 id=145 data-nosnippet>145</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>notify_write_failure(cx: <span class="kw-2">&amp;</span>Cx, action: <span class="kw-2">&amp;</span>str) {
-<a href=#146 id=146 data-nosnippet>146</a>    set_notification(
-<a href=#147 id=147 data-nosnippet>147</a>        cx,
-<a href=#148 id=148 data-nosnippet>148</a>        Notification::error(<span class="macro">format!</span>(<span class="string">"Couldn't {action}"</span>))
-<a href=#149 id=149 data-nosnippet>149</a>            .description(<span class="string">"Nothing was changed — try again."</span>),
-<a href=#150 id=150 data-nosnippet>150</a>    );
-<a href=#151 id=151 data-nosnippet>151</a>}
-<a href=#152 id=152 data-nosnippet>152</a>
-<a href=#153 id=153 data-nosnippet>153</a><span class="doccomment">/// Take the notification from the request (if present) and clear it.
-<a href=#154 id=154 data-nosnippet>154</a></span><span class="kw">pub fn </span>take_notification(cx: <span class="kw-2">&amp;</span>Cx) -&gt; <span class="prelude-ty">Option</span>&lt;Notification&gt; {
-<a href=#155 id=155 data-nosnippet>155</a>    try_request_context::&lt;CookieJarCell&gt;(cx)<span class="question-mark">?</span>;
-<a href=#156 id=156 data-nosnippet>156</a>    <span class="kw">let </span>unparsed = cookie_store::&lt;Notification, <span class="kw">_</span>&gt;(hardened(cookies(cx)), COOKIE_NAME);
-<a href=#157 id=157 data-nosnippet>157</a>    <span class="kw">match </span>unparsed.parse() {
-<a href=#158 id=158 data-nosnippet>158</a>        <span class="comment">// Present and readable: hand it out, then expire it (the removal
-<a href=#159 id=159 data-nosnippet>159</a>        // carries the same hardened attributes through the jar defaults).
-<a href=#160 id=160 data-nosnippet>160</a>        </span><span class="prelude-val">Ok</span>(<span class="prelude-val">Some</span>(store)) =&gt; {
-<a href=#161 id=161 data-nosnippet>161</a>            <span class="kw">let </span>notification = store.get();
-<a href=#162 id=162 data-nosnippet>162</a>            store.remove();
-<a href=#163 id=163 data-nosnippet>163</a>            <span class="prelude-val">Some</span>(notification)
-<a href=#164 id=164 data-nosnippet>164</a>        }
-<a href=#165 id=165 data-nosnippet>165</a>        <span class="comment">// Unreadable garbage (a corrupted or foreign value): expire it, no
-<a href=#166 id=166 data-nosnippet>166</a>        // toast.
-<a href=#167 id=167 data-nosnippet>167</a>        </span><span class="prelude-val">Err</span>(<span class="kw">_</span>) =&gt; {
-<a href=#168 id=168 data-nosnippet>168</a>            cookie_store::&lt;Notification, <span class="kw">_</span>&gt;(hardened(cookies(cx)), COOKIE_NAME).remove();
-<a href=#169 id=169 data-nosnippet>169</a>            <span class="prelude-val">None
-<a href=#170 id=170 data-nosnippet>170</a>        </span>}
-<a href=#171 id=171 data-nosnippet>171</a>        <span class="prelude-val">Ok</span>(<span class="prelude-val">None</span>) =&gt; <span class="prelude-val">None</span>,
-<a href=#172 id=172 data-nosnippet>172</a>    }
-<a href=#173 id=173 data-nosnippet>173</a>}
-<a href=#174 id=174 data-nosnippet>174</a>
-<a href=#175 id=175 data-nosnippet>175</a><span class="doccomment">/// Render one notification as the shadcn/Sonner toast (GH #151).
-<a href=#176 id=176 data-nosnippet>176</a>///
-<a href=#177 id=177 data-nosnippet>177</a>/// The status picks Sonner's icon under shadcn's theming (`circle-check`,
-<a href=#178 id=178 data-nosnippet>178</a>/// `info`, `triangle-alert`, `octagon-x`); the error icon reads
-<a href=#179 id=179 data-nosnippet>179</a>/// `text-destructive` so a failure cannot look like an info toast.
-<a href=#180 id=180 data-nosnippet>180</a>///
-<a href=#181 id=181 data-nosnippet>181</a>/// `attrs` are merged onto the toast surface. The shell's flash stack passes
-<a href=#182 id=182 data-nosnippet>182</a>/// an empty set; the live transport ([`live_toaster`]) adds a per-mount `id`
-<a href=#183 id=183 data-nosnippet>183</a>/// so re-rendering the same variant replaces the mounted toast instead of
-<a href=#184 id=184 data-nosnippet>184</a>/// re-syncing its `data-mounted` state (GH #154 §3).
-<a href=#185 id=185 data-nosnippet>185</a></span><span class="kw">pub async fn </span>render_notification&lt;<span class="lifetime">'a</span>&gt;(
-<a href=#186 id=186 data-nosnippet>186</a>    cx: <span class="kw-2">&amp;</span><span class="lifetime">'a </span>Cx,
-<a href=#187 id=187 data-nosnippet>187</a>    notification: Notification,
-<a href=#188 id=188 data-nosnippet>188</a>    attrs: Attributes,
-<a href=#189 id=189 data-nosnippet>189</a>) -&gt; topcoat::Result&lt;BoxView&lt;<span class="lifetime">'a</span>&gt;&gt; {
-<a href=#190 id=190 data-nosnippet>190</a>    <span class="kw">let </span>Notification {
-<a href=#191 id=191 data-nosnippet>191</a>        status,
-<a href=#192 id=192 data-nosnippet>192</a>        title,
-<a href=#193 id=193 data-nosnippet>193</a>        description,
-<a href=#194 id=194 data-nosnippet>194</a>    } = notification;
-<a href=#195 id=195 data-nosnippet>195</a>    <span class="kw">let </span>icon_data = <span class="kw">match </span>status {
-<a href=#196 id=196 data-nosnippet>196</a>        NotificationStatus::Success =&gt; icons::CIRCLE_CHECK,
-<a href=#197 id=197 data-nosnippet>197</a>        NotificationStatus::Error =&gt; icons::OCTAGON_X,
-<a href=#198 id=198 data-nosnippet>198</a>        NotificationStatus::Info =&gt; icons::INFO,
-<a href=#199 id=199 data-nosnippet>199</a>        NotificationStatus::Warning =&gt; icons::TRIANGLE_ALERT,
-<a href=#200 id=200 data-nosnippet>200</a>    };
-<a href=#201 id=201 data-nosnippet>201</a>    <span class="kw">let </span>icon_class = <span class="kw">if </span>status == NotificationStatus::Error {
-<a href=#202 id=202 data-nosnippet>202</a>        <span class="string">"size-4 text-destructive"
-<a href=#203 id=203 data-nosnippet>203</a>    </span>} <span class="kw">else </span>{
-<a href=#204 id=204 data-nosnippet>204</a>        <span class="string">"size-4"
-<a href=#205 id=205 data-nosnippet>205</a>    </span>};
-<a href=#206 id=206 data-nosnippet>206</a>    <span class="kw">let </span>status = status.as_str();
-<a href=#207 id=207 data-nosnippet>207</a>    <span class="prelude-val">Ok</span>(<span class="macro">view!</span> {
-<a href=#208 id=208 data-nosnippet>208</a>        cx =&gt;
-<a href=#209 id=209 data-nosnippet>209</a>        toast(
-<a href=#210 id=210 data-nosnippet>210</a>            attrs: <span class="macro">attributes!</span> { data-<span class="kw">type</span>=(status) (attrs) },
-<a href=#211 id=211 data-nosnippet>211</a>            toast_icon(icon(data: icon_data, attrs: <span class="macro">attributes!</span> { class=(icon_class) }))
-<a href=#212 id=212 data-nosnippet>212</a>            toast_content(
-<a href=#213 id=213 data-nosnippet>213</a>                toast_title((title))
-<a href=#214 id=214 data-nosnippet>214</a>                <span class="kw">if let </span><span class="prelude-val">Some</span>(description) = description {
-<a href=#215 id=215 data-nosnippet>215</a>                    toast_description((description))
-<a href=#216 id=216 data-nosnippet>216</a>                }
-<a href=#217 id=217 data-nosnippet>217</a>            )
-<a href=#218 id=218 data-nosnippet>218</a>            toast_close()
-<a href=#219 id=219 data-nosnippet>219</a>        )
-<a href=#220 id=220 data-nosnippet>220</a>    }
-<a href=#221 id=221 data-nosnippet>221</a>    .boxed())
-<a href=#222 id=222 data-nosnippet>222</a>}
-<a href=#223 id=223 data-nosnippet>223</a>
-<a href=#224 id=224 data-nosnippet>224</a><span class="doccomment">/// The signals a page owns to mount a [`Notification`] in place (GH #154 §3).
-<a href=#225 id=225 data-nosnippet>225</a>///
-<a href=#226 id=226 data-nosnippet>226</a>/// [`live_toast`] creates them; a click handler writes a procedure's returned
-<a href=#227 id=227 data-nosnippet>227</a>/// `(status, title, description)` into them and bumps `serial` (a repeat of
-<a href=#228 id=228 data-nosnippet>228</a>/// the same variant must still be a change), and the shell's [`live_toaster`]
-<a href=#229 id=229 data-nosnippet>229</a>/// shard reads them and mounts the real Sonner surface — no navigation, no
-<a href=#230 id=230 data-nosnippet>230</a>/// scroll reset. Every value is client input by the time the shard reads it.
-<a href=#231 id=231 data-nosnippet>231</a></span><span class="attr">#[derive(Clone)]
-<a href=#232 id=232 data-nosnippet>232</a></span><span class="kw">pub struct </span>LiveToast {
-<a href=#233 id=233 data-nosnippet>233</a>    <span class="doccomment">/// The Sonner status token (`success`/`info`/`warning`/`error`); empty
-<a href=#234 id=234 data-nosnippet>234</a>    /// means "no toast mounted".
-<a href=#235 id=235 data-nosnippet>235</a>    </span><span class="kw">pub </span>status: Signal&lt;String&gt;,
-<a href=#236 id=236 data-nosnippet>236</a>    <span class="doccomment">/// The toast title.
-<a href=#237 id=237 data-nosnippet>237</a>    </span><span class="kw">pub </span>title: Signal&lt;String&gt;,
-<a href=#238 id=238 data-nosnippet>238</a>    <span class="doccomment">/// The optional supporting line; empty renders no description.
-<a href=#239 id=239 data-nosnippet>239</a>    </span><span class="kw">pub </span>description: Signal&lt;String&gt;,
-<a href=#240 id=240 data-nosnippet>240</a>    <span class="doccomment">/// Bumped on every mount so an identical repeat still re-renders.
-<a href=#241 id=241 data-nosnippet>241</a>    </span><span class="kw">pub </span>serial: Signal&lt;u64&gt;,
-<a href=#242 id=242 data-nosnippet>242</a>}
-<a href=#243 id=243 data-nosnippet>243</a>
-<a href=#244 id=244 data-nosnippet>244</a><span class="doccomment">/// The live toast signals for this request (call once per page).
-<a href=#245 id=245 data-nosnippet>245</a>///
-<a href=#246 id=246 data-nosnippet>246</a>/// The signals are created here, so both the page's handlers and the shell's
-<a href=#247 id=247 data-nosnippet>247</a>/// [`live_toaster`] resolve the same handles in one request.
-<a href=#248 id=248 data-nosnippet>248</a></span><span class="kw">pub fn </span>live_toast(cx: <span class="kw-2">&amp;</span>Cx) -&gt; LiveToast {
-<a href=#249 id=249 data-nosnippet>249</a>    LiveToast {
-<a href=#250 id=250 data-nosnippet>250</a>        status: signal(cx, String::new),
-<a href=#251 id=251 data-nosnippet>251</a>        title: signal(cx, String::new),
-<a href=#252 id=252 data-nosnippet>252</a>        description: signal(cx, String::new),
-<a href=#253 id=253 data-nosnippet>253</a>        serial: signal(cx, || <span class="number">0u64</span>),
-<a href=#254 id=254 data-nosnippet>254</a>    }
-<a href=#255 id=255 data-nosnippet>255</a>}
-<a href=#256 id=256 data-nosnippet>256</a>
-<a href=#257 id=257 data-nosnippet>257</a><span class="doccomment">/// The endpoint [`live_toaster`] is served at.
-<a href=#258 id=258 data-nosnippet>258</a>///
-<a href=#259 id=259 data-nosnippet>259</a>/// A shard that declares no path is served at a build-random one (topcoat#441);
-<a href=#260 id=260 data-nosnippet>260</a>/// naming it keeps the endpoint stable across builds and legible in logs and
-<a href=#261 id=261 data-nosnippet>261</a>/// tests. The `/argentum-` prefix separates it from a generated path, and the
-<a href=#262 id=262 data-nosnippet>262</a>/// whole path stays under `/_topcoat/runtime`, so the panel's auth gate covers
-<a href=#263 id=263 data-nosnippet>263</a>/// the shard and an unauthenticated rerun answers 401 rather than redirecting to
-<a href=#264 id=264 data-nosnippet>264</a>/// the login page.
-<a href=#265 id=265 data-nosnippet>265</a>///
-<a href=#266 id=266 data-nosnippet>266</a>/// The literal in [`live_toaster`]'s attribute is the same path;
-<a href=#267 id=267 data-nosnippet>267</a>/// `live_toaster_endpoint_is_the_named_path` pins the two together.
-<a href=#268 id=268 data-nosnippet>268</a></span><span class="attr">#[cfg(test)]
-<a href=#269 id=269 data-nosnippet>269</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">const </span>LIVE_TOASTER_PATH: <span class="kw-2">&amp;</span>str = <span class="string">"/_topcoat/runtime/shards/argentum-live-toaster"</span>;
-<a href=#270 id=270 data-nosnippet>270</a>
-<a href=#271 id=271 data-nosnippet>271</a><span class="doccomment">/// The shell's live toaster shard (GH #154 §3): reads the page's
-<a href=#272 id=272 data-nosnippet>272</a>/// [`LiveToast`] signals and mounts the toast in place when one is set.
-<a href=#273 id=273 data-nosnippet>273</a>///
-<a href=#274 id=274 data-nosnippet>274</a>/// A shard rather than an eager read, so writing the signals re-renders only
-<a href=#275 id=275 data-nosnippet>275</a>/// this stack — the page, its scroll, and its focus stay put. The mount `id`
-<a href=#276 id=276 data-nosnippet>276</a>/// carries the serial: the browser's morph matches by id, so a new mount is a
-<a href=#277 id=277 data-nosnippet>277</a>/// fresh toast node (with `data-mounted="false"`) that `notifications.js`
-<a href=#278 id=278 data-nosnippet>278</a>/// arms, instead of rewriting the already-mounted one.
-<a href=#279 id=279 data-nosnippet>279</a>///
-<a href=#280 id=280 data-nosnippet>280</a>/// The body lives in `render_live_toaster`: the shard macro's generated
-<a href=#281 id=281 data-nosnippet>281</a>/// handler cannot name the request lifetime its `impl View` would capture, so
-<a href=#282 id=282 data-nosnippet>282</a>/// the helper resolves the boxed view and the shard only forwards it.
-<a href=#283 id=283 data-nosnippet>283</a></span><span class="attr">#[shard(<span class="string">"/_topcoat/runtime/shards/argentum-live-toaster"</span>)]
-<a href=#284 id=284 data-nosnippet>284</a></span><span class="kw">pub async fn </span>live_toaster(
-<a href=#285 id=285 data-nosnippet>285</a>    cx: <span class="kw-2">&amp;</span>Cx,
-<a href=#286 id=286 data-nosnippet>286</a>    status: Signal&lt;String&gt;,
-<a href=#287 id=287 data-nosnippet>287</a>    title: Signal&lt;String&gt;,
-<a href=#288 id=288 data-nosnippet>288</a>    description: Signal&lt;String&gt;,
-<a href=#289 id=289 data-nosnippet>289</a>    serial: Signal&lt;u64&gt;,
-<a href=#290 id=290 data-nosnippet>290</a>) -&gt; topcoat::Result&lt;<span class="kw">impl </span>View&gt; {
-<a href=#291 id=291 data-nosnippet>291</a>    render_live_toaster(cx, <span class="kw-2">&amp;</span>status, <span class="kw-2">&amp;</span>title, <span class="kw-2">&amp;</span>description, <span class="kw-2">&amp;</span>serial).<span class="kw">await
-<a href=#292 id=292 data-nosnippet>292</a></span>}
-<a href=#293 id=293 data-nosnippet>293</a>
-<a href=#294 id=294 data-nosnippet>294</a><span class="kw">async fn </span>render_live_toaster&lt;<span class="lifetime">'a</span>&gt;(
-<a href=#295 id=295 data-nosnippet>295</a>    cx: <span class="kw-2">&amp;</span><span class="lifetime">'a </span>Cx,
-<a href=#296 id=296 data-nosnippet>296</a>    status: <span class="kw-2">&amp;</span>Signal&lt;String&gt;,
-<a href=#297 id=297 data-nosnippet>297</a>    title: <span class="kw-2">&amp;</span>Signal&lt;String&gt;,
-<a href=#298 id=298 data-nosnippet>298</a>    description: <span class="kw-2">&amp;</span>Signal&lt;String&gt;,
-<a href=#299 id=299 data-nosnippet>299</a>    serial: <span class="kw-2">&amp;</span>Signal&lt;u64&gt;,
-<a href=#300 id=300 data-nosnippet>300</a>) -&gt; topcoat::Result&lt;BoxView&lt;<span class="lifetime">'a</span>&gt;&gt; {
-<a href=#301 id=301 data-nosnippet>301</a>    <span class="comment">// Runtime endpoints bypass page guards (topcoat shard contract), so the
-<a href=#302 id=302 data-nosnippet>302</a>    // shard restates the panel gate; a slot with no live toast needs no auth
-<a href=#303 id=303 data-nosnippet>303</a>    // to render empty, but a direct POST must not mount toasts unauthenticated.
-<a href=#304 id=304 data-nosnippet>304</a>    </span><span class="attr">#[cfg(feature = <span class="string">"auth"</span>)]
-<a href=#305 id=305 data-nosnippet>305</a>    </span><span class="kw">if </span><span class="kw">crate</span>::auth::enforced(cx) {
-<a href=#306 id=306 data-nosnippet>306</a>        <span class="kw">crate</span>::auth::require_authenticated(cx)<span class="question-mark">?</span>;
-<a href=#307 id=307 data-nosnippet>307</a>    }
-<a href=#308 id=308 data-nosnippet>308</a>    <span class="kw">let </span>status = status.get();
-<a href=#309 id=309 data-nosnippet>309</a>    <span class="kw">let </span>mount = serial.get();
-<a href=#310 id=310 data-nosnippet>310</a>    <span class="kw">if </span>status.is_empty() {
-<a href=#311 id=311 data-nosnippet>311</a>        <span class="comment">// No `&lt;span&gt;` placeholder (GH #160): the shell mounts this slot inside
-<a href=#312 id=312 data-nosnippet>312</a>        // the toaster `&lt;ol&gt;`, which permits only `li`/`script`/`template`
-<a href=#313 id=313 data-nosnippet>313</a>        // children — the empty view renders nothing.
-<a href=#314 id=314 data-nosnippet>314</a>        </span><span class="kw">return </span><span class="prelude-val">Ok</span>(().boxed());
-<a href=#315 id=315 data-nosnippet>315</a>    }
-<a href=#316 id=316 data-nosnippet>316</a>    <span class="kw">let </span>title = title.get();
-<a href=#317 id=317 data-nosnippet>317</a>    <span class="kw">let </span>description = description.get();
-<a href=#318 id=318 data-nosnippet>318</a>    <span class="kw">let </span>notification = <span class="kw">match </span>status.as_str() {
-<a href=#319 id=319 data-nosnippet>319</a>        <span class="string">"success" </span>=&gt; Notification::success(title),
-<a href=#320 id=320 data-nosnippet>320</a>        <span class="string">"warning" </span>=&gt; Notification::warning(title),
-<a href=#321 id=321 data-nosnippet>321</a>        <span class="string">"error" </span>=&gt; Notification::error(title),
-<a href=#322 id=322 data-nosnippet>322</a>        <span class="kw">_ </span>=&gt; Notification::info(title),
-<a href=#323 id=323 data-nosnippet>323</a>    };
-<a href=#324 id=324 data-nosnippet>324</a>    <span class="kw">let </span>notification = <span class="kw">if </span>description.is_empty() {
-<a href=#325 id=325 data-nosnippet>325</a>        notification
-<a href=#326 id=326 data-nosnippet>326</a>    } <span class="kw">else </span>{
-<a href=#327 id=327 data-nosnippet>327</a>        notification.description(description)
-<a href=#328 id=328 data-nosnippet>328</a>    };
-<a href=#329 id=329 data-nosnippet>329</a>    <span class="kw">let </span>mount_id = <span class="macro">format!</span>(<span class="string">"live-toast-{mount}"</span>);
-<a href=#330 id=330 data-nosnippet>330</a>    render_notification(cx, notification, <span class="macro">attributes!</span> { cx =&gt; id=(mount_id) }).<span class="kw">await
-<a href=#331 id=331 data-nosnippet>331</a></span>}
-<a href=#332 id=332 data-nosnippet>332</a>
-<a href=#333 id=333 data-nosnippet>333</a><span class="attr">#[cfg(test)]
-<a href=#334 id=334 data-nosnippet>334</a></span><span class="kw">mod </span>tests {
-<a href=#335 id=335 data-nosnippet>335</a>    <span class="kw">use super</span>::<span class="kw-2">*</span>;
-<a href=#336 id=336 data-nosnippet>336</a>    <span class="kw">use </span><span class="kw">crate</span>::test_support::cx_with_cookie;
-<a href=#337 id=337 data-nosnippet>337</a>
-<a href=#338 id=338 data-nosnippet>338</a>    <span class="doccomment">/// topcoat#441: the shard is served at the named path, so its endpoint is the
-<a href=#339 id=339 data-nosnippet>339</a>    /// same in every build.
-<a href=#340 id=340 data-nosnippet>340</a>    </span><span class="attr">#[test]
-<a href=#341 id=341 data-nosnippet>341</a>    </span><span class="kw">fn </span>live_toaster_endpoint_is_the_named_path() {
-<a href=#342 id=342 data-nosnippet>342</a>        <span class="kw">use </span>topcoat::router::Route <span class="kw">as _</span>;
-<a href=#343 id=343 data-nosnippet>343</a>
-<a href=#344 id=344 data-nosnippet>344</a>        <span class="macro">assert_eq!</span>(live_toaster.path().as_str(), LIVE_TOASTER_PATH);
-<a href=#345 id=345 data-nosnippet>345</a>    }
-<a href=#346 id=346 data-nosnippet>346</a>
-<a href=#347 id=347 data-nosnippet>347</a>    <span class="doccomment">/// GH #174: a failed write flashes an error the user can read — the
-<a href=#348 id=348 data-nosnippet>348</a>    /// operation, not the driver's error text.
-<a href=#349 id=349 data-nosnippet>349</a>    </span><span class="attr">#[test]
-<a href=#350 id=350 data-nosnippet>350</a>    </span><span class="kw">fn </span>write_failure_notification_names_the_operation() {
-<a href=#351 id=351 data-nosnippet>351</a>        <span class="kw">let </span>cx = cx_with_cookie(COOKIE_NAME, <span class="prelude-val">None</span>);
-<a href=#352 id=352 data-nosnippet>352</a>        notify_write_failure(<span class="kw-2">&amp;</span>cx, <span class="string">"create the record"</span>);
-<a href=#353 id=353 data-nosnippet>353</a>        <span class="kw">let </span>notification = take_notification(<span class="kw-2">&amp;</span>cx).expect(<span class="string">"a failed write must flash"</span>);
-<a href=#354 id=354 data-nosnippet>354</a>        <span class="macro">assert_eq!</span>(notification.status, NotificationStatus::Error);
-<a href=#355 id=355 data-nosnippet>355</a>        <span class="macro">assert_eq!</span>(notification.title, <span class="string">"Couldn't create the record"</span>);
-<a href=#356 id=356 data-nosnippet>356</a>        <span class="macro">assert!</span>(
-<a href=#357 id=357 data-nosnippet>357</a>            notification.description.is_some(),
-<a href=#358 id=358 data-nosnippet>358</a>            <span class="string">"the toast must say the write did not land"
-<a href=#359 id=359 data-nosnippet>359</a>        </span>);
-<a href=#360 id=360 data-nosnippet>360</a>    }
-<a href=#361 id=361 data-nosnippet>361</a>
-<a href=#362 id=362 data-nosnippet>362</a>    <span class="attr">#[test]
-<a href=#363 id=363 data-nosnippet>363</a>    </span><span class="kw">fn </span>take_notification_decodes_the_json_cookie() {
-<a href=#364 id=364 data-nosnippet>364</a>        <span class="kw">let </span>enc = serde_json::to_string(<span class="kw-2">&amp;</span>Notification::success(<span class="string">"hello"</span>)).unwrap();
-<a href=#365 id=365 data-nosnippet>365</a>        <span class="kw">let </span>cx = cx_with_cookie(COOKIE_NAME, <span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span>enc));
-<a href=#366 id=366 data-nosnippet>366</a>        <span class="kw">let </span>n = take_notification(<span class="kw-2">&amp;</span>cx);
-<a href=#367 id=367 data-nosnippet>367</a>        <span class="macro">assert!</span>(n.is_some(), <span class="string">"the JSON flash cookie decodes"</span>);
-<a href=#368 id=368 data-nosnippet>368</a>        <span class="macro">assert_eq!</span>(n.unwrap().title, <span class="string">"hello"</span>);
-<a href=#369 id=369 data-nosnippet>369</a>        <span class="comment">// Clearing itself is pinned by
-<a href=#370 id=370 data-nosnippet>370</a>        // `notification_removal_header_carries_the_host_prefix_contract`.
-<a href=#371 id=371 data-nosnippet>371</a>    </span>}
-<a href=#372 id=372 data-nosnippet>372</a>
-<a href=#373 id=373 data-nosnippet>373</a>    <span class="attr">#[test]
-<a href=#374 id=374 data-nosnippet>374</a>    </span><span class="kw">fn </span>percent_encoded_json_cookie_decodes() {
-<a href=#375 id=375 data-nosnippet>375</a>        <span class="kw">let </span>enc = <span class="string">"%7B%22status%22%3A%22success%22%2C%22title%22%3A%22Created%22%7D"</span>;
-<a href=#376 id=376 data-nosnippet>376</a>        <span class="kw">let </span>cx = cx_with_cookie(COOKIE_NAME, <span class="prelude-val">Some</span>(enc));
-<a href=#377 id=377 data-nosnippet>377</a>        <span class="kw">let </span>n = take_notification(<span class="kw-2">&amp;</span>cx);
-<a href=#378 id=378 data-nosnippet>378</a>        <span class="macro">assert!</span>(n.is_some(), <span class="string">"the percent-encoded flash cookie decodes"</span>);
-<a href=#379 id=379 data-nosnippet>379</a>        <span class="macro">assert_eq!</span>(n.unwrap().title, <span class="string">"Created"</span>);
-<a href=#380 id=380 data-nosnippet>380</a>    }
-<a href=#381 id=381 data-nosnippet>381</a>
-<a href=#382 id=382 data-nosnippet>382</a>    <span class="doccomment">/// Unreadable cookie garbage is expired, not toasted, so a malformed cookie
-<a href=#383 id=383 data-nosnippet>383</a>    /// yields no toast; the removal still satisfies the `__Host-` contract
-<a href=#384 id=384 data-nosnippet>384</a>    /// (GH #139).
-<a href=#385 id=385 data-nosnippet>385</a>    </span><span class="attr">#[test]
-<a href=#386 id=386 data-nosnippet>386</a>    </span><span class="kw">fn </span>unreadable_flash_cookie_is_expired_silently() {
-<a href=#387 id=387 data-nosnippet>387</a>        <span class="kw">let </span>cx = cx_with_cookie(COOKIE_NAME, <span class="prelude-val">Some</span>(<span class="string">"not-json"</span>));
-<a href=#388 id=388 data-nosnippet>388</a>        <span class="macro">assert!</span>(take_notification(<span class="kw-2">&amp;</span>cx).is_none(), <span class="string">"garbage yields no toast"</span>);
-<a href=#389 id=389 data-nosnippet>389</a>        <span class="kw">let </span><span class="kw-2">mut </span>headers = http::HeaderMap::new();
-<a href=#390 id=390 data-nosnippet>390</a>        topcoat::cookie::write_cookies(<span class="kw-2">&amp;</span>cx, <span class="kw-2">&amp;mut </span>headers);
-<a href=#391 id=391 data-nosnippet>391</a>        <span class="kw">let </span>cleared = headers
-<a href=#392 id=392 data-nosnippet>392</a>            .get_all(http::header::SET_COOKIE)
-<a href=#393 id=393 data-nosnippet>393</a>            .iter()
-<a href=#394 id=394 data-nosnippet>394</a>            .filter_map(|v| v.to_str().ok())
-<a href=#395 id=395 data-nosnippet>395</a>            .find(|v| v.starts_with(<span class="kw-2">&amp;</span><span class="macro">format!</span>(<span class="string">"{COOKIE_NAME}="</span>)))
-<a href=#396 id=396 data-nosnippet>396</a>            .expect(<span class="string">"the garbage cookie must be expired"</span>);
-<a href=#397 id=397 data-nosnippet>397</a>        <span class="macro">assert!</span>(
-<a href=#398 id=398 data-nosnippet>398</a>            cleared.contains(<span class="string">"Max-Age=0"</span>)
-<a href=#399 id=399 data-nosnippet>399</a>                &amp;&amp; cleared.contains(<span class="string">"Secure"</span>)
-<a href=#400 id=400 data-nosnippet>400</a>                &amp;&amp; cleared.contains(<span class="string">"Path=/"</span>),
-<a href=#401 id=401 data-nosnippet>401</a>            <span class="string">"the removal carries the __Host- contract: {cleared}"
-<a href=#402 id=402 data-nosnippet>402</a>        </span>);
-<a href=#403 id=403 data-nosnippet>403</a>    }
-<a href=#404 id=404 data-nosnippet>404</a>
-<a href=#405 id=405 data-nosnippet>405</a>    <span class="attr">#[test]
-<a href=#406 id=406 data-nosnippet>406</a>    </span><span class="kw">fn </span>notification_description_round_trips() {
-<a href=#407 id=407 data-nosnippet>407</a>        <span class="comment">// The description is optional and absent from the wire format when
-<a href=#408 id=408 data-nosnippet>408</a>        // unset (GH #139 compatibility); old cookies still decode.
-<a href=#409 id=409 data-nosnippet>409</a>        </span><span class="macro">assert_eq!</span>(
-<a href=#410 id=410 data-nosnippet>410</a>            serde_json::to_string(<span class="kw-2">&amp;</span>Notification::success(<span class="string">"hello"</span>)).unwrap(),
-<a href=#411 id=411 data-nosnippet>411</a>            <span class="string">r#"{"status":"success","title":"hello"}"#
-<a href=#412 id=412 data-nosnippet>412</a>        </span>);
-<a href=#413 id=413 data-nosnippet>413</a>        <span class="kw">let </span>enc = serde_json::to_string(<span class="kw-2">&amp;</span>Notification::warning(<span class="string">"Careful"</span>).description(<span class="string">"Low disk"</span>))
-<a href=#414 id=414 data-nosnippet>414</a>            .unwrap();
-<a href=#415 id=415 data-nosnippet>415</a>        <span class="macro">assert!</span>(
-<a href=#416 id=416 data-nosnippet>416</a>            enc.contains(<span class="string">"\"status\":\"warning\""</span>) &amp;&amp; enc.contains(<span class="string">"\"description\":\"Low disk\""</span>)
-<a href=#417 id=417 data-nosnippet>417</a>        );
-<a href=#418 id=418 data-nosnippet>418</a>        <span class="kw">let </span>back = take_notification(<span class="kw-2">&amp;</span>cx_with_cookie(COOKIE_NAME, <span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span>enc))).expect(<span class="string">"decodes"</span>);
-<a href=#419 id=419 data-nosnippet>419</a>        <span class="macro">assert_eq!</span>(back.description.as_deref(), <span class="prelude-val">Some</span>(<span class="string">"Low disk"</span>));
-<a href=#420 id=420 data-nosnippet>420</a>        <span class="kw">let </span>old = take_notification(<span class="kw-2">&amp;</span>cx_with_cookie(
-<a href=#421 id=421 data-nosnippet>421</a>            COOKIE_NAME,
-<a href=#422 id=422 data-nosnippet>422</a>            <span class="prelude-val">Some</span>(<span class="string">r#"{"status":"success","title":"hi"}"#</span>),
-<a href=#423 id=423 data-nosnippet>423</a>        ))
-<a href=#424 id=424 data-nosnippet>424</a>        .expect(<span class="string">"a pre-description cookie decodes"</span>);
-<a href=#425 id=425 data-nosnippet>425</a>        <span class="macro">assert!</span>(old.description.is_none());
-<a href=#426 id=426 data-nosnippet>426</a>
-<a href=#427 id=427 data-nosnippet>427</a>        <span class="comment">// The status token is shared with the cookie and `data-type`.
-<a href=#428 id=428 data-nosnippet>428</a>        </span><span class="macro">assert_eq!</span>(NotificationStatus::Success.as_str(), <span class="string">"success"</span>);
-<a href=#429 id=429 data-nosnippet>429</a>        <span class="macro">assert_eq!</span>(NotificationStatus::Error.as_str(), <span class="string">"error"</span>);
-<a href=#430 id=430 data-nosnippet>430</a>        <span class="macro">assert_eq!</span>(NotificationStatus::Info.as_str(), <span class="string">"info"</span>);
-<a href=#431 id=431 data-nosnippet>431</a>        <span class="macro">assert_eq!</span>(NotificationStatus::Warning.as_str(), <span class="string">"warning"</span>);
-<a href=#432 id=432 data-nosnippet>432</a>    }
-<a href=#433 id=433 data-nosnippet>433</a>
-<a href=#434 id=434 data-nosnippet>434</a>    <span class="doccomment">/// The flash cookie carries the hardened `__Host-` contract (GH #149):
-<a href=#435 id=435 data-nosnippet>435</a>    /// `Secure`, `HttpOnly`, `SameSite=Lax`, `Path=/`, no `Domain`.
-<a href=#436 id=436 data-nosnippet>436</a>    </span><span class="attr">#[test]
-<a href=#437 id=437 data-nosnippet>437</a>    </span><span class="kw">fn </span>notification_cookie_is_host_prefixed_and_secure() {
-<a href=#438 id=438 data-nosnippet>438</a>        <span class="kw">let </span>cx = cx_with_cookie(COOKIE_NAME, <span class="prelude-val">None</span>);
-<a href=#439 id=439 data-nosnippet>439</a>        set_notification(<span class="kw-2">&amp;</span>cx, Notification::success(<span class="string">"hello"</span>));
-<a href=#440 id=440 data-nosnippet>440</a>        <span class="kw">let </span>cookie = cookies(<span class="kw-2">&amp;</span>cx)
-<a href=#441 id=441 data-nosnippet>441</a>            .get(COOKIE_NAME)
-<a href=#442 id=442 data-nosnippet>442</a>            .expect(<span class="string">"set_notification set the cookie"</span>);
-<a href=#443 id=443 data-nosnippet>443</a>        <span class="macro">assert_eq!</span>(cookie.name(), COOKIE_NAME);
-<a href=#444 id=444 data-nosnippet>444</a>        <span class="comment">// The committed value is the JSON wire format (lowercase status
-<a href=#445 id=445 data-nosnippet>445</a>        // tokens, GH #139).
-<a href=#446 id=446 data-nosnippet>446</a>        </span><span class="macro">assert_eq!</span>(cookie.value(), <span class="string">r#"{"status":"success","title":"hello"}"#</span>);
-<a href=#447 id=447 data-nosnippet>447</a>        <span class="macro">assert!</span>(cookie.secure().unwrap_or(<span class="bool-val">false</span>), <span class="string">"{cookie:?}"</span>);
-<a href=#448 id=448 data-nosnippet>448</a>        <span class="macro">assert!</span>(cookie.http_only().unwrap_or(<span class="bool-val">false</span>), <span class="string">"{cookie:?}"</span>);
-<a href=#449 id=449 data-nosnippet>449</a>        <span class="macro">assert_eq!</span>(cookie.path(), <span class="prelude-val">Some</span>(<span class="string">"/"</span>));
-<a href=#450 id=450 data-nosnippet>450</a>        <span class="macro">assert!</span>(cookie.domain().is_none(), <span class="string">"{cookie:?}"</span>);
-<a href=#451 id=451 data-nosnippet>451</a>    }
-<a href=#452 id=452 data-nosnippet>452</a>
-<a href=#453 id=453 data-nosnippet>453</a>    <span class="doccomment">/// The consumed flash cookie must be cleared with a `__Host-`-conformant
-<a href=#454 id=454 data-nosnippet>454</a>    /// removal (GH #149): a `__Host-`-named `Set-Cookie` without `Secure` is
-<a href=#455 id=455 data-nosnippet>455</a>    /// ignored by browsers — `Max-Age=0` deletions included — so the flash
-<a href=#456 id=456 data-nosnippet>456</a>    /// would survive every navigation. Pinned here through topcoat's own
-<a href=#457 id=457 data-nosnippet>457</a>    /// response finalization; the create/edit flow end-to-end is covered by
-<a href=#458 id=458 data-nosnippet>458</a>    /// the panel test `mutation_redirect_carries_the_flash_cookie_instead_of_a_query`.
-<a href=#459 id=459 data-nosnippet>459</a>    </span><span class="attr">#[test]
-<a href=#460 id=460 data-nosnippet>460</a>    </span><span class="kw">fn </span>notification_removal_header_carries_the_host_prefix_contract() {
-<a href=#461 id=461 data-nosnippet>461</a>        <span class="kw">use </span>http::header::SET_COOKIE;
-<a href=#462 id=462 data-nosnippet>462</a>
-<a href=#463 id=463 data-nosnippet>463</a>        <span class="kw">let </span>enc = serde_json::to_string(<span class="kw-2">&amp;</span>Notification::success(<span class="string">"hello"</span>)).unwrap();
-<a href=#464 id=464 data-nosnippet>464</a>        <span class="kw">let </span>cx = cx_with_cookie(COOKIE_NAME, <span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span>enc));
-<a href=#465 id=465 data-nosnippet>465</a>        <span class="kw">let </span>n = take_notification(<span class="kw-2">&amp;</span>cx);
-<a href=#466 id=466 data-nosnippet>466</a>        <span class="macro">assert!</span>(n.is_some(), <span class="string">"the flash cookie must decode"</span>);
-<a href=#467 id=467 data-nosnippet>467</a>
-<a href=#468 id=468 data-nosnippet>468</a>        <span class="kw">let </span><span class="kw-2">mut </span>headers = http::HeaderMap::new();
-<a href=#469 id=469 data-nosnippet>469</a>        topcoat::cookie::write_cookies(<span class="kw-2">&amp;</span>cx, <span class="kw-2">&amp;mut </span>headers);
-<a href=#470 id=470 data-nosnippet>470</a>        <span class="kw">let </span>cleared = headers
-<a href=#471 id=471 data-nosnippet>471</a>            .get_all(SET_COOKIE)
-<a href=#472 id=472 data-nosnippet>472</a>            .iter()
-<a href=#473 id=473 data-nosnippet>473</a>            .filter_map(|v| v.to_str().ok())
-<a href=#474 id=474 data-nosnippet>474</a>            .find(|v| v.starts_with(<span class="kw-2">&amp;</span><span class="macro">format!</span>(<span class="string">"{COOKIE_NAME}="</span>)))
-<a href=#475 id=475 data-nosnippet>475</a>            .expect(<span class="string">"the consumed flash cookie must be cleared"</span>)
-<a href=#476 id=476 data-nosnippet>476</a>            .to_string();
-<a href=#477 id=477 data-nosnippet>477</a>        <span class="macro">assert!</span>(
-<a href=#478 id=478 data-nosnippet>478</a>            cleared.contains(<span class="string">"Max-Age=0"</span>) || cleared.contains(<span class="string">"Expires=Thu, 01 Jan 1970"</span>),
-<a href=#479 id=479 data-nosnippet>479</a>            <span class="string">"the removal header must expire the cookie: {cleared}"
-<a href=#480 id=480 data-nosnippet>480</a>        </span>);
-<a href=#481 id=481 data-nosnippet>481</a>        <span class="macro">assert!</span>(
-<a href=#482 id=482 data-nosnippet>482</a>            cleared.contains(<span class="string">"Secure"</span>) &amp;&amp; cleared.contains(<span class="string">"Path=/"</span>),
-<a href=#483 id=483 data-nosnippet>483</a>            <span class="string">"the removal header must satisfy the __Host- contract: {cleared}"
-<a href=#484 id=484 data-nosnippet>484</a>        </span>);
-<a href=#485 id=485 data-nosnippet>485</a>        <span class="macro">assert!</span>(
-<a href=#486 id=486 data-nosnippet>486</a>            cleared.split(<span class="string">';'</span>).all(|attr| {
-<a href=#487 id=487 data-nosnippet>487</a>                <span class="kw">let </span>attr = attr.trim();
-<a href=#488 id=488 data-nosnippet>488</a>                !attr.starts_with(<span class="string">"Domain="</span>)
-<a href=#489 id=489 data-nosnippet>489</a>            }),
-<a href=#490 id=490 data-nosnippet>490</a>            <span class="string">"a `__Host-` cookie must not carry a Domain: {cleared}"
-<a href=#491 id=491 data-nosnippet>491</a>        </span>);
-<a href=#492 id=492 data-nosnippet>492</a>    }
-<a href=#493 id=493 data-nosnippet>493</a>}
+<a href=#128 id=128 data-nosnippet>128</a><span class="doccomment">/// Flash the failure of a write that passed validation but did not land.
+<a href=#129 id=129 data-nosnippet>129</a>///
+<a href=#130 id=130 data-nosnippet>130</a>/// Every mutation handler (create, update, delete, bulk delete) routes its
+<a href=#131 id=131 data-nosnippet>131</a>/// write and commit failures through this before returning the error, so the
+<a href=#132 id=132 data-nosnippet>132</a>/// user gets "couldn't …" instead of a bare 500 that leaves them guessing
+<a href=#133 id=133 data-nosnippet>133</a>/// whether the write went through. The title names the operation, never the
+<a href=#134 id=134 data-nosnippet>134</a>/// driver's text — internals stay in the server log (GH #174 §1).
+<a href=#135 id=135 data-nosnippet>135</a>///
+<a href=#136 id=136 data-nosnippet>136</a>/// Delivery: the flash rides a `Set-Cookie`, and Topcoat's cookie layer writes
+<a href=#137 id=137 data-nosnippet>137</a>/// pending cookies on **both** paths — on `Err` it stashes them in
+<a href=#138 id=138 data-nosnippet>138</a>/// `response_headers`, which the router applies once the error response exists
+<a href=#139 id=139 data-nosnippet>139</a>/// (`topcoat-router/src/router.rs`), so the 500 response carries the cookie. Its
+<a href=#140 id=140 data-nosnippet>140</a>/// body is Topcoat's plain-text error page, which renders no toast: the message
+<a href=#141 id=141 data-nosnippet>141</a>/// appears on the next panel page, whose shell consumes the flash
+<a href=#142 id=142 data-nosnippet>142</a>/// ([`take_notification`]). `a_failed_write_toasts_on_the_next_panel_page` pins
+<a href=#143 id=143 data-nosnippet>143</a>/// that delivery.
+<a href=#144 id=144 data-nosnippet>144</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>notify_write_failure(cx: <span class="kw-2">&amp;</span>Cx, action: <span class="kw-2">&amp;</span>str) {
+<a href=#145 id=145 data-nosnippet>145</a>    set_notification(
+<a href=#146 id=146 data-nosnippet>146</a>        cx,
+<a href=#147 id=147 data-nosnippet>147</a>        Notification::error(<span class="macro">format!</span>(<span class="string">"Couldn't {action}"</span>))
+<a href=#148 id=148 data-nosnippet>148</a>            .description(<span class="string">"Nothing was changed — try again."</span>),
+<a href=#149 id=149 data-nosnippet>149</a>    );
+<a href=#150 id=150 data-nosnippet>150</a>}
+<a href=#151 id=151 data-nosnippet>151</a>
+<a href=#152 id=152 data-nosnippet>152</a><span class="doccomment">/// Take the notification from the request (if present) and clear it.
+<a href=#153 id=153 data-nosnippet>153</a></span><span class="kw">pub fn </span>take_notification(cx: <span class="kw-2">&amp;</span>Cx) -&gt; <span class="prelude-ty">Option</span>&lt;Notification&gt; {
+<a href=#154 id=154 data-nosnippet>154</a>    try_request_context::&lt;CookieJarCell&gt;(cx)<span class="question-mark">?</span>;
+<a href=#155 id=155 data-nosnippet>155</a>    <span class="kw">let </span>unparsed = cookie_store::&lt;Notification, <span class="kw">_</span>&gt;(hardened(cookies(cx)), COOKIE_NAME);
+<a href=#156 id=156 data-nosnippet>156</a>    <span class="kw">match </span>unparsed.parse() {
+<a href=#157 id=157 data-nosnippet>157</a>        <span class="comment">// Present and readable: hand it out, then expire it (the removal
+<a href=#158 id=158 data-nosnippet>158</a>        // carries the same hardened attributes through the jar defaults).
+<a href=#159 id=159 data-nosnippet>159</a>        </span><span class="prelude-val">Ok</span>(<span class="prelude-val">Some</span>(store)) =&gt; {
+<a href=#160 id=160 data-nosnippet>160</a>            <span class="kw">let </span>notification = store.get();
+<a href=#161 id=161 data-nosnippet>161</a>            store.remove();
+<a href=#162 id=162 data-nosnippet>162</a>            <span class="prelude-val">Some</span>(notification)
+<a href=#163 id=163 data-nosnippet>163</a>        }
+<a href=#164 id=164 data-nosnippet>164</a>        <span class="comment">// Unreadable garbage (a corrupted or foreign value): expire it, no
+<a href=#165 id=165 data-nosnippet>165</a>        // toast.
+<a href=#166 id=166 data-nosnippet>166</a>        </span><span class="prelude-val">Err</span>(<span class="kw">_</span>) =&gt; {
+<a href=#167 id=167 data-nosnippet>167</a>            cookie_store::&lt;Notification, <span class="kw">_</span>&gt;(hardened(cookies(cx)), COOKIE_NAME).remove();
+<a href=#168 id=168 data-nosnippet>168</a>            <span class="prelude-val">None
+<a href=#169 id=169 data-nosnippet>169</a>        </span>}
+<a href=#170 id=170 data-nosnippet>170</a>        <span class="prelude-val">Ok</span>(<span class="prelude-val">None</span>) =&gt; <span class="prelude-val">None</span>,
+<a href=#171 id=171 data-nosnippet>171</a>    }
+<a href=#172 id=172 data-nosnippet>172</a>}
+<a href=#173 id=173 data-nosnippet>173</a>
+<a href=#174 id=174 data-nosnippet>174</a><span class="doccomment">/// Render one notification as the shadcn/Sonner toast.
+<a href=#175 id=175 data-nosnippet>175</a>///
+<a href=#176 id=176 data-nosnippet>176</a>/// The status picks Sonner's icon under shadcn's theming (`circle-check`,
+<a href=#177 id=177 data-nosnippet>177</a>/// `info`, `triangle-alert`, `octagon-x`); the error icon reads
+<a href=#178 id=178 data-nosnippet>178</a>/// `text-destructive` so a failure cannot look like an info toast.
+<a href=#179 id=179 data-nosnippet>179</a>///
+<a href=#180 id=180 data-nosnippet>180</a>/// `attrs` are merged onto the toast surface. The shell's flash stack passes
+<a href=#181 id=181 data-nosnippet>181</a>/// an empty set; the live transport ([`live_toaster`]) adds a per-mount `id`
+<a href=#182 id=182 data-nosnippet>182</a>/// so re-rendering the same variant replaces the mounted toast instead of
+<a href=#183 id=183 data-nosnippet>183</a>/// re-syncing its `data-mounted` state (GH #154 §3).
+<a href=#184 id=184 data-nosnippet>184</a></span><span class="kw">pub async fn </span>render_notification&lt;<span class="lifetime">'a</span>&gt;(
+<a href=#185 id=185 data-nosnippet>185</a>    cx: <span class="kw-2">&amp;</span><span class="lifetime">'a </span>Cx,
+<a href=#186 id=186 data-nosnippet>186</a>    notification: Notification,
+<a href=#187 id=187 data-nosnippet>187</a>    attrs: Attributes,
+<a href=#188 id=188 data-nosnippet>188</a>) -&gt; topcoat::Result&lt;BoxView&lt;<span class="lifetime">'a</span>&gt;&gt; {
+<a href=#189 id=189 data-nosnippet>189</a>    <span class="kw">let </span>Notification {
+<a href=#190 id=190 data-nosnippet>190</a>        status,
+<a href=#191 id=191 data-nosnippet>191</a>        title,
+<a href=#192 id=192 data-nosnippet>192</a>        description,
+<a href=#193 id=193 data-nosnippet>193</a>    } = notification;
+<a href=#194 id=194 data-nosnippet>194</a>    <span class="kw">let </span>icon_data = <span class="kw">match </span>status {
+<a href=#195 id=195 data-nosnippet>195</a>        NotificationStatus::Success =&gt; icons::CIRCLE_CHECK,
+<a href=#196 id=196 data-nosnippet>196</a>        NotificationStatus::Error =&gt; icons::OCTAGON_X,
+<a href=#197 id=197 data-nosnippet>197</a>        NotificationStatus::Info =&gt; icons::INFO,
+<a href=#198 id=198 data-nosnippet>198</a>        NotificationStatus::Warning =&gt; icons::TRIANGLE_ALERT,
+<a href=#199 id=199 data-nosnippet>199</a>    };
+<a href=#200 id=200 data-nosnippet>200</a>    <span class="kw">let </span>icon_class = <span class="kw">if </span>status == NotificationStatus::Error {
+<a href=#201 id=201 data-nosnippet>201</a>        <span class="string">"size-4 text-destructive"
+<a href=#202 id=202 data-nosnippet>202</a>    </span>} <span class="kw">else </span>{
+<a href=#203 id=203 data-nosnippet>203</a>        <span class="string">"size-4"
+<a href=#204 id=204 data-nosnippet>204</a>    </span>};
+<a href=#205 id=205 data-nosnippet>205</a>    <span class="kw">let </span>status = status.as_str();
+<a href=#206 id=206 data-nosnippet>206</a>    <span class="prelude-val">Ok</span>(<span class="macro">view!</span> {
+<a href=#207 id=207 data-nosnippet>207</a>        cx =&gt;
+<a href=#208 id=208 data-nosnippet>208</a>        toast(
+<a href=#209 id=209 data-nosnippet>209</a>            attrs: <span class="macro">attributes!</span> { data-<span class="kw">type</span>=(status) (attrs) },
+<a href=#210 id=210 data-nosnippet>210</a>            toast_icon(icon(data: icon_data, attrs: <span class="macro">attributes!</span> { class=(icon_class) }))
+<a href=#211 id=211 data-nosnippet>211</a>            toast_content(
+<a href=#212 id=212 data-nosnippet>212</a>                toast_title((title))
+<a href=#213 id=213 data-nosnippet>213</a>                <span class="kw">if let </span><span class="prelude-val">Some</span>(description) = description {
+<a href=#214 id=214 data-nosnippet>214</a>                    toast_description((description))
+<a href=#215 id=215 data-nosnippet>215</a>                }
+<a href=#216 id=216 data-nosnippet>216</a>            )
+<a href=#217 id=217 data-nosnippet>217</a>            toast_close()
+<a href=#218 id=218 data-nosnippet>218</a>        )
+<a href=#219 id=219 data-nosnippet>219</a>    }
+<a href=#220 id=220 data-nosnippet>220</a>    .boxed())
+<a href=#221 id=221 data-nosnippet>221</a>}
+<a href=#222 id=222 data-nosnippet>222</a>
+<a href=#223 id=223 data-nosnippet>223</a><span class="doccomment">/// The signals a page owns to mount a [`Notification`] in place (GH #154 §3).
+<a href=#224 id=224 data-nosnippet>224</a>///
+<a href=#225 id=225 data-nosnippet>225</a>/// [`live_toast`] creates them; a click handler writes a procedure's returned
+<a href=#226 id=226 data-nosnippet>226</a>/// `(status, title, description)` into them and bumps `serial` (a repeat of
+<a href=#227 id=227 data-nosnippet>227</a>/// the same variant must still be a change), and the shell's [`live_toaster`]
+<a href=#228 id=228 data-nosnippet>228</a>/// shard reads them and mounts the real Sonner surface — no navigation, no
+<a href=#229 id=229 data-nosnippet>229</a>/// scroll reset. Every value is client input by the time the shard reads it.
+<a href=#230 id=230 data-nosnippet>230</a></span><span class="attr">#[derive(Clone)]
+<a href=#231 id=231 data-nosnippet>231</a></span><span class="kw">pub struct </span>LiveToast {
+<a href=#232 id=232 data-nosnippet>232</a>    <span class="doccomment">/// The Sonner status token (`success`/`info`/`warning`/`error`); empty
+<a href=#233 id=233 data-nosnippet>233</a>    /// means "no toast mounted".
+<a href=#234 id=234 data-nosnippet>234</a>    </span><span class="kw">pub </span>status: Signal&lt;String&gt;,
+<a href=#235 id=235 data-nosnippet>235</a>    <span class="doccomment">/// The toast title.
+<a href=#236 id=236 data-nosnippet>236</a>    </span><span class="kw">pub </span>title: Signal&lt;String&gt;,
+<a href=#237 id=237 data-nosnippet>237</a>    <span class="doccomment">/// The optional supporting line; empty renders no description.
+<a href=#238 id=238 data-nosnippet>238</a>    </span><span class="kw">pub </span>description: Signal&lt;String&gt;,
+<a href=#239 id=239 data-nosnippet>239</a>    <span class="doccomment">/// Bumped on every mount so an identical repeat still re-renders.
+<a href=#240 id=240 data-nosnippet>240</a>    </span><span class="kw">pub </span>serial: Signal&lt;u64&gt;,
+<a href=#241 id=241 data-nosnippet>241</a>}
+<a href=#242 id=242 data-nosnippet>242</a>
+<a href=#243 id=243 data-nosnippet>243</a><span class="doccomment">/// The live toast signals for this request (call once per page).
+<a href=#244 id=244 data-nosnippet>244</a>///
+<a href=#245 id=245 data-nosnippet>245</a>/// The signals are created here, so both the page's handlers and the shell's
+<a href=#246 id=246 data-nosnippet>246</a>/// [`live_toaster`] resolve the same handles in one request.
+<a href=#247 id=247 data-nosnippet>247</a></span><span class="kw">pub fn </span>live_toast(cx: <span class="kw-2">&amp;</span>Cx) -&gt; LiveToast {
+<a href=#248 id=248 data-nosnippet>248</a>    LiveToast {
+<a href=#249 id=249 data-nosnippet>249</a>        status: signal(cx, String::new),
+<a href=#250 id=250 data-nosnippet>250</a>        title: signal(cx, String::new),
+<a href=#251 id=251 data-nosnippet>251</a>        description: signal(cx, String::new),
+<a href=#252 id=252 data-nosnippet>252</a>        serial: signal(cx, || <span class="number">0u64</span>),
+<a href=#253 id=253 data-nosnippet>253</a>    }
+<a href=#254 id=254 data-nosnippet>254</a>}
+<a href=#255 id=255 data-nosnippet>255</a>
+<a href=#256 id=256 data-nosnippet>256</a><span class="doccomment">/// The endpoint [`live_toaster`] is served at.
+<a href=#257 id=257 data-nosnippet>257</a>///
+<a href=#258 id=258 data-nosnippet>258</a>/// A shard that declares no path is served at a build-random one (topcoat#441);
+<a href=#259 id=259 data-nosnippet>259</a>/// naming it keeps the endpoint stable across builds and legible in logs and
+<a href=#260 id=260 data-nosnippet>260</a>/// tests. The `/argentum-` prefix separates it from a generated path, and the
+<a href=#261 id=261 data-nosnippet>261</a>/// whole path stays under `/_topcoat/runtime`, so the panel's auth gate covers
+<a href=#262 id=262 data-nosnippet>262</a>/// the shard and an unauthenticated rerun answers 401 rather than redirecting to
+<a href=#263 id=263 data-nosnippet>263</a>/// the login page.
+<a href=#264 id=264 data-nosnippet>264</a>///
+<a href=#265 id=265 data-nosnippet>265</a>/// The literal in [`live_toaster`]'s attribute is the same path;
+<a href=#266 id=266 data-nosnippet>266</a>/// `live_toaster_endpoint_is_the_named_path` pins the two together.
+<a href=#267 id=267 data-nosnippet>267</a></span><span class="attr">#[cfg(test)]
+<a href=#268 id=268 data-nosnippet>268</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">const </span>LIVE_TOASTER_PATH: <span class="kw-2">&amp;</span>str = <span class="string">"/_topcoat/runtime/shards/argentum-live-toaster"</span>;
+<a href=#269 id=269 data-nosnippet>269</a>
+<a href=#270 id=270 data-nosnippet>270</a><span class="doccomment">/// The shell's live toaster shard (GH #154 §3): reads the page's
+<a href=#271 id=271 data-nosnippet>271</a>/// [`LiveToast`] signals and mounts the toast in place when one is set.
+<a href=#272 id=272 data-nosnippet>272</a>///
+<a href=#273 id=273 data-nosnippet>273</a>/// A shard rather than an eager read, so writing the signals re-renders only
+<a href=#274 id=274 data-nosnippet>274</a>/// this stack — the page, its scroll, and its focus stay put. The mount `id`
+<a href=#275 id=275 data-nosnippet>275</a>/// carries the serial: the browser's morph matches by id, so a new mount is a
+<a href=#276 id=276 data-nosnippet>276</a>/// fresh toast node (with `data-mounted="false"`) that `notifications.js`
+<a href=#277 id=277 data-nosnippet>277</a>/// arms, instead of rewriting the already-mounted one.
+<a href=#278 id=278 data-nosnippet>278</a>///
+<a href=#279 id=279 data-nosnippet>279</a>/// The body lives in `render_live_toaster`: the shard macro's generated
+<a href=#280 id=280 data-nosnippet>280</a>/// handler cannot name the request lifetime its `impl View` would capture, so
+<a href=#281 id=281 data-nosnippet>281</a>/// the helper resolves the boxed view and the shard only forwards it.
+<a href=#282 id=282 data-nosnippet>282</a></span><span class="attr">#[shard(<span class="string">"/_topcoat/runtime/shards/argentum-live-toaster"</span>)]
+<a href=#283 id=283 data-nosnippet>283</a></span><span class="kw">pub async fn </span>live_toaster(
+<a href=#284 id=284 data-nosnippet>284</a>    cx: <span class="kw-2">&amp;</span>Cx,
+<a href=#285 id=285 data-nosnippet>285</a>    status: Signal&lt;String&gt;,
+<a href=#286 id=286 data-nosnippet>286</a>    title: Signal&lt;String&gt;,
+<a href=#287 id=287 data-nosnippet>287</a>    description: Signal&lt;String&gt;,
+<a href=#288 id=288 data-nosnippet>288</a>    serial: Signal&lt;u64&gt;,
+<a href=#289 id=289 data-nosnippet>289</a>) -&gt; topcoat::Result&lt;<span class="kw">impl </span>View&gt; {
+<a href=#290 id=290 data-nosnippet>290</a>    render_live_toaster(cx, <span class="kw-2">&amp;</span>status, <span class="kw-2">&amp;</span>title, <span class="kw-2">&amp;</span>description, <span class="kw-2">&amp;</span>serial).<span class="kw">await
+<a href=#291 id=291 data-nosnippet>291</a></span>}
+<a href=#292 id=292 data-nosnippet>292</a>
+<a href=#293 id=293 data-nosnippet>293</a><span class="kw">async fn </span>render_live_toaster&lt;<span class="lifetime">'a</span>&gt;(
+<a href=#294 id=294 data-nosnippet>294</a>    cx: <span class="kw-2">&amp;</span><span class="lifetime">'a </span>Cx,
+<a href=#295 id=295 data-nosnippet>295</a>    status: <span class="kw-2">&amp;</span>Signal&lt;String&gt;,
+<a href=#296 id=296 data-nosnippet>296</a>    title: <span class="kw-2">&amp;</span>Signal&lt;String&gt;,
+<a href=#297 id=297 data-nosnippet>297</a>    description: <span class="kw-2">&amp;</span>Signal&lt;String&gt;,
+<a href=#298 id=298 data-nosnippet>298</a>    serial: <span class="kw-2">&amp;</span>Signal&lt;u64&gt;,
+<a href=#299 id=299 data-nosnippet>299</a>) -&gt; topcoat::Result&lt;BoxView&lt;<span class="lifetime">'a</span>&gt;&gt; {
+<a href=#300 id=300 data-nosnippet>300</a>    <span class="comment">// Runtime endpoints bypass page guards (topcoat shard contract), so the
+<a href=#301 id=301 data-nosnippet>301</a>    // shard restates the panel gate; a slot with no live toast needs no auth
+<a href=#302 id=302 data-nosnippet>302</a>    // to render empty, but a direct POST must not mount toasts unauthenticated.
+<a href=#303 id=303 data-nosnippet>303</a>    </span><span class="attr">#[cfg(feature = <span class="string">"auth"</span>)]
+<a href=#304 id=304 data-nosnippet>304</a>    </span><span class="kw">if </span><span class="kw">crate</span>::auth::enforced(cx) {
+<a href=#305 id=305 data-nosnippet>305</a>        <span class="kw">crate</span>::auth::require_authenticated(cx)<span class="question-mark">?</span>;
+<a href=#306 id=306 data-nosnippet>306</a>    }
+<a href=#307 id=307 data-nosnippet>307</a>    <span class="kw">let </span>status = status.get();
+<a href=#308 id=308 data-nosnippet>308</a>    <span class="kw">let </span>mount = serial.get();
+<a href=#309 id=309 data-nosnippet>309</a>    <span class="kw">if </span>status.is_empty() {
+<a href=#310 id=310 data-nosnippet>310</a>        <span class="comment">// No `&lt;span&gt;` placeholder: the shell mounts this slot inside
+<a href=#311 id=311 data-nosnippet>311</a>        // the toaster `&lt;ol&gt;`, which permits only `li`/`script`/`template`
+<a href=#312 id=312 data-nosnippet>312</a>        // children — the empty view renders nothing.
+<a href=#313 id=313 data-nosnippet>313</a>        </span><span class="kw">return </span><span class="prelude-val">Ok</span>(().boxed());
+<a href=#314 id=314 data-nosnippet>314</a>    }
+<a href=#315 id=315 data-nosnippet>315</a>    <span class="kw">let </span>title = title.get();
+<a href=#316 id=316 data-nosnippet>316</a>    <span class="kw">let </span>description = description.get();
+<a href=#317 id=317 data-nosnippet>317</a>    <span class="kw">let </span>notification = <span class="kw">match </span>status.as_str() {
+<a href=#318 id=318 data-nosnippet>318</a>        <span class="string">"success" </span>=&gt; Notification::success(title),
+<a href=#319 id=319 data-nosnippet>319</a>        <span class="string">"warning" </span>=&gt; Notification::warning(title),
+<a href=#320 id=320 data-nosnippet>320</a>        <span class="string">"error" </span>=&gt; Notification::error(title),
+<a href=#321 id=321 data-nosnippet>321</a>        <span class="kw">_ </span>=&gt; Notification::info(title),
+<a href=#322 id=322 data-nosnippet>322</a>    };
+<a href=#323 id=323 data-nosnippet>323</a>    <span class="kw">let </span>notification = <span class="kw">if </span>description.is_empty() {
+<a href=#324 id=324 data-nosnippet>324</a>        notification
+<a href=#325 id=325 data-nosnippet>325</a>    } <span class="kw">else </span>{
+<a href=#326 id=326 data-nosnippet>326</a>        notification.description(description)
+<a href=#327 id=327 data-nosnippet>327</a>    };
+<a href=#328 id=328 data-nosnippet>328</a>    <span class="kw">let </span>mount_id = <span class="macro">format!</span>(<span class="string">"live-toast-{mount}"</span>);
+<a href=#329 id=329 data-nosnippet>329</a>    render_notification(cx, notification, <span class="macro">attributes!</span> { cx =&gt; id=(mount_id) }).<span class="kw">await
+<a href=#330 id=330 data-nosnippet>330</a></span>}
+<a href=#331 id=331 data-nosnippet>331</a>
+<a href=#332 id=332 data-nosnippet>332</a><span class="attr">#[cfg(test)]
+<a href=#333 id=333 data-nosnippet>333</a></span><span class="kw">mod </span>tests {
+<a href=#334 id=334 data-nosnippet>334</a>    <span class="kw">use super</span>::<span class="kw-2">*</span>;
+<a href=#335 id=335 data-nosnippet>335</a>    <span class="kw">use </span><span class="kw">crate</span>::test_support::cx_with_cookie;
+<a href=#336 id=336 data-nosnippet>336</a>
+<a href=#337 id=337 data-nosnippet>337</a>    <span class="doccomment">/// topcoat#441: the shard is served at the named path, so its endpoint is the
+<a href=#338 id=338 data-nosnippet>338</a>    /// same in every build.
+<a href=#339 id=339 data-nosnippet>339</a>    </span><span class="attr">#[test]
+<a href=#340 id=340 data-nosnippet>340</a>    </span><span class="kw">fn </span>live_toaster_endpoint_is_the_named_path() {
+<a href=#341 id=341 data-nosnippet>341</a>        <span class="kw">use </span>topcoat::router::Route <span class="kw">as _</span>;
+<a href=#342 id=342 data-nosnippet>342</a>
+<a href=#343 id=343 data-nosnippet>343</a>        <span class="macro">assert_eq!</span>(live_toaster.path().as_str(), LIVE_TOASTER_PATH);
+<a href=#344 id=344 data-nosnippet>344</a>    }
+<a href=#345 id=345 data-nosnippet>345</a>
+<a href=#346 id=346 data-nosnippet>346</a>    <span class="doccomment">/// GH #174: a failed write flashes an error the user can read — the
+<a href=#347 id=347 data-nosnippet>347</a>    /// operation, not the driver's error text.
+<a href=#348 id=348 data-nosnippet>348</a>    </span><span class="attr">#[test]
+<a href=#349 id=349 data-nosnippet>349</a>    </span><span class="kw">fn </span>write_failure_notification_names_the_operation() {
+<a href=#350 id=350 data-nosnippet>350</a>        <span class="kw">let </span>cx = cx_with_cookie(COOKIE_NAME, <span class="prelude-val">None</span>);
+<a href=#351 id=351 data-nosnippet>351</a>        notify_write_failure(<span class="kw-2">&amp;</span>cx, <span class="string">"create the record"</span>);
+<a href=#352 id=352 data-nosnippet>352</a>        <span class="kw">let </span>notification = take_notification(<span class="kw-2">&amp;</span>cx).expect(<span class="string">"a failed write must flash"</span>);
+<a href=#353 id=353 data-nosnippet>353</a>        <span class="macro">assert_eq!</span>(notification.status, NotificationStatus::Error);
+<a href=#354 id=354 data-nosnippet>354</a>        <span class="macro">assert_eq!</span>(notification.title, <span class="string">"Couldn't create the record"</span>);
+<a href=#355 id=355 data-nosnippet>355</a>        <span class="macro">assert!</span>(
+<a href=#356 id=356 data-nosnippet>356</a>            notification.description.is_some(),
+<a href=#357 id=357 data-nosnippet>357</a>            <span class="string">"the toast must say the write did not land"
+<a href=#358 id=358 data-nosnippet>358</a>        </span>);
+<a href=#359 id=359 data-nosnippet>359</a>    }
+<a href=#360 id=360 data-nosnippet>360</a>
+<a href=#361 id=361 data-nosnippet>361</a>    <span class="attr">#[test]
+<a href=#362 id=362 data-nosnippet>362</a>    </span><span class="kw">fn </span>take_notification_decodes_the_json_cookie() {
+<a href=#363 id=363 data-nosnippet>363</a>        <span class="kw">let </span>enc = serde_json::to_string(<span class="kw-2">&amp;</span>Notification::success(<span class="string">"hello"</span>)).unwrap();
+<a href=#364 id=364 data-nosnippet>364</a>        <span class="kw">let </span>cx = cx_with_cookie(COOKIE_NAME, <span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span>enc));
+<a href=#365 id=365 data-nosnippet>365</a>        <span class="kw">let </span>n = take_notification(<span class="kw-2">&amp;</span>cx);
+<a href=#366 id=366 data-nosnippet>366</a>        <span class="macro">assert!</span>(n.is_some(), <span class="string">"the JSON flash cookie decodes"</span>);
+<a href=#367 id=367 data-nosnippet>367</a>        <span class="macro">assert_eq!</span>(n.unwrap().title, <span class="string">"hello"</span>);
+<a href=#368 id=368 data-nosnippet>368</a>        <span class="comment">// Clearing itself is pinned by
+<a href=#369 id=369 data-nosnippet>369</a>        // `notification_removal_header_carries_the_host_prefix_contract`.
+<a href=#370 id=370 data-nosnippet>370</a>    </span>}
+<a href=#371 id=371 data-nosnippet>371</a>
+<a href=#372 id=372 data-nosnippet>372</a>    <span class="attr">#[test]
+<a href=#373 id=373 data-nosnippet>373</a>    </span><span class="kw">fn </span>percent_encoded_json_cookie_decodes() {
+<a href=#374 id=374 data-nosnippet>374</a>        <span class="kw">let </span>enc = <span class="string">"%7B%22status%22%3A%22success%22%2C%22title%22%3A%22Created%22%7D"</span>;
+<a href=#375 id=375 data-nosnippet>375</a>        <span class="kw">let </span>cx = cx_with_cookie(COOKIE_NAME, <span class="prelude-val">Some</span>(enc));
+<a href=#376 id=376 data-nosnippet>376</a>        <span class="kw">let </span>n = take_notification(<span class="kw-2">&amp;</span>cx);
+<a href=#377 id=377 data-nosnippet>377</a>        <span class="macro">assert!</span>(n.is_some(), <span class="string">"the percent-encoded flash cookie decodes"</span>);
+<a href=#378 id=378 data-nosnippet>378</a>        <span class="macro">assert_eq!</span>(n.unwrap().title, <span class="string">"Created"</span>);
+<a href=#379 id=379 data-nosnippet>379</a>    }
+<a href=#380 id=380 data-nosnippet>380</a>
+<a href=#381 id=381 data-nosnippet>381</a>    <span class="doccomment">/// Unreadable cookie garbage is expired, not toasted, so a malformed cookie
+<a href=#382 id=382 data-nosnippet>382</a>    /// yields no toast; the removal still satisfies the `__Host-` contract.
+<a href=#383 id=383 data-nosnippet>383</a>    </span><span class="attr">#[test]
+<a href=#384 id=384 data-nosnippet>384</a>    </span><span class="kw">fn </span>unreadable_flash_cookie_is_expired_silently() {
+<a href=#385 id=385 data-nosnippet>385</a>        <span class="kw">let </span>cx = cx_with_cookie(COOKIE_NAME, <span class="prelude-val">Some</span>(<span class="string">"not-json"</span>));
+<a href=#386 id=386 data-nosnippet>386</a>        <span class="macro">assert!</span>(take_notification(<span class="kw-2">&amp;</span>cx).is_none(), <span class="string">"garbage yields no toast"</span>);
+<a href=#387 id=387 data-nosnippet>387</a>        <span class="kw">let </span><span class="kw-2">mut </span>headers = http::HeaderMap::new();
+<a href=#388 id=388 data-nosnippet>388</a>        topcoat::cookie::write_cookies(<span class="kw-2">&amp;</span>cx, <span class="kw-2">&amp;mut </span>headers);
+<a href=#389 id=389 data-nosnippet>389</a>        <span class="kw">let </span>cleared = headers
+<a href=#390 id=390 data-nosnippet>390</a>            .get_all(http::header::SET_COOKIE)
+<a href=#391 id=391 data-nosnippet>391</a>            .iter()
+<a href=#392 id=392 data-nosnippet>392</a>            .filter_map(|v| v.to_str().ok())
+<a href=#393 id=393 data-nosnippet>393</a>            .find(|v| v.starts_with(<span class="kw-2">&amp;</span><span class="macro">format!</span>(<span class="string">"{COOKIE_NAME}="</span>)))
+<a href=#394 id=394 data-nosnippet>394</a>            .expect(<span class="string">"the garbage cookie must be expired"</span>);
+<a href=#395 id=395 data-nosnippet>395</a>        <span class="macro">assert!</span>(
+<a href=#396 id=396 data-nosnippet>396</a>            cleared.contains(<span class="string">"Max-Age=0"</span>)
+<a href=#397 id=397 data-nosnippet>397</a>                &amp;&amp; cleared.contains(<span class="string">"Secure"</span>)
+<a href=#398 id=398 data-nosnippet>398</a>                &amp;&amp; cleared.contains(<span class="string">"Path=/"</span>),
+<a href=#399 id=399 data-nosnippet>399</a>            <span class="string">"the removal carries the __Host- contract: {cleared}"
+<a href=#400 id=400 data-nosnippet>400</a>        </span>);
+<a href=#401 id=401 data-nosnippet>401</a>    }
+<a href=#402 id=402 data-nosnippet>402</a>
+<a href=#403 id=403 data-nosnippet>403</a>    <span class="attr">#[test]
+<a href=#404 id=404 data-nosnippet>404</a>    </span><span class="kw">fn </span>notification_description_round_trips() {
+<a href=#405 id=405 data-nosnippet>405</a>        <span class="comment">// The description is optional and absent from the wire format when
+<a href=#406 id=406 data-nosnippet>406</a>        // unset (compatibility); old cookies still decode.
+<a href=#407 id=407 data-nosnippet>407</a>        </span><span class="macro">assert_eq!</span>(
+<a href=#408 id=408 data-nosnippet>408</a>            serde_json::to_string(<span class="kw-2">&amp;</span>Notification::success(<span class="string">"hello"</span>)).unwrap(),
+<a href=#409 id=409 data-nosnippet>409</a>            <span class="string">r#"{"status":"success","title":"hello"}"#
+<a href=#410 id=410 data-nosnippet>410</a>        </span>);
+<a href=#411 id=411 data-nosnippet>411</a>        <span class="kw">let </span>enc = serde_json::to_string(<span class="kw-2">&amp;</span>Notification::warning(<span class="string">"Careful"</span>).description(<span class="string">"Low disk"</span>))
+<a href=#412 id=412 data-nosnippet>412</a>            .unwrap();
+<a href=#413 id=413 data-nosnippet>413</a>        <span class="macro">assert!</span>(
+<a href=#414 id=414 data-nosnippet>414</a>            enc.contains(<span class="string">"\"status\":\"warning\""</span>) &amp;&amp; enc.contains(<span class="string">"\"description\":\"Low disk\""</span>)
+<a href=#415 id=415 data-nosnippet>415</a>        );
+<a href=#416 id=416 data-nosnippet>416</a>        <span class="kw">let </span>back = take_notification(<span class="kw-2">&amp;</span>cx_with_cookie(COOKIE_NAME, <span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span>enc))).expect(<span class="string">"decodes"</span>);
+<a href=#417 id=417 data-nosnippet>417</a>        <span class="macro">assert_eq!</span>(back.description.as_deref(), <span class="prelude-val">Some</span>(<span class="string">"Low disk"</span>));
+<a href=#418 id=418 data-nosnippet>418</a>        <span class="kw">let </span>old = take_notification(<span class="kw-2">&amp;</span>cx_with_cookie(
+<a href=#419 id=419 data-nosnippet>419</a>            COOKIE_NAME,
+<a href=#420 id=420 data-nosnippet>420</a>            <span class="prelude-val">Some</span>(<span class="string">r#"{"status":"success","title":"hi"}"#</span>),
+<a href=#421 id=421 data-nosnippet>421</a>        ))
+<a href=#422 id=422 data-nosnippet>422</a>        .expect(<span class="string">"a pre-description cookie decodes"</span>);
+<a href=#423 id=423 data-nosnippet>423</a>        <span class="macro">assert!</span>(old.description.is_none());
+<a href=#424 id=424 data-nosnippet>424</a>
+<a href=#425 id=425 data-nosnippet>425</a>        <span class="comment">// The status token is shared with the cookie and `data-type`.
+<a href=#426 id=426 data-nosnippet>426</a>        </span><span class="macro">assert_eq!</span>(NotificationStatus::Success.as_str(), <span class="string">"success"</span>);
+<a href=#427 id=427 data-nosnippet>427</a>        <span class="macro">assert_eq!</span>(NotificationStatus::Error.as_str(), <span class="string">"error"</span>);
+<a href=#428 id=428 data-nosnippet>428</a>        <span class="macro">assert_eq!</span>(NotificationStatus::Info.as_str(), <span class="string">"info"</span>);
+<a href=#429 id=429 data-nosnippet>429</a>        <span class="macro">assert_eq!</span>(NotificationStatus::Warning.as_str(), <span class="string">"warning"</span>);
+<a href=#430 id=430 data-nosnippet>430</a>    }
+<a href=#431 id=431 data-nosnippet>431</a>
+<a href=#432 id=432 data-nosnippet>432</a>    <span class="doccomment">/// The flash cookie carries the hardened `__Host-` contract:
+<a href=#433 id=433 data-nosnippet>433</a>    /// `Secure`, `HttpOnly`, `SameSite=Lax`, `Path=/`, no `Domain`.
+<a href=#434 id=434 data-nosnippet>434</a>    </span><span class="attr">#[test]
+<a href=#435 id=435 data-nosnippet>435</a>    </span><span class="kw">fn </span>notification_cookie_is_host_prefixed_and_secure() {
+<a href=#436 id=436 data-nosnippet>436</a>        <span class="kw">let </span>cx = cx_with_cookie(COOKIE_NAME, <span class="prelude-val">None</span>);
+<a href=#437 id=437 data-nosnippet>437</a>        set_notification(<span class="kw-2">&amp;</span>cx, Notification::success(<span class="string">"hello"</span>));
+<a href=#438 id=438 data-nosnippet>438</a>        <span class="kw">let </span>cookie = cookies(<span class="kw-2">&amp;</span>cx)
+<a href=#439 id=439 data-nosnippet>439</a>            .get(COOKIE_NAME)
+<a href=#440 id=440 data-nosnippet>440</a>            .expect(<span class="string">"set_notification set the cookie"</span>);
+<a href=#441 id=441 data-nosnippet>441</a>        <span class="macro">assert_eq!</span>(cookie.name(), COOKIE_NAME);
+<a href=#442 id=442 data-nosnippet>442</a>        <span class="comment">// The committed value is the JSON wire format (lowercase status
+<a href=#443 id=443 data-nosnippet>443</a>        // tokens).
+<a href=#444 id=444 data-nosnippet>444</a>        </span><span class="macro">assert_eq!</span>(cookie.value(), <span class="string">r#"{"status":"success","title":"hello"}"#</span>);
+<a href=#445 id=445 data-nosnippet>445</a>        <span class="macro">assert!</span>(cookie.secure().unwrap_or(<span class="bool-val">false</span>), <span class="string">"{cookie:?}"</span>);
+<a href=#446 id=446 data-nosnippet>446</a>        <span class="macro">assert!</span>(cookie.http_only().unwrap_or(<span class="bool-val">false</span>), <span class="string">"{cookie:?}"</span>);
+<a href=#447 id=447 data-nosnippet>447</a>        <span class="macro">assert_eq!</span>(cookie.path(), <span class="prelude-val">Some</span>(<span class="string">"/"</span>));
+<a href=#448 id=448 data-nosnippet>448</a>        <span class="macro">assert!</span>(cookie.domain().is_none(), <span class="string">"{cookie:?}"</span>);
+<a href=#449 id=449 data-nosnippet>449</a>    }
+<a href=#450 id=450 data-nosnippet>450</a>
+<a href=#451 id=451 data-nosnippet>451</a>    <span class="doccomment">/// The consumed flash cookie must be cleared with a `__Host-`-conformant
+<a href=#452 id=452 data-nosnippet>452</a>    /// removal: a `__Host-`-named `Set-Cookie` without `Secure` is
+<a href=#453 id=453 data-nosnippet>453</a>    /// ignored by browsers — `Max-Age=0` deletions included — so the flash
+<a href=#454 id=454 data-nosnippet>454</a>    /// would survive every navigation. Pinned here through topcoat's own
+<a href=#455 id=455 data-nosnippet>455</a>    /// response finalization; the create/edit flow end-to-end is covered by
+<a href=#456 id=456 data-nosnippet>456</a>    /// the panel test `mutation_redirect_carries_the_flash_cookie_instead_of_a_query`.
+<a href=#457 id=457 data-nosnippet>457</a>    </span><span class="attr">#[test]
+<a href=#458 id=458 data-nosnippet>458</a>    </span><span class="kw">fn </span>notification_removal_header_carries_the_host_prefix_contract() {
+<a href=#459 id=459 data-nosnippet>459</a>        <span class="kw">use </span>http::header::SET_COOKIE;
+<a href=#460 id=460 data-nosnippet>460</a>
+<a href=#461 id=461 data-nosnippet>461</a>        <span class="kw">let </span>enc = serde_json::to_string(<span class="kw-2">&amp;</span>Notification::success(<span class="string">"hello"</span>)).unwrap();
+<a href=#462 id=462 data-nosnippet>462</a>        <span class="kw">let </span>cx = cx_with_cookie(COOKIE_NAME, <span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span>enc));
+<a href=#463 id=463 data-nosnippet>463</a>        <span class="kw">let </span>n = take_notification(<span class="kw-2">&amp;</span>cx);
+<a href=#464 id=464 data-nosnippet>464</a>        <span class="macro">assert!</span>(n.is_some(), <span class="string">"the flash cookie must decode"</span>);
+<a href=#465 id=465 data-nosnippet>465</a>
+<a href=#466 id=466 data-nosnippet>466</a>        <span class="kw">let </span><span class="kw-2">mut </span>headers = http::HeaderMap::new();
+<a href=#467 id=467 data-nosnippet>467</a>        topcoat::cookie::write_cookies(<span class="kw-2">&amp;</span>cx, <span class="kw-2">&amp;mut </span>headers);
+<a href=#468 id=468 data-nosnippet>468</a>        <span class="kw">let </span>cleared = headers
+<a href=#469 id=469 data-nosnippet>469</a>            .get_all(SET_COOKIE)
+<a href=#470 id=470 data-nosnippet>470</a>            .iter()
+<a href=#471 id=471 data-nosnippet>471</a>            .filter_map(|v| v.to_str().ok())
+<a href=#472 id=472 data-nosnippet>472</a>            .find(|v| v.starts_with(<span class="kw-2">&amp;</span><span class="macro">format!</span>(<span class="string">"{COOKIE_NAME}="</span>)))
+<a href=#473 id=473 data-nosnippet>473</a>            .expect(<span class="string">"the consumed flash cookie must be cleared"</span>)
+<a href=#474 id=474 data-nosnippet>474</a>            .to_string();
+<a href=#475 id=475 data-nosnippet>475</a>        <span class="macro">assert!</span>(
+<a href=#476 id=476 data-nosnippet>476</a>            cleared.contains(<span class="string">"Max-Age=0"</span>) || cleared.contains(<span class="string">"Expires=Thu, 01 Jan 1970"</span>),
+<a href=#477 id=477 data-nosnippet>477</a>            <span class="string">"the removal header must expire the cookie: {cleared}"
+<a href=#478 id=478 data-nosnippet>478</a>        </span>);
+<a href=#479 id=479 data-nosnippet>479</a>        <span class="macro">assert!</span>(
+<a href=#480 id=480 data-nosnippet>480</a>            cleared.contains(<span class="string">"Secure"</span>) &amp;&amp; cleared.contains(<span class="string">"Path=/"</span>),
+<a href=#481 id=481 data-nosnippet>481</a>            <span class="string">"the removal header must satisfy the __Host- contract: {cleared}"
+<a href=#482 id=482 data-nosnippet>482</a>        </span>);
+<a href=#483 id=483 data-nosnippet>483</a>        <span class="macro">assert!</span>(
+<a href=#484 id=484 data-nosnippet>484</a>            cleared.split(<span class="string">';'</span>).all(|attr| {
+<a href=#485 id=485 data-nosnippet>485</a>                <span class="kw">let </span>attr = attr.trim();
+<a href=#486 id=486 data-nosnippet>486</a>                !attr.starts_with(<span class="string">"Domain="</span>)
+<a href=#487 id=487 data-nosnippet>487</a>            }),
+<a href=#488 id=488 data-nosnippet>488</a>            <span class="string">"a `__Host-` cookie must not carry a Domain: {cleared}"
+<a href=#489 id=489 data-nosnippet>489</a>        </span>);
+<a href=#490 id=490 data-nosnippet>490</a>    }
+<a href=#491 id=491 data-nosnippet>491</a>}
 </code></pre></div></section></main></body></html>

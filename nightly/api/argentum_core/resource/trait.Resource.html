@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Maps one Toasty `Model` to its admin UI."><title>Resource in argentum_core::resource - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../static.files/rustdoc-1ed95124.css"><meta name="rustdoc-vars" data-root-path="../../" data-static-root-path="../../static.files/" data-current-crate="argentum_core" data-themes="" data-resource-suffix="" data-rustdoc-version="1.98.1 (48a229cea 2026-09-01)" data-channel="1.98.1" data-search-js="search-9944d736.js" data-stringdex-js="stringdex-2da4960a.js" data-settings-js="settings-170eb4bf.js" ><script src="../../static.files/storage-41dd4d93.js"></script><script defer src="sidebar-items.js"></script><script defer src="../../static.files/main-417ebf0a.js"></script><noscript><link rel="stylesheet" href="../../static.files/noscript-f7c3ffd8.css"></noscript><link rel="alternate icon" type="image/png" href="../../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../../static.files/favicon-044be391.svg"></head><body class="rustdoc trait"><a class="skip-main-content" href="#main-content">Skip to main content</a><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><rustdoc-topbar><h2><a href="#">Resource</a></h2></rustdoc-topbar><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../../argentum_core/index.html">argentum_<wbr>core</a><span class="version">0.1.0</span></h2></div><div class="sidebar-elems"><section id="rustdoc-toc"><h2 class="location"><a href="#">Resource</a></h2><h3><a href="#">Sections</a></h3><ul class="block top-toc"><li><a href="#contract-gh-138" title="Contract (GH #138)">Contract (GH #138)</a></li></ul><h3><a href="#required-associated-types">Required Associated Types</a></h3><ul class="block"><li><a href="#associatedtype.Model" title="Model">Model</a></li></ul><h3><a href="#provided-methods">Provided Methods</a></h3><ul class="block"><li><a href="#method.after_commit" title="after_commit">after_commit</a></li><li><a href="#method.bulk_delete_records" title="bulk_delete_records">bulk_delete_records</a></li><li><a href="#method.can_create" title="can_create">can_create</a></li><li><a href="#method.can_delete" title="can_delete">can_delete</a></li><li><a href="#method.can_update" title="can_update">can_update</a></li><li><a href="#method.can_view" title="can_view">can_view</a></li><li><a href="#method.can_view_any" title="can_view_any">can_view_any</a></li><li><a href="#method.create_record" title="create_record">create_record</a></li><li><a href="#method.deletable" title="deletable">deletable</a></li><li><a href="#method.delete_record" title="delete_record">delete_record</a></li><li><a href="#method.editable" title="editable">editable</a></li><li><a href="#method.export_query" title="export_query">export_query</a></li><li><a href="#method.form" title="form">form</a></li><li><a href="#method.hydrate_form_values" title="hydrate_form_values">hydrate_form_values</a></li><li><a href="#method.navigation" title="navigation">navigation</a></li><li><a href="#method.navigation_label" title="navigation_label">navigation_label</a></li><li><a href="#method.query" title="query">query</a></li><li><a href="#method.query_with" title="query_with">query_with</a></li><li><a href="#method.record_label" title="record_label">record_label</a></li><li><a href="#method.requires_tenant" title="requires_tenant">requires_tenant</a></li><li><a href="#method.slug" title="slug">slug</a></li><li><a href="#method.table" title="table">table</a></li><li><a href="#method.tenant_scope" title="tenant_scope">tenant_scope</a></li><li><a href="#method.update_record" title="update_record">update_record</a></li><li><a href="#method.view" title="view">view</a></li><li><a href="#method.view_relations" title="view_relations">view_relations</a></li><li><a href="#method.viewed" title="viewed">viewed</a></li></ul><h3><a href="#dyn-compatibility">Dyn Compatibility</a></h3><h3><a href="#implementors">Implementors</a></h3></section><div id="rustdoc-modnav"><h2><a href="index.html">In argentum_<wbr>core::<wbr>resource</a></h2></div></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><div class="width-limiter"><section id="main-content" class="content" tabindex="-1"><div class="main-heading"><div class="rustdoc-breadcrumbs"><a href="../index.html">argentum_core</a>::<wbr><a href="index.html">resource</a></div><h1>Trait <span class="trait">Resource</span>&nbsp;<button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../../src/argentum_core/resource/mod.rs.html#80-679">Source</a> </span></div><pre class="rust item-decl"><code>pub trait Resource:
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Maps one Toasty `Model` to its admin UI."><title>Resource in argentum_core::resource - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../static.files/rustdoc-1ed95124.css"><meta name="rustdoc-vars" data-root-path="../../" data-static-root-path="../../static.files/" data-current-crate="argentum_core" data-themes="" data-resource-suffix="" data-rustdoc-version="1.98.1 (48a229cea 2026-09-01)" data-channel="1.98.1" data-search-js="search-9944d736.js" data-stringdex-js="stringdex-2da4960a.js" data-settings-js="settings-170eb4bf.js" ><script src="../../static.files/storage-41dd4d93.js"></script><script defer src="sidebar-items.js"></script><script defer src="../../static.files/main-417ebf0a.js"></script><noscript><link rel="stylesheet" href="../../static.files/noscript-f7c3ffd8.css"></noscript><link rel="alternate icon" type="image/png" href="../../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../../static.files/favicon-044be391.svg"></head><body class="rustdoc trait"><a class="skip-main-content" href="#main-content">Skip to main content</a><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><rustdoc-topbar><h2><a href="#">Resource</a></h2></rustdoc-topbar><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../../argentum_core/index.html">argentum_<wbr>core</a><span class="version">0.1.0</span></h2></div><div class="sidebar-elems"><section id="rustdoc-toc"><h2 class="location"><a href="#">Resource</a></h2><h3><a href="#">Sections</a></h3><ul class="block top-toc"><li><a href="#contract" title="Contract">Contract</a></li></ul><h3><a href="#required-associated-types">Required Associated Types</a></h3><ul class="block"><li><a href="#associatedtype.Model" title="Model">Model</a></li></ul><h3><a href="#provided-methods">Provided Methods</a></h3><ul class="block"><li><a href="#method.after_commit" title="after_commit">after_commit</a></li><li><a href="#method.bulk_delete_records" title="bulk_delete_records">bulk_delete_records</a></li><li><a href="#method.can_create" title="can_create">can_create</a></li><li><a href="#method.can_delete" title="can_delete">can_delete</a></li><li><a href="#method.can_update" title="can_update">can_update</a></li><li><a href="#method.can_view" title="can_view">can_view</a></li><li><a href="#method.can_view_any" title="can_view_any">can_view_any</a></li><li><a href="#method.create_record" title="create_record">create_record</a></li><li><a href="#method.deletable" title="deletable">deletable</a></li><li><a href="#method.delete_record" title="delete_record">delete_record</a></li><li><a href="#method.editable" title="editable">editable</a></li><li><a href="#method.export_query" title="export_query">export_query</a></li><li><a href="#method.form" title="form">form</a></li><li><a href="#method.hydrate_form_values" title="hydrate_form_values">hydrate_form_values</a></li><li><a href="#method.navigation" title="navigation">navigation</a></li><li><a href="#method.navigation_label" title="navigation_label">navigation_label</a></li><li><a href="#method.query" title="query">query</a></li><li><a href="#method.query_with" title="query_with">query_with</a></li><li><a href="#method.record_label" title="record_label">record_label</a></li><li><a href="#method.requires_tenant" title="requires_tenant">requires_tenant</a></li><li><a href="#method.slug" title="slug">slug</a></li><li><a href="#method.table" title="table">table</a></li><li><a href="#method.tenant_scope" title="tenant_scope">tenant_scope</a></li><li><a href="#method.update_record" title="update_record">update_record</a></li><li><a href="#method.view" title="view">view</a></li><li><a href="#method.view_relations" title="view_relations">view_relations</a></li><li><a href="#method.viewed" title="viewed">viewed</a></li></ul><h3><a href="#dyn-compatibility">Dyn Compatibility</a></h3><h3><a href="#implementors">Implementors</a></h3></section><div id="rustdoc-modnav"><h2><a href="index.html">In argentum_<wbr>core::<wbr>resource</a></h2></div></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><div class="width-limiter"><section id="main-content" class="content" tabindex="-1"><div class="main-heading"><div class="rustdoc-breadcrumbs"><a href="../index.html">argentum_core</a>::<wbr><a href="index.html">resource</a></div><h1>Trait <span class="trait">Resource</span>&nbsp;<button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../../src/argentum_core/resource/mod.rs.html#69-571">Source</a> </span></div><pre class="rust item-decl"><code>pub trait Resource:
     <a class="trait" href="https://doc.rust-lang.org/1.98.1/core/marker/trait.Sized.html" title="trait core::marker::Sized">Sized</a>
     + <a class="trait" href="https://doc.rust-lang.org/1.98.1/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a>
     + <a class="trait" href="https://doc.rust-lang.org/1.98.1/core/marker/trait.Sync.html" title="trait core::marker::Sync">Sync</a>
@@ -65,139 +65,102 @@
         _record: &amp;Self::<a class="associatedtype" href="trait.Resource.html#associatedtype.Model" title="type argentum_core::resource::Resource::Model">Model</a>,
     ) -&gt; <a class="struct" href="https://doc.rust-lang.org/1.98.1/std/collections/hash/map/struct.HashMap.html" title="struct std::collections::hash::map::HashMap">HashMap</a>&lt;<a class="struct" href="https://doc.rust-lang.org/1.98.1/alloc/string/struct.String.html" title="struct alloc::string::String">String</a>, <a class="struct" href="https://doc.rust-lang.org/1.98.1/alloc/string/struct.String.html" title="struct alloc::string::String">String</a>&gt; { ... }
 </details>}</code></pre><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Maps one Toasty <code>Model</code> to its admin UI.</p>
-<h2 id="contract-gh-138"><a class="doc-anchor" href="#contract-gh-138">§</a>Contract (GH #138)</h2>
+<h2 id="contract"><a class="doc-anchor" href="#contract">§</a>Contract</h2>
 <p><strong>Every method has a default</strong>, so a resource compiles the moment it
-declares a <a href="trait.Resource.html#associatedtype.Model" title="associated type argentum_core::resource::Resource::Model"><code>Model</code></a> — and an omission must therefore fail
-loudly rather than silently:</p>
+declares a <a href="trait.Resource.html#associatedtype.Model" title="associated type argentum_core::resource::Resource::Model"><code>Model</code></a> — and an omission must fail loudly
+rather than silently:</p>
 <ul>
-<li><strong>Checked at <a href="../panel/struct.Panel.html#method.build" title="method argentum_core::panel::Panel::build"><code>Panel::build</code></a></strong>, which returns <code>Err</code> naming the
-type: the table must be renderable (<a href="trait.Resource.html#method.table" title="associated function argentum_core::resource::Resource::table"><code>table</code></a> declares columns and a row key)
-and, where <a href="trait.Resource.html#method.can_create" title="associated function argentum_core::resource::Resource::can_create"><code>can_create</code></a> allows it, the <a href="trait.Resource.html#method.form" title="associated function argentum_core::resource::Resource::form"><code>form</code></a> must declare
-fields. <code>table</code>, <code>form</code> and <code>can_create</code> are declarations: they must not need request-scoped
-context, because build checks them with a Db-only context, and each list and form request
-calls <code>table</code> / <code>form</code> again.</li>
+<li><strong>Checked at <a href="../panel/struct.Panel.html#method.build" title="method argentum_core::panel::Panel::build"><code>Panel::build</code></a></strong>: the table must declare columns
+and a row key, and with <a href="trait.Resource.html#method.can_create" title="associated function argentum_core::resource::Resource::can_create"><code>can_create</code></a> the <a href="trait.Resource.html#method.form" title="associated function argentum_core::resource::Resource::form"><code>form</code></a> must declare
+fields. <code>table</code>, <code>form</code> and <code>can_create</code> are declarations and take no request context, because
+build checks them with a Db-only context.</li>
 <li><strong>Loud at request time</strong>: the record fns (<a href="trait.Resource.html#method.create_record" title="associated function argentum_core::resource::Resource::create_record"><code>create_record</code></a>,
 <a href="trait.Resource.html#method.update_record" title="associated function argentum_core::resource::Resource::update_record"><code>update_record</code></a>, <a href="trait.Resource.html#method.delete_record" title="associated function argentum_core::resource::Resource::delete_record"><code>delete_record</code></a>,
 <a href="trait.Resource.html#method.bulk_delete_records" title="associated function argentum_core::resource::Resource::bulk_delete_records"><code>bulk_delete_records</code></a>) default to an error naming the type, so a
-resource that never implemented delete answers “delete not implemented for …” instead of
-writing nothing quietly.</li>
+resource that never implemented delete says so instead of writing nothing quietly.</li>
 <li><strong>Opt-in chrome, gated per record</strong>: <a href="trait.Resource.html#method.deletable" title="associated function argentum_core::resource::Resource::deletable"><code>deletable</code></a> and
-<a href="trait.Resource.html#method.editable" title="associated function argentum_core::resource::Resource::editable"><code>editable</code></a> default to <code>false</code>, so a resource that never mentions them
-renders no Edit or Delete affordance and cannot advertise an action its default-deny predicate
-refuses. A resource that wants the chrome declares the flag <em>and</em> the matching policy
-predicates (<code>can_view</code> + <code>can_delete</code> for <code>deletable</code>, <code>can_view</code> + <code>can_update</code> for
-<code>editable</code>). The flag is the whole-resource gate; the predicates are applied per row, because
-the panel wires them into the table’s row policy (<a href="struct.Table.html#method.row_actions" title="method argentum_core::resource::Table::row_actions"><code>Table::row_actions</code></a>, GH #235): a row
-<code>can_update</code> refuses renders no Edit link, and a row <code>can_delete</code> refuses renders no Delete
-link and a disabled bulk checkbox. A row-level rule therefore narrows the chrome instead of
-leaving a control the route answers 403. <a href="trait.Resource.html#method.viewed" title="associated function argentum_core::resource::Resource::viewed"><code>viewed</code></a> is per-record exact the same
-way, derived from the declared <a href="trait.Resource.html#method.view" title="associated function argentum_core::resource::Resource::view"><code>view</code></a> schema rather than declared beside it.</li>
-<li><strong>Default-deny is untouched</strong>: every <code>can_*</code> still defaults to <code>false</code>, so an unconfigured
-resource exposes no data and no mutation.</li>
+<a href="trait.Resource.html#method.editable" title="associated function argentum_core::resource::Resource::editable"><code>editable</code></a> are whole-resource flags, false by default; see
+<a href="trait.Resource.html#method.deletable" title="associated function argentum_core::resource::Resource::deletable"><code>deletable</code></a> for how the row predicates narrow them.</li>
+<li><strong>Default-deny is untouched</strong>: every <code>can_*</code> defaults to <code>false</code>, so an unconfigured resource
+exposes no data and no mutation.</li>
 </ul>
-</div></details><h2 id="required-associated-types" class="section-header">Required Associated Types<a href="#required-associated-types" class="anchor">§</a></h2><div class="methods"><details class="toggle" open><summary><section id="associatedtype.Model" class="method"><a class="src rightside" href="../../src/argentum_core/resource/mod.rs.html#89">Source</a><h4 class="code-header">type <a href="#associatedtype.Model" class="associatedtype">Model</a>: Model + <a class="trait" href="https://doc.rust-lang.org/1.98.1/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> + <a class="trait" href="https://doc.rust-lang.org/1.98.1/core/marker/trait.Sync.html" title="trait core::marker::Sync">Sync</a> + <a class="trait" href="https://doc.rust-lang.org/1.98.1/core/clone/trait.Clone.html" title="trait core::clone::Clone">Clone</a> + 'static</h4></section></summary><div class="docblock"><p>The persisted model this resource administers.</p>
+</div></details><h2 id="required-associated-types" class="section-header">Required Associated Types<a href="#required-associated-types" class="anchor">§</a></h2><div class="methods"><details class="toggle" open><summary><section id="associatedtype.Model" class="method"><a class="src rightside" href="../../src/argentum_core/resource/mod.rs.html#78">Source</a><h4 class="code-header">type <a href="#associatedtype.Model" class="associatedtype">Model</a>: Model + <a class="trait" href="https://doc.rust-lang.org/1.98.1/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> + <a class="trait" href="https://doc.rust-lang.org/1.98.1/core/marker/trait.Sync.html" title="trait core::marker::Sync">Sync</a> + <a class="trait" href="https://doc.rust-lang.org/1.98.1/core/clone/trait.Clone.html" title="trait core::clone::Clone">Clone</a> + 'static</h4></section></summary><div class="docblock"><p>The persisted model this resource administers.</p>
 <p><code>Send + Sync</code> holds for every data-only model struct and is required
 for concurrent rendering of the resource’s pages.</p>
 <p><code>Clone</code> is part of the contract because a committed mutation names its
-rows (GH #112): a handler keeps a copy of the rows it loaded while the
+rows: a handler keeps a copy of the rows it loaded while the
 record fn consumes them, so the hook can be handed what was written.</p>
-</div></details></div><h2 id="provided-methods" class="section-header">Provided Methods<a href="#provided-methods" class="anchor">§</a></h2><div class="methods"><details class="toggle method-toggle" open><summary><section id="method.can_view_any" class="method"><a class="src rightside" href="../../src/argentum_core/resource/mod.rs.html#95-97">Source</a><h4 class="code-header">fn <a href="#method.can_view_any" class="fn">can_view_any</a>(_cx: &amp;Cx) -&gt; <a class="primitive" href="https://doc.rust-lang.org/1.98.1/std/primitive.bool.html">bool</a></h4></section></summary><div class="docblock"><p>Whether the current user may view the list page.</p>
-<p>Also gates relationship option loads (GH #108): a related resource
+</div></details></div><h2 id="provided-methods" class="section-header">Provided Methods<a href="#provided-methods" class="anchor">§</a></h2><div class="methods"><details class="toggle method-toggle" open><summary><section id="method.can_view_any" class="method"><a class="src rightside" href="../../src/argentum_core/resource/mod.rs.html#84-86">Source</a><h4 class="code-header">fn <a href="#method.can_view_any" class="fn">can_view_any</a>(_cx: &amp;Cx) -&gt; <a class="primitive" href="https://doc.rust-lang.org/1.98.1/std/primitive.bool.html">bool</a></h4></section></summary><div class="docblock"><p>Whether the current user may view the list page.</p>
+<p>Also gates relationship option loads: a related resource
 that denies this cannot offer its records as options at all.</p>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.can_view" class="method"><a class="src rightside" href="../../src/argentum_core/resource/mod.rs.html#118-120">Source</a><h4 class="code-header">fn <a href="#method.can_view" class="fn">can_view</a>(_cx: &amp;Cx, _record: &amp;Self::<a class="associatedtype" href="trait.Resource.html#associatedtype.Model" title="type argentum_core::resource::Resource::Model">Model</a>) -&gt; <a class="primitive" href="https://doc.rust-lang.org/1.98.1/std/primitive.bool.html">bool</a></h4></section></summary><div class="docblock"><p>Whether the current user may view the given record.</p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.can_view" class="method"><a class="src rightside" href="../../src/argentum_core/resource/mod.rs.html#104-106">Source</a><h4 class="code-header">fn <a href="#method.can_view" class="fn">can_view</a>(_cx: &amp;Cx, _record: &amp;Self::<a class="associatedtype" href="trait.Resource.html#associatedtype.Model" title="type argentum_core::resource::Resource::Model">Model</a>) -&gt; <a class="primitive" href="https://doc.rust-lang.org/1.98.1/std/primitive.bool.html">bool</a></h4></section></summary><div class="docblock"><p>Whether the current user may view the given record.</p>
 <p>Checked on the edit page (GET), the edit POST (which requires both
-<code>can_view</code> and <code>can_update</code>, GH #86), per row in CSV export, on each
-record behind a relationship <code>Select</code>’s options (GH #108), on each row
-of a detail page’s relation table (GH #296), and on the list page as
+<code>can_view</code> and <code>can_update</code>), per row in CSV export, on each
+record behind a relationship <code>Select</code>’s options, on each row
+of a detail page’s relation table, and on the list page as
 the per-row gate of every action link (GH #235: the View link, and the
 <code>can_view</code> half of Edit and Delete). Note both hooks default-deny: a
 resource used as a relationship target for option loads must allow
 <code>can_view_any</code> <strong>and</strong> <code>can_view</code> (overriding one does not imply the
-other), while a relation table consults <code>can_view</code> alone (GH #296). The
+other), while a relation table consults <code>can_view</code> alone. The
 list page deliberately checks only
-<code>can_view_any</code> for <em>membership</em> (GH #86): <code>can_view</code> is an in-memory
-Rust predicate that cannot run in SQL, and filtering rows after cursor
-pagination would mislabel pages (holes, wrong Next/Prev). Row-level
-visibility that must hold on the list belongs in <a href="trait.Resource.html#method.query" title="associated function argentum_core::resource::Resource::query"><code>Self::query</code></a>
-(ADR-0002), which every loader — list, edit, delete, bulk, export —
-funnels through <em>inside</em> <a href="fn.scoped_query.html" title="fn argentum_core::resource::scoped_query"><code>scoped_query</code></a>, so the tenant half of the
-scope is applied after the override rather than by it (GH #223).</p>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.can_create" class="method"><a class="src rightside" href="../../src/argentum_core/resource/mod.rs.html#123-125">Source</a><h4 class="code-header">fn <a href="#method.can_create" class="fn">can_create</a>(_cx: &amp;Cx) -&gt; <a class="primitive" href="https://doc.rust-lang.org/1.98.1/std/primitive.bool.html">bool</a></h4></section></summary><div class="docblock"><p>Whether the current user may create a new record.</p>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.can_update" class="method"><a class="src rightside" href="../../src/argentum_core/resource/mod.rs.html#128-130">Source</a><h4 class="code-header">fn <a href="#method.can_update" class="fn">can_update</a>(_cx: &amp;Cx, _record: &amp;Self::<a class="associatedtype" href="trait.Resource.html#associatedtype.Model" title="type argentum_core::resource::Resource::Model">Model</a>) -&gt; <a class="primitive" href="https://doc.rust-lang.org/1.98.1/std/primitive.bool.html">bool</a></h4></section></summary><div class="docblock"><p>Whether the current user may update the given record.</p>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.can_delete" class="method"><a class="src rightside" href="../../src/argentum_core/resource/mod.rs.html#137-139">Source</a><h4 class="code-header">fn <a href="#method.can_delete" class="fn">can_delete</a>(_cx: &amp;Cx, _record: &amp;Self::<a class="associatedtype" href="trait.Resource.html#associatedtype.Model" title="type argentum_core::resource::Resource::Model">Model</a>) -&gt; <a class="primitive" href="https://doc.rust-lang.org/1.98.1/std/primitive.bool.html">bool</a></h4></section></summary><div class="docblock"><p>Whether the current user may delete the given record.</p>
+<code>can_view_any</code> for <em>membership</em>: <code>can_view</code> is an in-memory Rust
+predicate that cannot run in SQL, and filtering rows after cursor
+pagination would mislabel pages. Row-level visibility that must hold on
+the list belongs in <a href="trait.Resource.html#method.query" title="associated function argentum_core::resource::Resource::query"><code>Self::query</code></a>.</p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.can_create" class="method"><a class="src rightside" href="../../src/argentum_core/resource/mod.rs.html#109-111">Source</a><h4 class="code-header">fn <a href="#method.can_create" class="fn">can_create</a>(_cx: &amp;Cx) -&gt; <a class="primitive" href="https://doc.rust-lang.org/1.98.1/std/primitive.bool.html">bool</a></h4></section></summary><div class="docblock"><p>Whether the current user may create a new record.</p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.can_update" class="method"><a class="src rightside" href="../../src/argentum_core/resource/mod.rs.html#114-116">Source</a><h4 class="code-header">fn <a href="#method.can_update" class="fn">can_update</a>(_cx: &amp;Cx, _record: &amp;Self::<a class="associatedtype" href="trait.Resource.html#associatedtype.Model" title="type argentum_core::resource::Resource::Model">Model</a>) -&gt; <a class="primitive" href="https://doc.rust-lang.org/1.98.1/std/primitive.bool.html">bool</a></h4></section></summary><div class="docblock"><p>Whether the current user may update the given record.</p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.can_delete" class="method"><a class="src rightside" href="../../src/argentum_core/resource/mod.rs.html#123-125">Source</a><h4 class="code-header">fn <a href="#method.can_delete" class="fn">can_delete</a>(_cx: &amp;Cx, _record: &amp;Self::<a class="associatedtype" href="trait.Resource.html#associatedtype.Model" title="type argentum_core::resource::Resource::Model">Model</a>) -&gt; <a class="primitive" href="https://doc.rust-lang.org/1.98.1/std/primitive.bool.html">bool</a></h4></section></summary><div class="docblock"><p>Whether the current user may delete the given record.</p>
 <p>Checked on the single-delete and bulk-delete POSTs together with
-<code>can_view</code> (GH #168) — the edit contract: a record that cannot be
+<code>can_view</code> — the edit contract: a record that cannot be
 viewed cannot be deleted by UUID-guessing the route.</p>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.deletable" class="method"><a class="src rightside" href="../../src/argentum_core/resource/mod.rs.html#155-157">Source</a><h4 class="code-header">fn <a href="#method.deletable" class="fn">deletable</a>() -&gt; <a class="primitive" href="https://doc.rust-lang.org/1.98.1/std/primitive.bool.html">bool</a></h4></section></summary><div class="docblock"><p>Whether this resource exposes row and bulk delete chrome (GH #96).</p>
-<p>Chrome is opt-in (GH #226): the default renders no Delete button, no
-bulk bar and no confirmation dialog, because server policy
-(<a href="trait.Resource.html#method.can_view" title="associated function argentum_core::resource::Resource::can_view"><code>can_view</code></a> +
-<a href="trait.Resource.html#method.can_delete" title="associated function argentum_core::resource::Resource::can_delete"><code>can_delete</code></a>, both default-deny) would answer 403 to
-every one of them. Override to <code>true</code> alongside those predicates.</p>
-<p>This flag is the whole-resource gate; the predicates are applied per row
-(GH #235). The panel wires them into the table’s row policy, so a row
-they refuse renders no Delete link and a disabled bulk checkbox — the
-affordance narrows with the rule instead of leaving a control the POST
-answers 403 to. The handler keeps its all-or-nothing check as the safety
-net for a hand-crafted POST.</p>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.editable" class="method"><a class="src rightside" href="../../src/argentum_core/resource/mod.rs.html#169-171">Source</a><h4 class="code-header">fn <a href="#method.editable" class="fn">editable</a>() -&gt; <a class="primitive" href="https://doc.rust-lang.org/1.98.1/std/primitive.bool.html">bool</a></h4></section></summary><div class="docblock"><p>Whether this resource exposes row edit chrome (GH #162).</p>
-<p>Chrome is opt-in (GH #226): the default renders no <code>Edit</code> link per row,
-because server policy (<a href="trait.Resource.html#method.can_view" title="associated function argentum_core::resource::Resource::can_view"><code>can_view</code></a> +
-<a href="trait.Resource.html#method.can_update" title="associated function argentum_core::resource::Resource::can_update"><code>can_update</code></a>, both default-deny) would answer 403 to
-the edit GET. Override to <code>true</code> alongside those predicates.</p>
-<p>The same per-row rule as <a href="trait.Resource.html#method.deletable" title="associated function argentum_core::resource::Resource::deletable"><code>Self::deletable</code></a> applies (GH #235): the
-panel wires <code>can_view</code> + <code>can_update</code> into the table’s row policy, so a
-row the caller may not edit renders no link, matching the edit GET.</p>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.view" class="method"><a class="src rightside" href="../../src/argentum_core/resource/mod.rs.html#194-196">Source</a><h4 class="code-header">fn <a href="#method.view" class="fn">view</a>(_cx: &amp;Cx) -&gt; <a class="struct" href="../schema/struct.Schema.html" title="struct argentum_core::schema::Schema">Schema</a></h4></section></summary><div class="docblock"><p>How one record is displayed on the detail page (GH #187), read-only.</p>
-<p>The same <a href="../schema/struct.Schema.html" title="struct argentum_core::schema::Schema"><code>Schema</code></a> a form uses, rendered for
-reading: a <code>TextInput</code> shows its stored value instead of an <code>&lt;input&gt;</code>,
-a <code>Select</code> shows the option label the form offered, and a layout block
-keeps the structure it declares (<code>Grid</code> stays a grid). Declaring a view
-is what turns the detail page on — the default declares nothing, so a
-resource that does not override this renders no page content, links no
-<code>View</code> row action, and 404s the route.</p>
-<p>Values come from <a href="trait.Resource.html#method.hydrate_form_values" title="associated function argentum_core::resource::Resource::hydrate_form_values"><code>hydrate_form_values</code></a>, so
-a field bound here is one the resource already knows how to read. A
+</div></details><details class="toggle method-toggle" open><summary><section id="method.deletable" class="method"><a class="src rightside" href="../../src/argentum_core/resource/mod.rs.html#139-141">Source</a><h4 class="code-header">fn <a href="#method.deletable" class="fn">deletable</a>() -&gt; <a class="primitive" href="https://doc.rust-lang.org/1.98.1/std/primitive.bool.html">bool</a></h4></section></summary><div class="docblock"><p>Whether this resource exposes row and bulk delete chrome.</p>
+<p>Chrome is opt-in: the default renders no Delete button, no bulk bar and
+no confirmation dialog, because the server policy
+(<a href="trait.Resource.html#method.can_view" title="associated function argentum_core::resource::Resource::can_view"><code>can_view</code></a> and <a href="trait.Resource.html#method.can_delete" title="associated function argentum_core::resource::Resource::can_delete"><code>can_delete</code></a>, both
+default-deny) answers 403 to every one of them. Override to <code>true</code>
+alongside those predicates.</p>
+<p>This flag is the whole-resource gate; the panel wires the predicates into
+the table’s row policy (<a href="struct.Table.html#method.row_actions" title="method argentum_core::resource::Table::row_actions"><code>Table::row_actions</code></a>), so a row they refuse
+renders no Delete link and a disabled bulk checkbox. The handler keeps
+its all-or-nothing check as the safety net for a hand-crafted POST.</p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.editable" class="method"><a class="src rightside" href="../../src/argentum_core/resource/mod.rs.html#147-149">Source</a><h4 class="code-header">fn <a href="#method.editable" class="fn">editable</a>() -&gt; <a class="primitive" href="https://doc.rust-lang.org/1.98.1/std/primitive.bool.html">bool</a></h4></section></summary><div class="docblock"><p>Whether this resource exposes row edit chrome.</p>
+<p>The same opt-in flag and per-row rule as <a href="trait.Resource.html#method.deletable" title="associated function argentum_core::resource::Resource::deletable"><code>Self::deletable</code></a>, gated by
+<a href="trait.Resource.html#method.can_view" title="associated function argentum_core::resource::Resource::can_view"><code>can_view</code></a> + <a href="trait.Resource.html#method.can_update" title="associated function argentum_core::resource::Resource::can_update"><code>can_update</code></a>.</p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.view" class="method"><a class="src rightside" href="../../src/argentum_core/resource/mod.rs.html#165-167">Source</a><h4 class="code-header">fn <a href="#method.view" class="fn">view</a>(_cx: &amp;Cx) -&gt; <a class="struct" href="../schema/struct.Schema.html" title="struct argentum_core::schema::Schema">Schema</a></h4></section></summary><div class="docblock"><p>How one record is displayed on the detail page, read-only.</p>
+<p>The same <a href="../schema/struct.Schema.html" title="struct argentum_core::schema::Schema"><code>Schema</code></a> a form uses, rendered for reading: a <code>TextInput</code>
+shows its stored value instead of an <code>&lt;input&gt;</code>, a <code>Select</code> shows the
+option label the form offered, and a layout block keeps the structure it
+declares. Declaring a view is what turns the detail page on — the default
+declares nothing, so the route 404s and no <code>View</code> row action renders.</p>
+<p>Values come from <a href="trait.Resource.html#method.hydrate_form_values" title="associated function argentum_core::resource::Resource::hydrate_form_values"><code>hydrate_form_values</code></a>. A
 relation is not one of these fields — it is a list of records, not a
-string — and renders through
-<a href="trait.Resource.html#method.view_relations" title="associated function argentum_core::resource::Resource::view_relations"><code>view_relations</code></a>, which the detail page draws
-under this Schema.</p>
+string — and renders through <a href="trait.Resource.html#method.view_relations" title="associated function argentum_core::resource::Resource::view_relations"><code>view_relations</code></a>.</p>
 <p>Read-only is a promise, not a disabled form: nothing here validates or
-submits, and no field renders a required marker or an error slot —
-including a <code>Repeater</code>, which renders its label over its children’s
-values.</p>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.view_relations" class="method"><a class="src rightside" href="../../src/argentum_core/resource/mod.rs.html#228-233">Source</a><h4 class="code-header">fn <a href="#method.view_relations" class="fn">view_relations</a>&lt;'a&gt;(_cx: &amp;'a Cx, _record: &amp;Self::<a class="associatedtype" href="trait.Resource.html#associatedtype.Model" title="type argentum_core::resource::Resource::Model">Model</a>) -&gt; <a class="enum" href="https://doc.rust-lang.org/1.98.1/core/option/enum.Option.html" title="enum core::option::Option">Option</a>&lt;BoxView&lt;'a&gt;&gt;</h4></section></summary><div class="docblock"><p>The related records on this resource’s detail page (GH #187).</p>
-<p><a href="trait.Resource.html#method.view" title="associated function argentum_core::resource::Resource::view"><code>view</code></a> is a <code>Schema</code>, and a <code>Schema</code> is rendered from the
-record’s <em>string projection</em> — one <code>HashMap&lt;String, String&gt;</code> — because
-that is what every field binds. A relation is not a string and may be a
-list of records, so it cannot ride that map; this hook is where it
-renders instead, with the loaded record in hand.</p>
-<p>The reason is structural, not stylistic: the render tree is monomorphic
-(one walk renders every resource) while a record’s type is the
-resource’s, so a <code>Schema</code> node cannot be handed <code>&amp;Self::Model</code> without
-type erasure across a borrow — the workspace denies <code>unsafe</code>, and the
-safe erasures either require a <code>'static</code> record or capture the caller’s
-locals in the render’s lifetime. A generic method has none of those
-problems and keeps the typing.</p>
-<p>This is the half that makes <code>Resource::query</code>’s <code>include</code> pay: the
-related rows are already loaded on the record, so a hook that reads
-<code>record.comments.get()</code> issues no query at all. Touching an
-un-included relation panics (<code>Deferred::get</code>), and the way to notice is
-<a href="toasty::Deferred::is_unloaded"><code>Deferred::is_unloaded</code></a> — the same
-marker the list columns check.</p>
+submits, and no field renders a required marker or an error slot.</p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.view_relations" class="method"><a class="src rightside" href="../../src/argentum_core/resource/mod.rs.html#189-194">Source</a><h4 class="code-header">fn <a href="#method.view_relations" class="fn">view_relations</a>&lt;'a&gt;(_cx: &amp;'a Cx, _record: &amp;Self::<a class="associatedtype" href="trait.Resource.html#associatedtype.Model" title="type argentum_core::resource::Resource::Model">Model</a>) -&gt; <a class="enum" href="https://doc.rust-lang.org/1.98.1/core/option/enum.Option.html" title="enum core::option::Option">Option</a>&lt;BoxView&lt;'a&gt;&gt;</h4></section></summary><div class="docblock"><p>The related records on this resource’s detail page.</p>
+<p><a href="trait.Resource.html#method.view" title="associated function argentum_core::resource::Resource::view"><code>view</code></a> renders from the record’s <em>string projection</em> — one
+<code>HashMap&lt;String, String&gt;</code> — because that is what every field binds. A
+relation is not a string and may be a list of records, so it cannot ride
+that map; this hook renders it instead, with the loaded record in hand.</p>
+<p>This is the half that makes <a href="trait.Resource.html#method.query" title="associated function argentum_core::resource::Resource::query"><code>Self::query</code></a>’s <code>include</code> pay: the related
+rows are already loaded on the record, so a hook that reads
+<code>record.comments.get()</code> issues no query at all. Touching an un-included
+relation panics (<a href="toasty::Deferred"><code>Deferred::get</code></a>), so check
+<a href="toasty::Deferred::is_unloaded"><code>Deferred::is_unloaded</code></a> — the same marker
+the list columns check.</p>
 <p>Returns <code>None</code> (the default) for a resource with no related records to
-show, which renders nothing.
-The two lifetimes are deliberately separate: the returned view may
-borrow the request context, never the record. A view that held the
-record would pin the handler’s local binding for as long as the page,
-which does not compile — the renderer’s projections return owned
+show, which renders nothing. The two lifetimes are deliberately separate:
+the returned view may borrow the request context, never the record — a
+view holding the record would pin the handler’s local binding for as long
+as the page, which does not compile, and the projections return owned
 strings (<a href="fn.render_relation.html" title="fn argentum_core::resource::render_relation"><code>render_relation</code></a>), so nothing needs to.</p>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.viewed" class="method"><a class="src rightside" href="../../src/argentum_core/resource/mod.rs.html#241-243">Source</a><h4 class="code-header">fn <a href="#method.viewed" class="fn">viewed</a>(cx: &amp;Cx) -&gt; <a class="primitive" href="https://doc.rust-lang.org/1.98.1/std/primitive.bool.html">bool</a></h4></section></summary><div class="docblock"><p>Whether this resource declares a detail page (GH #187).</p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.viewed" class="method"><a class="src rightside" href="../../src/argentum_core/resource/mod.rs.html#202-204">Source</a><h4 class="code-header">fn <a href="#method.viewed" class="fn">viewed</a>(cx: &amp;Cx) -&gt; <a class="primitive" href="https://doc.rust-lang.org/1.98.1/std/primitive.bool.html">bool</a></h4></section></summary><div class="docblock"><p>Whether this resource declares a detail page.</p>
 <p>Derived from <a href="trait.Resource.html#method.view" title="associated function argentum_core::resource::Resource::view"><code>view</code></a> rather than declared twice, so the
 route and the row link cannot disagree with the schema that renders
 them. The detail handler uses it to 404 a resource that declares
 nothing, and the row chrome uses it to leave the link off.</p>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.record_label" class="method"><a class="src rightside" href="../../src/argentum_core/resource/mod.rs.html#265-267">Source</a><h4 class="code-header">fn <a href="#method.record_label" class="fn">record_label</a>(_cx: &amp;Cx, _record: &amp;Self::<a class="associatedtype" href="trait.Resource.html#associatedtype.Model" title="type argentum_core::resource::Resource::Model">Model</a>) -&gt; <a class="enum" href="https://doc.rust-lang.org/1.98.1/core/option/enum.Option.html" title="enum core::option::Option">Option</a>&lt;<a class="struct" href="https://doc.rust-lang.org/1.98.1/alloc/string/struct.String.html" title="struct alloc::string::String">String</a>&gt;</h4></section></summary><div class="docblock"><p>The record’s label in the detail page’s title (GH #241), or <code>None</code> when
+</div></details><details class="toggle method-toggle" open><summary><section id="method.record_label" class="method"><a class="src rightside" href="../../src/argentum_core/resource/mod.rs.html#226-228">Source</a><h4 class="code-header">fn <a href="#method.record_label" class="fn">record_label</a>(_cx: &amp;Cx, _record: &amp;Self::<a class="associatedtype" href="trait.Resource.html#associatedtype.Model" title="type argentum_core::resource::Resource::Model">Model</a>) -&gt; <a class="enum" href="https://doc.rust-lang.org/1.98.1/core/option/enum.Option.html" title="enum core::option::Option">Option</a>&lt;<a class="struct" href="https://doc.rust-lang.org/1.98.1/alloc/string/struct.String.html" title="struct alloc::string::String">String</a>&gt;</h4></section></summary><div class="docblock"><p>The record’s label in the detail page’s title, or <code>None</code> when
 the record has no label to show.</p>
 <p>The detail page titles itself with this label when a resource returns
 <code>Some</code>, and with <a href="trait.Resource.html#method.navigation_label" title="associated function argentum_core::resource::Resource::navigation_label"><code>navigation_label</code></a> plus the
@@ -212,9 +175,9 @@ arguments and returns <code>None</code>.</p>
 <p>A label is display text, not a key. Two records can share one (two
 users named Ada), so it cannot replace <a href="struct.Table.html#method.id" title="method argentum_core::resource::Table::id"><code>Table::id</code></a>, whose projection
 must stay injective within a page for keyed diffs and bulk selection
-(GH #96), or <a href="struct.Table.html#method.pk" title="method argentum_core::resource::Table::pk"><code>Table::pk</code></a>, which the action routes resolve as the
-model’s typed PK (GH #168).</p>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.slug" class="method"><a class="src rightside" href="../../src/argentum_core/resource/mod.rs.html#278-282">Source</a><h4 class="code-header">fn <a href="#method.slug" class="fn">slug</a>() -&gt; <a class="struct" href="https://doc.rust-lang.org/1.98.1/alloc/string/struct.String.html" title="struct alloc::string::String">String</a></h4></section></summary><div class="docblock"><p>The URL slug for this resource’s pages, e.g. <code>"users"</code> mounts the list
+or <a href="struct.Table.html#method.pk" title="method argentum_core::resource::Table::pk"><code>Table::pk</code></a>, which the action routes resolve as the
+model’s typed PK.</p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.slug" class="method"><a class="src rightside" href="../../src/argentum_core/resource/mod.rs.html#239-243">Source</a><h4 class="code-header">fn <a href="#method.slug" class="fn">slug</a>() -&gt; <a class="struct" href="https://doc.rust-lang.org/1.98.1/alloc/string/struct.String.html" title="struct alloc::string::String">String</a></h4></section></summary><div class="docblock"><p>The URL slug for this resource’s pages, e.g. <code>"users"</code> mounts the list
 at <code>{panel prefix}/users</code>.</p>
 <p>Defaults to the Filament convention (<code>HasRoutes::resolveDefaultSlug</code>):
 take the resource type’s name, strip a trailing <code>Resource</code>, pluralize
@@ -222,133 +185,88 @@ take the resource type’s name, strip a trailing <code>Resource</code>, plurali
 kebab-case (<code>BlogPostResource</code> → <code>blog-posts</code>). Override for irregular
 naming the rules cannot guess (<code>UsersResource</code> pluralizes to
 <code>userses</code> — name resources singular, or override).</p>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.navigation_label" class="method"><a class="src rightside" href="../../src/argentum_core/resource/mod.rs.html#289-291">Source</a><h4 class="code-header">fn <a href="#method.navigation_label" class="fn">navigation_label</a>() -&gt; <a class="struct" href="https://doc.rust-lang.org/1.98.1/alloc/string/struct.String.html" title="struct alloc::string::String">String</a></h4></section></summary><div class="docblock"><p>The sidebar label, e.g. <code>"Users"</code>.</p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.navigation_label" class="method"><a class="src rightside" href="../../src/argentum_core/resource/mod.rs.html#250-252">Source</a><h4 class="code-header">fn <a href="#method.navigation_label" class="fn">navigation_label</a>() -&gt; <a class="struct" href="https://doc.rust-lang.org/1.98.1/alloc/string/struct.String.html" title="struct alloc::string::String">String</a></h4></section></summary><div class="docblock"><p>The sidebar label, e.g. <code>"Users"</code>.</p>
 <p>Defaults to the pluralized <code>Model</code> type name (Filament’s plural model
 label): <code>User</code> → <code>Users</code>, <code>Category</code> → <code>Categories</code>, <code>Person</code> →
 <code>People</code>. Override for custom wording.</p>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.query" class="method"><a class="src rightside" href="../../src/argentum_core/resource/mod.rs.html#341-343">Source</a><h4 class="code-header">fn <a href="#method.query" class="fn">query</a>(_cx: &amp;Cx) -&gt; Query&lt;List&lt;Self::<a class="associatedtype" href="trait.Resource.html#associatedtype.Model" title="type argentum_core::resource::Resource::Model">Model</a>&gt;&gt;</h4></section></summary><div class="docblock"><p>Base query — the seam for a resource’s <strong>own</strong> row scoping (ADR-0002 and
-its 2026-09-22 status note): soft deletes, row-level visibility, and the
-relations a page loads.</p>
-<p><strong>Tenancy is not this method’s job (GH #223).</strong> When
+</div></details><details class="toggle method-toggle" open><summary><section id="method.query" class="method"><a class="src rightside" href="../../src/argentum_core/resource/mod.rs.html#278-280">Source</a><h4 class="code-header">fn <a href="#method.query" class="fn">query</a>(_cx: &amp;Cx) -&gt; Query&lt;List&lt;Self::<a class="associatedtype" href="trait.Resource.html#associatedtype.Model" title="type argentum_core::resource::Resource::Model">Model</a>&gt;&gt;</h4></section></summary><div class="docblock"><p>Base query — the seam for a resource’s <strong>own</strong> row scoping (ADR-0002):
+soft deletes, row-level visibility, and the relations a page loads.</p>
+<p><strong>Tenancy is not this method’s job.</strong> When
 <a href="trait.Resource.html#method.requires_tenant" title="associated function argentum_core::resource::Resource::requires_tenant"><code>requires_tenant</code></a> is <code>true</code> the framework ANDs
-the tenant filter — derived from the model’s <code>tenant_id</code> column — onto
-whatever this returns, at every loader, through <a href="fn.scoped_query.html" title="fn argentum_core::resource::scoped_query"><code>scoped_query</code></a> or the
-loader’s narrowed <code>scoped_query_with</code>. Do not re-state
-<code>tenant_id().eq(tenant_id(cx))</code> here: the copy is redundant,
-and one that disagreed with the derived column would hide rows rather
-than widen access. The gate that makes a missing tenant a 403 is
-unchanged (GH #87).</p>
-<p>An override of this method is <strong>not</strong> the tenant seam: code outside the
-framework’s loaders must start from <a href="fn.scoped_query.html" title="fn argentum_core::resource::scoped_query"><code>scoped_query</code></a>, because on a gated
-resource this is the <em>tenant-unscoped</em> base. See <a href="fn.scoped_query.html" title="fn argentum_core::resource::scoped_query"><code>scoped_query</code></a> for
-why.</p>
-<p>Returns the raw typed statement query:
-raw queries compose generically — <code>filter</code>, <code>order_by</code>, and
-<code>Paginate::new</code> are available on the raw form for any <code>M: Model</code> —
-which is what lets <a href="../panel/struct.Panel.html" title="struct argentum_core::panel::Panel"><code>crate::panel::Panel</code></a> drive every resource’s list
-page through one handler. Scoping it via <code>Model::filter(..)</code> in an
-override is enough; the wrapper’s extra methods are only needed by
-hand-written loaders.</p>
-<h5 id="keep-unique-constraints-in-step-with-this-scope-gh-88"><a class="doc-anchor" href="#keep-unique-constraints-in-step-with-this-scope-gh-88">§</a>Keep unique constraints in step with this scope (GH #88)</h5>
-<p>The app-side unique pre-check probes submitted values <strong>through the
-tenant-scoped query</strong> — <code>scoped_query_with</code> with an empty include set,
-the same scope <a href="fn.scoped_query.html" title="fn argentum_core::resource::scoped_query"><code>scoped_query</code></a> applies (GH #298) — so it only sees the
-rows that query returns. A <code>#[unique]</code> index <em>broader</em> than the scope is
-therefore invisible to it:
-the probe misses the colliding row, the database refuses the write, and
-the user gets a 500 instead of the inline “has already been taken”.</p>
-<p>The tenant case is the one that bites — the framework scopes to
-<code>tenant_id</code> while the column carries a plain <code>#[unique]</code> (global), which
-makes two tenants sharing a value a legitimate pair to the probe and a
-constraint violation to the database. Scope the constraint to match:
-<code>#[unique(tenant_id, email)]</code>, which also makes it say what it means.
-<code>Author.email</code> in the showcase is the worked example.</p>
-<p>The invariant cannot be <em>checked</em> at declaration time — a query’s filters
-are not introspectable, so nothing can compare the two automatically.
-Upstream #117 (a driver-level unique-violation predicate) is what would
-make a mismatch safe rather than merely documented.</p>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.query_with" class="method"><a class="src rightside" href="../../src/argentum_core/resource/mod.rs.html#373-375">Source</a><h4 class="code-header">fn <a href="#method.query_with" class="fn">query_with</a>(cx: &amp;Cx, _needs: &amp;<a class="struct" href="struct.IncludeNeeds.html" title="struct argentum_core::resource::IncludeNeeds">IncludeNeeds</a>) -&gt; Query&lt;List&lt;Self::<a class="associatedtype" href="trait.Resource.html#associatedtype.Model" title="type argentum_core::resource::Resource::Model">Model</a>&gt;&gt;</h4></section></summary><div class="docblock"><p><a href="trait.Resource.html#method.query" title="associated function argentum_core::resource::Resource::query"><code>Self::query</code></a> narrowed to the relations <code>needs</code> asks for (GH #298).</p>
+the tenant filter, derived from the model’s <code>tenant_id</code> column, onto
+whatever this returns, at every loader through <a href="fn.scoped_query.html" title="fn argentum_core::resource::scoped_query"><code>scoped_query</code></a>. Do not
+re-state <code>tenant_id().eq(tenant_id(cx))</code>: the copy is redundant, and one
+that disagreed with the derived column would hide rows rather than widen
+access. Code outside the framework’s loaders starts from
+<a href="fn.scoped_query.html" title="fn argentum_core::resource::scoped_query"><code>scoped_query</code></a>.</p>
+<p>Returns the raw typed statement query, which composes generically —
+<code>filter</code>, <code>order_by</code> and <code>Paginate::new</code> work on the raw form for any
+<code>M: Model</code> — so one panel handler drives every resource’s list page.</p>
+<h5 id="keep-unique-constraints-in-step-with-this-scope"><a class="doc-anchor" href="#keep-unique-constraints-in-step-with-this-scope">§</a>Keep unique constraints in step with this scope</h5>
+<p>The app-side unique pre-check probes through the same tenant-scoped
+query, so a <code>#[unique]</code> index <em>broader</em> than the scope is invisible: the
+probe misses the colliding row and the user gets a 500 instead of the
+inline “has already been taken”. Scope the constraint to match —
+<code>#[unique(tenant_id, email)]</code>. Not checkable at declaration time, since
+a query’s filters are not introspectable; upstream #117 is the fix.</p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.query_with" class="method"><a class="src rightside" href="../../src/argentum_core/resource/mod.rs.html#300-302">Source</a><h4 class="code-header">fn <a href="#method.query_with" class="fn">query_with</a>(cx: &amp;Cx, _needs: &amp;<a class="struct" href="struct.IncludeNeeds.html" title="struct argentum_core::resource::IncludeNeeds">IncludeNeeds</a>) -&gt; Query&lt;List&lt;Self::<a class="associatedtype" href="trait.Resource.html#associatedtype.Model" title="type argentum_core::resource::Resource::Model">Model</a>&gt;&gt;</h4></section></summary><div class="docblock"><p><a href="trait.Resource.html#method.query" title="associated function argentum_core::resource::Resource::query"><code>Self::query</code></a> narrowed to the relations <code>needs</code> asks for.</p>
 <p>A loader that reads only part of what <a href="trait.Resource.html#method.query" title="associated function argentum_core::resource::Resource::query"><code>Self::query</code></a> loads states the
-includes it reads here, and the resource answers with the matching
-branch of its base query. The names are the opaque vocabulary
-<a href="struct.IncludeNeeds.html" title="struct argentum_core::resource::IncludeNeeds"><code>IncludeNeeds</code></a> documents; the resource maps them onto its typed
-<code>include(..)</code> calls, exactly as it does for
-<a href="trait.Resource.html#method.export_query" title="associated function argentum_core::resource::Resource::export_query"><code>export_query</code></a>.</p>
+includes it reads here, and the resource answers with the matching branch
+of its base query. The names are the opaque vocabulary <a href="struct.IncludeNeeds.html" title="struct argentum_core::resource::IncludeNeeds"><code>IncludeNeeds</code></a>
+documents; the resource maps them onto its typed <code>include(..)</code> calls.</p>
 <p><strong>The default ignores <code>needs</code> and returns <a href="trait.Resource.html#method.query" title="associated function argentum_core::resource::Resource::query"><code>Self::query</code></a> unchanged</strong>, so
-a resource that overrides nothing keeps its current query at every
-loader; narrowing is opt-in per resource, the same safe default
-<a href="trait.Resource.html#method.export_query" title="associated function argentum_core::resource::Resource::export_query"><code>export_query</code></a> takes. A resource that overrides it
-must keep the non-tenant scope <a href="trait.Resource.html#method.query" title="associated function argentum_core::resource::Resource::query"><code>Self::query</code></a> carries (soft deletes,
-row-level visibility) on every branch — the tenant half is the
-framework’s to AND on, see <code>scoped_query_with</code> — and must keep any
-relation its <a href="trait.Resource.html#method.can_view" title="associated function argentum_core::resource::Resource::can_view"><code>can_view</code></a> reads, because the loaders run
-that predicate over the loaded rows.</p>
-<p>Which loaders ask for what:</p>
-<ul>
-<li>The <strong>list</strong> asks for its table’s columns’ <a href="struct.Table.html#method.include_needs" title="method argentum_core::resource::Table::include_needs"><code>include_needs</code></a>, and
-the <strong>export</strong> for the same set through <a href="trait.Resource.html#method.export_query" title="associated function argentum_core::resource::Resource::export_query"><code>export_query</code></a>.</li>
-<li>The <strong>detail page</strong> reads <a href="trait.Resource.html#method.view_relations" title="associated function argentum_core::resource::Resource::view_relations"><code>view_relations</code></a>, whose projection is an
-opaque hook with no declaration, so it loads <a href="trait.Resource.html#method.query" title="associated function argentum_core::resource::Resource::query"><code>Self::query</code></a> unchanged.</li>
-<li>The <strong>edit page, delete, bulk delete, the unique-value probe, the relationship option
-lists and their targeted FK existence check, and the pagination probes</strong> read no relation,
-so they ask for an empty set.</li>
-</ul>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.export_query" class="method"><a class="src rightside" href="../../src/argentum_core/resource/mod.rs.html#411-413">Source</a><h4 class="code-header">fn <a href="#method.export_query" class="fn">export_query</a>(cx: &amp;Cx, needs: &amp;<a class="struct" href="struct.IncludeNeeds.html" title="struct argentum_core::resource::IncludeNeeds">IncludeNeeds</a>) -&gt; Query&lt;List&lt;Self::<a class="associatedtype" href="trait.Resource.html#associatedtype.Model" title="type argentum_core::resource::Resource::Model">Model</a>&gt;&gt;</h4></section></summary><div class="docblock"><p>The CSV export’s base query: <a href="trait.Resource.html#method.query" title="associated function argentum_core::resource::Resource::query"><code>Self::query</code></a>, narrowed to the relations
-the rendered columns declared (GH #177).</p>
-<p>The export writes a cell per column, so it asks the table which
-relations those columns’ projections read (<a href="struct.Table.html#method.include_needs" title="method argentum_core::resource::Table::include_needs"><code>Table::include_needs</code></a> —
-each column declares them with <a href="struct.TextColumn.html#method.needs" title="method argentum_core::resource::TextColumn::needs"><code>TextColumn::needs</code></a>) and hands the
-answer here. <code>docs/guide/src/resources.md</code> states the override contract:
-a resource splits its base query in two, one branch per declared name,
-so an include <code>query</code> carries for the detail page or the live list rides
-along on an export only when a rendered column declared it.</p>
-<p><strong>The default delegates to <a href="trait.Resource.html#method.query_with" title="associated function argentum_core::resource::Resource::query_with"><code>Self::query_with</code></a></strong>, which in turn returns
+narrowing is opt-in per resource. An override must keep the non-tenant
+scope <a href="trait.Resource.html#method.query" title="associated function argentum_core::resource::Resource::query"><code>Self::query</code></a> carries and any relation its
+<a href="trait.Resource.html#method.can_view" title="associated function argentum_core::resource::Resource::can_view"><code>can_view</code></a> reads, because the loaders run that
+predicate over the loaded rows; the tenant half is the framework’s to AND
+on. The list and the export ask for their table’s
+<a href="struct.Table.html#method.include_needs" title="method argentum_core::resource::Table::include_needs"><code>include_needs</code></a>. The detail page reads
+<a href="trait.Resource.html#method.view_relations" title="associated function argentum_core::resource::Resource::view_relations"><code>view_relations</code></a>, an opaque hook with no
+declaration, so it loads <a href="trait.Resource.html#method.query" title="associated function argentum_core::resource::Resource::query"><code>Self::query</code></a> unchanged; edit, delete, bulk
+delete and the option and pagination probes read no relation, so they ask
+for an empty set.</p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.export_query" class="method"><a class="src rightside" href="../../src/argentum_core/resource/mod.rs.html#331-333">Source</a><h4 class="code-header">fn <a href="#method.export_query" class="fn">export_query</a>(cx: &amp;Cx, needs: &amp;<a class="struct" href="struct.IncludeNeeds.html" title="struct argentum_core::resource::IncludeNeeds">IncludeNeeds</a>) -&gt; Query&lt;List&lt;Self::<a class="associatedtype" href="trait.Resource.html#associatedtype.Model" title="type argentum_core::resource::Resource::Model">Model</a>&gt;&gt;</h4></section></summary><div class="docblock"><p>The CSV export’s base query: <a href="trait.Resource.html#method.query" title="associated function argentum_core::resource::Resource::query"><code>Self::query</code></a>, narrowed to the relations
+the rendered columns declared.</p>
+<p>The export writes a cell per column, so it asks the table which relations
+those columns’ projections read (<a href="struct.Table.html#method.include_needs" title="method argentum_core::resource::Table::include_needs"><code>Table::include_needs</code></a> — each column
+declares them with <a href="struct.TextColumn.html#method.needs" title="method argentum_core::resource::TextColumn::needs"><code>TextColumn::needs</code></a>) and hands the answer here.
+<code>docs/guide/src/resources.md</code> states the override contract: one branch per
+declared name, so an include <code>query</code> carries for the detail page or the
+live list rides along on an export only when a rendered column declared
+it.</p>
+<p><strong>The default delegates to <a href="trait.Resource.html#method.query_with" title="associated function argentum_core::resource::Resource::query_with"><code>Self::query_with</code></a></strong>, which returns
 <a href="trait.Resource.html#method.query" title="associated function argentum_core::resource::Resource::query"><code>Self::query</code></a> unchanged unless the resource overrides it. Over-fetching
-a relation nothing reads costs a join; dropping one a column does read
-breaks the render — the default takes the safe side. A resource that
-overrides <a href="trait.Resource.html#method.query_with" title="associated function argentum_core::resource::Resource::query_with"><code>Self::query_with</code></a> therefore narrows its export along with
-its other loaders, and overrides this method only when the export needs
-a different branch.</p>
+costs a join; dropping a relation a column reads breaks the render, so the
+default over-fetches.</p>
 <h5 id="what-an-override-must-keep"><a class="doc-anchor" href="#what-an-override-must-keep">§</a>What an override must keep</h5>
 <ul>
-<li><strong>The non-tenant scope of <a href="trait.Resource.html#method.query" title="associated function argentum_core::resource::Resource::query"><code>Self::query</code></a>.</strong> This is the same soft-delete/row-level seam
-(ADR-0002), and the export is a reader like any other: an override that drops that half
-exports other rows. The <em>tenant</em> half is not the override’s to keep — the framework ANDs
-it onto what this returns, exactly as it does for <a href="trait.Resource.html#method.query" title="associated function argentum_core::resource::Resource::query"><code>Self::query</code></a> (GH #223), so a gated
-export is scoped whether or not the override re-states the filter.</li>
-<li><strong>Whatever the policy path reads.</strong> The export’s visibility scan calls <a href="trait.Resource.html#method.can_view" title="associated function argentum_core::resource::Resource::can_view"><code>Self::can_view</code></a>
-on every row of both passes, before any cell is written, so a <code>can_view</code> that reads a
-relation needs that relation included even though no column declared it — include it
-unconditionally in the narrowed branch. Reading an un-included relation panics in
-<code>Deferred::get</code>.</li>
+<li><strong>The non-tenant scope of <a href="trait.Resource.html#method.query" title="associated function argentum_core::resource::Resource::query"><code>Self::query</code></a></strong> (soft deletes, row-level visibility): the
+export is a reader like any other, and an override that drops that half exports other
+rows. The tenant half is the framework’s.</li>
+<li><strong>Whatever the policy path reads.</strong> The visibility scan calls
+<a href="trait.Resource.html#method.can_view" title="associated function argentum_core::resource::Resource::can_view"><code>Self::can_view</code></a> on every row of both passes before any cell is written,
+so a <code>can_view</code> that reads a relation needs it included even though no column declared it.</li>
 <li><strong>Every name a column declared.</strong> A declared name with no matching include renders an
 unloaded relation, which the column’s <code>is_unloaded</code> guard (ADR-0011) reports in test
 builds instead of a silent <code>"-"</code>.</li>
 </ul>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.requires_tenant" class="method"><a class="src rightside" href="../../src/argentum_core/resource/mod.rs.html#439-441">Source</a><h4 class="code-header">fn <a href="#method.requires_tenant" class="fn">requires_tenant</a>() -&gt; <a class="primitive" href="https://doc.rust-lang.org/1.98.1/std/primitive.bool.html">bool</a></h4></section></summary><div class="docblock"><p>Whether this resource requires a tenant in every handler (GH #87).</p>
-<p>Opt-in and default-open: <code>false</code> preserves the default behavior — no
-gate, and <a href="trait.Resource.html#method.query" title="associated function argentum_core::resource::Resource::query"><code>Self::query</code></a> exactly as written. Override to <code>true</code> on a
-resource whose model carries rows per tenant.</p>
-<p><code>true</code> means two things, and the second is GH #223:</p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.requires_tenant" class="method"><a class="src rightside" href="../../src/argentum_core/resource/mod.rs.html#351-353">Source</a><h4 class="code-header">fn <a href="#method.requires_tenant" class="fn">requires_tenant</a>() -&gt; <a class="primitive" href="https://doc.rust-lang.org/1.98.1/std/primitive.bool.html">bool</a></h4></section></summary><div class="docblock"><p>Whether this resource requires a tenant in every handler.</p>
+<p>Opt-in and default-open: <code>false</code> preserves <a href="trait.Resource.html#method.query" title="associated function argentum_core::resource::Resource::query"><code>Self::query</code></a> exactly as
+written. <code>true</code> means two things:</p>
 <ol>
 <li><strong>The gate.</strong> Every handler 403s when the request carries no tenant, instead of leaking
-unscoped rows or minting nil-tenant orphans (#87’s tenantless-create rejection,
-unchanged).</li>
-<li><strong>The scope.</strong> Every loader ANDs <code>tenant_id = &lt;request tenant&gt;</code> onto the resource’s base
-query, deriving the column from the model’s own schema — see <a href="fn.scoped_query.html" title="fn argentum_core::resource::scoped_query"><code>scoped_query</code></a> and
-<a href="trait.Resource.html#method.tenant_scope" title="associated function argentum_core::resource::Resource::tenant_scope"><code>Self::tenant_scope</code></a>. A gated resource is therefore never unscoped because an override
-forgot to re-state the filter, and it is never unscoped because the derivation failed
-either: the model must declare a <code>tenant_id</code> UUID column, or the resource must declare
-its own predicate in <a href="trait.Resource.html#method.tenant_scope" title="associated function argentum_core::resource::Resource::tenant_scope"><code>Self::tenant_scope</code></a>, and a gated resource that does neither is
-refused by <a href="../panel/struct.Panel.html#method.build" title="method argentum_core::panel::Panel::build"><code>Panel::build</code></a> at boot (GH #231) — the declaration is
-checkable without a request — rather than serving rows unscoped or failing per request.</li>
+unscoped rows or minting nil-tenant orphans.</li>
+<li><strong>The scope.</strong> Every loader ANDs <code>tenant_id = &lt;request tenant&gt;</code> onto the base query,
+deriving the column from the model’s own schema or the resource’s <a href="trait.Resource.html#method.tenant_scope" title="associated function argentum_core::resource::Resource::tenant_scope"><code>Self::tenant_scope</code></a>.
+A gated resource that declares neither a <code>tenant_id</code> UUID column nor an override is
+refused by <a href="../panel/struct.Panel.html#method.build" title="method argentum_core::panel::Panel::build"><code>Panel::build</code></a> at boot rather than served unscoped or
+failing per request.</li>
 </ol>
-<p>A resource that must genuinely serve more than the request tenant — a
-deliberate cross-tenant view — declares <code>false</code> and scopes in
-<a href="trait.Resource.html#method.query" title="associated function argentum_core::resource::Resource::query"><code>Self::query</code></a> by hand. That is the explicit, visible way out, and it
-gives up the gate above along with the derived filter.</p>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.tenant_scope" class="method"><a class="src rightside" href="../../src/argentum_core/resource/mod.rs.html#462-464">Source</a><h4 class="code-header">fn <a href="#method.tenant_scope" class="fn">tenant_scope</a>(tenant: <a class="struct" href="https://docs.rs/uuid/1.26.1/uuid/struct.Uuid.html" title="struct uuid::Uuid">Uuid</a>) -&gt; <a class="enum" href="https://doc.rust-lang.org/1.98.1/core/option/enum.Option.html" title="enum core::option::Option">Option</a>&lt;Expr&lt;<a class="primitive" href="https://doc.rust-lang.org/1.98.1/std/primitive.bool.html">bool</a>&gt;&gt;</h4></section></summary><div class="docblock"><p>The predicate the framework ANDs onto this resource’s base query to
-scope it to <code>tenant</code> (GH #223), or <code>None</code> when there is nothing to AND.</p>
+<p>A resource that must genuinely serve more than the request tenant
+declares <code>false</code> and scopes in <a href="trait.Resource.html#method.query" title="associated function argentum_core::resource::Resource::query"><code>Self::query</code></a> by hand, giving up the
+gate above along with the derived filter.</p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.tenant_scope" class="method"><a class="src rightside" href="../../src/argentum_core/resource/mod.rs.html#374-376">Source</a><h4 class="code-header">fn <a href="#method.tenant_scope" class="fn">tenant_scope</a>(tenant: <a class="struct" href="https://docs.rs/uuid/1.26.1/uuid/struct.Uuid.html" title="struct uuid::Uuid">Uuid</a>) -&gt; <a class="enum" href="https://doc.rust-lang.org/1.98.1/core/option/enum.Option.html" title="enum core::option::Option">Option</a>&lt;Expr&lt;<a class="primitive" href="https://doc.rust-lang.org/1.98.1/std/primitive.bool.html">bool</a>&gt;&gt;</h4></section></summary><div class="docblock"><p>The predicate the framework ANDs onto this resource’s base query to
+scope it to <code>tenant</code>, or <code>None</code> when there is nothing to AND.</p>
 <p>The default derives it from the model: <code>tenant_id = tenant</code>, on the
 field named <code>tenant_id</code> whose type is a UUID (see <a href="../tenancy/index.html" title="mod argentum_core::tenancy"><code>crate::tenancy</code></a>).
 Override it when the resource’s tenancy is not a column on its own
@@ -358,24 +276,24 @@ the derived one. The showcase’s comments are the worked example.</p>
 <p>Only consulted when <a href="trait.Resource.html#method.requires_tenant" title="associated function argentum_core::resource::Resource::requires_tenant"><code>requires_tenant</code></a> is
 <code>true</code>. <code>None</code> from a gated resource is a <strong>misdeclaration</strong>, not a way
 to be unscoped: <a href="../panel/struct.Panel.html#method.build" title="method argentum_core::panel::Panel::build"><code>Panel::build</code></a> refuses it at boot
-(GH #231), and every loader keeps answering an error naming the resource
+and every loader keeps answering an error naming the resource
 rather than running its query without a tenant predicate — the backstop
 for a predicate that is only <code>None</code> for some tenants. There is
 deliberately no override that <em>removes</em> the scope — a resource that
 must serve more than one tenant declares <code>requires_tenant() = false</code>
 and owns the scope in <a href="trait.Resource.html#method.query" title="associated function argentum_core::resource::Resource::query"><code>Self::query</code></a>, visibly, with the gate given up.</p>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.table" class="method"><a class="src rightside" href="../../src/argentum_core/resource/mod.rs.html#472-474">Source</a><h4 class="code-header">fn <a href="#method.table" class="fn">table</a>(_cx: &amp;Cx) -&gt; <a class="struct" href="struct.Table.html" title="struct argentum_core::resource::Table">Table</a>&lt;Self::<a class="associatedtype" href="trait.Resource.html#associatedtype.Model" title="type argentum_core::resource::Resource::Model">Model</a>&gt;</h4></section></summary><div class="docblock"><p>Description of the list view.</p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.table" class="method"><a class="src rightside" href="../../src/argentum_core/resource/mod.rs.html#384-386">Source</a><h4 class="code-header">fn <a href="#method.table" class="fn">table</a>(_cx: &amp;Cx) -&gt; <a class="struct" href="struct.Table.html" title="struct argentum_core::resource::Table">Table</a>&lt;Self::<a class="associatedtype" href="trait.Resource.html#associatedtype.Model" title="type argentum_core::resource::Resource::Model">Model</a>&gt;</h4></section></summary><div class="docblock"><p>Description of the list view.</p>
 <p>The default is empty, and an empty table <strong>cannot render</strong>: the
 default <code>Resource</code> is not listable until it declares columns via
 <code>Table::columns(..)</code> and a row key via <code>Table::id(..)</code> (see
 <a href="struct.Table.html#method.render" title="method argentum_core::resource::Table::render"><code>Table::render</code></a>).</p>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.form" class="method"><a class="src rightside" href="../../src/argentum_core/resource/mod.rs.html#480-482">Source</a><h4 class="code-header">fn <a href="#method.form" class="fn">form</a>(_cx: &amp;Cx) -&gt; <a class="struct" href="../schema/struct.Schema.html" title="struct argentum_core::schema::Schema">Schema</a></h4></section></summary><div class="docblock"><p>The schema the create and edit forms render, and the source of the
+</div></details><details class="toggle method-toggle" open><summary><section id="method.form" class="method"><a class="src rightside" href="../../src/argentum_core/resource/mod.rs.html#392-394">Source</a><h4 class="code-header">fn <a href="#method.form" class="fn">form</a>(_cx: &amp;Cx) -&gt; <a class="struct" href="../schema/struct.Schema.html" title="struct argentum_core::schema::Schema">Schema</a></h4></section></summary><div class="docblock"><p>The schema the create and edit forms render, and the source of the
 fields the panel validates and hydrates.</p>
 <p>The default is empty, so a resource with no form still lists.</p>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.navigation" class="method"><a class="src rightside" href="../../src/argentum_core/resource/mod.rs.html#498-500">Source</a><h4 class="code-header">fn <a href="#method.navigation" class="fn">navigation</a>() -&gt; <a class="struct" href="struct.NavigationItem.html" title="struct argentum_core::resource::NavigationItem">NavigationItem</a></h4></section></summary><div class="docblock"><p>Sidebar entry for the resource.</p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.navigation" class="method"><a class="src rightside" href="../../src/argentum_core/resource/mod.rs.html#410-412">Source</a><h4 class="code-header">fn <a href="#method.navigation" class="fn">navigation</a>() -&gt; <a class="struct" href="struct.NavigationItem.html" title="struct argentum_core::resource::NavigationItem">NavigationItem</a></h4></section></summary><div class="docblock"><p>Sidebar entry for the resource.</p>
 <p>The default declares a label (<a href="trait.Resource.html#method.navigation_label" title="associated function argentum_core::resource::Resource::navigation_label"><code>Self::navigation_label</code></a>) and no URL:
 the Panel that owns the resource resolves where it is mounted, so this
-entry never links at a mount the resource guessed (GH #165).</p>
+entry never links at a mount the resource guessed.</p>
 <p>Override to curate this resource’s sidebar entry: <code>Panel::resource</code>
 consumes the result through the panel-aware navigation seam, so a custom
 <code>order</code> or a custom label takes effect. Decorate the default with
@@ -384,7 +302,7 @@ consumes the result through the panel-aware navigation seam, so a custom
 to keep the panel-owned URL; spell a URL out yourself
 (<a href="struct.NavigationItem.html#method.at" title="associated function argentum_core::resource::NavigationItem::at"><code>NavigationItem::at</code></a>) only to link somewhere other than this
 resource’s list page — the Panel keeps such a URL verbatim.</p>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.create_record" class="method"><a class="src rightside" href="../../src/argentum_core/resource/mod.rs.html#517-532">Source</a><h4 class="code-header">fn <a href="#method.create_record" class="fn">create_record</a>(
+</div></details><details class="toggle method-toggle" open><summary><section id="method.create_record" class="method"><a class="src rightside" href="../../src/argentum_core/resource/mod.rs.html#428-443">Source</a><h4 class="code-header">fn <a href="#method.create_record" class="fn">create_record</a>(
     _cx: &amp;Cx,
     _values: <a class="struct" href="https://doc.rust-lang.org/1.98.1/std/collections/hash/map/struct.HashMap.html" title="struct std::collections::hash::map::HashMap">HashMap</a>&lt;<a class="struct" href="https://doc.rust-lang.org/1.98.1/alloc/string/struct.String.html" title="struct alloc::string::String">String</a>, <a class="struct" href="https://doc.rust-lang.org/1.98.1/alloc/string/struct.String.html" title="struct alloc::string::String">String</a>&gt;,
     _ex: &amp;mut dyn Executor,
@@ -392,7 +310,7 @@ resource’s list page — the Panel keeps such a URL verbatim.</p>
     Self: <a class="trait" href="https://doc.rust-lang.org/1.98.1/core/marker/trait.Sized.html" title="trait core::marker::Sized">Sized</a>,</div></h4></section></summary><div class="docblock"><p>Create a new record from form values, returning the row it wrote.</p>
 <p>The <code>Panel</code> create handler validates <code>required</code>/<code>email</code> inline and checks
 <code>Resource::can_create</code> before calling this, inside a framework-owned
-transaction (GH #84): <code>ex</code> is the open tx — run every statement
+transaction: <code>ex</code> is the open tx — run every statement
 through it (<code>exec(&amp;mut *ex)</code>) and never open a second handle, so the
 write commits atomically with the handler’s checks. The default
 implementation returns an error; resources should override to perform
@@ -400,15 +318,14 @@ the actual <code>toasty::create!</code> (or <code>Insert</code>).</p>
 <p>Return the created row — <code>toasty::create!</code> already hands it back, and
 the framework cannot otherwise name what a create wrote: the primary key
 is the database’s (or the app’s) to generate, so it is only knowable
-from the row. That is what <a href="trait.Resource.html#method.after_commit" title="associated function argentum_core::resource::Resource::after_commit"><code>Self::after_commit</code></a> receives for a create
-(GH #112).</p>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.update_record" class="method"><a class="src rightside" href="../../src/argentum_core/resource/mod.rs.html#551-567">Source</a><h4 class="code-header">fn <a href="#method.update_record" class="fn">update_record</a>(
+from the row. That is what <a href="trait.Resource.html#method.after_commit" title="associated function argentum_core::resource::Resource::after_commit"><code>Self::after_commit</code></a> receives for a create.</p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.update_record" class="method"><a class="src rightside" href="../../src/argentum_core/resource/mod.rs.html#462-478">Source</a><h4 class="code-header">fn <a href="#method.update_record" class="fn">update_record</a>(
     _cx: &amp;Cx,
     _record: Self::<a class="associatedtype" href="trait.Resource.html#associatedtype.Model" title="type argentum_core::resource::Resource::Model">Model</a>,
     _values: <a class="struct" href="https://doc.rust-lang.org/1.98.1/std/collections/hash/map/struct.HashMap.html" title="struct std::collections::hash::map::HashMap">HashMap</a>&lt;<a class="struct" href="https://doc.rust-lang.org/1.98.1/alloc/string/struct.String.html" title="struct alloc::string::String">String</a>, <a class="struct" href="https://doc.rust-lang.org/1.98.1/alloc/string/struct.String.html" title="struct alloc::string::String">String</a>&gt;,
     _ex: &amp;mut dyn Executor,
 ) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/1.98.1/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = Result&lt;Self::<a class="associatedtype" href="trait.Resource.html#associatedtype.Model" title="type argentum_core::resource::Resource::Model">Model</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.98.1/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a><div class="where">where
-    Self: <a class="trait" href="https://doc.rust-lang.org/1.98.1/core/marker/trait.Sized.html" title="trait core::marker::Sized">Sized</a>,</div></h4></section></summary><div class="docblock"><p>Update the already-authorized <code>record</code> from form values (GH #86),
+    Self: <a class="trait" href="https://doc.rust-lang.org/1.98.1/core/marker/trait.Sized.html" title="trait core::marker::Sized">Sized</a>,</div></h4></section></summary><div class="docblock"><p>Update the already-authorized <code>record</code> from form values,
 returning the row as it now stands.</p>
 <p>The handler loads <code>record</code> through the tenancy-scoped query <strong>inside
 the framework transaction</strong> and checks <code>can_view</code> + <code>can_update</code> on
@@ -422,75 +339,59 @@ its commit is backend-isolation territory, out of scope here.</p>
 created one: <code>toasty::update!</code> already resolves to it, and
 <a href="trait.Resource.html#method.after_commit" title="associated function argentum_core::resource::Resource::after_commit"><code>Self::after_commit</code></a> needs what was written rather than what was
 loaded — the pre-write snapshot would have a watcher notify its
-subscribers with stale values (GH #112).</p>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.delete_record" class="method"><a class="src rightside" href="../../src/argentum_core/resource/mod.rs.html#572-587">Source</a><h4 class="code-header">fn <a href="#method.delete_record" class="fn">delete_record</a>(
+subscribers with stale values.</p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.delete_record" class="method"><a class="src rightside" href="../../src/argentum_core/resource/mod.rs.html#483-498">Source</a><h4 class="code-header">fn <a href="#method.delete_record" class="fn">delete_record</a>(
     _cx: &amp;Cx,
     _record: Self::<a class="associatedtype" href="trait.Resource.html#associatedtype.Model" title="type argentum_core::resource::Resource::Model">Model</a>,
     _ex: &amp;mut dyn Executor,
 ) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/1.98.1/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = Result&lt;<a class="primitive" href="https://doc.rust-lang.org/1.98.1/std/primitive.unit.html">()</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.98.1/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a><div class="where">where
-    Self: <a class="trait" href="https://doc.rust-lang.org/1.98.1/core/marker/trait.Sized.html" title="trait core::marker::Sized">Sized</a>,</div></h4></section></summary><div class="docblock"><p>Delete the already-authorized <code>record</code> (GH #84, #86): same checked-
+    Self: <a class="trait" href="https://doc.rust-lang.org/1.98.1/core/marker/trait.Sized.html" title="trait core::marker::Sized">Sized</a>,</div></h4></section></summary><div class="docblock"><p>Delete the already-authorized <code>record</code> (#86): same checked-
 snapshot contract as <a href="trait.Resource.html#method.update_record" title="associated function argentum_core::resource::Resource::update_record"><code>Self::update_record</code></a> — no re-query, write
 through <code>ex</code>.</p>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.bulk_delete_records" class="method"><a class="src rightside" href="../../src/argentum_core/resource/mod.rs.html#594-609">Source</a><h4 class="code-header">fn <a href="#method.bulk_delete_records" class="fn">bulk_delete_records</a>(
+</div></details><details class="toggle method-toggle" open><summary><section id="method.bulk_delete_records" class="method"><a class="src rightside" href="../../src/argentum_core/resource/mod.rs.html#505-520">Source</a><h4 class="code-header">fn <a href="#method.bulk_delete_records" class="fn">bulk_delete_records</a>(
     _cx: &amp;Cx,
     _records: <a class="struct" href="https://doc.rust-lang.org/1.98.1/alloc/vec/struct.Vec.html" title="struct alloc::vec::Vec">Vec</a>&lt;Self::<a class="associatedtype" href="trait.Resource.html#associatedtype.Model" title="type argentum_core::resource::Resource::Model">Model</a>&gt;,
     _ex: &amp;mut dyn Executor,
 ) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/1.98.1/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = Result&lt;<a class="primitive" href="https://doc.rust-lang.org/1.98.1/std/primitive.unit.html">()</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.98.1/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a><div class="where">where
-    Self: <a class="trait" href="https://doc.rust-lang.org/1.98.1/core/marker/trait.Sized.html" title="trait core::marker::Sized">Sized</a>,</div></h4></section></summary><div class="docblock"><p>Bulk-delete the already-authorized <code>records</code> (GH #84): the handler
+    Self: <a class="trait" href="https://doc.rust-lang.org/1.98.1/core/marker/trait.Sized.html" title="trait core::marker::Sized">Sized</a>,</div></h4></section></summary><div class="docblock"><p>Bulk-delete the already-authorized <code>records</code>: the handler
 fetches through the tenancy-scoped <code>IN</code> query inside the framework
 transaction and checks <code>can_delete</code> on every row before calling this.
 Delete them through <code>ex</code> — any error rolls the whole batch back, so
 mid-loop failures delete zero rows.</p>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.after_commit" class="method"><a class="src rightside" href="../../src/argentum_core/resource/mod.rs.html#654-662">Source</a><h4 class="code-header">fn <a href="#method.after_commit" class="fn">after_commit</a>(
+</div></details><details class="toggle method-toggle" open><summary><section id="method.after_commit" class="method"><a class="src rightside" href="../../src/argentum_core/resource/mod.rs.html#546-554">Source</a><h4 class="code-header">fn <a href="#method.after_commit" class="fn">after_commit</a>(
     _cx: &amp;Cx,
     _committed: <a class="struct" href="struct.Committed.html" title="struct argentum_core::resource::Committed">Committed</a>&lt;Self::<a class="associatedtype" href="trait.Resource.html#associatedtype.Model" title="type argentum_core::resource::Resource::Model">Model</a>&gt;,
 ) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/1.98.1/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = Result&lt;<a class="primitive" href="https://doc.rust-lang.org/1.98.1/std/primitive.unit.html">()</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.98.1/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a><div class="where">where
-    Self: <a class="trait" href="https://doc.rust-lang.org/1.98.1/core/marker/trait.Sized.html" title="trait core::marker::Sized">Sized</a>,</div></h4></section></summary><div class="docblock"><p>Post-commit work for a mutation this resource committed (GH #112).</p>
-<p>The one place a side effect that must not survive a rollback belongs —
-an email, a webhook, an audit row, cache invalidation. Called by the
-framework <strong>once per successful write</strong>, after <code>tx.commit()</code> and before
-the response: running it inside a record fn would leak the effect when
-the transaction rolls back, and the write handlers’ pool discipline
-(GH #84) forbids a second handle while the transaction is open. By the
-time this runs the transaction is gone, so it may open its own <code>Db</code>
-handle — <code>db(cx)</code> — or none at all.</p>
-<p><a href="struct.Committed.html" title="struct argentum_core::resource::Committed"><code>Committed</code></a> names the mutation and the rows it wrote: the row a create
-returned, the row an update returned (the committed state, not the
-snapshot the handler loaded), the rows a delete or bulk delete removed —
-deletes are the one case where the row is gone by the time you see it.
-A bulk delete is <strong>one call</strong> with every row, not one call per row.</p>
-<p>It is never called when nothing committed: a validation error, a policy
-denial, a failed record fn, or a failed commit all leave the hook
-untouched, so a rollback can never produce the effect.</p>
-<p>A hook that returns <code>Err</code> is logged and ignored — the write is
-committed, and an error page would misreport it. Retries and delivery
-guarantees are the app’s to build (an outbox written here is the usual
-shape); the framework promises neither. A hook that panics is a bug in
-the hook and surfaces as Topcoat’s panic-isolated 500.</p>
-<p>Defaults to a no-op, so a resource that declares nothing is unaffected.</p>
+    Self: <a class="trait" href="https://doc.rust-lang.org/1.98.1/core/marker/trait.Sized.html" title="trait core::marker::Sized">Sized</a>,</div></h4></section></summary><div class="docblock"><p>Post-commit work for a mutation this resource committed.</p>
+<p>The place for a side effect that must not survive a rollback: an email, a
+webhook, an audit row, cache invalidation. Called once per successful
+write, after <code>tx.commit()</code> and before the response — running it inside a
+record fn would leak the effect on rollback, and the write handlers’ pool
+discipline forbids a second handle while the transaction is open.</p>
+<p><a href="struct.Committed.html" title="struct argentum_core::resource::Committed"><code>Committed</code></a> names the mutation and the rows it wrote: the committed row
+a create or update returned, the rows a delete or bulk delete removed
+(one call with every row). It is never called when nothing committed: a
+validation error, a policy denial, a failed record fn, or a failed commit
+all leave the hook untouched, so a rollback cannot produce the effect. A
+hook that returns <code>Err</code> is logged and ignored — the write is committed,
+and retries are the app’s to build; a panic surfaces as Topcoat’s
+panic-isolated 500.</p>
 
-<div class="example-wrap ignore"><a href="#" class="tooltip" title="This example is not tested">ⓘ</a><pre class="rust rust-example-rendered"><code><span class="kw">impl </span>Resource <span class="kw">for </span>PostResource {
-    <span class="kw">type </span>Model = Post;
-
-    <span class="kw">async fn </span>after_commit(cx: <span class="kw-2">&amp;</span>Cx, committed: Committed&lt;Post&gt;) -&gt; <span class="prelude-ty">Result</span>&lt;()&gt; {
-        <span class="comment">// The transaction is committed and gone, so this opens its own handle.
-        </span><span class="kw">let </span><span class="kw-2">mut </span>db = db(cx);
-        <span class="kw">for </span>post <span class="kw">in </span>committed.records() {
-            notify_watchers(post, committed.mutation()).<span class="kw">await</span><span class="question-mark">?</span>;
-        }
-        <span class="prelude-val">Ok</span>(())
-    }
-}</code></pre></div></div></details><details class="toggle method-toggle" open><summary><section id="method.hydrate_form_values" class="method"><a class="src rightside" href="../../src/argentum_core/resource/mod.rs.html#676-678">Source</a><h4 class="code-header">fn <a href="#method.hydrate_form_values" class="fn">hydrate_form_values</a>(
+<div class="example-wrap ignore"><a href="#" class="tooltip" title="This example is not tested">ⓘ</a><pre class="rust rust-example-rendered"><code><span class="kw">async fn </span>after_commit(cx: <span class="kw-2">&amp;</span>Cx, committed: Committed&lt;Post&gt;) -&gt; <span class="prelude-ty">Result</span>&lt;()&gt; {
+    <span class="kw">let </span><span class="kw-2">mut </span>db = db(cx); <span class="comment">// a fresh handle is allowed here
+    </span><span class="kw">for </span>post <span class="kw">in </span>committed.records() { notify(post).<span class="kw">await</span><span class="question-mark">?</span>; }
+    <span class="prelude-val">Ok</span>(())
+}</code></pre></div></div></details><details class="toggle method-toggle" open><summary><section id="method.hydrate_form_values" class="method"><a class="src rightside" href="../../src/argentum_core/resource/mod.rs.html#568-570">Source</a><h4 class="code-header">fn <a href="#method.hydrate_form_values" class="fn">hydrate_form_values</a>(
     _cx: &amp;Cx,
     _record: &amp;Self::<a class="associatedtype" href="trait.Resource.html#associatedtype.Model" title="type argentum_core::resource::Resource::Model">Model</a>,
 ) -&gt; <a class="struct" href="https://doc.rust-lang.org/1.98.1/std/collections/hash/map/struct.HashMap.html" title="struct std::collections::hash::map::HashMap">HashMap</a>&lt;<a class="struct" href="https://doc.rust-lang.org/1.98.1/alloc/string/struct.String.html" title="struct alloc::string::String">String</a>, <a class="struct" href="https://doc.rust-lang.org/1.98.1/alloc/string/struct.String.html" title="struct alloc::string::String">String</a>&gt;</h4></section></summary><div class="docblock"><p>Hydrate form values from a record for the Edit and View pages.</p>
 <p>The record’s <strong>string projection</strong>: the flat map every field binds, keyed
 by the name the control posts. Default returns empty; a resource
 overrides it to map its record to those keys (<code>name -&gt; record.name</code>).</p>
-<p><code>cx</code> carries the app schema (GH #191). A scalar projection needs no
+<p><code>cx</code> carries the app schema. A scalar projection needs no
 request context, but an embedded <strong>value</strong> does: its keys are the
 columns the compiled mapping resolves
 (<a href="../schema/fn.write_embedded.html" title="fn argentum_core::schema::write_embedded"><code>write_embedded</code></a>), so this override
-does not re-derive them (GH #185). The context is the
+does not re-derive them. The context is the
 request’s, the same one <code>form(cx)</code> and the record fns receive.</p>
 </div></details></div><h2 id="dyn-compatibility" class="section-header">Dyn Compatibility<a href="#dyn-compatibility" class="anchor">§</a></h2><div class="dyn-compatibility-info"><p>This trait is <b>not</b> <a href="https://doc.rust-lang.org/1.98.1/reference/items/traits.html#dyn-compatibility">dyn compatible</a>.</p><p><i>In older versions of Rust, dyn compatibility was called "object safety".</i></p></div><h2 id="implementors" class="section-header">Implementors<a href="#implementors" class="anchor">§</a></h2><div id="implementors-list"></div><script src="../../trait.impl/argentum_core/resource/trait.Resource.js" async></script></section></div></main></body></html>

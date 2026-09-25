@@ -58,11 +58,11 @@
 <a href=#58 id=58 data-nosnippet>58</a>}
 <a href=#59 id=59 data-nosnippet>59</a>
 <a href=#60 id=60 data-nosnippet>60</a><span class="doccomment">/// A malformed cursor token — the `?after=`/`?before=` value itself is bad —
-<a href=#61 id=61 data-nosnippet>61</a>/// or a conflicting cursor pair (`?after=` + `?before=` together, GH #155).
+<a href=#61 id=61 data-nosnippet>61</a>/// or a conflicting cursor pair (`?after=` + `?before=` together).
 <a href=#62 id=62 data-nosnippet>62</a>///
 <a href=#63 id=63 data-nosnippet>63</a>/// One of the two markers [`is_cursor_error`] reads to drop the cursor from
-<a href=#64 id=64 data-nosnippet>64</a>/// the retry link (GH #110): retrying the identical URL can never succeed,
-<a href=#65 id=65 data-nosnippet>65</a>/// while a transient failure must retry the same evidence (GH #98). The
+<a href=#64 id=64 data-nosnippet>64</a>/// the retry link: retrying the identical URL can never succeed,
+<a href=#65 id=65 data-nosnippet>65</a>/// while a transient failure must retry the same evidence. The
 <a href=#66 id=66 data-nosnippet>66</a>/// message is the decode error's own `cursor: …` text, or the conflict
 <a href=#67 id=67 data-nosnippet>67</a>/// message's.
 <a href=#68 id=68 data-nosnippet>68</a></span><span class="attr">#[derive(Debug)]
@@ -87,7 +87,7 @@
 <a href=#87 id=87 data-nosnippet>87</a>
 <a href=#88 id=88 data-nosnippet>88</a><span class="kw">impl </span>std::error::Error <span class="kw">for </span>CursorDecodeError {}
 <a href=#89 id=89 data-nosnippet>89</a>
-<a href=#90 id=90 data-nosnippet>90</a><span class="doccomment">/// A cursor the query's ordering refuses (GH #294): the token decodes, but it
+<a href=#90 id=90 data-nosnippet>90</a><span class="doccomment">/// A cursor the query's ordering refuses: the token decodes, but it
 <a href=#91 id=91 data-nosnippet>91</a>/// was cut from a different `ORDER BY` — the sort changed since the link was
 <a href=#92 id=92 data-nosnippet>92</a>/// built — so the engine rejects the statement. Distinct from
 <a href=#93 id=93 data-nosnippet>93</a>/// [`CursorDecodeError`] because the token itself is well formed; the two share
@@ -111,7 +111,7 @@
 <a href=#111 id=111 data-nosnippet>111</a>
 <a href=#112 id=112 data-nosnippet>112</a><span class="kw">impl </span>std::error::Error <span class="kw">for </span>CursorRejectedError {}
 <a href=#113 id=113 data-nosnippet>113</a>
-<a href=#114 id=114 data-nosnippet>114</a><span class="doccomment">/// Whether `error` is the request's cursor's fault (GH #110, GH #294): a
+<a href=#114 id=114 data-nosnippet>114</a><span class="doccomment">/// Whether `error` is the request's cursor's fault: a
 <a href=#115 id=115 data-nosnippet>115</a>/// malformed token, a conflicting cursor pair, or a token the ordering
 <a href=#116 id=116 data-nosnippet>116</a>/// rejects. Retrying the identical request can never succeed for any of them,
 <a href=#117 id=117 data-nosnippet>117</a>/// so the list page drops the cursor from its retry link and the live retry
@@ -127,7 +127,7 @@
 <a href=#127 id=127 data-nosnippet>127</a>///
 <a href=#128 id=128 data-nosnippet>128</a>/// Errors on malformed input (wrong length, unknown tag or version) so a
 <a href=#129 id=129 data-nosnippet>129</a>/// tampered or truncated `?after=`/`?before=` parameter fails loudly instead
-<a href=#130 id=130 data-nosnippet>130</a>/// of silently restarting pagination. Record nesting is depth-capped (GH #95)
+<a href=#130 id=130 data-nosnippet>130</a>/// of silently restarting pagination. Record nesting is depth-capped
 <a href=#131 id=131 data-nosnippet>131</a>/// so attacker-controlled tokens cannot drive unbounded recursion. Every
 <a href=#132 id=132 data-nosnippet>132</a>/// failure carries the crate-private `CursorDecodeError` marker, letting the
 <a href=#133 id=133 data-nosnippet>133</a>/// list page's retry link tell a tampered cursor (drop it) from a transient
@@ -150,7 +150,7 @@
 <a href=#150 id=150 data-nosnippet>150</a>    <span class="prelude-val">Ok</span>(value)
 <a href=#151 id=151 data-nosnippet>151</a>}
 <a href=#152 id=152 data-nosnippet>152</a>
-<a href=#153 id=153 data-nosnippet>153</a><span class="doccomment">/// Max nested-record depth accepted on decode (GH #95).
+<a href=#153 id=153 data-nosnippet>153</a><span class="doccomment">/// Max nested-record depth accepted on decode.
 <a href=#154 id=154 data-nosnippet>154</a></span><span class="kw">const </span>MAX_CURSOR_DEPTH: usize = <span class="number">16</span>;
 <a href=#155 id=155 data-nosnippet>155</a>
 <a href=#156 id=156 data-nosnippet>156</a><span class="doccomment">/// Generate the codec for the variants with a uniform payload from one table.
@@ -328,7 +328,7 @@
 <a href=#328 id=328 data-nosnippet>328</a>///
 <a href=#329 id=329 data-nosnippet>329</a>/// The length is the frame's own count, so a value longer than `u32::MAX`
 <a href=#330 id=330 data-nosnippet>330</a>/// cannot be represented: it errors instead of writing a truncated prefix that
-<a href=#331 id=331 data-nosnippet>331</a>/// would decode as a different, shorter frame (GH #212).
+<a href=#331 id=331 data-nosnippet>331</a>/// would decode as a different, shorter frame.
 <a href=#332 id=332 data-nosnippet>332</a></span><span class="kw">fn </span>write_len_prefixed(bytes: <span class="kw-2">&amp;</span>[u8], out: <span class="kw-2">&amp;mut </span>Vec&lt;u8&gt;) -&gt; <span class="prelude-ty">Result</span>&lt;()&gt; {
 <a href=#333 id=333 data-nosnippet>333</a>    <span class="kw">let </span>len = u32::try_from(bytes.len())
 <a href=#334 id=334 data-nosnippet>334</a>        .map_err(|e| std::io::Error::other(<span class="macro">format!</span>(<span class="string">"cursor: value too long: {e}"</span>)))<span class="question-mark">?</span>;
@@ -347,183 +347,182 @@
 <a href=#347 id=347 data-nosnippet>347</a>/// `N` is a const parameter so a fixed-width decode's length is settled by the
 <a href=#348 id=348 data-nosnippet>348</a>/// type rather than by a reader checking that the preceding `take` asked for
 <a href=#349 id=349 data-nosnippet>349</a>/// the right count: `split_first_chunk` hands back the array, and the
-<a href=#350 id=350 data-nosnippet>350</a>/// `from_le_bytes` conversions at the call sites need no fallible step
-<a href=#351 id=351 data-nosnippet>351</a>/// (GH #212).
-<a href=#352 id=352 data-nosnippet>352</a></span><span class="kw">fn </span>take&lt;<span class="kw">const </span>N: usize&gt;(buf: <span class="kw-2">&amp;mut &amp;</span>[u8]) -&gt; <span class="prelude-ty">Result</span>&lt;[u8; N]&gt; {
-<a href=#353 id=353 data-nosnippet>353</a>    <span class="kw">let </span><span class="prelude-val">Some</span>((head, rest)) = buf.split_first_chunk::&lt;N&gt;() <span class="kw">else </span>{
-<a href=#354 id=354 data-nosnippet>354</a>        <span class="kw">return </span><span class="prelude-val">Err</span>(std::io::Error::other(<span class="string">"cursor: unexpected end of payload"</span>).into());
-<a href=#355 id=355 data-nosnippet>355</a>    };
-<a href=#356 id=356 data-nosnippet>356</a>    <span class="kw-2">*</span>buf = rest;
-<a href=#357 id=357 data-nosnippet>357</a>    <span class="prelude-val">Ok</span>(<span class="kw-2">*</span>head)
-<a href=#358 id=358 data-nosnippet>358</a>}
-<a href=#359 id=359 data-nosnippet>359</a>
-<a href=#360 id=360 data-nosnippet>360</a><span class="doccomment">/// Take `n` bytes off the front, or fail closed — the length-prefixed payload's
-<a href=#361 id=361 data-nosnippet>361</a>/// runtime length, which has no const to pin it.
-<a href=#362 id=362 data-nosnippet>362</a></span><span class="kw">fn </span>take_slice&lt;<span class="lifetime">'a</span>&gt;(buf: <span class="kw-2">&amp;mut &amp;</span><span class="lifetime">'a </span>[u8], n: usize) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="kw-2">&amp;</span><span class="lifetime">'a </span>[u8]&gt; {
-<a href=#363 id=363 data-nosnippet>363</a>    <span class="kw">if </span>buf.len() &lt; n {
-<a href=#364 id=364 data-nosnippet>364</a>        <span class="kw">return </span><span class="prelude-val">Err</span>(std::io::Error::other(<span class="string">"cursor: unexpected end of payload"</span>).into());
-<a href=#365 id=365 data-nosnippet>365</a>    }
-<a href=#366 id=366 data-nosnippet>366</a>    <span class="kw">let </span>(head, rest) = buf.split_at(n);
-<a href=#367 id=367 data-nosnippet>367</a>    <span class="kw-2">*</span>buf = rest;
-<a href=#368 id=368 data-nosnippet>368</a>    <span class="prelude-val">Ok</span>(head)
-<a href=#369 id=369 data-nosnippet>369</a>}
-<a href=#370 id=370 data-nosnippet>370</a>
-<a href=#371 id=371 data-nosnippet>371</a><span class="kw">fn </span>hex_encode(bytes: <span class="kw-2">&amp;</span>[u8]) -&gt; String {
-<a href=#372 id=372 data-nosnippet>372</a>    <span class="kw">let </span><span class="kw-2">mut </span>out = String::with_capacity(bytes.len() * <span class="number">2</span>);
-<a href=#373 id=373 data-nosnippet>373</a>    <span class="kw">for </span>b <span class="kw">in </span>bytes {
-<a href=#374 id=374 data-nosnippet>374</a>        out.push_str(<span class="kw-2">&amp;</span><span class="macro">format!</span>(<span class="string">"{b:02x}"</span>));
-<a href=#375 id=375 data-nosnippet>375</a>    }
-<a href=#376 id=376 data-nosnippet>376</a>    out
-<a href=#377 id=377 data-nosnippet>377</a>}
-<a href=#378 id=378 data-nosnippet>378</a>
-<a href=#379 id=379 data-nosnippet>379</a><span class="kw">fn </span>hex_decode(token: <span class="kw-2">&amp;</span>str) -&gt; <span class="prelude-ty">Result</span>&lt;Vec&lt;u8&gt;&gt; {
-<a href=#380 id=380 data-nosnippet>380</a>    <span class="kw">let </span>chars: Vec&lt;char&gt; = token.chars().collect();
-<a href=#381 id=381 data-nosnippet>381</a>    <span class="kw">if </span>!chars.len().is_multiple_of(<span class="number">2</span>) {
-<a href=#382 id=382 data-nosnippet>382</a>        <span class="kw">return </span><span class="prelude-val">Err</span>(std::io::Error::other(<span class="string">"cursor: odd-length hex token"</span>).into());
-<a href=#383 id=383 data-nosnippet>383</a>    }
-<a href=#384 id=384 data-nosnippet>384</a>    <span class="kw">let </span><span class="kw-2">mut </span>out = Vec::with_capacity(chars.len() / <span class="number">2</span>);
-<a href=#385 id=385 data-nosnippet>385</a>    <span class="kw">for </span>pair <span class="kw">in </span>chars.chunks(<span class="number">2</span>) {
-<a href=#386 id=386 data-nosnippet>386</a>        <span class="kw">let </span>hi = pair[<span class="number">0</span>]
-<a href=#387 id=387 data-nosnippet>387</a>            .to_digit(<span class="number">16</span>)
-<a href=#388 id=388 data-nosnippet>388</a>            .ok_or_else(|| std::io::Error::other(<span class="string">"cursor: invalid hex digit"</span>))<span class="question-mark">?</span>;
-<a href=#389 id=389 data-nosnippet>389</a>        <span class="kw">let </span>lo = pair[<span class="number">1</span>]
-<a href=#390 id=390 data-nosnippet>390</a>            .to_digit(<span class="number">16</span>)
-<a href=#391 id=391 data-nosnippet>391</a>            .ok_or_else(|| std::io::Error::other(<span class="string">"cursor: invalid hex digit"</span>))<span class="question-mark">?</span>;
-<a href=#392 id=392 data-nosnippet>392</a>        out.push(((hi &lt;&lt; <span class="number">4</span>) | lo) <span class="kw">as </span>u8);
-<a href=#393 id=393 data-nosnippet>393</a>    }
-<a href=#394 id=394 data-nosnippet>394</a>    <span class="prelude-val">Ok</span>(out)
-<a href=#395 id=395 data-nosnippet>395</a>}
-<a href=#396 id=396 data-nosnippet>396</a>
-<a href=#397 id=397 data-nosnippet>397</a><span class="attr">#[cfg(test)]
-<a href=#398 id=398 data-nosnippet>398</a></span><span class="kw">mod </span>tests {
-<a href=#399 id=399 data-nosnippet>399</a>    <span class="kw">use </span>toasty_core::stmt::ValueRecord;
-<a href=#400 id=400 data-nosnippet>400</a>
-<a href=#401 id=401 data-nosnippet>401</a>    <span class="kw">use super</span>::<span class="kw-2">*</span>;
-<a href=#402 id=402 data-nosnippet>402</a>
-<a href=#403 id=403 data-nosnippet>403</a>    <span class="kw">fn </span>round_trip(value: Value) {
-<a href=#404 id=404 data-nosnippet>404</a>        <span class="kw">let </span>token = encode(<span class="kw-2">&amp;</span>value).expect(<span class="string">"encode"</span>);
-<a href=#405 id=405 data-nosnippet>405</a>        <span class="macro">assert!</span>(
-<a href=#406 id=406 data-nosnippet>406</a>            token.bytes().all(|b| b.is_ascii_hexdigit()),
-<a href=#407 id=407 data-nosnippet>407</a>            <span class="string">"token must be hex-safe, got {token}"
-<a href=#408 id=408 data-nosnippet>408</a>        </span>);
-<a href=#409 id=409 data-nosnippet>409</a>        <span class="macro">assert_eq!</span>(
-<a href=#410 id=410 data-nosnippet>410</a>            decode(<span class="kw-2">&amp;</span>token).expect(<span class="string">"decode"</span>),
-<a href=#411 id=411 data-nosnippet>411</a>            value,
-<a href=#412 id=412 data-nosnippet>412</a>            <span class="string">"round-trip {value:?}"
-<a href=#413 id=413 data-nosnippet>413</a>        </span>);
-<a href=#414 id=414 data-nosnippet>414</a>    }
-<a href=#415 id=415 data-nosnippet>415</a>
-<a href=#416 id=416 data-nosnippet>416</a>    <span class="attr">#[test]
-<a href=#417 id=417 data-nosnippet>417</a>    </span><span class="kw">fn </span>round_trips_scalar_variants_exactly() {
-<a href=#418 id=418 data-nosnippet>418</a>        round_trip(Value::Null);
-<a href=#419 id=419 data-nosnippet>419</a>        round_trip(Value::Bool(<span class="bool-val">true</span>));
-<a href=#420 id=420 data-nosnippet>420</a>        round_trip(Value::Bool(<span class="bool-val">false</span>));
-<a href=#421 id=421 data-nosnippet>421</a>        round_trip(Value::I8(-<span class="number">8</span>));
-<a href=#422 id=422 data-nosnippet>422</a>        round_trip(Value::I16(-<span class="number">16</span>));
-<a href=#423 id=423 data-nosnippet>423</a>        round_trip(Value::I32(-<span class="number">32</span>));
-<a href=#424 id=424 data-nosnippet>424</a>        round_trip(Value::I64(i64::MIN));
-<a href=#425 id=425 data-nosnippet>425</a>        round_trip(Value::U8(<span class="number">255</span>));
-<a href=#426 id=426 data-nosnippet>426</a>        round_trip(Value::U16(u16::MAX));
-<a href=#427 id=427 data-nosnippet>427</a>        round_trip(Value::U32(u32::MAX));
-<a href=#428 id=428 data-nosnippet>428</a>        round_trip(Value::U64(u64::MAX));
-<a href=#429 id=429 data-nosnippet>429</a>        round_trip(Value::F32(<span class="number">1.5</span>));
-<a href=#430 id=430 data-nosnippet>430</a>        round_trip(Value::F64(f64::MIN));
-<a href=#431 id=431 data-nosnippet>431</a>        round_trip(Value::String(<span class="string">"Ada Lovelace"</span>.to_string()));
-<a href=#432 id=432 data-nosnippet>432</a>        round_trip(Value::String(<span class="string">"with spaces &amp; symbols ?#=/"</span>.to_string()));
-<a href=#433 id=433 data-nosnippet>433</a>        round_trip(Value::Uuid(uuid::Uuid::nil()));
-<a href=#434 id=434 data-nosnippet>434</a>        round_trip(Value::Uuid(uuid::Uuid::new_v4()));
-<a href=#435 id=435 data-nosnippet>435</a>        round_trip(Value::Timestamp(
-<a href=#436 id=436 data-nosnippet>436</a>            <span class="string">"2024-01-15T09:30:00Z"</span>.parse().expect(<span class="string">"timestamp"</span>),
-<a href=#437 id=437 data-nosnippet>437</a>        ));
-<a href=#438 id=438 data-nosnippet>438</a>        round_trip(Value::Date(<span class="string">"2024-01-15"</span>.parse().expect(<span class="string">"date"</span>)));
-<a href=#439 id=439 data-nosnippet>439</a>        round_trip(Value::DateTime(
-<a href=#440 id=440 data-nosnippet>440</a>            <span class="string">"2024-01-15T09:30:00"</span>.parse().expect(<span class="string">"datetime"</span>),
-<a href=#441 id=441 data-nosnippet>441</a>        ));
-<a href=#442 id=442 data-nosnippet>442</a>        round_trip(Value::Time(<span class="string">"09:30:00"</span>.parse().expect(<span class="string">"time"</span>)));
-<a href=#443 id=443 data-nosnippet>443</a>        round_trip(Value::Zoned(
-<a href=#444 id=444 data-nosnippet>444</a>            jiff::civil::date(<span class="number">2024</span>, <span class="number">1</span>, <span class="number">15</span>)
-<a href=#445 id=445 data-nosnippet>445</a>                .at(<span class="number">9</span>, <span class="number">30</span>, <span class="number">0</span>, <span class="number">0</span>)
-<a href=#446 id=446 data-nosnippet>446</a>                .to_zoned(jiff::tz::TimeZone::UTC)
-<a href=#447 id=447 data-nosnippet>447</a>                .expect(<span class="string">"zoned"</span>),
-<a href=#448 id=448 data-nosnippet>448</a>        ));
-<a href=#449 id=449 data-nosnippet>449</a>    }
-<a href=#450 id=450 data-nosnippet>450</a>
-<a href=#451 id=451 data-nosnippet>451</a>    <span class="attr">#[test]
-<a href=#452 id=452 data-nosnippet>452</a>    </span><span class="kw">fn </span>round_trips_record_cursor_shape() {
-<a href=#453 id=453 data-nosnippet>453</a>        <span class="comment">// The engine's multi-column cursor: [sort value, primary key]
-<a href=#454 id=454 data-nosnippet>454</a>        </span><span class="kw">let </span>cursor = Value::Record(ValueRecord::from_vec(<span class="macro">vec!</span>[
-<a href=#455 id=455 data-nosnippet>455</a>            Value::String(<span class="string">"Alan Turing"</span>.to_string()),
-<a href=#456 id=456 data-nosnippet>456</a>            Value::Uuid(uuid::Uuid::new_v4()),
-<a href=#457 id=457 data-nosnippet>457</a>        ]));
-<a href=#458 id=458 data-nosnippet>458</a>        round_trip(cursor);
-<a href=#459 id=459 data-nosnippet>459</a>    }
-<a href=#460 id=460 data-nosnippet>460</a>
-<a href=#461 id=461 data-nosnippet>461</a>    <span class="doccomment">/// The wire format is a contract with tokens already in browsers' URLs, so
-<a href=#462 id=462 data-nosnippet>462</a>    /// its exact bytes are pinned here instead of only round-tripped: a
-<a href=#463 id=463 data-nosnippet>463</a>    /// symmetric tag swap or payload-width change round-trips cleanly and still
-<a href=#464 id=464 data-nosnippet>464</a>    /// breaks every URL in flight. `VERSION` is the escape hatch — bump it for a
-<a href=#465 id=465 data-nosnippet>465</a>    /// deliberate layout change and update this token with it; a token that
-<a href=#466 id=466 data-nosnippet>466</a>    /// stops matching this test without a version bump is a bug.
-<a href=#467 id=467 data-nosnippet>467</a>    </span><span class="attr">#[test]
-<a href=#468 id=468 data-nosnippet>468</a>    </span><span class="kw">fn </span>the_wire_format_is_pinned() {
-<a href=#469 id=469 data-nosnippet>469</a>        <span class="macro">assert_eq!</span>(VERSION, <span class="number">1</span>);
-<a href=#470 id=470 data-nosnippet>470</a>
-<a href=#471 id=471 data-nosnippet>471</a>        <span class="comment">// The engine's multi-column cursor, [sort value, primary key], sized to
-<a href=#472 id=472 data-nosnippet>472</a>        // cross the record, i64, string and uuid tags.
-<a href=#473 id=473 data-nosnippet>473</a>        </span><span class="kw">let </span>value = Value::Record(ValueRecord::from_vec(<span class="macro">vec!</span>[
-<a href=#474 id=474 data-nosnippet>474</a>            Value::I64(<span class="number">42</span>),
-<a href=#475 id=475 data-nosnippet>475</a>            Value::String(<span class="string">"Ada Lovelace"</span>.to_string()),
-<a href=#476 id=476 data-nosnippet>476</a>            Value::Uuid(uuid::Uuid::nil()),
-<a href=#477 id=477 data-nosnippet>477</a>        ]));
-<a href=#478 id=478 data-nosnippet>478</a>        <span class="kw">let </span>token = encode(<span class="kw-2">&amp;</span>value).expect(<span class="string">"encode"</span>);
-<a href=#479 id=479 data-nosnippet>479</a>        <span class="macro">assert_eq!</span>(
-<a href=#480 id=480 data-nosnippet>480</a>            token,
-<a href=#481 id=481 data-nosnippet>481</a>            <span class="macro">concat!</span>(
-<a href=#482 id=482 data-nosnippet>482</a>                <span class="string">"017203000000382a00000000000000730c000000416461204c6f76656c616365"</span>,
-<a href=#483 id=483 data-nosnippet>483</a>                <span class="string">"7500000000000000000000000000000000"</span>,
-<a href=#484 id=484 data-nosnippet>484</a>            )
-<a href=#485 id=485 data-nosnippet>485</a>        );
-<a href=#486 id=486 data-nosnippet>486</a>        <span class="macro">assert_eq!</span>(decode(<span class="kw-2">&amp;</span>token).expect(<span class="string">"decode"</span>), value);
-<a href=#487 id=487 data-nosnippet>487</a>    }
-<a href=#488 id=488 data-nosnippet>488</a>
-<a href=#489 id=489 data-nosnippet>489</a>    <span class="attr">#[test]
-<a href=#490 id=490 data-nosnippet>490</a>    </span><span class="kw">fn </span>rejects_malformed_tokens() {
-<a href=#491 id=491 data-nosnippet>491</a>        <span class="macro">assert!</span>(decode(<span class="string">""</span>).is_err(), <span class="string">"empty token must fail"</span>);
-<a href=#492 id=492 data-nosnippet>492</a>        <span class="macro">assert!</span>(decode(<span class="string">"zz"</span>).is_err(), <span class="string">"non-hex must fail"</span>);
-<a href=#493 id=493 data-nosnippet>493</a>        <span class="macro">assert!</span>(decode(<span class="string">"abc"</span>).is_err(), <span class="string">"odd length must fail"</span>);
-<a href=#494 id=494 data-nosnippet>494</a>        <span class="comment">// Valid hex, wrong version byte
-<a href=#495 id=495 data-nosnippet>495</a>        </span><span class="kw">let </span>token = hex_encode(<span class="kw-2">&amp;</span>[<span class="number">9</span>, TAG_I64]);
-<a href=#496 id=496 data-nosnippet>496</a>        <span class="macro">assert!</span>(decode(<span class="kw-2">&amp;</span>token).is_err(), <span class="string">"wrong version must fail"</span>);
-<a href=#497 id=497 data-nosnippet>497</a>        <span class="comment">// Truncated payload
-<a href=#498 id=498 data-nosnippet>498</a>        </span><span class="kw">let </span>full = encode(<span class="kw-2">&amp;</span>Value::I64(<span class="number">42</span>)).expect(<span class="string">"encode"</span>);
-<a href=#499 id=499 data-nosnippet>499</a>        <span class="kw">let </span>truncated = hex_decode(<span class="kw-2">&amp;</span>full).expect(<span class="string">"hex"</span>);
-<a href=#500 id=500 data-nosnippet>500</a>        <span class="kw">let </span>token = hex_encode(<span class="kw-2">&amp;</span>truncated[..truncated.len() - <span class="number">2</span>]);
-<a href=#501 id=501 data-nosnippet>501</a>        <span class="macro">assert!</span>(decode(<span class="kw-2">&amp;</span>token).is_err(), <span class="string">"truncation must fail"</span>);
-<a href=#502 id=502 data-nosnippet>502</a>    }
-<a href=#503 id=503 data-nosnippet>503</a>
-<a href=#504 id=504 data-nosnippet>504</a>    <span class="attr">#[test]
-<a href=#505 id=505 data-nosnippet>505</a>    </span><span class="kw">fn </span>round_trips_bytes_blobs() {
-<a href=#506 id=506 data-nosnippet>506</a>        <span class="comment">// SQL drivers hand the primary-key back as a byte blob (e.g. a UUID
-<a href=#507 id=507 data-nosnippet>507</a>        // stored in a BLOB column) — the cursor must survive unchanged.
-<a href=#508 id=508 data-nosnippet>508</a>        </span>round_trip(Value::Bytes(<span class="macro">vec!</span>[<span class="number">1</span>, <span class="number">160</span>, <span class="number">84</span>, <span class="number">22</span>, <span class="number">172</span>, <span class="number">65</span>, <span class="number">127</span>]));
-<a href=#509 id=509 data-nosnippet>509</a>    }
-<a href=#510 id=510 data-nosnippet>510</a>
-<a href=#511 id=511 data-nosnippet>511</a>    <span class="attr">#[test]
-<a href=#512 id=512 data-nosnippet>512</a>    </span><span class="kw">fn </span>rejects_unsupported_variants() {
-<a href=#513 id=513 data-nosnippet>513</a>        <span class="macro">assert!</span>(encode(<span class="kw-2">&amp;</span>Value::List(<span class="macro">vec!</span>[Value::I64(<span class="number">1</span>)])).is_err());
-<a href=#514 id=514 data-nosnippet>514</a>    }
-<a href=#515 id=515 data-nosnippet>515</a>
-<a href=#516 id=516 data-nosnippet>516</a>    <span class="attr">#[test]
-<a href=#517 id=517 data-nosnippet>517</a>    </span><span class="kw">fn </span>rejects_overly_deep_record_nesting() {
-<a href=#518 id=518 data-nosnippet>518</a>        <span class="kw">let </span><span class="kw-2">mut </span>value = Value::I64(<span class="number">1</span>);
-<a href=#519 id=519 data-nosnippet>519</a>        <span class="kw">for _ in </span><span class="number">0</span>..(MAX_CURSOR_DEPTH + <span class="number">2</span>) {
-<a href=#520 id=520 data-nosnippet>520</a>            value = Value::Record(ValueRecord::from_vec(<span class="macro">vec!</span>[value]));
-<a href=#521 id=521 data-nosnippet>521</a>        }
-<a href=#522 id=522 data-nosnippet>522</a>        <span class="kw">let </span>token = encode(<span class="kw-2">&amp;</span>value).expect(<span class="string">"deep encode must succeed"</span>);
-<a href=#523 id=523 data-nosnippet>523</a>        <span class="macro">assert!</span>(
-<a href=#524 id=524 data-nosnippet>524</a>            decode(<span class="kw-2">&amp;</span>token).is_err(),
-<a href=#525 id=525 data-nosnippet>525</a>            <span class="string">"decode must cap record nesting at {MAX_CURSOR_DEPTH}"
-<a href=#526 id=526 data-nosnippet>526</a>        </span>);
-<a href=#527 id=527 data-nosnippet>527</a>    }
-<a href=#528 id=528 data-nosnippet>528</a>}
+<a href=#350 id=350 data-nosnippet>350</a>/// `from_le_bytes` conversions at the call sites need no fallible step.
+<a href=#351 id=351 data-nosnippet>351</a></span><span class="kw">fn </span>take&lt;<span class="kw">const </span>N: usize&gt;(buf: <span class="kw-2">&amp;mut &amp;</span>[u8]) -&gt; <span class="prelude-ty">Result</span>&lt;[u8; N]&gt; {
+<a href=#352 id=352 data-nosnippet>352</a>    <span class="kw">let </span><span class="prelude-val">Some</span>((head, rest)) = buf.split_first_chunk::&lt;N&gt;() <span class="kw">else </span>{
+<a href=#353 id=353 data-nosnippet>353</a>        <span class="kw">return </span><span class="prelude-val">Err</span>(std::io::Error::other(<span class="string">"cursor: unexpected end of payload"</span>).into());
+<a href=#354 id=354 data-nosnippet>354</a>    };
+<a href=#355 id=355 data-nosnippet>355</a>    <span class="kw-2">*</span>buf = rest;
+<a href=#356 id=356 data-nosnippet>356</a>    <span class="prelude-val">Ok</span>(<span class="kw-2">*</span>head)
+<a href=#357 id=357 data-nosnippet>357</a>}
+<a href=#358 id=358 data-nosnippet>358</a>
+<a href=#359 id=359 data-nosnippet>359</a><span class="doccomment">/// Take `n` bytes off the front, or fail closed — the length-prefixed payload's
+<a href=#360 id=360 data-nosnippet>360</a>/// runtime length, which has no const to pin it.
+<a href=#361 id=361 data-nosnippet>361</a></span><span class="kw">fn </span>take_slice&lt;<span class="lifetime">'a</span>&gt;(buf: <span class="kw-2">&amp;mut &amp;</span><span class="lifetime">'a </span>[u8], n: usize) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="kw-2">&amp;</span><span class="lifetime">'a </span>[u8]&gt; {
+<a href=#362 id=362 data-nosnippet>362</a>    <span class="kw">if </span>buf.len() &lt; n {
+<a href=#363 id=363 data-nosnippet>363</a>        <span class="kw">return </span><span class="prelude-val">Err</span>(std::io::Error::other(<span class="string">"cursor: unexpected end of payload"</span>).into());
+<a href=#364 id=364 data-nosnippet>364</a>    }
+<a href=#365 id=365 data-nosnippet>365</a>    <span class="kw">let </span>(head, rest) = buf.split_at(n);
+<a href=#366 id=366 data-nosnippet>366</a>    <span class="kw-2">*</span>buf = rest;
+<a href=#367 id=367 data-nosnippet>367</a>    <span class="prelude-val">Ok</span>(head)
+<a href=#368 id=368 data-nosnippet>368</a>}
+<a href=#369 id=369 data-nosnippet>369</a>
+<a href=#370 id=370 data-nosnippet>370</a><span class="kw">fn </span>hex_encode(bytes: <span class="kw-2">&amp;</span>[u8]) -&gt; String {
+<a href=#371 id=371 data-nosnippet>371</a>    <span class="kw">let </span><span class="kw-2">mut </span>out = String::with_capacity(bytes.len() * <span class="number">2</span>);
+<a href=#372 id=372 data-nosnippet>372</a>    <span class="kw">for </span>b <span class="kw">in </span>bytes {
+<a href=#373 id=373 data-nosnippet>373</a>        out.push_str(<span class="kw-2">&amp;</span><span class="macro">format!</span>(<span class="string">"{b:02x}"</span>));
+<a href=#374 id=374 data-nosnippet>374</a>    }
+<a href=#375 id=375 data-nosnippet>375</a>    out
+<a href=#376 id=376 data-nosnippet>376</a>}
+<a href=#377 id=377 data-nosnippet>377</a>
+<a href=#378 id=378 data-nosnippet>378</a><span class="kw">fn </span>hex_decode(token: <span class="kw-2">&amp;</span>str) -&gt; <span class="prelude-ty">Result</span>&lt;Vec&lt;u8&gt;&gt; {
+<a href=#379 id=379 data-nosnippet>379</a>    <span class="kw">let </span>chars: Vec&lt;char&gt; = token.chars().collect();
+<a href=#380 id=380 data-nosnippet>380</a>    <span class="kw">if </span>!chars.len().is_multiple_of(<span class="number">2</span>) {
+<a href=#381 id=381 data-nosnippet>381</a>        <span class="kw">return </span><span class="prelude-val">Err</span>(std::io::Error::other(<span class="string">"cursor: odd-length hex token"</span>).into());
+<a href=#382 id=382 data-nosnippet>382</a>    }
+<a href=#383 id=383 data-nosnippet>383</a>    <span class="kw">let </span><span class="kw-2">mut </span>out = Vec::with_capacity(chars.len() / <span class="number">2</span>);
+<a href=#384 id=384 data-nosnippet>384</a>    <span class="kw">for </span>pair <span class="kw">in </span>chars.chunks(<span class="number">2</span>) {
+<a href=#385 id=385 data-nosnippet>385</a>        <span class="kw">let </span>hi = pair[<span class="number">0</span>]
+<a href=#386 id=386 data-nosnippet>386</a>            .to_digit(<span class="number">16</span>)
+<a href=#387 id=387 data-nosnippet>387</a>            .ok_or_else(|| std::io::Error::other(<span class="string">"cursor: invalid hex digit"</span>))<span class="question-mark">?</span>;
+<a href=#388 id=388 data-nosnippet>388</a>        <span class="kw">let </span>lo = pair[<span class="number">1</span>]
+<a href=#389 id=389 data-nosnippet>389</a>            .to_digit(<span class="number">16</span>)
+<a href=#390 id=390 data-nosnippet>390</a>            .ok_or_else(|| std::io::Error::other(<span class="string">"cursor: invalid hex digit"</span>))<span class="question-mark">?</span>;
+<a href=#391 id=391 data-nosnippet>391</a>        out.push(((hi &lt;&lt; <span class="number">4</span>) | lo) <span class="kw">as </span>u8);
+<a href=#392 id=392 data-nosnippet>392</a>    }
+<a href=#393 id=393 data-nosnippet>393</a>    <span class="prelude-val">Ok</span>(out)
+<a href=#394 id=394 data-nosnippet>394</a>}
+<a href=#395 id=395 data-nosnippet>395</a>
+<a href=#396 id=396 data-nosnippet>396</a><span class="attr">#[cfg(test)]
+<a href=#397 id=397 data-nosnippet>397</a></span><span class="kw">mod </span>tests {
+<a href=#398 id=398 data-nosnippet>398</a>    <span class="kw">use </span>toasty_core::stmt::ValueRecord;
+<a href=#399 id=399 data-nosnippet>399</a>
+<a href=#400 id=400 data-nosnippet>400</a>    <span class="kw">use super</span>::<span class="kw-2">*</span>;
+<a href=#401 id=401 data-nosnippet>401</a>
+<a href=#402 id=402 data-nosnippet>402</a>    <span class="kw">fn </span>round_trip(value: Value) {
+<a href=#403 id=403 data-nosnippet>403</a>        <span class="kw">let </span>token = encode(<span class="kw-2">&amp;</span>value).expect(<span class="string">"encode"</span>);
+<a href=#404 id=404 data-nosnippet>404</a>        <span class="macro">assert!</span>(
+<a href=#405 id=405 data-nosnippet>405</a>            token.bytes().all(|b| b.is_ascii_hexdigit()),
+<a href=#406 id=406 data-nosnippet>406</a>            <span class="string">"token must be hex-safe, got {token}"
+<a href=#407 id=407 data-nosnippet>407</a>        </span>);
+<a href=#408 id=408 data-nosnippet>408</a>        <span class="macro">assert_eq!</span>(
+<a href=#409 id=409 data-nosnippet>409</a>            decode(<span class="kw-2">&amp;</span>token).expect(<span class="string">"decode"</span>),
+<a href=#410 id=410 data-nosnippet>410</a>            value,
+<a href=#411 id=411 data-nosnippet>411</a>            <span class="string">"round-trip {value:?}"
+<a href=#412 id=412 data-nosnippet>412</a>        </span>);
+<a href=#413 id=413 data-nosnippet>413</a>    }
+<a href=#414 id=414 data-nosnippet>414</a>
+<a href=#415 id=415 data-nosnippet>415</a>    <span class="attr">#[test]
+<a href=#416 id=416 data-nosnippet>416</a>    </span><span class="kw">fn </span>round_trips_scalar_variants_exactly() {
+<a href=#417 id=417 data-nosnippet>417</a>        round_trip(Value::Null);
+<a href=#418 id=418 data-nosnippet>418</a>        round_trip(Value::Bool(<span class="bool-val">true</span>));
+<a href=#419 id=419 data-nosnippet>419</a>        round_trip(Value::Bool(<span class="bool-val">false</span>));
+<a href=#420 id=420 data-nosnippet>420</a>        round_trip(Value::I8(-<span class="number">8</span>));
+<a href=#421 id=421 data-nosnippet>421</a>        round_trip(Value::I16(-<span class="number">16</span>));
+<a href=#422 id=422 data-nosnippet>422</a>        round_trip(Value::I32(-<span class="number">32</span>));
+<a href=#423 id=423 data-nosnippet>423</a>        round_trip(Value::I64(i64::MIN));
+<a href=#424 id=424 data-nosnippet>424</a>        round_trip(Value::U8(<span class="number">255</span>));
+<a href=#425 id=425 data-nosnippet>425</a>        round_trip(Value::U16(u16::MAX));
+<a href=#426 id=426 data-nosnippet>426</a>        round_trip(Value::U32(u32::MAX));
+<a href=#427 id=427 data-nosnippet>427</a>        round_trip(Value::U64(u64::MAX));
+<a href=#428 id=428 data-nosnippet>428</a>        round_trip(Value::F32(<span class="number">1.5</span>));
+<a href=#429 id=429 data-nosnippet>429</a>        round_trip(Value::F64(f64::MIN));
+<a href=#430 id=430 data-nosnippet>430</a>        round_trip(Value::String(<span class="string">"Ada Lovelace"</span>.to_string()));
+<a href=#431 id=431 data-nosnippet>431</a>        round_trip(Value::String(<span class="string">"with spaces &amp; symbols ?#=/"</span>.to_string()));
+<a href=#432 id=432 data-nosnippet>432</a>        round_trip(Value::Uuid(uuid::Uuid::nil()));
+<a href=#433 id=433 data-nosnippet>433</a>        round_trip(Value::Uuid(uuid::Uuid::new_v4()));
+<a href=#434 id=434 data-nosnippet>434</a>        round_trip(Value::Timestamp(
+<a href=#435 id=435 data-nosnippet>435</a>            <span class="string">"2024-01-15T09:30:00Z"</span>.parse().expect(<span class="string">"timestamp"</span>),
+<a href=#436 id=436 data-nosnippet>436</a>        ));
+<a href=#437 id=437 data-nosnippet>437</a>        round_trip(Value::Date(<span class="string">"2024-01-15"</span>.parse().expect(<span class="string">"date"</span>)));
+<a href=#438 id=438 data-nosnippet>438</a>        round_trip(Value::DateTime(
+<a href=#439 id=439 data-nosnippet>439</a>            <span class="string">"2024-01-15T09:30:00"</span>.parse().expect(<span class="string">"datetime"</span>),
+<a href=#440 id=440 data-nosnippet>440</a>        ));
+<a href=#441 id=441 data-nosnippet>441</a>        round_trip(Value::Time(<span class="string">"09:30:00"</span>.parse().expect(<span class="string">"time"</span>)));
+<a href=#442 id=442 data-nosnippet>442</a>        round_trip(Value::Zoned(
+<a href=#443 id=443 data-nosnippet>443</a>            jiff::civil::date(<span class="number">2024</span>, <span class="number">1</span>, <span class="number">15</span>)
+<a href=#444 id=444 data-nosnippet>444</a>                .at(<span class="number">9</span>, <span class="number">30</span>, <span class="number">0</span>, <span class="number">0</span>)
+<a href=#445 id=445 data-nosnippet>445</a>                .to_zoned(jiff::tz::TimeZone::UTC)
+<a href=#446 id=446 data-nosnippet>446</a>                .expect(<span class="string">"zoned"</span>),
+<a href=#447 id=447 data-nosnippet>447</a>        ));
+<a href=#448 id=448 data-nosnippet>448</a>    }
+<a href=#449 id=449 data-nosnippet>449</a>
+<a href=#450 id=450 data-nosnippet>450</a>    <span class="attr">#[test]
+<a href=#451 id=451 data-nosnippet>451</a>    </span><span class="kw">fn </span>round_trips_record_cursor_shape() {
+<a href=#452 id=452 data-nosnippet>452</a>        <span class="comment">// The engine's multi-column cursor: [sort value, primary key]
+<a href=#453 id=453 data-nosnippet>453</a>        </span><span class="kw">let </span>cursor = Value::Record(ValueRecord::from_vec(<span class="macro">vec!</span>[
+<a href=#454 id=454 data-nosnippet>454</a>            Value::String(<span class="string">"Alan Turing"</span>.to_string()),
+<a href=#455 id=455 data-nosnippet>455</a>            Value::Uuid(uuid::Uuid::new_v4()),
+<a href=#456 id=456 data-nosnippet>456</a>        ]));
+<a href=#457 id=457 data-nosnippet>457</a>        round_trip(cursor);
+<a href=#458 id=458 data-nosnippet>458</a>    }
+<a href=#459 id=459 data-nosnippet>459</a>
+<a href=#460 id=460 data-nosnippet>460</a>    <span class="doccomment">/// The wire format is a contract with tokens already in browsers' URLs, so
+<a href=#461 id=461 data-nosnippet>461</a>    /// its exact bytes are pinned here instead of only round-tripped: a
+<a href=#462 id=462 data-nosnippet>462</a>    /// symmetric tag swap or payload-width change round-trips cleanly and still
+<a href=#463 id=463 data-nosnippet>463</a>    /// breaks every URL in flight. `VERSION` is the escape hatch — bump it for a
+<a href=#464 id=464 data-nosnippet>464</a>    /// deliberate layout change and update this token with it; a token that
+<a href=#465 id=465 data-nosnippet>465</a>    /// stops matching this test without a version bump is a bug.
+<a href=#466 id=466 data-nosnippet>466</a>    </span><span class="attr">#[test]
+<a href=#467 id=467 data-nosnippet>467</a>    </span><span class="kw">fn </span>the_wire_format_is_pinned() {
+<a href=#468 id=468 data-nosnippet>468</a>        <span class="macro">assert_eq!</span>(VERSION, <span class="number">1</span>);
+<a href=#469 id=469 data-nosnippet>469</a>
+<a href=#470 id=470 data-nosnippet>470</a>        <span class="comment">// The engine's multi-column cursor, [sort value, primary key], sized to
+<a href=#471 id=471 data-nosnippet>471</a>        // cross the record, i64, string and uuid tags.
+<a href=#472 id=472 data-nosnippet>472</a>        </span><span class="kw">let </span>value = Value::Record(ValueRecord::from_vec(<span class="macro">vec!</span>[
+<a href=#473 id=473 data-nosnippet>473</a>            Value::I64(<span class="number">42</span>),
+<a href=#474 id=474 data-nosnippet>474</a>            Value::String(<span class="string">"Ada Lovelace"</span>.to_string()),
+<a href=#475 id=475 data-nosnippet>475</a>            Value::Uuid(uuid::Uuid::nil()),
+<a href=#476 id=476 data-nosnippet>476</a>        ]));
+<a href=#477 id=477 data-nosnippet>477</a>        <span class="kw">let </span>token = encode(<span class="kw-2">&amp;</span>value).expect(<span class="string">"encode"</span>);
+<a href=#478 id=478 data-nosnippet>478</a>        <span class="macro">assert_eq!</span>(
+<a href=#479 id=479 data-nosnippet>479</a>            token,
+<a href=#480 id=480 data-nosnippet>480</a>            <span class="macro">concat!</span>(
+<a href=#481 id=481 data-nosnippet>481</a>                <span class="string">"017203000000382a00000000000000730c000000416461204c6f76656c616365"</span>,
+<a href=#482 id=482 data-nosnippet>482</a>                <span class="string">"7500000000000000000000000000000000"</span>,
+<a href=#483 id=483 data-nosnippet>483</a>            )
+<a href=#484 id=484 data-nosnippet>484</a>        );
+<a href=#485 id=485 data-nosnippet>485</a>        <span class="macro">assert_eq!</span>(decode(<span class="kw-2">&amp;</span>token).expect(<span class="string">"decode"</span>), value);
+<a href=#486 id=486 data-nosnippet>486</a>    }
+<a href=#487 id=487 data-nosnippet>487</a>
+<a href=#488 id=488 data-nosnippet>488</a>    <span class="attr">#[test]
+<a href=#489 id=489 data-nosnippet>489</a>    </span><span class="kw">fn </span>rejects_malformed_tokens() {
+<a href=#490 id=490 data-nosnippet>490</a>        <span class="macro">assert!</span>(decode(<span class="string">""</span>).is_err(), <span class="string">"empty token must fail"</span>);
+<a href=#491 id=491 data-nosnippet>491</a>        <span class="macro">assert!</span>(decode(<span class="string">"zz"</span>).is_err(), <span class="string">"non-hex must fail"</span>);
+<a href=#492 id=492 data-nosnippet>492</a>        <span class="macro">assert!</span>(decode(<span class="string">"abc"</span>).is_err(), <span class="string">"odd length must fail"</span>);
+<a href=#493 id=493 data-nosnippet>493</a>        <span class="comment">// Valid hex, wrong version byte
+<a href=#494 id=494 data-nosnippet>494</a>        </span><span class="kw">let </span>token = hex_encode(<span class="kw-2">&amp;</span>[<span class="number">9</span>, TAG_I64]);
+<a href=#495 id=495 data-nosnippet>495</a>        <span class="macro">assert!</span>(decode(<span class="kw-2">&amp;</span>token).is_err(), <span class="string">"wrong version must fail"</span>);
+<a href=#496 id=496 data-nosnippet>496</a>        <span class="comment">// Truncated payload
+<a href=#497 id=497 data-nosnippet>497</a>        </span><span class="kw">let </span>full = encode(<span class="kw-2">&amp;</span>Value::I64(<span class="number">42</span>)).expect(<span class="string">"encode"</span>);
+<a href=#498 id=498 data-nosnippet>498</a>        <span class="kw">let </span>truncated = hex_decode(<span class="kw-2">&amp;</span>full).expect(<span class="string">"hex"</span>);
+<a href=#499 id=499 data-nosnippet>499</a>        <span class="kw">let </span>token = hex_encode(<span class="kw-2">&amp;</span>truncated[..truncated.len() - <span class="number">2</span>]);
+<a href=#500 id=500 data-nosnippet>500</a>        <span class="macro">assert!</span>(decode(<span class="kw-2">&amp;</span>token).is_err(), <span class="string">"truncation must fail"</span>);
+<a href=#501 id=501 data-nosnippet>501</a>    }
+<a href=#502 id=502 data-nosnippet>502</a>
+<a href=#503 id=503 data-nosnippet>503</a>    <span class="attr">#[test]
+<a href=#504 id=504 data-nosnippet>504</a>    </span><span class="kw">fn </span>round_trips_bytes_blobs() {
+<a href=#505 id=505 data-nosnippet>505</a>        <span class="comment">// SQL drivers hand the primary-key back as a byte blob (e.g. a UUID
+<a href=#506 id=506 data-nosnippet>506</a>        // stored in a BLOB column) — the cursor must survive unchanged.
+<a href=#507 id=507 data-nosnippet>507</a>        </span>round_trip(Value::Bytes(<span class="macro">vec!</span>[<span class="number">1</span>, <span class="number">160</span>, <span class="number">84</span>, <span class="number">22</span>, <span class="number">172</span>, <span class="number">65</span>, <span class="number">127</span>]));
+<a href=#508 id=508 data-nosnippet>508</a>    }
+<a href=#509 id=509 data-nosnippet>509</a>
+<a href=#510 id=510 data-nosnippet>510</a>    <span class="attr">#[test]
+<a href=#511 id=511 data-nosnippet>511</a>    </span><span class="kw">fn </span>rejects_unsupported_variants() {
+<a href=#512 id=512 data-nosnippet>512</a>        <span class="macro">assert!</span>(encode(<span class="kw-2">&amp;</span>Value::List(<span class="macro">vec!</span>[Value::I64(<span class="number">1</span>)])).is_err());
+<a href=#513 id=513 data-nosnippet>513</a>    }
+<a href=#514 id=514 data-nosnippet>514</a>
+<a href=#515 id=515 data-nosnippet>515</a>    <span class="attr">#[test]
+<a href=#516 id=516 data-nosnippet>516</a>    </span><span class="kw">fn </span>rejects_overly_deep_record_nesting() {
+<a href=#517 id=517 data-nosnippet>517</a>        <span class="kw">let </span><span class="kw-2">mut </span>value = Value::I64(<span class="number">1</span>);
+<a href=#518 id=518 data-nosnippet>518</a>        <span class="kw">for _ in </span><span class="number">0</span>..(MAX_CURSOR_DEPTH + <span class="number">2</span>) {
+<a href=#519 id=519 data-nosnippet>519</a>            value = Value::Record(ValueRecord::from_vec(<span class="macro">vec!</span>[value]));
+<a href=#520 id=520 data-nosnippet>520</a>        }
+<a href=#521 id=521 data-nosnippet>521</a>        <span class="kw">let </span>token = encode(<span class="kw-2">&amp;</span>value).expect(<span class="string">"deep encode must succeed"</span>);
+<a href=#522 id=522 data-nosnippet>522</a>        <span class="macro">assert!</span>(
+<a href=#523 id=523 data-nosnippet>523</a>            decode(<span class="kw-2">&amp;</span>token).is_err(),
+<a href=#524 id=524 data-nosnippet>524</a>            <span class="string">"decode must cap record nesting at {MAX_CURSOR_DEPTH}"
+<a href=#525 id=525 data-nosnippet>525</a>        </span>);
+<a href=#526 id=526 data-nosnippet>526</a>    }
+<a href=#527 id=527 data-nosnippet>527</a>}
 </code></pre></div></section></main></body></html>

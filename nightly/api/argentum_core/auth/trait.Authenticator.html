@@ -24,7 +24,7 @@ only maps credentials to a <a href="struct.CurrentUser.html" title="struct argen
 error: the login response is one generic message for all of them. An
 infrastructure failure is not a credential verdict, so an implementation
 that cannot reach its store may return the driver’s error instead — the
-login handler maps it to the opaque outage page (GH #230), which is what
+login handler maps it to the opaque outage page, which is what
 keeps a database outage from rendering as a rejected password. An
 implementation’s own error keeps its own mapping.</p>
 </div></details><h2 id="required-methods" class="section-header">Required Methods<a href="#required-methods" class="anchor">§</a></h2><div class="methods"><details class="toggle method-toggle" open><summary><section id="tymethod.verify" class="method"><a class="src rightside" href="../../src/argentum_core/auth.rs.html#159-164">Source</a><h4 class="code-header">fn <a href="#tymethod.verify" class="fn">verify</a>&lt;'a&gt;(

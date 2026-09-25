@@ -130,7 +130,7 @@
 <a href=#130 id=130 data-nosnippet>130</a>        }
 <a href=#131 id=131 data-nosnippet>131</a>    }
 <a href=#132 id=132 data-nosnippet>132</a>
-<a href=#133 id=133 data-nosnippet>133</a>    <span class="doccomment">/// The documented no-op value (GH #170): `all` selects no predicate, and
+<a href=#133 id=133 data-nosnippet>133</a>    <span class="doccomment">/// The documented no-op value: `all` selects no predicate, and
 <a href=#134 id=134 data-nosnippet>134</a>    /// — unlike any other rejected value — it is neutral, never `"invalid
 <a href=#135 id=135 data-nosnippet>135</a>    /// value"`. `to_expr` still returns `None` for it (there is no predicate
 <a href=#136 id=136 data-nosnippet>136</a>    /// to build); `Table::unapplied_filters` consults this so the no-op is
@@ -167,7 +167,7 @@
 <a href=#167 id=167 data-nosnippet>167</a>        <span class="self">Self </span>{ name, label, lens }
 <a href=#168 id=168 data-nosnippet>168</a>    }
 <a href=#169 id=169 data-nosnippet>169</a>
-<a href=#170 id=170 data-nosnippet>170</a>    <span class="doccomment">/// Build the predicate for a submitted value (GH #93).
+<a href=#170 id=170 data-nosnippet>170</a>    <span class="doccomment">/// Build the predicate for a submitted value.
 <a href=#171 id=171 data-nosnippet>171</a>    ///
 <a href=#172 id=172 data-nosnippet>172</a>    /// Full RFC3339 timestamps match the exact instant (documented); a
 <a href=#173 id=173 data-nosnippet>173</a>    /// date-only `YYYY-MM-DD` matches the whole UTC day
@@ -187,7 +187,7 @@
 <a href=#187 id=187 data-nosnippet>187</a>        <span class="comment">// Query decoding turns `+` into space, destroying numeric offsets
 <a href=#188 id=188 data-nosnippet>188</a>        // (`?filters=created_at:2024-01-15T09:30:00+02:00` arrives with a
 <a href=#189 id=189 data-nosnippet>189</a>        // space). A timestamp never legitimately contains a space, so retry
-<a href=#190 id=190 data-nosnippet>190</a>        // with `+` restored before giving up (GH #93).
+<a href=#190 id=190 data-nosnippet>190</a>        // with `+` restored before giving up.
 <a href=#191 id=191 data-nosnippet>191</a>        </span><span class="kw">if </span>v.contains(<span class="string">' '</span>)
 <a href=#192 id=192 data-nosnippet>192</a>            &amp;&amp; <span class="kw">let </span><span class="prelude-val">Ok</span>(ts) = v.replace(<span class="string">' '</span>, <span class="string">"+"</span>).parse::&lt;jiff::Timestamp&gt;()
 <a href=#193 id=193 data-nosnippet>193</a>        {
@@ -221,7 +221,7 @@
 <a href=#221 id=221 data-nosnippet>221</a>/// lens: Toasty stores it as one discriminant column plus one nullable column
 <a href=#222 id=222 data-nosnippet>222</a>/// per variant field. The caller therefore supplies prebuilt expressions —
 <a href=#223 id=223 data-nosnippet>223</a>/// typically `User::fields().vehicule().is_moto()` — one per option. Display
-<a href=#224 id=224 data-nosnippet>224</a>/// stays `TextColumn::computed` (see GH #77).
+<a href=#224 id=224 data-nosnippet>224</a>/// stays `TextColumn::computed` (see).
 <a href=#225 id=225 data-nosnippet>225</a></span><span class="kw">pub struct </span>VariantFilter&lt;M&gt; {
 <a href=#226 id=226 data-nosnippet>226</a>    name: String,
 <a href=#227 id=227 data-nosnippet>227</a>    label: String,
@@ -323,7 +323,7 @@
 <a href=#323 id=323 data-nosnippet>323</a>            Filter::Variant(f) =&gt; f.to_expr(value),
 <a href=#324 id=324 data-nosnippet>324</a>        }
 <a href=#325 id=325 data-nosnippet>325</a>    }
-<a href=#326 id=326 data-nosnippet>326</a>    <span class="doccomment">/// Whether this value is a documented no-op for this filter (GH #170):
+<a href=#326 id=326 data-nosnippet>326</a>    <span class="doccomment">/// Whether this value is a documented no-op for this filter:
 <a href=#327 id=327 data-nosnippet>327</a>    /// only `TernaryFilter`'s `all` qualifies — every other rejected value
 <a href=#328 id=328 data-nosnippet>328</a>    /// is genuinely invalid.
 <a href=#329 id=329 data-nosnippet>329</a>    </span><span class="kw">pub fn </span>is_noop_value(<span class="kw-2">&amp;</span><span class="self">self</span>, value: <span class="kw-2">&amp;</span>str) -&gt; bool {
@@ -489,7 +489,7 @@
 <a href=#489 id=489 data-nosnippet>489</a>    <span class="attr">#[test]
 <a href=#490 id=490 data-nosnippet>490</a>    </span><span class="kw">fn </span>date_filter_recovers_plus_offsets_mangled_by_query_decode() {
 <a href=#491 id=491 data-nosnippet>491</a>        <span class="kw">let </span>f = DateFilter::r#for(Task::fields().created_at());
-<a href=#492 id=492 data-nosnippet>492</a>        <span class="comment">// `+02:00` arrives as ` 02:00` after `+`-as-space decoding (GH #93).
+<a href=#492 id=492 data-nosnippet>492</a>        <span class="comment">// `+02:00` arrives as ` 02:00` after `+`-as-space decoding.
 <a href=#493 id=493 data-nosnippet>493</a>        </span><span class="macro">assert!</span>(f.to_expr(<span class="string">"2024-01-15T09:30:00 02:00"</span>).is_some());
 <a href=#494 id=494 data-nosnippet>494</a>        <span class="macro">assert!</span>(f.to_expr(<span class="string">"2024-01-15T09:30:00+02:00"</span>).is_some());
 <a href=#495 id=495 data-nosnippet>495</a>        <span class="macro">assert!</span>(f.to_expr(<span class="string">"not-a-date"</span>).is_none());
@@ -595,7 +595,7 @@
 <a href=#595 id=595 data-nosnippet>595</a>            </span>.unwrap();
 <a href=#596 id=596 data-nosnippet>596</a>        db.push_schema().<span class="kw">await</span>.unwrap();
 <a href=#597 id=597 data-nosnippet>597</a>        <span class="comment">// Same shared `puissance` value in both variants — the variant gate
-<a href=#598 id=598 data-nosnippet>598</a>        // must exclude the other variant (GH #77 acceptance).
+<a href=#598 id=598 data-nosnippet>598</a>        // must exclude the other variant (acceptance).
 <a href=#599 id=599 data-nosnippet>599</a>        </span><span class="macro">toasty::create!</span>(Driver {
 <a href=#600 id=600 data-nosnippet>600</a>            name: <span class="string">"Alice"</span>,
 <a href=#601 id=601 data-nosnippet>601</a>            vehicule: Vehicule::Auto {

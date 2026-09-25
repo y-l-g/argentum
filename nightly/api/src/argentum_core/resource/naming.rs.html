@@ -86,7 +86,7 @@
 <a href=#86 id=86 data-nosnippet>86</a><span class="doccomment">/// Convert a CamelCase identifier to kebab-case: `BlogPost` → `blog-post`,
 <a href=#87 id=87 data-nosnippet>87</a>/// `APIKey` → `api-key`.
 <a href=#88 id=88 data-nosnippet>88</a>///
-<a href=#89 id=89 data-nosnippet>89</a>/// Delegates to `heck::ToKebabCase` (GH #139): digits split words
+<a href=#89 id=89 data-nosnippet>89</a>/// Delegates to `heck::ToKebabCase`: digits split words
 <a href=#90 id=90 data-nosnippet>90</a>/// (`User2FA` → `user2-fa`) and so do underscores (`Audit_Log` → `audit-log`).
 <a href=#91 id=91 data-nosnippet>91</a>/// Name resources without underscores or override
 <a href=#92 id=92 data-nosnippet>92</a>/// [`Resource::slug`](crate::Resource::slug).
@@ -118,7 +118,7 @@
 <a href=#118 id=118 data-nosnippet>118</a>        </span><span class="macro">assert_eq!</span>(kebab_case(<span class="string">"Users"</span>), <span class="string">"users"</span>);
 <a href=#119 id=119 data-nosnippet>119</a>        <span class="macro">assert_eq!</span>(kebab_case(<span class="string">"BlogPost"</span>), <span class="string">"blog-post"</span>);
 <a href=#120 id=120 data-nosnippet>120</a>        <span class="macro">assert_eq!</span>(kebab_case(<span class="string">"APIKey"</span>), <span class="string">"api-key"</span>);
-<a href=#121 id=121 data-nosnippet>121</a>        <span class="comment">// The heck delegate (GH #139): digit boundaries split (`User2FA` →
+<a href=#121 id=121 data-nosnippet>121</a>        <span class="comment">// The heck delegate: digit boundaries split (`User2FA` →
 <a href=#122 id=122 data-nosnippet>122</a>        // `user2-fa`) and underscores split words — pinned so a heck upgrade
 <a href=#123 id=123 data-nosnippet>123</a>        // cannot silently change slugs.
 <a href=#124 id=124 data-nosnippet>124</a>        </span><span class="macro">assert_eq!</span>(kebab_case(<span class="string">"User2FA"</span>), <span class="string">"user2-fa"</span>);

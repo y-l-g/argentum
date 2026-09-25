@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source of the Rust file `crates/argentum-ui/src/components/composites/toast.rs`."><title>toast.rs - source</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../../../static.files/rustdoc-1ed95124.css"><meta name="rustdoc-vars" data-root-path="../../../../" data-static-root-path="../../../../static.files/" data-current-crate="argentum_ui" data-themes="" data-resource-suffix="" data-rustdoc-version="1.98.1 (48a229cea 2026-09-01)" data-channel="1.98.1" data-search-js="search-9944d736.js" data-stringdex-js="stringdex-2da4960a.js" data-settings-js="settings-170eb4bf.js" ><script src="../../../../static.files/storage-41dd4d93.js"></script><script defer src="../../../../static.files/src-script-813739b1.js"></script><script defer src="../../../../src-files.js"></script><script defer src="../../../../static.files/main-417ebf0a.js"></script><noscript><link rel="stylesheet" href="../../../../static.files/noscript-f7c3ffd8.css"></noscript><link rel="alternate icon" type="image/png" href="../../../../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../../../../static.files/favicon-044be391.svg"></head><body class="rustdoc src"><a class="skip-main-content" href="#main-content">Skip to main content</a><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="src-sidebar-title"><h2>Files</h2></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><section id="main-content" class="content" tabindex="-1"><div class="main-heading"><h1><div class="sub-heading">argentum_ui/components/composites/</div>toast.rs</h1><rustdoc-toolbar></rustdoc-toolbar></div><div class="example-wrap digits-3"><pre class="rust"><code><a href=#1 id=1 data-nosnippet>1</a><span class="doccomment">//! Toast — the shadcn/Sonner surface, owned by Argentum (GH #151).
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source of the Rust file `crates/argentum-ui/src/components/composites/toast.rs`."><title>toast.rs - source</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../../../static.files/rustdoc-1ed95124.css"><meta name="rustdoc-vars" data-root-path="../../../../" data-static-root-path="../../../../static.files/" data-current-crate="argentum_ui" data-themes="" data-resource-suffix="" data-rustdoc-version="1.98.1 (48a229cea 2026-09-01)" data-channel="1.98.1" data-search-js="search-9944d736.js" data-stringdex-js="stringdex-2da4960a.js" data-settings-js="settings-170eb4bf.js" ><script src="../../../../static.files/storage-41dd4d93.js"></script><script defer src="../../../../static.files/src-script-813739b1.js"></script><script defer src="../../../../src-files.js"></script><script defer src="../../../../static.files/main-417ebf0a.js"></script><noscript><link rel="stylesheet" href="../../../../static.files/noscript-f7c3ffd8.css"></noscript><link rel="alternate icon" type="image/png" href="../../../../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../../../../static.files/favicon-044be391.svg"></head><body class="rustdoc src"><a class="skip-main-content" href="#main-content">Skip to main content</a><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="src-sidebar-title"><h2>Files</h2></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><section id="main-content" class="content" tabindex="-1"><div class="main-heading"><h1><div class="sub-heading">argentum_ui/components/composites/</div>toast.rs</h1><rustdoc-toolbar></rustdoc-toolbar></div><div class="example-wrap digits-3"><pre class="rust"><code><a href=#1 id=1 data-nosnippet>1</a><span class="doccomment">//! Toast — the shadcn/Sonner surface, owned by Argentum.
 <a href=#2 id=2 data-nosnippet>2</a>//!
 <a href=#3 id=3 data-nosnippet>3</a>//! The parts mirror shadcn's Sonner composition: a [`toaster`] stack, the
 <a href=#4 id=4 data-nosnippet>4</a>//! [`toast`] surface, [`toast_icon`], [`toast_content`] with [`toast_title`] /
@@ -71,161 +71,157 @@
 <a href=#71 id=71 data-nosnippet>71</a>/// the `&lt;noscript&gt;` rule re-reveals toasts whose enter transition never got its
 <a href=#72 id=72 data-nosnippet>72</a>/// `data-mounted` flip.
 <a href=#73 id=73 data-nosnippet>73</a>///
-<a href=#74 id=74 data-nosnippet>74</a>/// Behavior asset: the enter transition, auto-dismissal, and the close button
-<a href=#75 id=75 data-nosnippet>75</a>/// need `assets/notifications.js` (`crate::NOTIFICATION_JS`, hooks
-<a href=#76 id=76 data-nosnippet>76</a>/// `data-sonner-toast` / `data-close-button`), emitted by
-<a href=#77 id=77 data-nosnippet>77</a>/// `Panel::render_document` on every document with shell assets (see
-<a href=#78 id=78 data-nosnippet>78</a>/// ADR-0014). Without the script the toast keeps `data-mounted="false"` and
-<a href=#79 id=79 data-nosnippet>79</a>/// stays hidden; with scripting disabled the `&lt;noscript&gt;` rule keeps it visible
-<a href=#80 id=80 data-nosnippet>80</a>/// until the next navigation.
-<a href=#81 id=81 data-nosnippet>81</a>///
-<a href=#82 id=82 data-nosnippet>82</a>/// ```ignore
-<a href=#83 id=83 data-nosnippet>83</a>/// view! {
-<a href=#84 id=84 data-nosnippet>84</a>///     toaster(
-<a href=#85 id=85 data-nosnippet>85</a>///         toast(attrs: attributes! { data-type="success" },
-<a href=#86 id=86 data-nosnippet>86</a>///             toast_icon(icon(data: icons::CIRCLE_CHECK))
-<a href=#87 id=87 data-nosnippet>87</a>///             toast_content(
-<a href=#88 id=88 data-nosnippet>88</a>///                 toast_title("Created")
-<a href=#89 id=89 data-nosnippet>89</a>///                 toast_description("The record is live.")
-<a href=#90 id=90 data-nosnippet>90</a>///             )
-<a href=#91 id=91 data-nosnippet>91</a>///             toast_close()
-<a href=#92 id=92 data-nosnippet>92</a>///         )
-<a href=#93 id=93 data-nosnippet>93</a>///     )
-<a href=#94 id=94 data-nosnippet>94</a>/// }
-<a href=#95 id=95 data-nosnippet>95</a>/// ```
-<a href=#96 id=96 data-nosnippet>96</a></span><span class="attr">#[component]
-<a href=#97 id=97 data-nosnippet>97</a></span><span class="kw">pub async fn </span>toaster(
-<a href=#98 id=98 data-nosnippet>98</a>    <span class="attr">#[default] </span><span class="kw-2">mut </span>attrs: Attributes,
-<a href=#99 id=99 data-nosnippet>99</a>    <span class="attr">#[default] </span>child: Child&lt;<span class="lifetime">'_</span>&gt;,
-<a href=#100 id=100 data-nosnippet>100</a>) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="kw">impl </span>View&gt; {
-<a href=#101 id=101 data-nosnippet>101</a>    <span class="prelude-val">Ok</span>(<span class="macro">view!</span> {
-<a href=#102 id=102 data-nosnippet>102</a>        &lt;section
-<a href=#103 id=103 data-nosnippet>103</a>            aria-label=<span class="string">"Notifications"
-<a href=#104 id=104 data-nosnippet>104</a>            </span>tabindex=<span class="string">"-1"
-<a href=#105 id=105 data-nosnippet>105</a>            </span>aria-live=<span class="string">"polite"
-<a href=#106 id=106 data-nosnippet>106</a>            </span>aria-relevant=<span class="string">"additions text"
-<a href=#107 id=107 data-nosnippet>107</a>            </span>aria-atomic=<span class="string">"false"
-<a href=#108 id=108 data-nosnippet>108</a>        </span>&gt;
-<a href=#109 id=109 data-nosnippet>109</a>            &lt;noscript&gt;
-<a href=#110 id=110 data-nosnippet>110</a>                &lt;style&gt;
-<a href=#111 id=111 data-nosnippet>111</a>                    <span class="string">"[data-sonner-toast]{opacity:1 !important;transform:none !important}"
-<a href=#112 id=112 data-nosnippet>112</a>                </span>&lt;/style&gt;
-<a href=#113 id=113 data-nosnippet>113</a>            &lt;/noscript&gt;
-<a href=#114 id=114 data-nosnippet>114</a>            &lt;ol
-<a href=#115 id=115 data-nosnippet>115</a>                class=(<span class="macro">class!</span>(TOASTER, attrs.remove(<span class="string">"class"</span>)))
-<a href=#116 id=116 data-nosnippet>116</a>                data-sonner-toaster=<span class="string">""
-<a href=#117 id=117 data-nosnippet>117</a>                </span>data-y-position=<span class="string">"bottom"
-<a href=#118 id=118 data-nosnippet>118</a>                </span>data-x-position=<span class="string">"right"
-<a href=#119 id=119 data-nosnippet>119</a>                </span>(attrs)
-<a href=#120 id=120 data-nosnippet>120</a>            &gt;
-<a href=#121 id=121 data-nosnippet>121</a>                (child)
-<a href=#122 id=122 data-nosnippet>122</a>            &lt;/ol&gt;
-<a href=#123 id=123 data-nosnippet>123</a>        &lt;/section&gt;
-<a href=#124 id=124 data-nosnippet>124</a>    })
-<a href=#125 id=125 data-nosnippet>125</a>}
-<a href=#126 id=126 data-nosnippet>126</a>
-<a href=#127 id=127 data-nosnippet>127</a><span class="doccomment">/// A toast surface, Sonner's `[data-sonner-toast]`.
-<a href=#128 id=128 data-nosnippet>128</a>///
-<a href=#129 id=129 data-nosnippet>129</a>/// Start from `data-mounted="false"` so the enter transition plays when
-<a href=#130 id=130 data-nosnippet>130</a>/// `notifications.js` mounts it; a toast without JS stays visible through the
-<a href=#131 id=131 data-nosnippet>131</a>/// toaster's `&lt;noscript&gt;` rule.
-<a href=#132 id=132 data-nosnippet>132</a></span><span class="attr">#[component]
-<a href=#133 id=133 data-nosnippet>133</a></span><span class="kw">pub async fn </span>toast(
-<a href=#134 id=134 data-nosnippet>134</a>    <span class="attr">#[default] </span><span class="kw-2">mut </span>attrs: Attributes,
-<a href=#135 id=135 data-nosnippet>135</a>    <span class="attr">#[default] </span>child: Child&lt;<span class="lifetime">'_</span>&gt;,
-<a href=#136 id=136 data-nosnippet>136</a>) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="kw">impl </span>View&gt; {
-<a href=#137 id=137 data-nosnippet>137</a>    <span class="prelude-val">Ok</span>(<span class="macro">view!</span> {
-<a href=#138 id=138 data-nosnippet>138</a>        &lt;li
-<a href=#139 id=139 data-nosnippet>139</a>            tabindex=<span class="string">"0"
-<a href=#140 id=140 data-nosnippet>140</a>            </span>class=(<span class="macro">class!</span>(TOAST, attrs.remove(<span class="string">"class"</span>)))
-<a href=#141 id=141 data-nosnippet>141</a>            data-sonner-toast=<span class="string">""
-<a href=#142 id=142 data-nosnippet>142</a>            </span>data-styled=<span class="string">"true"
-<a href=#143 id=143 data-nosnippet>143</a>            </span>data-mounted=<span class="string">"false"
-<a href=#144 id=144 data-nosnippet>144</a>            </span>data-visible=<span class="string">"true"
-<a href=#145 id=145 data-nosnippet>145</a>            </span>data-y-position=<span class="string">"bottom"
-<a href=#146 id=146 data-nosnippet>146</a>            </span>data-x-position=<span class="string">"right"
-<a href=#147 id=147 data-nosnippet>147</a>            </span>data-front=<span class="string">"true"
-<a href=#148 id=148 data-nosnippet>148</a>            </span>(attrs)
-<a href=#149 id=149 data-nosnippet>149</a>        &gt;
-<a href=#150 id=150 data-nosnippet>150</a>            (child)
-<a href=#151 id=151 data-nosnippet>151</a>        &lt;/li&gt;
-<a href=#152 id=152 data-nosnippet>152</a>    })
-<a href=#153 id=153 data-nosnippet>153</a>}
-<a href=#154 id=154 data-nosnippet>154</a>
-<a href=#155 id=155 data-nosnippet>155</a><span class="doccomment">/// The leading status icon slot, Sonner's `[data-icon]`.
-<a href=#156 id=156 data-nosnippet>156</a></span><span class="attr">#[component]
-<a href=#157 id=157 data-nosnippet>157</a></span><span class="kw">pub async fn </span>toast_icon(
-<a href=#158 id=158 data-nosnippet>158</a>    <span class="attr">#[default] </span><span class="kw-2">mut </span>attrs: Attributes,
-<a href=#159 id=159 data-nosnippet>159</a>    <span class="attr">#[default] </span>child: Child&lt;<span class="lifetime">'_</span>&gt;,
-<a href=#160 id=160 data-nosnippet>160</a>) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="kw">impl </span>View&gt; {
-<a href=#161 id=161 data-nosnippet>161</a>    <span class="prelude-val">Ok</span>(<span class="macro">view!</span> {
-<a href=#162 id=162 data-nosnippet>162</a>        &lt;div
-<a href=#163 id=163 data-nosnippet>163</a>            class=(<span class="macro">class!</span>(ICON, attrs.remove(<span class="string">"class"</span>)))
-<a href=#164 id=164 data-nosnippet>164</a>            data-icon=<span class="string">""
-<a href=#165 id=165 data-nosnippet>165</a>            </span>aria-hidden=<span class="string">"true"
-<a href=#166 id=166 data-nosnippet>166</a>            </span>(attrs)
-<a href=#167 id=167 data-nosnippet>167</a>        &gt;
-<a href=#168 id=168 data-nosnippet>168</a>            (child)
-<a href=#169 id=169 data-nosnippet>169</a>        &lt;/div&gt;
-<a href=#170 id=170 data-nosnippet>170</a>    })
-<a href=#171 id=171 data-nosnippet>171</a>}
-<a href=#172 id=172 data-nosnippet>172</a>
-<a href=#173 id=173 data-nosnippet>173</a><span class="doccomment">/// The title/description column, Sonner's `[data-content]`.
-<a href=#174 id=174 data-nosnippet>174</a></span><span class="attr">#[component]
-<a href=#175 id=175 data-nosnippet>175</a></span><span class="kw">pub async fn </span>toast_content(
-<a href=#176 id=176 data-nosnippet>176</a>    <span class="attr">#[default] </span><span class="kw-2">mut </span>attrs: Attributes,
-<a href=#177 id=177 data-nosnippet>177</a>    <span class="attr">#[default] </span>child: Child&lt;<span class="lifetime">'_</span>&gt;,
-<a href=#178 id=178 data-nosnippet>178</a>) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="kw">impl </span>View&gt; {
-<a href=#179 id=179 data-nosnippet>179</a>    <span class="prelude-val">Ok</span>(<span class="macro">view!</span> {
-<a href=#180 id=180 data-nosnippet>180</a>        &lt;div class=(<span class="macro">class!</span>(CONTENT, attrs.remove(<span class="string">"class"</span>))) data-content=<span class="string">"" </span>(attrs)&gt;
-<a href=#181 id=181 data-nosnippet>181</a>            (child)
-<a href=#182 id=182 data-nosnippet>182</a>        &lt;/div&gt;
-<a href=#183 id=183 data-nosnippet>183</a>    })
-<a href=#184 id=184 data-nosnippet>184</a>}
-<a href=#185 id=185 data-nosnippet>185</a>
-<a href=#186 id=186 data-nosnippet>186</a><span class="doccomment">/// The toast title, Sonner's `[data-title]`.
-<a href=#187 id=187 data-nosnippet>187</a></span><span class="attr">#[component]
-<a href=#188 id=188 data-nosnippet>188</a></span><span class="kw">pub async fn </span>toast_title(
-<a href=#189 id=189 data-nosnippet>189</a>    <span class="attr">#[default] </span><span class="kw-2">mut </span>attrs: Attributes,
-<a href=#190 id=190 data-nosnippet>190</a>    <span class="attr">#[default] </span>child: Child&lt;<span class="lifetime">'_</span>&gt;,
-<a href=#191 id=191 data-nosnippet>191</a>) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="kw">impl </span>View&gt; {
-<a href=#192 id=192 data-nosnippet>192</a>    <span class="prelude-val">Ok</span>(<span class="macro">view!</span> {
-<a href=#193 id=193 data-nosnippet>193</a>        &lt;div class=(<span class="macro">class!</span>(TITLE, attrs.remove(<span class="string">"class"</span>))) data-title=<span class="string">"" </span>(attrs)&gt;
-<a href=#194 id=194 data-nosnippet>194</a>            (child)
-<a href=#195 id=195 data-nosnippet>195</a>        &lt;/div&gt;
-<a href=#196 id=196 data-nosnippet>196</a>    })
-<a href=#197 id=197 data-nosnippet>197</a>}
-<a href=#198 id=198 data-nosnippet>198</a>
-<a href=#199 id=199 data-nosnippet>199</a><span class="doccomment">/// The supporting line under the title, Sonner's `[data-description]`.
-<a href=#200 id=200 data-nosnippet>200</a></span><span class="attr">#[component]
-<a href=#201 id=201 data-nosnippet>201</a></span><span class="kw">pub async fn </span>toast_description(
-<a href=#202 id=202 data-nosnippet>202</a>    <span class="attr">#[default] </span><span class="kw-2">mut </span>attrs: Attributes,
-<a href=#203 id=203 data-nosnippet>203</a>    <span class="attr">#[default] </span>child: Child&lt;<span class="lifetime">'_</span>&gt;,
-<a href=#204 id=204 data-nosnippet>204</a>) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="kw">impl </span>View&gt; {
-<a href=#205 id=205 data-nosnippet>205</a>    <span class="prelude-val">Ok</span>(<span class="macro">view!</span> {
-<a href=#206 id=206 data-nosnippet>206</a>        &lt;div
-<a href=#207 id=207 data-nosnippet>207</a>            class=(<span class="macro">class!</span>(DESCRIPTION, attrs.remove(<span class="string">"class"</span>)))
-<a href=#208 id=208 data-nosnippet>208</a>            data-description=<span class="string">""
-<a href=#209 id=209 data-nosnippet>209</a>            </span>(attrs)
-<a href=#210 id=210 data-nosnippet>210</a>        &gt;
-<a href=#211 id=211 data-nosnippet>211</a>            (child)
-<a href=#212 id=212 data-nosnippet>212</a>        &lt;/div&gt;
-<a href=#213 id=213 data-nosnippet>213</a>    })
-<a href=#214 id=214 data-nosnippet>214</a>}
-<a href=#215 id=215 data-nosnippet>215</a>
-<a href=#216 id=216 data-nosnippet>216</a><span class="doccomment">/// Sonner's circular close button, `[data-close-button]`.
-<a href=#217 id=217 data-nosnippet>217</a></span><span class="attr">#[component]
-<a href=#218 id=218 data-nosnippet>218</a></span><span class="kw">pub async fn </span>toast_close(<span class="attr">#[default] </span><span class="kw-2">mut </span>attrs: Attributes) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="kw">impl </span>View&gt; {
-<a href=#219 id=219 data-nosnippet>219</a>    <span class="prelude-val">Ok</span>(<span class="macro">view!</span> {
-<a href=#220 id=220 data-nosnippet>220</a>        &lt;button
-<a href=#221 id=221 data-nosnippet>221</a>            <span class="kw">type</span>=<span class="string">"button"
-<a href=#222 id=222 data-nosnippet>222</a>            </span>aria-label=<span class="string">"Close toast"
-<a href=#223 id=223 data-nosnippet>223</a>            </span>class=(<span class="macro">class!</span>(CLOSE, attrs.remove(<span class="string">"class"</span>)))
-<a href=#224 id=224 data-nosnippet>224</a>            data-close-button=<span class="string">""
-<a href=#225 id=225 data-nosnippet>225</a>            </span>(attrs)
-<a href=#226 id=226 data-nosnippet>226</a>        &gt;
-<a href=#227 id=227 data-nosnippet>227</a>            icon(data: icons::X, attrs: <span class="macro">attributes!</span> { class=<span class="string">"size-3" </span>})
-<a href=#228 id=228 data-nosnippet>228</a>        &lt;/button&gt;
-<a href=#229 id=229 data-nosnippet>229</a>    })
-<a href=#230 id=230 data-nosnippet>230</a>}
+<a href=#74 id=74 data-nosnippet>74</a>/// Needs `assets/notifications.js` (`crate::NOTIFICATION_JS`, hooks
+<a href=#75 id=75 data-nosnippet>75</a>/// `data-sonner-toast` / `data-close-button`), emitted by
+<a href=#76 id=76 data-nosnippet>76</a>/// `Panel::render_document` on every document with shell assets (ADR-0014).
+<a href=#77 id=77 data-nosnippet>77</a>/// Without the script the toast stays hidden at `data-mounted="false"`; with
+<a href=#78 id=78 data-nosnippet>78</a>/// scripting disabled the `&lt;noscript&gt;` rule keeps it visible.
+<a href=#79 id=79 data-nosnippet>79</a>///
+<a href=#80 id=80 data-nosnippet>80</a>/// ```ignore
+<a href=#81 id=81 data-nosnippet>81</a>/// toaster(
+<a href=#82 id=82 data-nosnippet>82</a>///     toast(attrs: attributes! { data-type="success" },
+<a href=#83 id=83 data-nosnippet>83</a>///         toast_icon(icon(data: icons::CIRCLE_CHECK))
+<a href=#84 id=84 data-nosnippet>84</a>///         toast_content(
+<a href=#85 id=85 data-nosnippet>85</a>///             toast_title("Created")
+<a href=#86 id=86 data-nosnippet>86</a>///             toast_description("The record is live.")
+<a href=#87 id=87 data-nosnippet>87</a>///         )
+<a href=#88 id=88 data-nosnippet>88</a>///         toast_close()
+<a href=#89 id=89 data-nosnippet>89</a>///     )
+<a href=#90 id=90 data-nosnippet>90</a>/// )
+<a href=#91 id=91 data-nosnippet>91</a>/// ```
+<a href=#92 id=92 data-nosnippet>92</a></span><span class="attr">#[component]
+<a href=#93 id=93 data-nosnippet>93</a></span><span class="kw">pub async fn </span>toaster(
+<a href=#94 id=94 data-nosnippet>94</a>    <span class="attr">#[default] </span><span class="kw-2">mut </span>attrs: Attributes,
+<a href=#95 id=95 data-nosnippet>95</a>    <span class="attr">#[default] </span>child: Child&lt;<span class="lifetime">'_</span>&gt;,
+<a href=#96 id=96 data-nosnippet>96</a>) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="kw">impl </span>View&gt; {
+<a href=#97 id=97 data-nosnippet>97</a>    <span class="prelude-val">Ok</span>(<span class="macro">view!</span> {
+<a href=#98 id=98 data-nosnippet>98</a>        &lt;section
+<a href=#99 id=99 data-nosnippet>99</a>            aria-label=<span class="string">"Notifications"
+<a href=#100 id=100 data-nosnippet>100</a>            </span>tabindex=<span class="string">"-1"
+<a href=#101 id=101 data-nosnippet>101</a>            </span>aria-live=<span class="string">"polite"
+<a href=#102 id=102 data-nosnippet>102</a>            </span>aria-relevant=<span class="string">"additions text"
+<a href=#103 id=103 data-nosnippet>103</a>            </span>aria-atomic=<span class="string">"false"
+<a href=#104 id=104 data-nosnippet>104</a>        </span>&gt;
+<a href=#105 id=105 data-nosnippet>105</a>            &lt;noscript&gt;
+<a href=#106 id=106 data-nosnippet>106</a>                &lt;style&gt;
+<a href=#107 id=107 data-nosnippet>107</a>                    <span class="string">"[data-sonner-toast]{opacity:1 !important;transform:none !important}"
+<a href=#108 id=108 data-nosnippet>108</a>                </span>&lt;/style&gt;
+<a href=#109 id=109 data-nosnippet>109</a>            &lt;/noscript&gt;
+<a href=#110 id=110 data-nosnippet>110</a>            &lt;ol
+<a href=#111 id=111 data-nosnippet>111</a>                class=(<span class="macro">class!</span>(TOASTER, attrs.remove(<span class="string">"class"</span>)))
+<a href=#112 id=112 data-nosnippet>112</a>                data-sonner-toaster=<span class="string">""
+<a href=#113 id=113 data-nosnippet>113</a>                </span>data-y-position=<span class="string">"bottom"
+<a href=#114 id=114 data-nosnippet>114</a>                </span>data-x-position=<span class="string">"right"
+<a href=#115 id=115 data-nosnippet>115</a>                </span>(attrs)
+<a href=#116 id=116 data-nosnippet>116</a>            &gt;
+<a href=#117 id=117 data-nosnippet>117</a>                (child)
+<a href=#118 id=118 data-nosnippet>118</a>            &lt;/ol&gt;
+<a href=#119 id=119 data-nosnippet>119</a>        &lt;/section&gt;
+<a href=#120 id=120 data-nosnippet>120</a>    })
+<a href=#121 id=121 data-nosnippet>121</a>}
+<a href=#122 id=122 data-nosnippet>122</a>
+<a href=#123 id=123 data-nosnippet>123</a><span class="doccomment">/// A toast surface, Sonner's `[data-sonner-toast]`.
+<a href=#124 id=124 data-nosnippet>124</a>///
+<a href=#125 id=125 data-nosnippet>125</a>/// Start from `data-mounted="false"` so the enter transition plays when
+<a href=#126 id=126 data-nosnippet>126</a>/// `notifications.js` mounts it; a toast without JS stays visible through the
+<a href=#127 id=127 data-nosnippet>127</a>/// toaster's `&lt;noscript&gt;` rule.
+<a href=#128 id=128 data-nosnippet>128</a></span><span class="attr">#[component]
+<a href=#129 id=129 data-nosnippet>129</a></span><span class="kw">pub async fn </span>toast(
+<a href=#130 id=130 data-nosnippet>130</a>    <span class="attr">#[default] </span><span class="kw-2">mut </span>attrs: Attributes,
+<a href=#131 id=131 data-nosnippet>131</a>    <span class="attr">#[default] </span>child: Child&lt;<span class="lifetime">'_</span>&gt;,
+<a href=#132 id=132 data-nosnippet>132</a>) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="kw">impl </span>View&gt; {
+<a href=#133 id=133 data-nosnippet>133</a>    <span class="prelude-val">Ok</span>(<span class="macro">view!</span> {
+<a href=#134 id=134 data-nosnippet>134</a>        &lt;li
+<a href=#135 id=135 data-nosnippet>135</a>            tabindex=<span class="string">"0"
+<a href=#136 id=136 data-nosnippet>136</a>            </span>class=(<span class="macro">class!</span>(TOAST, attrs.remove(<span class="string">"class"</span>)))
+<a href=#137 id=137 data-nosnippet>137</a>            data-sonner-toast=<span class="string">""
+<a href=#138 id=138 data-nosnippet>138</a>            </span>data-styled=<span class="string">"true"
+<a href=#139 id=139 data-nosnippet>139</a>            </span>data-mounted=<span class="string">"false"
+<a href=#140 id=140 data-nosnippet>140</a>            </span>data-visible=<span class="string">"true"
+<a href=#141 id=141 data-nosnippet>141</a>            </span>data-y-position=<span class="string">"bottom"
+<a href=#142 id=142 data-nosnippet>142</a>            </span>data-x-position=<span class="string">"right"
+<a href=#143 id=143 data-nosnippet>143</a>            </span>data-front=<span class="string">"true"
+<a href=#144 id=144 data-nosnippet>144</a>            </span>(attrs)
+<a href=#145 id=145 data-nosnippet>145</a>        &gt;
+<a href=#146 id=146 data-nosnippet>146</a>            (child)
+<a href=#147 id=147 data-nosnippet>147</a>        &lt;/li&gt;
+<a href=#148 id=148 data-nosnippet>148</a>    })
+<a href=#149 id=149 data-nosnippet>149</a>}
+<a href=#150 id=150 data-nosnippet>150</a>
+<a href=#151 id=151 data-nosnippet>151</a><span class="doccomment">/// The leading status icon slot, Sonner's `[data-icon]`.
+<a href=#152 id=152 data-nosnippet>152</a></span><span class="attr">#[component]
+<a href=#153 id=153 data-nosnippet>153</a></span><span class="kw">pub async fn </span>toast_icon(
+<a href=#154 id=154 data-nosnippet>154</a>    <span class="attr">#[default] </span><span class="kw-2">mut </span>attrs: Attributes,
+<a href=#155 id=155 data-nosnippet>155</a>    <span class="attr">#[default] </span>child: Child&lt;<span class="lifetime">'_</span>&gt;,
+<a href=#156 id=156 data-nosnippet>156</a>) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="kw">impl </span>View&gt; {
+<a href=#157 id=157 data-nosnippet>157</a>    <span class="prelude-val">Ok</span>(<span class="macro">view!</span> {
+<a href=#158 id=158 data-nosnippet>158</a>        &lt;div
+<a href=#159 id=159 data-nosnippet>159</a>            class=(<span class="macro">class!</span>(ICON, attrs.remove(<span class="string">"class"</span>)))
+<a href=#160 id=160 data-nosnippet>160</a>            data-icon=<span class="string">""
+<a href=#161 id=161 data-nosnippet>161</a>            </span>aria-hidden=<span class="string">"true"
+<a href=#162 id=162 data-nosnippet>162</a>            </span>(attrs)
+<a href=#163 id=163 data-nosnippet>163</a>        &gt;
+<a href=#164 id=164 data-nosnippet>164</a>            (child)
+<a href=#165 id=165 data-nosnippet>165</a>        &lt;/div&gt;
+<a href=#166 id=166 data-nosnippet>166</a>    })
+<a href=#167 id=167 data-nosnippet>167</a>}
+<a href=#168 id=168 data-nosnippet>168</a>
+<a href=#169 id=169 data-nosnippet>169</a><span class="doccomment">/// The title/description column, Sonner's `[data-content]`.
+<a href=#170 id=170 data-nosnippet>170</a></span><span class="attr">#[component]
+<a href=#171 id=171 data-nosnippet>171</a></span><span class="kw">pub async fn </span>toast_content(
+<a href=#172 id=172 data-nosnippet>172</a>    <span class="attr">#[default] </span><span class="kw-2">mut </span>attrs: Attributes,
+<a href=#173 id=173 data-nosnippet>173</a>    <span class="attr">#[default] </span>child: Child&lt;<span class="lifetime">'_</span>&gt;,
+<a href=#174 id=174 data-nosnippet>174</a>) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="kw">impl </span>View&gt; {
+<a href=#175 id=175 data-nosnippet>175</a>    <span class="prelude-val">Ok</span>(<span class="macro">view!</span> {
+<a href=#176 id=176 data-nosnippet>176</a>        &lt;div class=(<span class="macro">class!</span>(CONTENT, attrs.remove(<span class="string">"class"</span>))) data-content=<span class="string">"" </span>(attrs)&gt;
+<a href=#177 id=177 data-nosnippet>177</a>            (child)
+<a href=#178 id=178 data-nosnippet>178</a>        &lt;/div&gt;
+<a href=#179 id=179 data-nosnippet>179</a>    })
+<a href=#180 id=180 data-nosnippet>180</a>}
+<a href=#181 id=181 data-nosnippet>181</a>
+<a href=#182 id=182 data-nosnippet>182</a><span class="doccomment">/// The toast title, Sonner's `[data-title]`.
+<a href=#183 id=183 data-nosnippet>183</a></span><span class="attr">#[component]
+<a href=#184 id=184 data-nosnippet>184</a></span><span class="kw">pub async fn </span>toast_title(
+<a href=#185 id=185 data-nosnippet>185</a>    <span class="attr">#[default] </span><span class="kw-2">mut </span>attrs: Attributes,
+<a href=#186 id=186 data-nosnippet>186</a>    <span class="attr">#[default] </span>child: Child&lt;<span class="lifetime">'_</span>&gt;,
+<a href=#187 id=187 data-nosnippet>187</a>) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="kw">impl </span>View&gt; {
+<a href=#188 id=188 data-nosnippet>188</a>    <span class="prelude-val">Ok</span>(<span class="macro">view!</span> {
+<a href=#189 id=189 data-nosnippet>189</a>        &lt;div class=(<span class="macro">class!</span>(TITLE, attrs.remove(<span class="string">"class"</span>))) data-title=<span class="string">"" </span>(attrs)&gt;
+<a href=#190 id=190 data-nosnippet>190</a>            (child)
+<a href=#191 id=191 data-nosnippet>191</a>        &lt;/div&gt;
+<a href=#192 id=192 data-nosnippet>192</a>    })
+<a href=#193 id=193 data-nosnippet>193</a>}
+<a href=#194 id=194 data-nosnippet>194</a>
+<a href=#195 id=195 data-nosnippet>195</a><span class="doccomment">/// The supporting line under the title, Sonner's `[data-description]`.
+<a href=#196 id=196 data-nosnippet>196</a></span><span class="attr">#[component]
+<a href=#197 id=197 data-nosnippet>197</a></span><span class="kw">pub async fn </span>toast_description(
+<a href=#198 id=198 data-nosnippet>198</a>    <span class="attr">#[default] </span><span class="kw-2">mut </span>attrs: Attributes,
+<a href=#199 id=199 data-nosnippet>199</a>    <span class="attr">#[default] </span>child: Child&lt;<span class="lifetime">'_</span>&gt;,
+<a href=#200 id=200 data-nosnippet>200</a>) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="kw">impl </span>View&gt; {
+<a href=#201 id=201 data-nosnippet>201</a>    <span class="prelude-val">Ok</span>(<span class="macro">view!</span> {
+<a href=#202 id=202 data-nosnippet>202</a>        &lt;div
+<a href=#203 id=203 data-nosnippet>203</a>            class=(<span class="macro">class!</span>(DESCRIPTION, attrs.remove(<span class="string">"class"</span>)))
+<a href=#204 id=204 data-nosnippet>204</a>            data-description=<span class="string">""
+<a href=#205 id=205 data-nosnippet>205</a>            </span>(attrs)
+<a href=#206 id=206 data-nosnippet>206</a>        &gt;
+<a href=#207 id=207 data-nosnippet>207</a>            (child)
+<a href=#208 id=208 data-nosnippet>208</a>        &lt;/div&gt;
+<a href=#209 id=209 data-nosnippet>209</a>    })
+<a href=#210 id=210 data-nosnippet>210</a>}
+<a href=#211 id=211 data-nosnippet>211</a>
+<a href=#212 id=212 data-nosnippet>212</a><span class="doccomment">/// Sonner's circular close button, `[data-close-button]`.
+<a href=#213 id=213 data-nosnippet>213</a></span><span class="attr">#[component]
+<a href=#214 id=214 data-nosnippet>214</a></span><span class="kw">pub async fn </span>toast_close(<span class="attr">#[default] </span><span class="kw-2">mut </span>attrs: Attributes) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="kw">impl </span>View&gt; {
+<a href=#215 id=215 data-nosnippet>215</a>    <span class="prelude-val">Ok</span>(<span class="macro">view!</span> {
+<a href=#216 id=216 data-nosnippet>216</a>        &lt;button
+<a href=#217 id=217 data-nosnippet>217</a>            <span class="kw">type</span>=<span class="string">"button"
+<a href=#218 id=218 data-nosnippet>218</a>            </span>aria-label=<span class="string">"Close toast"
+<a href=#219 id=219 data-nosnippet>219</a>            </span>class=(<span class="macro">class!</span>(CLOSE, attrs.remove(<span class="string">"class"</span>)))
+<a href=#220 id=220 data-nosnippet>220</a>            data-close-button=<span class="string">""
+<a href=#221 id=221 data-nosnippet>221</a>            </span>(attrs)
+<a href=#222 id=222 data-nosnippet>222</a>        &gt;
+<a href=#223 id=223 data-nosnippet>223</a>            icon(data: icons::X, attrs: <span class="macro">attributes!</span> { class=<span class="string">"size-3" </span>})
+<a href=#224 id=224 data-nosnippet>224</a>        &lt;/button&gt;
+<a href=#225 id=225 data-nosnippet>225</a>    })
+<a href=#226 id=226 data-nosnippet>226</a>}
 </code></pre></div></section></main></body></html>

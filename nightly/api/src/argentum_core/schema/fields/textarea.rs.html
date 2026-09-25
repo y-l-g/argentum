@@ -10,7 +10,7 @@
 <a href=#10 id=10 data-nosnippet>10</a>    FieldChrome, ValueKind, render_field, render_value,
 <a href=#11 id=11 data-nosnippet>11</a>};
 <a href=#12 id=12 data-nosnippet>12</a>
-<a href=#13 id=13 data-nosnippet>13</a><span class="doccomment">/// Typed multi-line text field bound to a Toasty field lens (GH #184).
+<a href=#13 id=13 data-nosnippet>13</a><span class="doccomment">/// Typed multi-line text field bound to a Toasty field lens.
 <a href=#14 id=14 data-nosnippet>14</a>///
 <a href=#15 id=15 data-nosnippet>15</a>/// `TextInput` renders `&lt;input type="text"&gt;`, which is the wrong control for a
 <a href=#16 id=16 data-nosnippet>16</a>/// column holding prose — a post body, a description, a note. This is the same
@@ -35,7 +35,7 @@
 <a href=#35 id=35 data-nosnippet>35</a>    <span class="doccomment">/// Create a `Textarea` bound to the given field lens.
 <a href=#36 id=36 data-nosnippet>36</a>    ///
 <a href=#37 id=37 data-nosnippet>37</a>    /// Only `String` lenses compile, and `required` defaults from the field's
-<a href=#38 id=38 data-nosnippet>38</a>    /// nullability exactly as `TextInput::r#for` documents (GH #100).
+<a href=#38 id=38 data-nosnippet>38</a>    /// nullability exactly as `TextInput::r#for` documents.
 <a href=#39 id=39 data-nosnippet>39</a>    ///
 <a href=#40 id=40 data-nosnippet>40</a>    /// There is deliberately no `.unique()`: the app-side unique check builds
 <a href=#41 id=41 data-nosnippet>41</a>    /// its probe from `TextInput::eq_filter`, so a uniqueness modifier here
@@ -58,7 +58,7 @@
 <a href=#58 id=58 data-nosnippet>58</a>    }
 <a href=#59 id=59 data-nosnippet>59</a>
 <a href=#60 id=60 data-nosnippet>60</a>    <span class="doccomment">/// Create a `Textarea` bound to a lens inside an embedded struct or a
-<a href=#61 id=61 data-nosnippet>61</a>    /// `#[document]` (GH #185), resolving through the request's app schema so
+<a href=#61 id=61 data-nosnippet>61</a>    /// `#[document]`, resolving through the request's app schema so
 <a href=#62 id=62 data-nosnippet>62</a>    /// the leaf arrives as its flattened storage column. Same contract as
 <a href=#63 id=63 data-nosnippet>63</a>    /// `TextInput::r#for_context`, including the not-required default.
 <a href=#64 id=64 data-nosnippet>64</a>    </span><span class="kw">pub fn </span>r#for_context&lt;M&gt;(cx: <span class="kw-2">&amp;</span>Cx, path: toasty::stmt::Path&lt;M, String&gt;) -&gt; <span class="self">Self
@@ -80,7 +80,7 @@
 <a href=#80 id=80 data-nosnippet>80</a>        <span class="self">self
 <a href=#81 id=81 data-nosnippet>81</a>    </span>}
 <a href=#82 id=82 data-nosnippet>82</a>
-<a href=#83 id=83 data-nosnippet>83</a>    <span class="doccomment">/// Opt out of the non-nullable default (GH #100), as
+<a href=#83 id=83 data-nosnippet>83</a>    <span class="doccomment">/// Opt out of the non-nullable default, as
 <a href=#84 id=84 data-nosnippet>84</a>    /// [`TextInput::optional`](crate::schema::TextInput::optional).
 <a href=#85 id=85 data-nosnippet>85</a>    </span><span class="kw">pub fn </span>optional(<span class="kw-2">mut </span><span class="self">self</span>) -&gt; <span class="self">Self </span>{
 <a href=#86 id=86 data-nosnippet>86</a>        <span class="self">self</span>.required = <span class="bool-val">false</span>;
@@ -231,7 +231,7 @@
 <a href=#231 id=231 data-nosnippet>231</a>            <span class="string">"optional() must opt out of the required default"
 <a href=#232 id=232 data-nosnippet>232</a>        </span>);
 <a href=#233 id=233 data-nosnippet>233</a>
-<a href=#234 id=234 data-nosnippet>234</a>        <span class="comment">// An omitted key is validated as empty, matching TextInput (GH #89).
+<a href=#234 id=234 data-nosnippet>234</a>        <span class="comment">// An omitted key is validated as empty, matching TextInput.
 <a href=#235 id=235 data-nosnippet>235</a>        </span><span class="kw">let </span>whitespace = schema.validate(<span class="kw-2">&amp;</span>HashMap::from([(<span class="string">"name"</span>.to_string(), <span class="string">"   "</span>.to_string())]));
 <a href=#236 id=236 data-nosnippet>236</a>        <span class="macro">assert_eq!</span>(
 <a href=#237 id=237 data-nosnippet>237</a>            whitespace.get(<span class="string">"name"</span>),

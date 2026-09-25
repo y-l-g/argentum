@@ -2,7 +2,7 @@
 <a href=#2 id=2 data-nosnippet>2</a>
 <a href=#3 id=3 data-nosnippet>3</a></span><span class="kw">use </span><span class="kw">super</span>::Resource;
 <a href=#4 id=4 data-nosnippet>4</a>
-<a href=#5 id=5 data-nosnippet>5</a><span class="doccomment">/// Where a sidebar entry points (GH #165).
+<a href=#5 id=5 data-nosnippet>5</a><span class="doccomment">/// Where a sidebar entry points.
 <a href=#6 id=6 data-nosnippet>6</a>///
 <a href=#7 id=7 data-nosnippet>7</a>/// A [`Resource`] cannot name its own URL: [`Resource::navigation`] takes no
 <a href=#8 id=8 data-nosnippet>8</a>/// `Cx` and no prefix, so the entry it declares by default carries no URL at
@@ -52,7 +52,7 @@
 <a href=#52 id=52 data-nosnippet>52</a>    /// [`NavigationItem::for_resource`] or [`NavigationItem::at`] rather than
 <a href=#53 id=53 data-nosnippet>53</a>    /// spelling the variant out.
 <a href=#54 id=54 data-nosnippet>54</a>    </span><span class="kw">pub </span>target: NavTarget,
-<a href=#55 id=55 data-nosnippet>55</a>    <span class="doccomment">/// Sort key for the sidebar (GH #102): items render in stable `order`
+<a href=#55 id=55 data-nosnippet>55</a>    <span class="doccomment">/// Sort key for the sidebar: items render in stable `order`
 <a href=#56 id=56 data-nosnippet>56</a>    /// order, so declaration order breaks ties. Resources declare in
 <a href=#57 id=57 data-nosnippet>57</a>    /// `Panel::resource` order (all default `0`); a
 <a href=#58 id=58 data-nosnippet>58</a>    /// [`Resource::navigation`] override interleaves by setting a lower value,
@@ -71,7 +71,7 @@
 <a href=#71 id=71 data-nosnippet>71</a>    /// The resource cannot know where it is mounted, so the URL stays
 <a href=#72 id=72 data-nosnippet>72</a>    /// [`NavTarget::Derived`] until the owning [`Panel`](crate::panel::Panel)
 <a href=#73 id=73 data-nosnippet>73</a>    /// resolves it; an entry declared here can therefore never link at a mount
-<a href=#74 id=74 data-nosnippet>74</a>    /// the resource guessed (GH #165).
+<a href=#74 id=74 data-nosnippet>74</a>    /// the resource guessed.
 <a href=#75 id=75 data-nosnippet>75</a>    </span><span class="kw">pub fn </span>for_resource&lt;R: Resource&gt;() -&gt; <span class="self">Self </span>{
 <a href=#76 id=76 data-nosnippet>76</a>        <span class="self">Self </span>{
 <a href=#77 id=77 data-nosnippet>77</a>            label: R::navigation_label(),
@@ -93,13 +93,13 @@
 <a href=#93 id=93 data-nosnippet>93</a>    }
 <a href=#94 id=94 data-nosnippet>94</a>
 <a href=#95 id=95 data-nosnippet>95</a>    <span class="doccomment">/// Resolve a [`NavTarget::Derived`] entry against the Panel that owns it
-<a href=#96 id=96 data-nosnippet>96</a>    /// (GH #165), leaving an explicit target untouched.
+<a href=#96 id=96 data-nosnippet>96</a>    /// leaving an explicit target untouched.
 <a href=#97 id=97 data-nosnippet>97</a>    ///
 <a href=#98 id=98 data-nosnippet>98</a>    /// [`Resource::navigation`] cannot know its panel — it takes no `Cx` and no
 <a href=#99 id=99 data-nosnippet>99</a>    /// prefix — so the entry it declares carries no URL. The Panel consumes it
 <a href=#100 id=100 data-nosnippet>100</a>    /// through `Panel::resource`, which passes its own prefix and the
 <a href=#101 id=101 data-nosnippet>101</a>    /// resource's mount slug; there is no panel-root case, since nothing
-<a href=#102 id=102 data-nosnippet>102</a>    /// generates an entry without a resource behind it (GH #228).
+<a href=#102 id=102 data-nosnippet>102</a>    /// generates an entry without a resource behind it.
 <a href=#103 id=103 data-nosnippet>103</a>    ///
 <a href=#104 id=104 data-nosnippet>104</a>    /// There is no guessing here: a URL an author wrote out — including one
 <a href=#105 id=105 data-nosnippet>105</a>    /// that happens to look like `/admin/{slug}` — is a different
@@ -122,13 +122,13 @@
 <a href=#122 id=122 data-nosnippet>122</a>    /// an exact match, or a prefix match on a slash boundary (so
 <a href=#123 id=123 data-nosnippet>123</a>    /// `/admin/users` is active on `/admin/users/create` but not on
 <a href=#124 id=124 data-nosnippet>124</a>    /// `/admin/userships`). Uniform for every item — since resources mount at
-<a href=#125 id=125 data-nosnippet>125</a>    /// `{prefix}/{slug}` (GH #39), no generated item points at the bare panel
+<a href=#125 id=125 data-nosnippet>125</a>    /// `{prefix}/{slug}`, no generated item points at the bare panel
 <a href=#126 id=126 data-nosnippet>126</a>    /// prefix.
 <a href=#127 id=127 data-nosnippet>127</a>    ///
 <a href=#128 id=128 data-nosnippet>128</a>    /// This is the whole active-state contract: `Panel::render_shell` takes the
 <a href=#129 id=129 data-nosnippet>129</a>    /// request path as a parameter, so it can judge an item without a `Cx` (and
 <a href=#130 id=130 data-nosnippet>130</a>    /// the shell stays testable without a full `http::request::Parts` in `Cx`).
-<a href=#131 id=131 data-nosnippet>131</a>    /// It is the only entry point to that judgment (GH #228).
+<a href=#131 id=131 data-nosnippet>131</a>    /// It is the only entry point to that judgment.
 <a href=#132 id=132 data-nosnippet>132</a>    </span><span class="kw">pub fn </span>is_current_path(<span class="kw-2">&amp;</span><span class="self">self</span>, current_path: <span class="kw-2">&amp;</span>str) -&gt; bool {
 <a href=#133 id=133 data-nosnippet>133</a>        <span class="kw">let </span><span class="prelude-val">Some</span>(url) = <span class="self">self</span>.url() <span class="kw">else </span>{
 <a href=#134 id=134 data-nosnippet>134</a>            <span class="comment">// Unresolved: no URL to be current for.
@@ -177,7 +177,7 @@
 <a href=#177 id=177 data-nosnippet>177</a>    </span><span class="kw">fn </span>for_resource_derives_label_only() {
 <a href=#178 id=178 data-nosnippet>178</a>        <span class="comment">// The default `Resource::navigation` entry: label from the pluralized
 <a href=#179 id=179 data-nosnippet>179</a>        // model name, and no URL at all — the owning Panel supplies it, so a
-<a href=#180 id=180 data-nosnippet>180</a>        // resource can never link at a mount it guessed (GH #165).
+<a href=#180 id=180 data-nosnippet>180</a>        // resource can never link at a mount it guessed.
 <a href=#181 id=181 data-nosnippet>181</a>        </span><span class="kw">let </span>item = NavigationItem::for_resource::&lt;UserResource&gt;();
 <a href=#182 id=182 data-nosnippet>182</a>        <span class="macro">assert_eq!</span>(item.label, <span class="string">"Users"</span>);
 <a href=#183 id=183 data-nosnippet>183</a>        <span class="macro">assert!</span>(<span class="macro">matches!</span>(item.target, NavTarget::Derived));
