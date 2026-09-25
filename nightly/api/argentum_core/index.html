@@ -272,21 +272,6 @@ served directory is <strong>public</strong> (ADR-0017): those URLs answer whoeve
 the auth gate covers exactly the panel prefix and the runtime prefix (ADR-0013) and a served
 directory sits outside both. An app that needs protected files owns that route itself.</p>
 <p><em>Avoid</em>: FileStore, Attachment, Blob store</p>
-<h4 id="media-asset"><a class="doc-anchor" href="#media-asset">§</a>Media asset</h4>
-<p>One stored file in the showcase’s media library (GH #248, ADR-0021): a row of the <code>medias</code> table,
-carrying the tenant that uploaded it, the <code>path</code> the <code>Uploader</code> returned, the client’s <code>filename</code>, a
-<code>kind</code> (<code>"image"</code> or <code>"file"</code>), and an <strong>owner pair</strong> — <code>owner_type</code> (<code>"post"</code> or <code>"user"</code>) plus
-<code>owner_id</code> — naming the record it belongs to. The pair is polymorphic because the owner is one of
-several tables: it carries no foreign key, so the app refuses an owner that does not resolve before
-it writes, and deleting an owner leaves the row dangling rather than cascading. <code>MediaOwner</code> is the
-typed half of the pair and <code>media_for_owner</code> the whole relation. The showcase’s page renders a
-thumbnail for an image and a link for anything else.</p>
-<p>The model is <code>MediaAsset</code>, never <code>Media</code>: <code>Media</code> is the embedded value on <code>Post</code> — an image/video
-description in the post’s own columns, with no bytes and no owner — and “Attachment” is only the
-label over that value’s controls in the post form. An <code>Uploader</code> is not a media library either: it
-moves bytes and returns a path, while the library is the table of rows and the page that renders
-them.</p>
-<p><em>Avoid</em>: Media (for this row), Attachment (as a term), Upload, File</p>
 <h4 id="streamed-region"><a class="doc-anchor" href="#streamed-region">§</a>Streamed region</h4>
 <p>A <code>suspense</code> region of the page whose content swaps in after the first render. The resource list
 streams its table: skeleton first (<code>Table::render_skeleton</code>), loaded rows swap in without a client
