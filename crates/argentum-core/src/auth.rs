@@ -513,10 +513,11 @@ pub async fn revoke_sessions_for_user(cx: &Cx, user_id: &str) -> topcoat::Result
 
 /// Drop the expired session rows of `user_id` (GH #295).
 ///
-/// [`resolve`] purges a session row when its token is looked up expired, so a
-/// row whose token is never presented again stays in the table. Login is the
-/// bounded sweep: the user is present, the table is already open, and only
-/// their rows are touched. Revocation ([`revoke_sessions_for_user`]) is the
+/// [`resolve`] purges a session row when its token is looked up expired, so
+/// without this a row whose token is never presented again would stay in the
+/// table; a sweep that does not wait for the owner is tracked in GH #302.
+/// Login is the bounded sweep: the user is present, the table is already open,
+/// and only their rows are touched. Revocation ([`revoke_sessions_for_user`]) is the
 /// unbounded counterpart that drops the live rows too.
 async fn purge_expired_sessions_for_user(cx: &Cx, user_id: &str) -> topcoat::Result<()> {
     let now = Timestamp::now();

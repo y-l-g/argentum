@@ -21,7 +21,7 @@ The defaults Argentum ships with, and the deployment assumptions they depend on.
   another origin. `Panel::frame_ancestors(..)` widens it for a deployment that frames the panel,
   `Panel::without_frame_ancestors()` sends none for a proxy that owns the whole policy, and an
   app's own `Content-Security-Policy` on a handler response always wins — the layer only fills the
-  gap. Three router responses are built outside the layers and so carry no directive: the 403 for a
+  gap. Three router responses are built outside every registered layer, so no layer can harden them: the 403 for a
   cross-site request, the 400 for a malformed `x-topcoat-identity` header, and the bare 500 for a
   panic.
 - Redirects: `Err(redirect(..))` (307) for GETs, `Err(see_other(..))` (303 PRG) after mutations.
