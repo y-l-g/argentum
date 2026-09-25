@@ -55,16 +55,11 @@ async fn delete_requires_confirmation_and_deletes() {
     // dialog — and takes its action from the control, not from the server. One
     // dialog for the page: the streamed table carries none of its own.
     assert_eq!(
-        html.matches("data-row-delete-dialog").count(),
+        html.matches(&format!("id=\"{dialog_id}\"")).count(),
         1,
         "one row dialog per page, got {html}"
     );
-    let dialog = tag_with(&html, "data-row-delete-dialog");
-    assert_eq!(
-        attr_value(dialog, "id"),
-        dialog_id,
-        "the control must name a dialog the page renders, got {dialog}"
-    );
+    let dialog = tag_with(&html, &format!("id=\"{dialog_id}\""));
     assert!(
         !dialog.contains("open=\"\""),
         "an ordinary list page must render the row dialog closed, got {dialog}"
@@ -80,7 +75,7 @@ async fn delete_requires_confirmation_and_deletes() {
     let resp = client.get(&format!("/admin/users?delete={id}")).await;
     assert!(resp.status().is_success());
     let html = body_string(resp).await;
-    let dialog = tag_with(&html, "data-row-delete-dialog");
+    let dialog = tag_with(&html, &format!("id=\"{dialog_id}\""));
     assert!(
         dialog.contains("open=\"\""),
         "?delete= must render the row dialog open, got {dialog}"
@@ -90,7 +85,7 @@ async fn delete_requires_confirmation_and_deletes() {
     // alone. A second copy would duplicate the dialog's ids and give the morph
     // one to replace mid-dismissal.
     assert_eq!(
-        html.matches("data-row-delete-dialog").count(),
+        html.matches(&format!("id=\"{dialog_id}\"")).count(),
         1,
         "one row dialog on the page, got {html}"
     );
@@ -127,7 +122,7 @@ async fn delete_requires_confirmation_and_deletes() {
     let html = body_string(resp).await;
     // The row dialog specifically: the page also carries the bulk bar's own
     // confirm dialog (GH #184), which is unrelated to `?delete=`/`?open=`.
-    let dialog = tag_with(&html, "data-row-delete-dialog");
+    let dialog = tag_with(&html, &format!("id=\"{dialog_id}\""));
     assert!(
         !dialog.contains("open=\"\""),
         "?open=false must keep the row dialog closed, got {dialog}"

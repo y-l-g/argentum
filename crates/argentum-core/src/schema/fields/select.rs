@@ -559,7 +559,6 @@ impl Select {
         // every searchable relationship. `selects.js` branches on this flag.
         let options_field = overflow_searchable.then(|| name.clone());
         let options_server = overflow_searchable.then_some("true");
-        let options_overflow = overflow_searchable.then_some("true");
         let variant_of = self.variant_of.clone();
         let overflow_hint = "Too many options — type to search".to_string();
         Ok(view! {
@@ -571,7 +570,6 @@ impl Select {
                     data-invalid=(has_error.then_some("true"))
                     data-options-field=(options_field)
                     data-options-server=(options_server)
-                    data-options-overflow=(options_overflow)
                 },
                 ui_field_label(
                     attrs: attributes! { for=(name.clone()) },
@@ -621,9 +619,7 @@ impl Select {
                     </div>
                 }
                 if overflow_searchable {
-                    <div class="text-xs text-muted-foreground" data-options-hint="">
-                        (overflow_hint)
-                    </div>
+                    <div class="text-xs text-muted-foreground">(overflow_hint)</div>
                 }
                 ui_select(
                     attrs: attributes! {

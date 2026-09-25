@@ -5,6 +5,7 @@
 
 use std::collections::{HashMap, HashSet};
 
+use percent_encoding::percent_decode_str;
 use topcoat::{
     Result,
     context::Cx,
@@ -362,29 +363,44 @@ fn is_windows_reserved_name(name: &str) -> bool {
 
 /// Decode an RFC 5987/6266 `filename*=UTF-8''...` value (GH #90).
 ///
-/// Only UTF-8 is supported; other charsets yield `None` so the caller falls
-/// back to `filename=`. Malformed percent sequences fail the whole value
-/// rather than lossy-mangling the stored name.
+/// Three rules fail the whole value to `None`, so the caller falls back to
+/// `filename=` instead of storing a mangled name: the charset is not UTF-8, a
+/// `%` does not start a `pct-encoded` triplet (two hex digits), or the decoded
+/// bytes are not valid UTF-8.
 fn decode_rfc5987(value: &str) -> Option<String> {
     let (charset, rest) = value.split_once('\'')?;
     let (_lang, encoded) = rest.split_once('\'')?;
     if !charset.eq_ignore_ascii_case("utf-8") {
         return None;
     }
-    let bytes = encoded.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
+    if !is_pct_encoded(encoded) {
+        return None;
+    }
+    percent_decode_str(encoded)
+        .decode_utf8()
+        .ok()
+        .map(|decoded| decoded.into_owned())
+}
+
+/// Whether every `%` in `value` starts an RFC 5987 `pct-encoded` triplet (`%`
+/// followed by two hex digits).
+fn is_pct_encoded(value: &str) -> bool {
+    let bytes = value.as_bytes();
     let mut i = 0;
     while i < bytes.len() {
         if bytes[i] == b'%' {
-            let hex = std::str::from_utf8(bytes.get(i + 1..i + 3)?).ok()?;
-            out.push(u8::from_str_radix(hex, 16).ok()?);
+            if !bytes
+                .get(i + 1..i + 3)
+                .is_some_and(|hex| hex.iter().all(u8::is_ascii_hexdigit))
+            {
+                return false;
+            }
             i += 3;
         } else {
-            out.push(bytes[i]);
             i += 1;
         }
     }
-    String::from_utf8(out).ok()
+    true
 }
 
 /// Pure half of [`parse_form_body`] — testable without a request.
@@ -2476,6 +2492,28 @@ mod tests {
             Some("plain.jpg"),
             "unsupported charset must fall back, got {got:?}"
         );
+    }
+
+    #[tokio::test]
+    async fn multipart_stream_refuses_a_malformed_filename_star() {
+        // A malformed `pct-encoded` triplet fails the ext-value whole (RFC
+        // 5987), so the plain `filename=` wins. `%+1` is the case the strict
+        // check adds: the removed decoder accepted `+` as a sign character.
+        for malformed in ["%ZZ.jpg", "%+1.jpg"] {
+            let body = format!(
+                "--B\r\nContent-Disposition: form-data; name=\"image_path\"; \
+                 filename=\"plain.jpg\"; filename*=UTF-8''{malformed}\r\n\
+                 Content-Type: image/jpeg\r\n\r\nBYTES\r\n--B--\r\n"
+            );
+            let got = multipart_values(&multipart_type("B"), body.into_bytes())
+                .await
+                .unwrap();
+            assert_eq!(
+                got.get("image_path").map(String::as_str),
+                Some("plain.jpg"),
+                "a malformed filename* ({malformed}) must fall back to filename=, got {got:?}"
+            );
+        }
     }
 
     #[tokio::test]

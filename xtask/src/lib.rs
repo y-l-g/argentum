@@ -1,17 +1,94 @@
 //! xtask — repo tasks (ADR-0007).
 //!
-//! `sync-topcoat-ui` mirrors the `topcoat-ui-registry` sources into
+//! `sync-topcoat-ui` mirrors the [`VENDORED_PRIMITIVES`] subset of the
+//! `topcoat-ui-registry` sources into
 //! `crates/argentum-ui/src/components/primitives/` **verbatim**: every file is
 //! the registry's byte-for-byte source under a one-line SYNC header that
 //! records the registry version *and* the sha256 content hash of the source
 //! (the same hash scheme topcoat's own registry and `topcoat ui` use). Because
 //! the copy is verbatim, drift — a hand edit, a stale file, a component the
-//! registry gained or dropped — is detectable by [`verify_sync`], which the
-//! `xtask` test suite runs as a guard.
+//! vendored set gained or dropped — is detectable by [`verify_sync`], which
+//! the `xtask` test suite runs as a guard.
 
-use std::path::{Path, PathBuf};
+use std::{
+    collections::HashSet,
+    path::{Path, PathBuf},
+};
 
-use topcoat_ui::Registry;
+use topcoat_ui::{Component, Dependency, Registry};
+
+/// The registry components Argentum vendors into `primitives/` (ADR-0007).
+///
+/// The set is the transitive closure of what `crates/argentum-ui/src/lib.rs`
+/// re-exports: the re-exported components plus the components they depend on.
+/// `vendored_components` resolves the set and checks that closure against
+/// `Component::dependencies`, so the sync and the guards fail with the missing
+/// name when a vendored component grows a dependency. `sync-topcoat-ui` writes
+/// these and `verify-topcoat-ui` expects exactly these, so a registry component
+/// the app never calls is not vendored. Add a component by adding its registry
+/// name here and running `cargo xtask sync-topcoat-ui`.
+pub const VENDORED_PRIMITIVES: &[&str] = &[
+    "alert",
+    "alert_dialog",
+    "button",
+    "card",
+    "checkbox",
+    "dialog",
+    "field",
+    "input",
+    "label",
+    "pagination",
+    "select",
+    "separator",
+    "sheet",
+    "sidebar",
+    "skeleton",
+    "table",
+    "textarea",
+];
+
+/// Resolve [`VENDORED_PRIMITIVES`] against the loaded registry and check that
+/// the set is closed: every same-registry dependency a vendored component
+/// declares is itself vendored. A dependency in another registry
+/// ([`Dependency::Other`]) is not mirrored into `primitives/`, so only
+/// same-registry names are checked.
+fn vendored_components(registry: &Registry) -> anyhow::Result<Vec<Component<'_>>> {
+    let components: Vec<Component<'_>> = VENDORED_PRIMITIVES
+        .iter()
+        .map(|name| {
+            registry.get(name).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "topcoat-ui-registry no longer offers `{name}`; update VENDORED_PRIMITIVES"
+                )
+            })
+        })
+        .collect::<anyhow::Result<_>>()?;
+    for component in &components {
+        for dependency in component.dependencies() {
+            let Dependency::Same(name) = dependency else {
+                continue;
+            };
+            if !VENDORED_PRIMITIVES.contains(&name.as_str()) {
+                anyhow::bail!(
+                    "`{}` depends on `{name}`, which is not in VENDORED_PRIMITIVES; add it",
+                    component.name()
+                );
+            }
+        }
+    }
+    Ok(components)
+}
+
+/// The file names `primitives/` owns: every vendored component's file plus the
+/// generated `mod.rs`.
+fn vendored_files(components: &[Component<'_>]) -> HashSet<String> {
+    let mut files: HashSet<String> = components
+        .iter()
+        .map(|component| component.file_name().to_string())
+        .collect();
+    files.insert("mod.rs".to_string());
+    files
+}
 
 /// The one-line header prepended to every synced file.
 ///
@@ -105,40 +182,35 @@ fn locate_registry() -> anyhow::Result<(Registry, String)> {
 /// What to run when a vendored file has drifted from the registry.
 const HINT: &str = "run `cargo xtask sync-topcoat-ui` to restore the verbatim copy";
 
-/// Copy every registry component into `primitives/` **verbatim** under a SYNC
-/// header recording the registry version and the source's sha256, then
-/// regenerate `mod.rs` from the manifest. Never touches `composites/`
-/// (ADR-0007).
+/// Copy every component in [`VENDORED_PRIMITIVES`] into `primitives/`
+/// **verbatim** under a SYNC header recording the registry version and the
+/// source's sha256, then regenerate `mod.rs` from the vendored set. Never
+/// touches `composites/` (ADR-0007).
 ///
 /// No sibling clone required — the registry comes from the same git source
 /// Cargo compiles against.
 ///
-/// `prune` deletes vendored files absent from the registry manifest (the orphan
-/// guard in `verify_sync` otherwise leaves `verify` red after an upstream
-/// removal with `sync` alone unable to fix it). Without it, orphans are only
-/// reported — pass `--prune` to converge.
+/// `prune` deletes vendored files absent from the vendored set (the orphan
+/// guard in `verify_sync` otherwise leaves `verify` red after a component
+/// leaves it, with `sync` alone unable to fix that). Without it, orphans are
+/// only reported — pass `--prune` to converge.
 pub fn sync_topcoat_ui(dry_run: bool, prune: bool) -> anyhow::Result<()> {
     let dst_dir = primitives_dir();
     std::fs::create_dir_all(&dst_dir)?;
 
     let (registry, version) = locate_registry()?;
-
-    // `Registry::names()` yields BTreeMap keys — already sorted.
-    let names: Vec<String> = registry.names().map(String::from).collect();
+    let components = vendored_components(&registry)?;
 
     let mut count = 0;
-    for name in &names {
-        let component = registry
-            .get(name)
-            .ok_or_else(|| anyhow::anyhow!("registry name {name} vanished between load and get"))?;
+    for component in &components {
         let src = component.read_source()?;
         let header = sync_header(&version, &topcoat_ui::content_hash(&src));
         let dst_path = dst_dir.join(component.file_name());
         if dry_run {
-            println!("would sync {name} -> {}", dst_path.display());
+            println!("would sync {} -> {}", component.name(), dst_path.display());
         } else {
             std::fs::write(&dst_path, format!("{header}{src}"))?;
-            println!("synced {name}");
+            println!("synced {}", component.name());
         }
         count += 1;
     }
@@ -151,25 +223,22 @@ pub fn sync_topcoat_ui(dry_run: bool, prune: bool) -> anyhow::Result<()> {
         );
         println!("note: composites/ was not touched (ADR-0007)");
     }
-    ensure_primitives_mod(&dst_dir, &version, &names, dry_run)?;
+    ensure_primitives_mod(&dst_dir, &version, &components, dry_run)?;
     if prune {
-        prune_orphans(&dst_dir, &registry, dry_run)?;
+        prune_orphans(&dst_dir, &components, dry_run)?;
     }
     Ok(())
 }
 
-/// Delete vendored files absent from the registry manifest (GH #175):
-/// the same expected-set as the `verify_sync` orphan guard (`mod.rs`
-/// included — it is regenerated, never pruned). Dry runs only report.
-fn prune_orphans(dst_dir: &Path, registry: &Registry, dry_run: bool) -> anyhow::Result<()> {
-    use std::collections::HashSet;
-    let mut expected: HashSet<String> = HashSet::new();
-    for name in registry.names() {
-        if let Some(component) = registry.get(name) {
-            expected.insert(component.file_name().to_string());
-        }
-    }
-    expected.insert("mod.rs".to_string());
+/// Delete vendored files absent from [`VENDORED_PRIMITIVES`] (GH #175): the
+/// same expected-set as the `verify_sync` orphan guard (`mod.rs` included — it
+/// is regenerated, never pruned). Dry runs only report.
+fn prune_orphans(
+    dst_dir: &Path,
+    components: &[Component<'_>],
+    dry_run: bool,
+) -> anyhow::Result<()> {
+    let expected = vendored_files(components);
     let mut orphans: Vec<PathBuf> = Vec::new();
     if let Ok(entries) = std::fs::read_dir(dst_dir) {
         for entry in entries.flatten() {
@@ -194,17 +263,17 @@ fn prune_orphans(dst_dir: &Path, registry: &Registry, dry_run: bool) -> anyhow::
     Ok(())
 }
 
-/// Regenerate `primitives/mod.rs` from the registry manifest.
+/// Regenerate `primitives/mod.rs` from the vendored set.
 fn ensure_primitives_mod(
     dst_dir: &Path,
     version: &str,
-    names: &[String],
+    components: &[Component<'_>],
     dry_run: bool,
 ) -> anyhow::Result<()> {
     let mod_path = dst_dir.join("mod.rs");
     let mut content = mod_header(version);
-    for name in names {
-        content.push_str(&format!("pub mod {name};\n"));
+    for component in components {
+        content.push_str(&format!("pub mod {};\n", component.name()));
     }
     if dry_run {
         println!("would write {}", mod_path.display());
@@ -217,7 +286,8 @@ fn ensure_primitives_mod(
 
 /// Guard: every vendored primitive is still the registry's verbatim source,
 /// every SYNC header records the current version *and* the current content
-/// hash, and `mod.rs` still lists exactly the registry's components.
+/// hash, `mod.rs` still lists exactly [`VENDORED_PRIMITIVES`], and the set is
+/// closed under the registry's same-registry dependencies.
 ///
 /// This is Argentum's counterpart of topcoat's own
 /// `examples/ui/tests/registry_sync.rs`: because the sync is byte-for-byte
@@ -226,14 +296,11 @@ fn ensure_primitives_mod(
 pub fn verify_sync() -> anyhow::Result<()> {
     let dst_dir = primitives_dir();
     let (registry, version) = locate_registry()?;
+    let components = vendored_components(&registry)?;
 
-    let names: Vec<String> = registry.names().map(String::from).collect();
     let mut failures = Vec::new();
 
-    for name in &names {
-        let component = registry
-            .get(name)
-            .ok_or_else(|| anyhow::anyhow!("registry name {name} vanished between load and get"))?;
+    for component in &components {
         let src = component.read_source()?;
         let expected = sync_header(&version, &topcoat_ui::content_hash(&src)) + &src;
         let dst_path = dst_dir.join(component.file_name());
@@ -274,16 +341,16 @@ pub fn verify_sync() -> anyhow::Result<()> {
         }
     }
 
-    // mod.rs must list exactly the registry's components.
+    // mod.rs must list exactly the vendored components.
     let mod_path = dst_dir.join("mod.rs");
     let mut expected = mod_header(&version);
-    for name in &names {
-        expected.push_str(&format!("pub mod {name};\n"));
+    for component in &components {
+        expected.push_str(&format!("pub mod {};\n", component.name()));
     }
     match std::fs::read_to_string(&mod_path) {
         Ok(actual) if actual == expected => {}
         Ok(_) => failures.push(format!(
-            "{} does not match the registry manifest; {HINT}",
+            "{} does not match the vendored set; {HINT}",
             mod_path.display()
         )),
         Err(error) => failures.push(format!(
@@ -292,18 +359,11 @@ pub fn verify_sync() -> anyhow::Result<()> {
         )),
     }
 
-    // Orphan guard (GH #103): an upstream-removed component must not linger as
-    // a stale vendored file that still compiles when referenced. Flag any file
-    // in primitives/ that the registry does not own.
+    // Orphan guard (GH #103): a component no longer in the vendored set must
+    // not linger as a stale vendored file that still compiles when referenced.
+    // Flag any file in primitives/ the set does not own.
     {
-        use std::collections::HashSet;
-        let mut expected_files: HashSet<String> = HashSet::new();
-        for name in &names {
-            if let Some(component) = registry.get(name) {
-                expected_files.insert(component.file_name().to_string());
-            }
-        }
-        expected_files.insert("mod.rs".to_string());
+        let expected_files = vendored_files(&components);
         if let Ok(entries) = std::fs::read_dir(&dst_dir) {
             let mut orphans: Vec<String> = Vec::new();
             for entry in entries.flatten() {
@@ -318,7 +378,7 @@ pub fn verify_sync() -> anyhow::Result<()> {
             orphans.sort();
             for orphan in orphans {
                 failures.push(format!(
-                    "{orphan} is not in the registry manifest (orphaned vendored file); delete it or {HINT}"
+                    "{orphan} is not in the vendored set (orphaned vendored file); delete it or {HINT}"
                 ));
             }
         }
@@ -327,12 +387,24 @@ pub fn verify_sync() -> anyhow::Result<()> {
     if failures.is_empty() {
         println!(
             "verified: {} primitives match topcoat-ui-registry@{version} verbatim",
-            names.len()
+            components.len()
         );
         Ok(())
     } else {
         anyhow::bail!("registry drift detected:\n{}", failures.join("\n"));
     }
+}
+
+/// Guard: [`VENDORED_PRIMITIVES`] is closed under the registry's
+/// same-registry dependencies (`vendored_components` enforces this too).
+pub fn verify_vendored_closure() -> anyhow::Result<()> {
+    let (registry, _version) = locate_registry()?;
+    let components = vendored_components(&registry)?;
+    println!(
+        "verified: {} vendored primitives are closed under their registry dependencies",
+        components.len()
+    );
+    Ok(())
 }
 
 /// The directory holding the hand-written shell JS assets (ADR-0014).
@@ -379,8 +451,8 @@ pub struct AssetHook {
 /// structural selectors (`.relative`, `pre code`, `select option`,
 /// `dialog[open]`, `#mobile-sidebar-sheet`, which has no JS consumer: the
 /// sheet backdrop is a runtime `@click` handler) and the inverse direction (a
-/// rendered hook with no consumer, e.g. `data-bulk-ids`) are out of scope, as
-/// are generic storage keys (`theme`, whose substring matches everything).
+/// rendered hook with no consumer) are out of scope, as are generic storage
+/// keys (`theme`, whose substring matches everything).
 ///
 /// Track new hooks here as they land. The check runs one way — every entry
 /// must still appear in both its asset and the Rust sources — so an entry that
@@ -529,6 +601,29 @@ pub const ASSET_HOOKS: &[AssetHook] = &[
         asset: "selects.js",
         js: "data-options-filter",
         rust: "data-options-filter",
+    },
+    // The overflow search (GH #150, GH #293): the wrapper flags a server-backed
+    // set and names the field the debounced fetch queries, the input and its
+    // listbox form the combobox, and the list receives the server's options.
+    AssetHook {
+        asset: "selects.js",
+        js: "data-options-field",
+        rust: "data-options-field",
+    },
+    AssetHook {
+        asset: "selects.js",
+        js: "data-options-server",
+        rust: "data-options-server",
+    },
+    AssetHook {
+        asset: "selects.js",
+        js: "data-options-combobox",
+        rust: "data-options-combobox",
+    },
+    AssetHook {
+        asset: "selects.js",
+        js: "data-options-list",
+        rust: "data-options-list",
     },
     // The embedded-enum variant toggle (GH #191). `data-variant` must be found
     // as the group's own attribute, and neither `data-variant-of`'s nor

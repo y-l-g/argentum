@@ -2,7 +2,7 @@
 //
 // Tables render one checkbox per row (`input[data-row-select]`, value = record
 // key) plus a header select-all (`input[data-bulk-select-all]`). The selection
-// lives in the bulk form's hidden transport (`input[data-bulk-ids]`), comma-
+// lives in the bulk form's hidden transport (`input[name="ids"]`), comma-
 // delimited on both ends — `,a,b,`, empty when nothing is selected.
 //
 // On a live table that transport is bound to a signal, so the selection

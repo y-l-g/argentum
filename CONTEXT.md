@@ -438,7 +438,7 @@ _Avoid_: Variable, Color
 
 ### Primitive
 
-A re-exported Topcoat UI component (button, card, badge, table, input...) vendored verbatim from
+A re-exported Topcoat UI component (button, card, select, table, input...) vendored verbatim from
 `topcoat-ui-registry` into `argentum-ui/src/components/primitives/` and synced via
 `cargo xtask sync-topcoat-ui`.
 

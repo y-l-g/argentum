@@ -569,10 +569,9 @@ impl<M> Table<M> {
                     name="ids"
                     :value=$(bulk.get())
                     @change=$(|e: Event| bulk.set(e.target.value))
-                    data-bulk-ids=""
                 }
             }
-            None => attributes! { cx => type="hidden" name="ids" value="" data-bulk-ids="" },
+            None => attributes! { cx => type="hidden" name="ids" value="" },
         };
         view! {
             cx =>
@@ -896,7 +895,6 @@ impl<M> Table<M> {
                     open: server_open,
                     attrs: attributes! {
                         id=(dialog_id)
-                        data-row-delete-dialog=""
                         aria-labelledby=(title_id.clone())
                         aria-describedby=(description_id.clone())
                         data-dialog-open-param=(open_param)
@@ -1200,7 +1198,6 @@ impl<M> Table<M> {
     pub(crate) async fn render_live_invocation<'a>(
         &self,
         cx: &'a Cx,
-        _state: &TableState,
         path: &str,
         signals: TableSignals,
     ) -> Result<BoxView<'a>> {
@@ -1208,8 +1205,7 @@ impl<M> Table<M> {
 
         // No snapshot here (GH #157): grouping travels as the `group_by`
         // live signal (seeded from the page state by the caller) and the
-        // shard normalizes on read (GH #153) — `_state` stays only so the
-        // seam keeps its shape for a future grouping control.
+        // shard normalizes on read (GH #153).
         let live_path = path.to_string();
         let TableSignals {
             q,
@@ -2621,9 +2617,7 @@ mod tests {
             "missing bulk form in {html}"
         );
         assert!(
-            html.contains("name=\"ids\"")
-                && html.contains("data-bulk-ids")
-                && !html.contains("ids comma-separated"),
+            html.contains("name=\"ids\"") && !html.contains("ids comma-separated"),
             "missing hidden ids transport in {html}"
         );
         // GH #184: the destructive write is gated by the confirmation dialog

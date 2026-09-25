@@ -5,6 +5,7 @@
 
 use std::collections::HashMap;
 
+use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, utf8_percent_encode};
 use topcoat::{
     Result,
     context::Cx,
@@ -789,18 +790,17 @@ fn decode_filter_component(s: &str) -> String {
         .replace("%25", "%")
 }
 
+/// Every byte outside the RFC 3986 `unreserved` set (`A-Z a-z 0-9 - _ . ~`)
+/// is percent-encoded in a query value or path segment (GH #93, GH #96).
+const NON_UNRESERVED: &AsciiSet = &NON_ALPHANUMERIC
+    .remove(b'-')
+    .remove(b'_')
+    .remove(b'.')
+    .remove(b'~');
+
 /// Percent-encode a query parameter value (`unreserved` RFC 3986 set passes).
 fn encode_query_value(value: &str) -> String {
-    let mut out = String::with_capacity(value.len());
-    for b in value.bytes() {
-        match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                out.push(b as char);
-            }
-            _ => out.push_str(&format!("%{b:02X}")),
-        }
-    }
-    out
+    utf8_percent_encode(value, NON_UNRESERVED).to_string()
 }
 
 /// Percent-encode a single path segment (GH #96).

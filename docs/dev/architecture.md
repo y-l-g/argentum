@@ -119,8 +119,8 @@ fails when an asset is missing or a hook no longer appears in both its JavaScrip
 renders it. `asset!` does not read its source at compile time, so nothing else checks the JavaScript
 side of that coupling.
 
-`cargo xtask sync-topcoat-ui` re-vendors `components/primitives/` from `topcoat-ui-registry` and
-writes a content hash into each file header. Those files are never hand-edited;
+`cargo xtask sync-topcoat-ui` re-vendors the components listed in `xtask::VENDORED_PRIMITIVES`
+from `topcoat-ui-registry` and writes a content hash into each file header. Those files are never hand-edited;
 `cargo xtask verify-topcoat-ui` fails on drift. Components in `components/composites/` are
 Argentum's own and are never overwritten.
 

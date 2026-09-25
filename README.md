@@ -136,8 +136,9 @@ Small fixes can go straight to a PR; larger changes are worth an issue first. Ev
 **squash-merged into `master`** as one Conventional Commit (`<type>(<scope>): <description> (#123)`).
 [`CONTRIBUTING.md`](CONTRIBUTING.md) covers the build, the CI gate set, and the commit rules;
 [`AGENTS.md`](AGENTS.md) is the short version for agents. The vendored-primitives rule is worth
-repeating here: `crates/argentum-ui/src/components/primitives/` mirrors `topcoat-ui-registry`
-verbatim — never hand-edit it, sync with `cargo xtask sync-topcoat-ui` (ADR-0007). Composites
+repeating here: `crates/argentum-ui/src/components/primitives/` mirrors the vendored
+`topcoat-ui-registry` components verbatim — never hand-edit it, sync with
+`cargo xtask sync-topcoat-ui` (ADR-0007). Composites
 (`Page`, `Toast`, `Theme`, `ErrorState`) are Argentum's own.
 
 ## License

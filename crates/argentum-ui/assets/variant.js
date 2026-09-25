@@ -46,13 +46,9 @@ function install() {
     const select = target.closest && target.closest('[data-variant-select]');
     if (select) applyVariant(select);
   });
-  // `defer` scripts run once the markup is parsed; the guard covers the same
-  // file loaded without it.
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => applyVariants());
-  } else {
-    applyVariants();
-  }
+  // Every asset is `defer`red (ADR-0014), so the markup is parsed by the time
+  // this runs.
+  applyVariants();
 }
 
 if (typeof document !== 'undefined') install();
