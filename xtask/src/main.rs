@@ -3,8 +3,11 @@ fn main() -> anyhow::Result<()> {
     let cmd = args.next().unwrap_or_else(|| "help".to_string());
     match cmd.as_str() {
         "sync-topcoat-ui" | "sync" => {
-            let dry_run = args.any(|a| a == "--dry-run");
-            let prune = args.any(|a| a == "--prune");
+            // The flags are read from one collected list: `Iterator::any`
+            // consumes the args, so a second call would never see its flag.
+            let rest: Vec<String> = args.collect();
+            let dry_run = rest.iter().any(|a| a == "--dry-run");
+            let prune = rest.iter().any(|a| a == "--prune");
             xtask::sync_topcoat_ui(dry_run, prune)?;
         }
         "verify-topcoat-ui" | "verify" => {
@@ -31,8 +34,9 @@ USAGE:
     cargo xtask verify-topcoat-ui
 
 COMMANDS:
-    sync-topcoat-ui    Copy primitives from the `topcoat-ui-registry` crate
-                       Cargo resolved for this workspace into
+    sync-topcoat-ui    Copy the components in `xtask::VENDORED_PRIMITIVES`
+                       from the `topcoat-ui-registry` crate Cargo resolved
+                       for this workspace into
                        crates/argentum-ui/src/components/primitives/*.rs —
                        verbatim, under a SYNC header recording the registry
                        version and the source's sha256 content hash. Never
@@ -45,7 +49,7 @@ COMMANDS:
 
 OPTIONS:
     --dry-run          Print what would be copied without writing
-    --prune            Also delete vendored files the registry no longer owns
+    --prune            Also delete vendored files the vendored set no longer owns
     --help, -h         Show this help
 "#
     );
