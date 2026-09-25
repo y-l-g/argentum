@@ -387,11 +387,11 @@ impl<M> std::fmt::Debug for TextColumn<M> {
 /// one-element tuple.
 ///
 /// Tuple arities stop at eight, the ceiling every tuple-collection trait
-/// shares: `IntoFilters` and `IntoSchema` in `schema/tree.rs`, and
-/// `IntoRelationColumns` in `resource/relation.rs`. Without variadic generics
-/// the idiom is one `macro_rules!` invocation per arity, and eight covers the
-/// widest tuple a Resource declares. Extend every list together when a real
-/// Resource needs more.
+/// shares: `IntoFilters` in `resource/filter.rs`, `IntoSchema` in
+/// `schema/tree.rs`, and `IntoRelationColumns` in `resource/relation.rs`.
+/// Without variadic generics the idiom is one `macro_rules!` invocation per
+/// arity, and eight covers the widest tuple a Resource declares. Extend every
+/// list together when a real Resource needs more.
 pub trait IntoColumns<M> {
     fn into_columns(self) -> Vec<TextColumn<M>>;
 }

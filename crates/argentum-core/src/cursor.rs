@@ -458,6 +458,34 @@ mod tests {
         round_trip(cursor);
     }
 
+    /// The wire format is a contract with tokens already in browsers' URLs, so
+    /// its exact bytes are pinned here instead of only round-tripped: a
+    /// symmetric tag swap or payload-width change round-trips cleanly and still
+    /// breaks every URL in flight. `VERSION` is the escape hatch — bump it for a
+    /// deliberate layout change and update this token with it; a token that
+    /// stops matching this test without a version bump is a bug.
+    #[test]
+    fn the_wire_format_is_pinned() {
+        assert_eq!(VERSION, 1);
+
+        // The engine's multi-column cursor, [sort value, primary key], sized to
+        // cross the record, i64, string and uuid tags.
+        let value = Value::Record(ValueRecord::from_vec(vec![
+            Value::I64(42),
+            Value::String("Ada Lovelace".to_string()),
+            Value::Uuid(uuid::Uuid::nil()),
+        ]));
+        let token = encode(&value).expect("encode");
+        assert_eq!(
+            token,
+            concat!(
+                "017203000000382a00000000000000730c000000416461204c6f76656c616365",
+                "7500000000000000000000000000000000",
+            )
+        );
+        assert_eq!(decode(&token).expect("decode"), value);
+    }
+
     #[test]
     fn rejects_malformed_tokens() {
         assert!(decode("").is_err(), "empty token must fail");

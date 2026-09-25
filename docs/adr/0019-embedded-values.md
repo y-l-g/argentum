@@ -83,8 +83,9 @@ nodes.
 
 ## Amendment — 2026-09-25
 
-**The `IntoSchema` tuple ceiling is eight.** It is the ceiling `IntoColumns`, `IntoFilters` and
-`IntoRelationColumns` share: one `macro_rules!` invocation per arity 2..=8, so `Schema::extend`
+**The `IntoSchema` tuple ceiling is eight.** Rule 6's "`IntoSchema`'s tuple form stops at four
+nodes" is superseded by this amendment: the ceiling is the one `IntoColumns`, `IntoFilters` and
+`IntoRelationColumns` share, one `macro_rules!` invocation per arity 2..=8, so `Schema::extend`
 remains the seam for a derived form with more controls than a tuple holds.
 
 **`IntoRelationColumns` takes a flat tuple.** Every element is a `RelationColumn<R>`; a nested tuple
