@@ -21,6 +21,6 @@ answers an error naming the resource rather than querying unscoped.</p>
 (ADR-0013) injects <code>Tenant</code> into the request <code>Cx</code> when the logged-in user
 carries one. A <code>Tenant</code> request extension — server-set only, never a header
 — takes precedence, so app middleware and <code>Router::handle</code> tests can
-override it deliberately. The <code>x-tenant-id</code> header fallback was removed in
-GH #131: learning another tenant’s UUID no longer makes anyone that tenant.</p>
+override it deliberately. No request header supplies a tenant: learning
+another tenant’s UUID does not make anyone that tenant (GH #131).</p>
 </div></details><h2 id="structs" class="section-header">Structs<a href="#structs" class="anchor">§</a></h2><dl class="item-table"><dt><a class="struct" href="struct.Tenant.html" title="struct argentum_core::tenancy::Tenant">Tenant</a></dt><dd>Request-scoped tenant identifier.</dd></dl><h2 id="functions" class="section-header">Functions<a href="#functions" class="anchor">§</a></h2><dl class="item-table"><dt><a class="fn" href="fn.require_tenant.html" title="fn argentum_core::tenancy::require_tenant">require_<wbr>tenant</a></dt><dd>Requires a tenant, returning an error if missing (for tenancy-gated resources).</dd><dt><a class="fn" href="fn.tenant_id.html" title="fn argentum_core::tenancy::tenant_id">tenant_<wbr>id</a></dt><dd>Returns the tenant id from <code>cx</code>, if present.</dd></dl></section></div></main></body></html>

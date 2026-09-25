@@ -382,14 +382,14 @@
 <a href=#382 id=382 data-nosnippet>382</a>
 <a href=#383 id=383 data-nosnippet>383</a><span class="doccomment">/// Convert a single column or tuple of columns into `Vec&lt;TextColumn&lt;M&gt;&gt;`.
 <a href=#384 id=384 data-nosnippet>384</a>///
-<a href=#385 id=385 data-nosnippet>385</a>/// Tuple members are `TextColumn&lt;M&gt;` themselves: the `Into` bounds these impls
-<a href=#386 id=386 data-nosnippet>386</a>/// once carried existed for the removed `Column&lt;M&gt;` enum, and nothing else ever
-<a href=#387 id=387 data-nosnippet>387</a>/// implemented `From&lt;_&gt; for TextColumn&lt;M&gt;` but the reflexive impl (GH #228).
+<a href=#385 id=385 data-nosnippet>385</a>/// Tuple members are `TextColumn&lt;M&gt;` themselves, so nothing sits between the
+<a href=#386 id=386 data-nosnippet>386</a>/// column types (GH #228). A single column converts on its own, with no
+<a href=#387 id=387 data-nosnippet>387</a>/// one-element tuple.
 <a href=#388 id=388 data-nosnippet>388</a>///
 <a href=#389 id=389 data-nosnippet>389</a>/// 5-tuple limit: without variadic generics this is idiomatic Rust — one arity
 <a href=#390 id=390 data-nosnippet>390</a>/// past `IntoSchema` in `schema/tree.rs`, which stops at four. Tables wider
-<a href=#391 id=391 data-nosnippet>391</a>/// than five columns are rare in admin UIs; extend (or macro-ify) when a real
-<a href=#392 id=392 data-nosnippet>392</a>/// Resource needs it.
+<a href=#391 id=391 data-nosnippet>391</a>/// than five columns are rare in admin UIs; extend when a real Resource needs
+<a href=#392 id=392 data-nosnippet>392</a>/// it.
 <a href=#393 id=393 data-nosnippet>393</a></span><span class="kw">pub trait </span>IntoColumns&lt;M&gt; {
 <a href=#394 id=394 data-nosnippet>394</a>    <span class="kw">fn </span>into_columns(<span class="self">self</span>) -&gt; Vec&lt;TextColumn&lt;M&gt;&gt;;
 <a href=#395 id=395 data-nosnippet>395</a>}

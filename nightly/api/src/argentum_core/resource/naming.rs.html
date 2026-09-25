@@ -86,70 +86,69 @@
 <a href=#86 id=86 data-nosnippet>86</a><span class="doccomment">/// Convert a CamelCase identifier to kebab-case: `BlogPost` → `blog-post`,
 <a href=#87 id=87 data-nosnippet>87</a>/// `APIKey` → `api-key`.
 <a href=#88 id=88 data-nosnippet>88</a>///
-<a href=#89 id=89 data-nosnippet>89</a>/// Delegates to `heck::ToKebabCase` (GH #139; the hand-rolled scanner matched
-<a href=#90 id=90 data-nosnippet>90</a>/// heck on every Rust-identifier shape — digits, acronym runs — so slugs are
-<a href=#91 id=91 data-nosnippet>91</a>/// unchanged). Underscores now split words too (`Audit_Log` → `audit-log`,
-<a href=#92 id=92 data-nosnippet>92</a>/// previously `audit_log`): name resources without underscores or override
-<a href=#93 id=93 data-nosnippet>93</a>/// [`Resource::slug`](crate::Resource::slug).
-<a href=#94 id=94 data-nosnippet>94</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>kebab_case(name: <span class="kw-2">&amp;</span>str) -&gt; String {
-<a href=#95 id=95 data-nosnippet>95</a>    <span class="kw">use </span>heck::ToKebabCase;
-<a href=#96 id=96 data-nosnippet>96</a>    name.to_kebab_case()
-<a href=#97 id=97 data-nosnippet>97</a>}
-<a href=#98 id=98 data-nosnippet>98</a>
-<a href=#99 id=99 data-nosnippet>99</a><span class="attr">#[cfg(test)]
-<a href=#100 id=100 data-nosnippet>100</a></span><span class="kw">mod </span>tests {
-<a href=#101 id=101 data-nosnippet>101</a>    <span class="attr">#[test]
-<a href=#102 id=102 data-nosnippet>102</a>    </span><span class="kw">fn </span>pluralize_and_kebab_follow_english_rules() {
-<a href=#103 id=103 data-nosnippet>103</a>        <span class="kw">use super</span>::{kebab_case, pluralize};
-<a href=#104 id=104 data-nosnippet>104</a>        <span class="comment">// rules
-<a href=#105 id=105 data-nosnippet>105</a>        </span><span class="macro">assert_eq!</span>(pluralize(<span class="string">"User"</span>), <span class="string">"Users"</span>);
-<a href=#106 id=106 data-nosnippet>106</a>        <span class="macro">assert_eq!</span>(pluralize(<span class="string">"Category"</span>), <span class="string">"Categories"</span>);
-<a href=#107 id=107 data-nosnippet>107</a>        <span class="macro">assert_eq!</span>(pluralize(<span class="string">"Dummy"</span>), <span class="string">"Dummies"</span>);
-<a href=#108 id=108 data-nosnippet>108</a>        <span class="macro">assert_eq!</span>(pluralize(<span class="string">"Day"</span>), <span class="string">"Days"</span>);
-<a href=#109 id=109 data-nosnippet>109</a>        <span class="macro">assert_eq!</span>(pluralize(<span class="string">"Box"</span>), <span class="string">"Boxes"</span>);
-<a href=#110 id=110 data-nosnippet>110</a>        <span class="macro">assert_eq!</span>(pluralize(<span class="string">"Bus"</span>), <span class="string">"Buses"</span>);
-<a href=#111 id=111 data-nosnippet>111</a>        <span class="macro">assert_eq!</span>(pluralize(<span class="string">"Church"</span>), <span class="string">"Churches"</span>);
-<a href=#112 id=112 data-nosnippet>112</a>        <span class="macro">assert_eq!</span>(pluralize(<span class="string">"Knife"</span>), <span class="string">"Knives"</span>);
-<a href=#113 id=113 data-nosnippet>113</a>        <span class="macro">assert_eq!</span>(pluralize(<span class="string">"Roof"</span>), <span class="string">"Roofs"</span>);
-<a href=#114 id=114 data-nosnippet>114</a>        <span class="comment">// irregulars (case preserved)
-<a href=#115 id=115 data-nosnippet>115</a>        </span><span class="macro">assert_eq!</span>(pluralize(<span class="string">"Person"</span>), <span class="string">"People"</span>);
-<a href=#116 id=116 data-nosnippet>116</a>        <span class="macro">assert_eq!</span>(pluralize(<span class="string">"Child"</span>), <span class="string">"Children"</span>);
-<a href=#117 id=117 data-nosnippet>117</a>        <span class="macro">assert_eq!</span>(pluralize(<span class="string">"Index"</span>), <span class="string">"Indices"</span>);
-<a href=#118 id=118 data-nosnippet>118</a>        <span class="comment">// kebab
-<a href=#119 id=119 data-nosnippet>119</a>        </span><span class="macro">assert_eq!</span>(kebab_case(<span class="string">"Users"</span>), <span class="string">"users"</span>);
-<a href=#120 id=120 data-nosnippet>120</a>        <span class="macro">assert_eq!</span>(kebab_case(<span class="string">"BlogPost"</span>), <span class="string">"blog-post"</span>);
-<a href=#121 id=121 data-nosnippet>121</a>        <span class="macro">assert_eq!</span>(kebab_case(<span class="string">"APIKey"</span>), <span class="string">"api-key"</span>);
-<a href=#122 id=122 data-nosnippet>122</a>        <span class="comment">// The heck delegate (GH #139): digit boundaries match the old scanner,
-<a href=#123 id=123 data-nosnippet>123</a>        // and underscores now split words — pinned so a heck upgrade cannot
-<a href=#124 id=124 data-nosnippet>124</a>        // silently change slugs.
-<a href=#125 id=125 data-nosnippet>125</a>        </span><span class="macro">assert_eq!</span>(kebab_case(<span class="string">"User2FA"</span>), <span class="string">"user2-fa"</span>);
-<a href=#126 id=126 data-nosnippet>126</a>        <span class="macro">assert_eq!</span>(kebab_case(<span class="string">"Blog_Post"</span>), <span class="string">"blog-post"</span>);
-<a href=#127 id=127 data-nosnippet>127</a>    }
-<a href=#128 id=128 data-nosnippet>128</a>
-<a href=#129 id=129 data-nosnippet>129</a>    <span class="attr">#[test]
-<a href=#130 id=130 data-nosnippet>130</a>    </span><span class="kw">fn </span>naming_invariants_hold() {
-<a href=#131 id=131 data-nosnippet>131</a>        <span class="comment">// GH #136 §5 property candidates: kebab is lowercase + hyphen-only,
-<a href=#132 id=132 data-nosnippet>132</a>        // pluralize never empties.
-<a href=#133 id=133 data-nosnippet>133</a>        </span><span class="kw">use super</span>::{kebab_case, pluralize};
-<a href=#134 id=134 data-nosnippet>134</a>        <span class="kw">for </span>word <span class="kw">in </span>[
-<a href=#135 id=135 data-nosnippet>135</a>            <span class="string">"User"</span>, <span class="string">"BlogPost"</span>, <span class="string">"APIKey"</span>, <span class="string">"Category"</span>, <span class="string">"Box"</span>, <span class="string">"Person"</span>, <span class="string">""</span>,
-<a href=#136 id=136 data-nosnippet>136</a>        ] {
-<a href=#137 id=137 data-nosnippet>137</a>            <span class="kw">let </span>kebab = kebab_case(word);
-<a href=#138 id=138 data-nosnippet>138</a>            <span class="macro">assert!</span>(
-<a href=#139 id=139 data-nosnippet>139</a>                kebab
-<a href=#140 id=140 data-nosnippet>140</a>                    .chars()
-<a href=#141 id=141 data-nosnippet>141</a>                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == <span class="string">'-'</span>)
-<a href=#142 id=142 data-nosnippet>142</a>                    || kebab.is_empty(),
-<a href=#143 id=143 data-nosnippet>143</a>                <span class="string">"kebab must be lower-hyphen, got {kebab:?} from {word:?}"
-<a href=#144 id=144 data-nosnippet>144</a>            </span>);
-<a href=#145 id=145 data-nosnippet>145</a>            <span class="kw">let </span>plural = pluralize(word);
-<a href=#146 id=146 data-nosnippet>146</a>            <span class="macro">assert!</span>(
-<a href=#147 id=147 data-nosnippet>147</a>                word.is_empty() || !plural.is_empty(),
-<a href=#148 id=148 data-nosnippet>148</a>                <span class="string">"plural must not empty {word:?}"
-<a href=#149 id=149 data-nosnippet>149</a>            </span>);
-<a href=#150 id=150 data-nosnippet>150</a>        }
-<a href=#151 id=151 data-nosnippet>151</a>        <span class="comment">// kebab round-trips through slug vocabulary (no underscores).
-<a href=#152 id=152 data-nosnippet>152</a>        </span><span class="macro">assert!</span>(!kebab_case(<span class="string">"Audit_Log"</span>).contains(<span class="string">'_'</span>));
-<a href=#153 id=153 data-nosnippet>153</a>    }
-<a href=#154 id=154 data-nosnippet>154</a>}
+<a href=#89 id=89 data-nosnippet>89</a>/// Delegates to `heck::ToKebabCase` (GH #139): digits split words
+<a href=#90 id=90 data-nosnippet>90</a>/// (`User2FA` → `user2-fa`) and so do underscores (`Audit_Log` → `audit-log`).
+<a href=#91 id=91 data-nosnippet>91</a>/// Name resources without underscores or override
+<a href=#92 id=92 data-nosnippet>92</a>/// [`Resource::slug`](crate::Resource::slug).
+<a href=#93 id=93 data-nosnippet>93</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>kebab_case(name: <span class="kw-2">&amp;</span>str) -&gt; String {
+<a href=#94 id=94 data-nosnippet>94</a>    <span class="kw">use </span>heck::ToKebabCase;
+<a href=#95 id=95 data-nosnippet>95</a>    name.to_kebab_case()
+<a href=#96 id=96 data-nosnippet>96</a>}
+<a href=#97 id=97 data-nosnippet>97</a>
+<a href=#98 id=98 data-nosnippet>98</a><span class="attr">#[cfg(test)]
+<a href=#99 id=99 data-nosnippet>99</a></span><span class="kw">mod </span>tests {
+<a href=#100 id=100 data-nosnippet>100</a>    <span class="attr">#[test]
+<a href=#101 id=101 data-nosnippet>101</a>    </span><span class="kw">fn </span>pluralize_and_kebab_follow_english_rules() {
+<a href=#102 id=102 data-nosnippet>102</a>        <span class="kw">use super</span>::{kebab_case, pluralize};
+<a href=#103 id=103 data-nosnippet>103</a>        <span class="comment">// rules
+<a href=#104 id=104 data-nosnippet>104</a>        </span><span class="macro">assert_eq!</span>(pluralize(<span class="string">"User"</span>), <span class="string">"Users"</span>);
+<a href=#105 id=105 data-nosnippet>105</a>        <span class="macro">assert_eq!</span>(pluralize(<span class="string">"Category"</span>), <span class="string">"Categories"</span>);
+<a href=#106 id=106 data-nosnippet>106</a>        <span class="macro">assert_eq!</span>(pluralize(<span class="string">"Dummy"</span>), <span class="string">"Dummies"</span>);
+<a href=#107 id=107 data-nosnippet>107</a>        <span class="macro">assert_eq!</span>(pluralize(<span class="string">"Day"</span>), <span class="string">"Days"</span>);
+<a href=#108 id=108 data-nosnippet>108</a>        <span class="macro">assert_eq!</span>(pluralize(<span class="string">"Box"</span>), <span class="string">"Boxes"</span>);
+<a href=#109 id=109 data-nosnippet>109</a>        <span class="macro">assert_eq!</span>(pluralize(<span class="string">"Bus"</span>), <span class="string">"Buses"</span>);
+<a href=#110 id=110 data-nosnippet>110</a>        <span class="macro">assert_eq!</span>(pluralize(<span class="string">"Church"</span>), <span class="string">"Churches"</span>);
+<a href=#111 id=111 data-nosnippet>111</a>        <span class="macro">assert_eq!</span>(pluralize(<span class="string">"Knife"</span>), <span class="string">"Knives"</span>);
+<a href=#112 id=112 data-nosnippet>112</a>        <span class="macro">assert_eq!</span>(pluralize(<span class="string">"Roof"</span>), <span class="string">"Roofs"</span>);
+<a href=#113 id=113 data-nosnippet>113</a>        <span class="comment">// irregulars (case preserved)
+<a href=#114 id=114 data-nosnippet>114</a>        </span><span class="macro">assert_eq!</span>(pluralize(<span class="string">"Person"</span>), <span class="string">"People"</span>);
+<a href=#115 id=115 data-nosnippet>115</a>        <span class="macro">assert_eq!</span>(pluralize(<span class="string">"Child"</span>), <span class="string">"Children"</span>);
+<a href=#116 id=116 data-nosnippet>116</a>        <span class="macro">assert_eq!</span>(pluralize(<span class="string">"Index"</span>), <span class="string">"Indices"</span>);
+<a href=#117 id=117 data-nosnippet>117</a>        <span class="comment">// kebab
+<a href=#118 id=118 data-nosnippet>118</a>        </span><span class="macro">assert_eq!</span>(kebab_case(<span class="string">"Users"</span>), <span class="string">"users"</span>);
+<a href=#119 id=119 data-nosnippet>119</a>        <span class="macro">assert_eq!</span>(kebab_case(<span class="string">"BlogPost"</span>), <span class="string">"blog-post"</span>);
+<a href=#120 id=120 data-nosnippet>120</a>        <span class="macro">assert_eq!</span>(kebab_case(<span class="string">"APIKey"</span>), <span class="string">"api-key"</span>);
+<a href=#121 id=121 data-nosnippet>121</a>        <span class="comment">// The heck delegate (GH #139): digit boundaries split (`User2FA` →
+<a href=#122 id=122 data-nosnippet>122</a>        // `user2-fa`) and underscores split words — pinned so a heck upgrade
+<a href=#123 id=123 data-nosnippet>123</a>        // cannot silently change slugs.
+<a href=#124 id=124 data-nosnippet>124</a>        </span><span class="macro">assert_eq!</span>(kebab_case(<span class="string">"User2FA"</span>), <span class="string">"user2-fa"</span>);
+<a href=#125 id=125 data-nosnippet>125</a>        <span class="macro">assert_eq!</span>(kebab_case(<span class="string">"Blog_Post"</span>), <span class="string">"blog-post"</span>);
+<a href=#126 id=126 data-nosnippet>126</a>    }
+<a href=#127 id=127 data-nosnippet>127</a>
+<a href=#128 id=128 data-nosnippet>128</a>    <span class="attr">#[test]
+<a href=#129 id=129 data-nosnippet>129</a>    </span><span class="kw">fn </span>naming_invariants_hold() {
+<a href=#130 id=130 data-nosnippet>130</a>        <span class="comment">// GH #136 §5 property candidates: kebab is lowercase + hyphen-only,
+<a href=#131 id=131 data-nosnippet>131</a>        // pluralize never empties.
+<a href=#132 id=132 data-nosnippet>132</a>        </span><span class="kw">use super</span>::{kebab_case, pluralize};
+<a href=#133 id=133 data-nosnippet>133</a>        <span class="kw">for </span>word <span class="kw">in </span>[
+<a href=#134 id=134 data-nosnippet>134</a>            <span class="string">"User"</span>, <span class="string">"BlogPost"</span>, <span class="string">"APIKey"</span>, <span class="string">"Category"</span>, <span class="string">"Box"</span>, <span class="string">"Person"</span>, <span class="string">""</span>,
+<a href=#135 id=135 data-nosnippet>135</a>        ] {
+<a href=#136 id=136 data-nosnippet>136</a>            <span class="kw">let </span>kebab = kebab_case(word);
+<a href=#137 id=137 data-nosnippet>137</a>            <span class="macro">assert!</span>(
+<a href=#138 id=138 data-nosnippet>138</a>                kebab
+<a href=#139 id=139 data-nosnippet>139</a>                    .chars()
+<a href=#140 id=140 data-nosnippet>140</a>                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == <span class="string">'-'</span>)
+<a href=#141 id=141 data-nosnippet>141</a>                    || kebab.is_empty(),
+<a href=#142 id=142 data-nosnippet>142</a>                <span class="string">"kebab must be lower-hyphen, got {kebab:?} from {word:?}"
+<a href=#143 id=143 data-nosnippet>143</a>            </span>);
+<a href=#144 id=144 data-nosnippet>144</a>            <span class="kw">let </span>plural = pluralize(word);
+<a href=#145 id=145 data-nosnippet>145</a>            <span class="macro">assert!</span>(
+<a href=#146 id=146 data-nosnippet>146</a>                word.is_empty() || !plural.is_empty(),
+<a href=#147 id=147 data-nosnippet>147</a>                <span class="string">"plural must not empty {word:?}"
+<a href=#148 id=148 data-nosnippet>148</a>            </span>);
+<a href=#149 id=149 data-nosnippet>149</a>        }
+<a href=#150 id=150 data-nosnippet>150</a>        <span class="comment">// kebab round-trips through slug vocabulary (no underscores).
+<a href=#151 id=151 data-nosnippet>151</a>        </span><span class="macro">assert!</span>(!kebab_case(<span class="string">"Audit_Log"</span>).contains(<span class="string">'_'</span>));
+<a href=#152 id=152 data-nosnippet>152</a>    }
+<a href=#153 id=153 data-nosnippet>153</a>}
 </code></pre></div></section></main></body></html>

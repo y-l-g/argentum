@@ -342,8 +342,8 @@
 <a href=#342 id=342 data-nosnippet>342</a>/// `max` bounds the parse itself, not just the final list (GH #85): a 10 MiB
 <a href=#343 id=343 data-nosnippet>343</a>/// body of distinct ids stops at `max + 1` entries (which the handler then
 <a href=#344 id=344 data-nosnippet>344</a>/// rejects with 400) instead of allocating millions of strings while the
-<a href=#345 id=345 data-nosnippet>345</a>/// `MAX_BULK_IDS` check waits for the parse to finish. Deduping uses a set —
-<a href=#346 id=346 data-nosnippet>346</a>/// the previous `Vec::contains` scan was quadratic.
+<a href=#345 id=345 data-nosnippet>345</a>/// `MAX_BULK_IDS` check waits for the parse to finish. Deduping uses a set, so
+<a href=#346 id=346 data-nosnippet>346</a>/// the scan stays linear in the number of ids.
 <a href=#347 id=347 data-nosnippet>347</a>///
 <a href=#348 id=348 data-nosnippet>348</a>/// Known limit (GH #85): the split happens after url-decoding, so a
 <a href=#349 id=349 data-nosnippet>349</a>/// `String`-PK id containing a literal comma (`%2C`) splits into phantom

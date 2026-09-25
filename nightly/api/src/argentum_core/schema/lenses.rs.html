@@ -552,14 +552,14 @@
 <a href=#552 id=552 data-nosnippet>552</a>        <span class="comment">// An enum nested in the parent path consumes two steps per level: the
 <a href=#553 id=553 data-nosnippet>553</a>        // variant index, then a variant-local field index. `variant_fields`
 <a href=#554 id=554 data-nosnippet>554</a>        // returns the variant's own slice of the enum's global field list
-<a href=#555 id=555 data-nosnippet>555</a>        // (upstream 7ff180db changed it from an iterator to that slice), so the
-<a href=#556 id=556 data-nosnippet>556</a>        // second step indexes it directly — the generated accessor's index is
-<a href=#557 id=557 data-nosnippet>557</a>        // variant-local, which is the same field either way.
+<a href=#555 id=555 data-nosnippet>555</a>        // (upstream 7ff180db), so the second step indexes it directly — the
+<a href=#556 id=556 data-nosnippet>556</a>        // generated accessor's index is variant-local, which is the same field
+<a href=#557 id=557 data-nosnippet>557</a>        // either way.
 <a href=#558 id=558 data-nosnippet>558</a>        //
 <a href=#559 id=559 data-nosnippet>559</a>        // The variant step is bounds-checked here first: `variant_fields`
-<a href=#560 id=560 data-nosnippet>560</a>        // indexes `variants[i]` and panics out of range where the old iterator
-<a href=#561 id=561 data-nosnippet>561</a>        // returned `None`, and this walk answers `None` for a path it cannot
-<a href=#562 id=562 data-nosnippet>562</a>        // resolve (a wrong lens must not abort a request).
+<a href=#560 id=560 data-nosnippet>560</a>        // indexes `variants[i]` and panics out of range, and this walk answers
+<a href=#561 id=561 data-nosnippet>561</a>        // `None` for a path it cannot resolve (a wrong lens must not abort a
+<a href=#562 id=562 data-nosnippet>562</a>        // request).
 <a href=#563 id=563 data-nosnippet>563</a>        </span>toasty::schema::app::Model::EmbeddedEnum(e) =&gt; {
 <a href=#564 id=564 data-nosnippet>564</a>            <span class="kw">let </span>(variant, tail) = rest.split_first()<span class="question-mark">?</span>;
 <a href=#565 id=565 data-nosnippet>565</a>            e.variants.get(<span class="kw-2">*</span>variant)<span class="question-mark">?</span>;

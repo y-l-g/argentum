@@ -4,7 +4,7 @@ regenerate <code>mod.rs</code> from the manifest. Never touches <code>composites
 (ADR-0007).</p>
 <p>No sibling clone required — the registry comes from the same git source
 Cargo compiles against.</p>
-<p><code>prune</code> deletes vendored files the registry no longer owns (the orphan
+<p><code>prune</code> deletes vendored files absent from the registry manifest (the orphan
 guard in <code>verify_sync</code> otherwise leaves <code>verify</code> red after an upstream
 removal with <code>sync</code> alone unable to fix it). Without it, orphans are only
 reported — pass <code>--prune</code> to converge.</p>

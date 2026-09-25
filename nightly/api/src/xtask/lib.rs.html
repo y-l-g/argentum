@@ -113,7 +113,7 @@
 <a href=#113 id=113 data-nosnippet>113</a>/// No sibling clone required — the registry comes from the same git source
 <a href=#114 id=114 data-nosnippet>114</a>/// Cargo compiles against.
 <a href=#115 id=115 data-nosnippet>115</a>///
-<a href=#116 id=116 data-nosnippet>116</a>/// `prune` deletes vendored files the registry no longer owns (the orphan
+<a href=#116 id=116 data-nosnippet>116</a>/// `prune` deletes vendored files absent from the registry manifest (the orphan
 <a href=#117 id=117 data-nosnippet>117</a>/// guard in `verify_sync` otherwise leaves `verify` red after an upstream
 <a href=#118 id=118 data-nosnippet>118</a>/// removal with `sync` alone unable to fix it). Without it, orphans are only
 <a href=#119 id=119 data-nosnippet>119</a>/// reported — pass `--prune` to converge.
@@ -158,7 +158,7 @@
 <a href=#158 id=158 data-nosnippet>158</a>    <span class="prelude-val">Ok</span>(())
 <a href=#159 id=159 data-nosnippet>159</a>}
 <a href=#160 id=160 data-nosnippet>160</a>
-<a href=#161 id=161 data-nosnippet>161</a><span class="doccomment">/// Delete vendored files the registry manifest no longer owns (GH #175):
+<a href=#161 id=161 data-nosnippet>161</a><span class="doccomment">/// Delete vendored files absent from the registry manifest (GH #175):
 <a href=#162 id=162 data-nosnippet>162</a>/// the same expected-set as the `verify_sync` orphan guard (`mod.rs`
 <a href=#163 id=163 data-nosnippet>163</a>/// included — it is regenerated, never pruned). Dry runs only report.
 <a href=#164 id=164 data-nosnippet>164</a></span><span class="kw">fn </span>prune_orphans(dst_dir: <span class="kw-2">&amp;</span>Path, registry: <span class="kw-2">&amp;</span>Registry, dry_run: bool) -&gt; anyhow::Result&lt;()&gt; {
@@ -592,7 +592,7 @@
 <a href=#592 id=592 data-nosnippet>592</a>/// longer name.
 <a href=#593 id=593 data-nosnippet>593</a>///
 <a href=#594 id=594 data-nosnippet>594</a>/// A plain substring check misses renames by extension (`data-copy-button` →
-<a href=#595 id=595 data-nosnippet>595</a>/// `data-copy-button-2` still contains the old string), so an occurrence only
+<a href=#595 id=595 data-nosnippet>595</a>/// `data-copy-button-2` still contains the shorter name), so an occurrence only
 <a href=#596 id=596 data-nosnippet>596</a>/// counts when neither neighbor continues the name. Still structural: any
 <a href=#597 id=597 data-nosnippet>597</a>/// spelling (`[data-x]`, `data-x=""`, `dataset.x`) matches.
 <a href=#598 id=598 data-nosnippet>598</a>///

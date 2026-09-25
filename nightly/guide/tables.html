@@ -35,7 +35,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-2e3c8909.js";
+            window.path_to_searchindex_js = "searchindex-632268ac.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-da1679ae.js"></script>
@@ -188,6 +188,7 @@ updates, and row and bulk delete.</p>
 </span><span class="boring">fn main() {
 </span>Table::r#for(cx)
     .id(|u: &amp;User| u.id.to_string())
+    .pk(|u: &amp;User| u.id.to_string())
     .columns((
         TextColumn::r#for(User::fields().name(), |u: &amp;User| u.name.clone())
             .searchable()
@@ -201,6 +202,11 @@ updates, and row and bulk delete.</p>
 <p>Notes:</p>
 <ul>
 <li><code>.id(...)</code> is required. It keys rows for selection and live updates. Never use a loop index.</li>
+<li><code>.pk(...)</code> declares the record key that action URLs and bulk checkbox values carry; handlers
+resolve it as the model’s typed primary key. Emit the primary key, not a display label. Declare it
+whenever the resource carries action chrome — <code>deletable()</code>, <code>editable()</code>, or a declared detail
+<code>view()</code> — because <code>Panel::build</code> refuses a table that carries chrome without a record key. The two projections agree in the common case
+(<code>|u| u.id.to_string()</code>).</li>
 <li><code>searchable()</code> searches with <code>?q=</code>: an escaped substring match (<code>like_with_escape</code>, OR across
 searchable columns), so a term containing <code>%</code> or <code>_</code> matches those characters literally. <code>LIKE</code> is
 ASCII-case-insensitive on SQLite and case-sensitive on PostgreSQL. <code>sortable()</code> sorts with

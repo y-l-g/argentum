@@ -24,8 +24,8 @@
 <a href=#24 id=24 data-nosnippet>24</a>//! (ADR-0013) injects `Tenant` into the request `Cx` when the logged-in user
 <a href=#25 id=25 data-nosnippet>25</a>//! carries one. A `Tenant` request extension — server-set only, never a header
 <a href=#26 id=26 data-nosnippet>26</a>//! — takes precedence, so app middleware and `Router::handle` tests can
-<a href=#27 id=27 data-nosnippet>27</a>//! override it deliberately. The `x-tenant-id` header fallback was removed in
-<a href=#28 id=28 data-nosnippet>28</a>//! GH #131: learning another tenant's UUID no longer makes anyone that tenant.
+<a href=#27 id=27 data-nosnippet>27</a>//! override it deliberately. No request header supplies a tenant: learning
+<a href=#28 id=28 data-nosnippet>28</a>//! another tenant's UUID does not make anyone that tenant (GH #131).
 <a href=#29 id=29 data-nosnippet>29</a>
 <a href=#30 id=30 data-nosnippet>30</a></span><span class="kw">use </span>toasty::stmt::Expr;
 <a href=#31 id=31 data-nosnippet>31</a><span class="kw">use </span>topcoat::context::{Cx, try_request_context};

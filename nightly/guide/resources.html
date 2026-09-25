@@ -35,7 +35,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-2e3c8909.js";
+            window.path_to_searchindex_js = "searchindex-632268ac.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-da1679ae.js"></script>
@@ -204,17 +204,21 @@ and how tenancy is declared.</p>
 omission has to fail loudly instead of quietly:</p>
 <ul>
 <li><strong>At <code>Panel::build</code></strong> (which returns <code>Result&lt;Router&gt;</code>): the table must be renderable — <code>table()</code>
-declares columns and a row key — and where <code>can_create</code> allows it, <code>form()</code> must declare fields.
-A resource that overrides nothing fails the build, naming the type, instead of serving an error
-state or an empty form. <code>table()</code>, <code>form()</code> and <code>can_create()</code> are declarations: the panel calls
-them once at boot, so they must not need request-scoped context.</li>
+declares columns and a row key, plus <code>Table::pk</code> where the resource declares action chrome — and
+where <code>can_create</code> allows it, <code>form()</code> must declare fields. A resource that overrides nothing fails
+the build, naming the type, instead of serving an error state or an empty form. <code>table()</code>, <code>form()</code>
+and <code>can_create()</code> are declarations: <code>Panel::build</code> calls them with a Db-only context to check them,
+and each list and form request calls <code>table()</code> / <code>form()</code> again, so a declaration must not need
+request-scoped context.</li>
 <li><strong>At request time, loudly</strong>: the record fns default to an error naming the type (“delete not
 implemented for …”), so a missing implementation never looks like a successful no-op.</li>
 <li><strong>Chrome is opt-in, gated per record</strong>: <code>deletable()</code> and <code>editable()</code> default to <code>false</code>, so a
 resource that never mentions them renders no Edit or Delete affordance — the routes still exist,
 and the default-deny <code>can_*</code> predicates answer them. A resource that wants the chrome declares the
 flag <strong>and</strong> the policy predicate it promises: <code>can_view()</code> + <code>can_delete()</code> for <code>deletable()</code>,
-<code>can_view()</code> + <code>can_update()</code> for <code>editable()</code>. The flag is the whole-resource gate (GH #226); the
+<code>can_view()</code> + <code>can_update()</code> for <code>editable()</code>. It also commits the table to <code>Table::pk(..)</code> — the
+action URLs and bulk values carry that projection — and <code>Panel::build</code> refuses a table that declares
+chrome without it. The flag is the whole-resource gate (GH #226); the
 predicates are
 applied <strong>per row</strong> (GH #235). The panel wires them into the table’s row policy, so a row
 <code>can_update()</code> refuses renders no Edit link, a row <code>can_delete()</code> refuses renders no Delete link

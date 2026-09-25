@@ -727,48 +727,47 @@
 <a href=#727 id=727 data-nosnippet>727</a>
 <a href=#728 id=728 data-nosnippet>728</a>    <span class="attr">#[tokio::test]
 <a href=#729 id=729 data-nosnippet>729</a>    </span><span class="kw">async fn </span>select_renders_through_the_select_primitive() {
-<a href=#730 id=730 data-nosnippet>730</a>        <span class="comment">// The schema select was a hand-rolled `&lt;select&gt;` on the old input
-<a href=#731 id=731 data-nosnippet>731</a>        // chrome (`rounded-md`, page fill, no focus ring); it now composes the
-<a href=#732 id=732 data-nosnippet>732</a>        // synced `select` primitive, so it matches the `input` beside it and
-<a href=#733 id=733 data-nosnippet>733</a>        // `selects.js` keeps finding the control inside the filterable field.
-<a href=#734 id=734 data-nosnippet>734</a>        </span><span class="kw">let </span>cx = CxTestBuilder::new().build();
-<a href=#735 id=735 data-nosnippet>735</a>        <span class="kw">let </span>schema =
-<a href=#736 id=736 data-nosnippet>736</a>            Schema::new(Select::r#for(DummyUser::fields().name()).options(<span class="macro">vec!</span>[<span class="string">"a"</span>.to_string()]));
-<a href=#737 id=737 data-nosnippet>737</a>        <span class="kw">let </span>html = schema
-<a href=#738 id=738 data-nosnippet>738</a>            .render(<span class="kw-2">&amp;</span>cx)
-<a href=#739 id=739 data-nosnippet>739</a>            .<span class="kw">await
-<a href=#740 id=740 data-nosnippet>740</a>            </span>.unwrap()
-<a href=#741 id=741 data-nosnippet>741</a>            .single()
-<a href=#742 id=742 data-nosnippet>742</a>            .<span class="kw">await
-<a href=#743 id=743 data-nosnippet>743</a>            </span>.unwrap()
-<a href=#744 id=744 data-nosnippet>744</a>            .render(<span class="kw-2">&amp;</span>cx);
-<a href=#745 id=745 data-nosnippet>745</a>        <span class="comment">// GH #216: the primitive's *chrome* is paint; what it composes is
-<a href=#746 id=746 data-nosnippet>746</a>        // structural — the native `&lt;select&gt;` now sits inside the primitive's
-<a href=#747 id=747 data-nosnippet>747</a>        // wrapper `&lt;span&gt;`, which carries the checkmark style hook and the
-<a href=#748 id=748 data-nosnippet>748</a>        // chevron icon. The hand-rolled control was a bare `&lt;select&gt;`.
-<a href=#749 id=749 data-nosnippet>749</a>        </span><span class="kw">let </span>select_start = html.find(<span class="string">"&lt;select"</span>).expect(<span class="string">"native select element"</span>);
-<a href=#750 id=750 data-nosnippet>750</a>        <span class="kw">let </span>wrapper_start = html[..select_start]
-<a href=#751 id=751 data-nosnippet>751</a>            .rfind(<span class="string">"&lt;span"</span>)
-<a href=#752 id=752 data-nosnippet>752</a>            .expect(<span class="string">"the primitive's wrapper span"</span>);
-<a href=#753 id=753 data-nosnippet>753</a>        <span class="kw">let </span>wrapper_tag = opening_tag_at(<span class="kw-2">&amp;</span>html, wrapper_start);
-<a href=#754 id=754 data-nosnippet>754</a>        <span class="macro">assert!</span>(
-<a href=#755 id=755 data-nosnippet>755</a>            wrapper_tag.contains(<span class="string">"--select-checkmark"</span>),
-<a href=#756 id=756 data-nosnippet>756</a>            <span class="string">"select must compose the select primitive's wrapper, got {wrapper_tag}"
-<a href=#757 id=757 data-nosnippet>757</a>        </span>);
-<a href=#758 id=758 data-nosnippet>758</a>        <span class="macro">assert!</span>(
-<a href=#759 id=759 data-nosnippet>759</a>            html[select_start..].contains(<span class="string">"&lt;svg"</span>),
-<a href=#760 id=760 data-nosnippet>760</a>            <span class="string">"the primitive's chevron must render, got {html}"
-<a href=#761 id=761 data-nosnippet>761</a>        </span>);
-<a href=#762 id=762 data-nosnippet>762</a>        <span class="comment">// `Attributes` renders in no guaranteed order (topcoat#122), so slice
-<a href=#763 id=763 data-nosnippet>763</a>        // the whole opening tag; quoting is honoured, so a `&gt;` inside the
-<a href=#764 id=764 data-nosnippet>764</a>        // picker's Tailwind selectors does not end it early.
-<a href=#765 id=765 data-nosnippet>765</a>        </span><span class="kw">let </span>tag = opening_tag_at(<span class="kw-2">&amp;</span>html, select_start);
-<a href=#766 id=766 data-nosnippet>766</a>        <span class="macro">assert!</span>(
-<a href=#767 id=767 data-nosnippet>767</a>            tag.contains(<span class="string">"name=\"name\""</span>)
-<a href=#768 id=768 data-nosnippet>768</a>                &amp;&amp; tag.contains(<span class="string">"id=\"name\""</span>)
-<a href=#769 id=769 data-nosnippet>769</a>                &amp;&amp; tag.contains(<span class="string">"aria-invalid=\"false\""</span>),
-<a href=#770 id=770 data-nosnippet>770</a>            <span class="string">"attributes must reach the native control, got {tag}"
-<a href=#771 id=771 data-nosnippet>771</a>        </span>);
-<a href=#772 id=772 data-nosnippet>772</a>    }
-<a href=#773 id=773 data-nosnippet>773</a>}
+<a href=#730 id=730 data-nosnippet>730</a>        <span class="comment">// The schema select composes the synced `select` primitive, so it
+<a href=#731 id=731 data-nosnippet>731</a>        // matches the `input` beside it and `selects.js` keeps finding the
+<a href=#732 id=732 data-nosnippet>732</a>        // control inside the filterable field.
+<a href=#733 id=733 data-nosnippet>733</a>        </span><span class="kw">let </span>cx = CxTestBuilder::new().build();
+<a href=#734 id=734 data-nosnippet>734</a>        <span class="kw">let </span>schema =
+<a href=#735 id=735 data-nosnippet>735</a>            Schema::new(Select::r#for(DummyUser::fields().name()).options(<span class="macro">vec!</span>[<span class="string">"a"</span>.to_string()]));
+<a href=#736 id=736 data-nosnippet>736</a>        <span class="kw">let </span>html = schema
+<a href=#737 id=737 data-nosnippet>737</a>            .render(<span class="kw-2">&amp;</span>cx)
+<a href=#738 id=738 data-nosnippet>738</a>            .<span class="kw">await
+<a href=#739 id=739 data-nosnippet>739</a>            </span>.unwrap()
+<a href=#740 id=740 data-nosnippet>740</a>            .single()
+<a href=#741 id=741 data-nosnippet>741</a>            .<span class="kw">await
+<a href=#742 id=742 data-nosnippet>742</a>            </span>.unwrap()
+<a href=#743 id=743 data-nosnippet>743</a>            .render(<span class="kw-2">&amp;</span>cx);
+<a href=#744 id=744 data-nosnippet>744</a>        <span class="comment">// GH #216: the primitive's *chrome* is paint; what it composes is
+<a href=#745 id=745 data-nosnippet>745</a>        // structural — the native `&lt;select&gt;` now sits inside the primitive's
+<a href=#746 id=746 data-nosnippet>746</a>        // wrapper `&lt;span&gt;`, which carries the checkmark style hook and the
+<a href=#747 id=747 data-nosnippet>747</a>        // chevron icon. The hand-rolled control was a bare `&lt;select&gt;`.
+<a href=#748 id=748 data-nosnippet>748</a>        </span><span class="kw">let </span>select_start = html.find(<span class="string">"&lt;select"</span>).expect(<span class="string">"native select element"</span>);
+<a href=#749 id=749 data-nosnippet>749</a>        <span class="kw">let </span>wrapper_start = html[..select_start]
+<a href=#750 id=750 data-nosnippet>750</a>            .rfind(<span class="string">"&lt;span"</span>)
+<a href=#751 id=751 data-nosnippet>751</a>            .expect(<span class="string">"the primitive's wrapper span"</span>);
+<a href=#752 id=752 data-nosnippet>752</a>        <span class="kw">let </span>wrapper_tag = opening_tag_at(<span class="kw-2">&amp;</span>html, wrapper_start);
+<a href=#753 id=753 data-nosnippet>753</a>        <span class="macro">assert!</span>(
+<a href=#754 id=754 data-nosnippet>754</a>            wrapper_tag.contains(<span class="string">"--select-checkmark"</span>),
+<a href=#755 id=755 data-nosnippet>755</a>            <span class="string">"select must compose the select primitive's wrapper, got {wrapper_tag}"
+<a href=#756 id=756 data-nosnippet>756</a>        </span>);
+<a href=#757 id=757 data-nosnippet>757</a>        <span class="macro">assert!</span>(
+<a href=#758 id=758 data-nosnippet>758</a>            html[select_start..].contains(<span class="string">"&lt;svg"</span>),
+<a href=#759 id=759 data-nosnippet>759</a>            <span class="string">"the primitive's chevron must render, got {html}"
+<a href=#760 id=760 data-nosnippet>760</a>        </span>);
+<a href=#761 id=761 data-nosnippet>761</a>        <span class="comment">// `Attributes` renders in no guaranteed order (topcoat#122), so slice
+<a href=#762 id=762 data-nosnippet>762</a>        // the whole opening tag; quoting is honoured, so a `&gt;` inside the
+<a href=#763 id=763 data-nosnippet>763</a>        // picker's Tailwind selectors does not end it early.
+<a href=#764 id=764 data-nosnippet>764</a>        </span><span class="kw">let </span>tag = opening_tag_at(<span class="kw-2">&amp;</span>html, select_start);
+<a href=#765 id=765 data-nosnippet>765</a>        <span class="macro">assert!</span>(
+<a href=#766 id=766 data-nosnippet>766</a>            tag.contains(<span class="string">"name=\"name\""</span>)
+<a href=#767 id=767 data-nosnippet>767</a>                &amp;&amp; tag.contains(<span class="string">"id=\"name\""</span>)
+<a href=#768 id=768 data-nosnippet>768</a>                &amp;&amp; tag.contains(<span class="string">"aria-invalid=\"false\""</span>),
+<a href=#769 id=769 data-nosnippet>769</a>            <span class="string">"attributes must reach the native control, got {tag}"
+<a href=#770 id=770 data-nosnippet>770</a>        </span>);
+<a href=#771 id=771 data-nosnippet>771</a>    }
+<a href=#772 id=772 data-nosnippet>772</a>}
 </code></pre></div></section></main></body></html>

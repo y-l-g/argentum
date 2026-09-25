@@ -123,12 +123,12 @@
 <a href=#123 id=123 data-nosnippet>123</a>    /// `/admin/users` is active on `/admin/users/create` but not on
 <a href=#124 id=124 data-nosnippet>124</a>    /// `/admin/userships`). Uniform for every item — since resources mount at
 <a href=#125 id=125 data-nosnippet>125</a>    /// `{prefix}/{slug}` (GH #39), no generated item points at the bare panel
-<a href=#126 id=126 data-nosnippet>126</a>    /// prefix that needed the old root-exact special case.
+<a href=#126 id=126 data-nosnippet>126</a>    /// prefix.
 <a href=#127 id=127 data-nosnippet>127</a>    ///
 <a href=#128 id=128 data-nosnippet>128</a>    /// This is the whole active-state contract: `Panel::render_shell` takes the
 <a href=#129 id=129 data-nosnippet>129</a>    /// request path as a parameter, so it can judge an item without a `Cx` (and
 <a href=#130 id=130 data-nosnippet>130</a>    /// the shell stays testable without a full `http::request::Parts` in `Cx`).
-<a href=#131 id=131 data-nosnippet>131</a>    /// The `Cx`-taking wrapper went with its last caller (GH #228).
+<a href=#131 id=131 data-nosnippet>131</a>    /// It is the only entry point to that judgment (GH #228).
 <a href=#132 id=132 data-nosnippet>132</a>    </span><span class="kw">pub fn </span>is_current_path(<span class="kw-2">&amp;</span><span class="self">self</span>, current_path: <span class="kw-2">&amp;</span>str) -&gt; bool {
 <a href=#133 id=133 data-nosnippet>133</a>        <span class="kw">let </span><span class="prelude-val">Some</span>(url) = <span class="self">self</span>.url() <span class="kw">else </span>{
 <a href=#134 id=134 data-nosnippet>134</a>            <span class="comment">// Unresolved: no URL to be current for.

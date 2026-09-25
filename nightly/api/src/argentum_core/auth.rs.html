@@ -157,8 +157,8 @@
 <a href=#157 id=157 data-nosnippet>157</a>    <span class="doccomment">/// Resolve the live session user by [`CurrentUser::id`].
 <a href=#158 id=158 data-nosnippet>158</a>    ///
 <a href=#159 id=159 data-nosnippet>159</a>    /// Loading the row each request is what makes deactivation and revocation
-<a href=#160 id=160 data-nosnippet>160</a>    /// take effect immediately; return `None` for a user that no longer
-<a href=#161 id=161 data-nosnippet>161</a>    /// authenticates.
+<a href=#160 id=160 data-nosnippet>160</a>    /// take effect immediately; return `None` when the user does not
+<a href=#161 id=161 data-nosnippet>161</a>    /// authenticate.
 <a href=#162 id=162 data-nosnippet>162</a>    </span><span class="kw">fn </span>find_by_id&lt;<span class="lifetime">'a</span>&gt;(<span class="kw-2">&amp;</span><span class="lifetime">'a </span><span class="self">self</span>, cx: <span class="kw-2">&amp;</span><span class="lifetime">'a </span>Cx, id: <span class="kw-2">&amp;</span><span class="lifetime">'a </span>str) -&gt; AuthFuture&lt;<span class="lifetime">'a</span>, <span class="prelude-ty">Option</span>&lt;CurrentUser&gt;&gt;;
 <a href=#163 id=163 data-nosnippet>163</a>}
 <a href=#164 id=164 data-nosnippet>164</a>
