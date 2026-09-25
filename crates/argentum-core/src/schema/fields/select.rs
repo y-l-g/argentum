@@ -1,7 +1,4 @@
-use argentum_ui::{
-    field as ui_field, field_error as ui_field_error, field_label as ui_field_label,
-    input as ui_input, select as ui_select,
-};
+use argentum_ui::{input as ui_input, select as ui_select};
 use topcoat::{Result, context::Cx, view::*};
 
 use super::{
@@ -16,7 +13,7 @@ use super::{
         tree::Mode,
         validation::Rules,
     },
-    ValueKind, render_value,
+    FieldChrome, ValueKind, render_field, render_value,
 };
 
 /// Select field bound to a lens (often a foreign key like `author_id`).
@@ -391,8 +388,22 @@ impl Select {
     /// for searchable selects (legitimate FKs beyond the cap validate) and
     /// keeps the retry error for non-searchable ones.
     pub async fn validate_async(&self, cx: &Cx, value: &str) -> Vec<String> {
-        let mut errs = self.validate(value);
-        if errs.is_empty() && !value.trim().is_empty() {
+        let errs = self.validate(value);
+        if errs.is_empty() {
+            return self.validate_exists(cx, value).await;
+        }
+        errs
+    }
+
+    /// Existence-only check: whether a non-empty `value` matches a loaded
+    /// option.
+    ///
+    /// The required rule belongs to [`Self::validate`], so a caller that
+    /// already ran it uses this instead of filtering the required message out
+    /// of [`Self::validate_async`] by its text.
+    pub(crate) async fn validate_exists(&self, cx: &Cx, value: &str) -> Vec<String> {
+        let mut errs = Vec::new();
+        if !value.trim().is_empty() {
             if let Some(loader) = &self.relationship {
                 match loader(cx).await {
                     Ok(opts) => {
@@ -479,7 +490,6 @@ impl Select {
                 .unwrap_or_else(|| stored.to_string());
             return render_value(cx, &self.label, Some(&shown), ValueKind::Prose);
         }
-        let label_text = self.label.clone();
         let name = self.name.clone();
         let required = self.required;
         let searchable = self.searchable;
@@ -511,13 +521,11 @@ impl Select {
         {
             options.push((current.clone(), current.clone()));
         }
-        let incoming_error = errors.first().cloned().unwrap_or_default();
-        let error_text = if incoming_error.is_empty() && denied {
-            format!("{} is not available", self.label)
-        } else {
-            incoming_error
-        };
-        let has_error = !errors.is_empty() || denied;
+        let chrome = FieldChrome::new(
+            &name,
+            errors,
+            denied.then(|| format!("{} is not available", self.label)),
+        );
         // Build option views.
         let mut option_views: Vec<BoxView<'a>> = Vec::new();
         // Placeholder empty option
@@ -545,14 +553,8 @@ impl Select {
         // brings the same `aria-invalid` error styling and focus ring as the
         // `input` primitive, plus the chevron and the customizable picker —
         // the control uses the primitive's chrome.
-        let field_class = if has_error {
-            "ac-field ac-field--error"
-        } else {
-            "ac-field"
-        };
-        let error_id = format!("{name}-error");
         let list_id = format!("{name}-options-list");
-        let filter_label = format!("Filter {label_text} options");
+        let filter_label = format!("Filter {} options", self.label);
         // Server fetch only past the cap (GH #150): bounded searchable sets
         // keep the client-side label-substring filter (GH #91), so the
         // `data-options-server` flag must follow the overflow state — not
@@ -561,93 +563,82 @@ impl Select {
         let options_server = overflow_searchable.then_some("true");
         let variant_of = self.variant_of.clone();
         let overflow_hint = "Too many options — type to search".to_string();
-        Ok(view! {
+        let aria_invalid = chrome.aria_invalid();
+        let described_by = chrome.described_by();
+        let control = view! {
             cx =>
-            ui_field(
-                attrs: attributes! {
-                    class=(field_class)
-                    data-select-filterable=""
-                    data-invalid=(has_error.then_some("true"))
-                    data-options-field=(options_field)
-                    data-options-server=(options_server)
-                },
-                ui_field_label(
-                    attrs: attributes! { for=(name.clone()) },
-                    (label_text.clone())
-                    if required {
-                        <span class="text-destructive" aria-hidden="true">"*"</span>
-                    }
-                )
-                if searchable {
-                    // The filter input and its suggestion list (GH #184). The
-                    // list is what makes the filter visible: the native
-                    // `<select>` popup is browser chrome the script cannot
-                    // narrow (the primitive opts into `appearance: base-select`,
-                    // where `option[hidden]` has no effect), so `selects.js`
-                    // renders its own filtered list here and writes the chosen
-                    // value onto the select. Without the script the input is
-                    // inert and the plain select keeps working.
-                    //
-                    // The input and the list are one combobox (GH #293): the
-                    // input carries the static ARIA (its role, the list it
-                    // controls, list autocompletion), starts collapsed over the
-                    // hidden list, and `selects.js` keeps `aria-expanded` and
-                    // `aria-activedescendant` in step with the popup.
-                    <div class="relative" data-options-combobox="">
-                        ui_input(
-                            attrs: attributes! {
-                                type="search"
-                                role="combobox"
-                                aria-expanded="false"
-                                aria-controls=(list_id.clone())
-                                aria-autocomplete="list"
-                                aria-label=(filter_label.clone())
-                                placeholder="Filter…"
-                                data-options-filter=""
-                                class="h-9"
-                                autocomplete="off"
-                            }
-                        )
-                        <ul
-                            id=(list_id.clone())
-                            data-options-list=""
-                            role="listbox"
-                            aria-label=(filter_label.clone())
-                            hidden=""
-                            class="absolute z-20 mt-1 max-h-60 w-full overflow-y-auto rounded-lg border border-border bg-popover p-1 text-sm text-popover-foreground shadow-sm"
-                        ></ul>
-                    </div>
-                }
-                if overflow_searchable {
-                    <div class="text-xs text-muted-foreground">(overflow_hint)</div>
-                }
-                ui_select(
-                    attrs: attributes! {
-                        id=(name.clone())
-                        name=(name.clone())
-                        required=(required)
-                        aria-required=(required.then_some("true"))
-                        aria-invalid=(if has_error { "true" } else { "false" })
-                        aria-describedby=(has_error.then_some(error_id.clone()))
-                        data-variant-select=(variant_of)
-                    },
-                    for opt in option_views {
-                        (opt)
-                    }
-                )
-                if has_error {
-                    ui_field_error(
+            if searchable {
+                // The filter input and its suggestion list (GH #184). The
+                // list is what makes the filter visible: the native
+                // `<select>` popup is browser chrome the script cannot
+                // narrow (the primitive opts into `appearance: base-select`,
+                // where `option[hidden]` has no effect), so `selects.js`
+                // renders its own filtered list here and writes the chosen
+                // value onto the select. Without the script the input is
+                // inert and the plain select keeps working.
+                //
+                // The input and the list are one combobox (GH #293): the
+                // input carries the static ARIA (its role, the list it
+                // controls, list autocompletion), starts collapsed over the
+                // hidden list, and `selects.js` keeps `aria-expanded` and
+                // `aria-activedescendant` in step with the popup.
+                <div class="relative" data-options-combobox="">
+                    ui_input(
                         attrs: attributes! {
-                            id=(error_id.clone())
-                            class="ac-error"
-                            aria-live="polite"
-                        },
-                        (error_text)
+                            type="search"
+                            role="combobox"
+                            aria-expanded="false"
+                            aria-controls=(list_id.clone())
+                            aria-autocomplete="list"
+                            aria-label=(filter_label.clone())
+                            placeholder="Filter…"
+                            data-options-filter=""
+                            class="h-9"
+                            autocomplete="off"
+                        }
                     )
+                    <ul
+                        id=(list_id.clone())
+                        data-options-list=""
+                        role="listbox"
+                        aria-label=(filter_label.clone())
+                        hidden=""
+                        class="absolute z-20 mt-1 max-h-60 w-full overflow-y-auto rounded-lg border border-border bg-popover p-1 text-sm text-popover-foreground shadow-sm"
+                    ></ul>
+                </div>
+            }
+            if overflow_searchable {
+                <div class="text-xs text-muted-foreground">(overflow_hint)</div>
+            }
+            ui_select(
+                attrs: attributes! {
+                    id=(name.clone())
+                    name=(name.clone())
+                    required=(required)
+                    aria-required=(required.then_some("true"))
+                    aria-invalid=(aria_invalid)
+                    aria-describedby=(described_by)
+                    data-variant-select=(variant_of)
+                },
+                for opt in option_views {
+                    (opt)
                 }
             )
         }
-        .boxed())
+        .boxed();
+        render_field(
+            cx,
+            &chrome,
+            &self.label,
+            required,
+            attributes! {
+                cx =>
+                data-select-filterable=""
+                data-options-field=(options_field)
+                data-options-server=(options_server)
+            },
+            control,
+        )
     }
 }
 

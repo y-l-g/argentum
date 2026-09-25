@@ -1,7 +1,4 @@
-use argentum_ui::{
-    checkbox as ui_checkbox, field as ui_field, field_error as ui_field_error,
-    field_label as ui_field_label, input as ui_input, label as ui_label,
-};
+use argentum_ui::{checkbox as ui_checkbox, input as ui_input, label as ui_label};
 use topcoat::{Result, context::Cx, view::*};
 
 use super::{
@@ -10,7 +7,7 @@ use super::{
         tree::Mode,
         validation::Rules,
     },
-    ValueKind, render_value, render_value_view,
+    FieldChrome, ValueKind, render_field, render_value, render_value_view,
 };
 
 /// FileUpload field — stores a String path with file input handling.
@@ -109,7 +106,6 @@ impl FileUpload {
         if mode == Mode::View {
             return stored_upload_value(cx, &self.label, value);
         }
-        let label_text = self.label.clone();
         let name = self.name.clone();
         // An edit hydrates the stored path; a create does not (GH #184). See
         // the type docs: the control is required only when nothing is stored,
@@ -117,24 +113,12 @@ impl FileUpload {
         let stored = stored_path(value);
         let is_edit = stored.is_some();
         let control_required = self.required && !is_edit;
-        let has_error = !errors.is_empty();
-        let error_text = errors.first().cloned().unwrap_or_default();
-        let field_class = if has_error {
-            "ac-field ac-field--error"
-        } else {
-            "ac-field"
-        };
-        let error_id = format!("{name}-error");
+        let chrome = FieldChrome::new(&name, errors, None);
         let hint_id = format!("{name}-hint");
         // The clear flag is a framework transport key, not a field (GH #148):
         // it names the stored value's owner and is stripped before any record
         // fn, so it can never be written as a field of its own.
         let clear_name = format!("clear_{name}");
-        let described_by = match (has_error, is_edit) {
-            (true, _) => Some(error_id.clone()),
-            (false, true) => Some(hint_id.clone()),
-            (false, false) => None,
-        };
         // The stored value as a link to the file it names (GH #242). Nothing
         // here guesses a URL convention — the app decides what it stores (the
         // uploader's return value) — and a value that is not a rooted path or
@@ -142,78 +126,67 @@ impl FileUpload {
         // (GH #277).
         let stored_display: Option<BoxView<'a>> =
             stored.map(|current| stored_upload_row(cx, current));
-        Ok(view! {
+        let aria_invalid = chrome.aria_invalid();
+        let described_by = chrome
+            .described_by()
+            .or_else(|| is_edit.then(|| hint_id.clone()));
+        let control = view! {
             cx =>
-            ui_field(
+            if let Some(row) = stored_display {
+                // The stored path is visible, so "there is no file" is no
+                // longer ambiguous, and the empty control reads as "leave
+                // it alone" rather than "this field is broken".
+                (row)
+            }
+            // The `input` primitive styles `type="file"` through its
+            // `file:` classes and carries the `aria-invalid` error styling.
+            ui_input(
                 attrs: attributes! {
-                    class=(field_class)
-                    data-invalid=(has_error.then_some("true"))
-                },
-                ui_field_label(
-                    attrs: attributes! { for=(name.clone()) },
-                    (label_text.clone())
-                    if control_required {
-                        <span class="text-destructive" aria-hidden="true">"*"</span>
-                    }
-                )
-                if let Some(row) = stored_display {
-                    // The stored path is visible, so "there is no file" is no
-                    // longer ambiguous, and the empty control reads as "leave
-                    // it alone" rather than "this field is broken".
-                    (row)
-                }
-                // The `input` primitive styles `type="file"` through its
-                // `file:` classes and carries the `aria-invalid` error styling.
-                ui_input(
-                    attrs: attributes! {
-                        id=(name.clone())
-                        type="file"
-                        name=(name.clone())
-                        required=(control_required)
-                        aria-required=(control_required.then_some("true"))
-                        aria-invalid=(if has_error { "true" } else { "false" })
-                        aria-describedby=(described_by)
-                    }
-                )
-                if is_edit {
-                    <div class="text-xs text-muted-foreground" id=(hint_id.clone())>
-                        "Leave empty to keep the current file."
-                    </div>
-                    // The one control that says "remove it" rather than "leave
-                    // it alone" (GH #188). It carries `value="1"` so the
-                    // framework's own `truthy` vocabulary reads it, and it is a
-                    // declared transport key, so a generic record fn never sees
-                    // it (GH #148).
-                    <div class="mt-2 flex items-center gap-2">
-                        ui_checkbox(
-                            attrs: attributes! {
-                                id=(clear_name.clone())
-                                name=(clear_name.clone())
-                                value="1"
-                            }
-                        )
-                        ui_label(
-                            attrs: attributes! {
-                                for=(clear_name.clone())
-                                class="text-xs text-muted-foreground"
-                            },
-                            "Remove the current file"
-                        )
-                    </div>
-                }
-                if has_error {
-                    ui_field_error(
-                        attrs: attributes! {
-                            id=(error_id.clone())
-                            class="ac-error"
-                            aria-live="polite"
-                        },
-                        (error_text)
-                    )
+                    id=(name.clone())
+                    type="file"
+                    name=(name.clone())
+                    required=(control_required)
+                    aria-required=(control_required.then_some("true"))
+                    aria-invalid=(aria_invalid)
+                    aria-describedby=(described_by)
                 }
             )
+            if is_edit {
+                <div class="text-xs text-muted-foreground" id=(hint_id.clone())>
+                    "Leave empty to keep the current file."
+                </div>
+                // The one control that says "remove it" rather than "leave
+                // it alone" (GH #188). It carries `value="1"` so the
+                // framework's own `truthy` vocabulary reads it, and it is a
+                // declared transport key, so a generic record fn never sees
+                // it (GH #148).
+                <div class="mt-2 flex items-center gap-2">
+                    ui_checkbox(
+                        attrs: attributes! {
+                            id=(clear_name.clone())
+                            name=(clear_name.clone())
+                            value="1"
+                        }
+                    )
+                    ui_label(
+                        attrs: attributes! {
+                            for=(clear_name.clone())
+                            class="text-xs text-muted-foreground"
+                        },
+                        "Remove the current file"
+                    )
+                </div>
+            }
         }
-        .boxed())
+        .boxed();
+        render_field(
+            cx,
+            &chrome,
+            &self.label,
+            control_required,
+            attributes! {},
+            control,
+        )
     }
 }
 

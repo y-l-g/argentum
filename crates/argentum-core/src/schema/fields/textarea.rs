@@ -1,7 +1,4 @@
-use argentum_ui::{
-    field as ui_field, field_error as ui_field_error, field_label as ui_field_label,
-    textarea as ui_textarea,
-};
+use argentum_ui::textarea as ui_textarea;
 use topcoat::{Result, context::Cx, view::*};
 
 use super::{
@@ -10,7 +7,7 @@ use super::{
         tree::Mode,
         validation::Rules,
     },
-    ValueKind, render_value,
+    FieldChrome, ValueKind, render_field, render_value,
 };
 
 /// Typed multi-line text field bound to a Toasty field lens (GH #184).
@@ -135,60 +132,32 @@ impl Textarea {
         if mode == Mode::View {
             return render_value(cx, &self.label, value, ValueKind::Prose);
         }
-        let label_text = self.label.clone();
         let name = self.name.clone();
         let required = self.required;
         let placeholder = self.placeholder.clone();
         let rows = self.rows;
-        let has_error = !errors.is_empty();
-        let error_text = errors.first().cloned().unwrap_or_default();
         let value_owned = value.unwrap_or("").to_string();
-        let field_class = if has_error {
-            "ac-field ac-field--error"
-        } else {
-            "ac-field"
-        };
-        let error_id = format!("{name}-error");
-        Ok(view! {
+        let chrome = FieldChrome::new(&name, errors, None);
+        let aria_invalid = chrome.aria_invalid();
+        let described_by = chrome.described_by();
+        let control = view! {
             cx =>
-            ui_field(
+            ui_textarea(
                 attrs: attributes! {
-                    class=(field_class)
-                    data-invalid=(has_error.then_some("true"))
+                    id=(name.clone())
+                    name=(name.clone())
+                    placeholder=(placeholder.clone())
+                    rows=(rows)
+                    required=(required)
+                    aria-required=(required.then_some("true"))
+                    aria-invalid=(aria_invalid)
+                    aria-describedby=(described_by)
                 },
-                ui_field_label(
-                    attrs: attributes! { for=(name.clone()) },
-                    (label_text.clone())
-                    if required {
-                        <span class="text-destructive" aria-hidden="true">"*"</span>
-                    }
-                )
-                ui_textarea(
-                    attrs: attributes! {
-                        id=(name.clone())
-                        name=(name.clone())
-                        placeholder=(placeholder.clone())
-                        rows=(rows)
-                        required=(required)
-                        aria-required=(required.then_some("true"))
-                        aria-invalid=(if has_error { "true" } else { "false" })
-                        aria-describedby=(has_error.then_some(error_id.clone()))
-                    },
-                    (value_owned)
-                )
-                if has_error {
-                    ui_field_error(
-                        attrs: attributes! {
-                            id=(error_id.clone())
-                            class="ac-error"
-                            aria-live="polite"
-                        },
-                        (error_text)
-                    )
-                }
+                (value_owned)
             )
         }
-        .boxed())
+        .boxed();
+        render_field(cx, &chrome, &self.label, required, attributes! {}, control)
     }
 }
 

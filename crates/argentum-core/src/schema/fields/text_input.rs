@@ -1,7 +1,4 @@
-use argentum_ui::{
-    field as ui_field, field_error as ui_field_error, field_label as ui_field_label,
-    input as ui_input,
-};
+use argentum_ui::input as ui_input;
 use topcoat::{Result, context::Cx, view::*};
 
 use super::{
@@ -10,7 +7,7 @@ use super::{
         tree::Mode,
         validation::{Rules, TypedValue},
     },
-    ValueKind, render_value,
+    FieldChrome, ValueKind, render_field, render_value,
 };
 
 /// The equality expression a typed leaf's unique probe binds (GH #297).
@@ -353,7 +350,6 @@ impl TextInput {
         if mode == Mode::View {
             return render_value(cx, &self.label, value, ValueKind::Machine);
         }
-        let label_text = self.label.clone();
         let name = self.name.clone();
         // The marker reads the same predicate validation uses, so a unique
         // field is never refused for emptiness while rendering as optional
@@ -365,60 +361,32 @@ impl TextInput {
         } else {
             "text"
         };
-        let has_error = !errors.is_empty();
-        let error_text = errors.first().cloned().unwrap_or_default();
         let value_owned = value.map(|s| s.to_string());
+        let chrome = FieldChrome::new(&self.name, errors, None);
+        let aria_invalid = chrome.aria_invalid();
+        let described_by = chrome.described_by();
         // Beautiful rendering via the upstream `field` family (topcoat#420):
         // label + control + reserved error slot, the label following the
         // field's invalid state, and `aria-invalid` driving the control's
-        // error border/ring. `ac-field` / `ac-field--error` / `ac-error` are
-        // kept for spec compat (GH #12).
-        let field_class = if has_error {
-            "ac-field ac-field--error"
-        } else {
-            "ac-field"
-        };
-        let error_id = format!("{name}-error");
-        Ok(view! {
+        // error border/ring.
+        let control = view! {
             cx =>
-            ui_field(
+            ui_input(
                 attrs: attributes! {
-                    class=(field_class)
-                    data-invalid=(has_error.then_some("true"))
-                },
-                ui_field_label(
-                    attrs: attributes! { for=(name.clone()) },
-                    (label_text.clone())
-                    if required {
-                        <span class="text-destructive" aria-hidden="true">"*"</span>
-                    }
-                )
-                ui_input(
-                    attrs: attributes! {
-                        id=(name.clone())
-                        type=(input_type)
-                        name=(name.clone())
-                        value=(value_owned.clone())
-                        placeholder=(placeholder.clone())
-                        required=(required)
-                        aria-required=(required.then_some("true"))
-                        aria-invalid=(if has_error { "true" } else { "false" })
-                        aria-describedby=(has_error.then_some(error_id.clone()))
-                    }
-                )
-                if has_error {
-                    ui_field_error(
-                        attrs: attributes! {
-                            id=(error_id.clone())
-                            class="ac-error"
-                            aria-live="polite"
-                        },
-                        (error_text)
-                    )
+                    id=(name.clone())
+                    type=(input_type)
+                    name=(name.clone())
+                    value=(value_owned.clone())
+                    placeholder=(placeholder.clone())
+                    required=(required)
+                    aria-required=(required.then_some("true"))
+                    aria-invalid=(aria_invalid)
+                    aria-describedby=(described_by)
                 }
             )
         }
-        .boxed())
+        .boxed();
+        render_field(cx, &chrome, &self.label, required, attributes! {}, control)
     }
 }
 
