@@ -8,5 +8,3 @@ returning `maud` templates, with no framework layer on top — it renders no
 ```sh
 cargo run
 ```
-
-Detached from the Argentum workspace on purpose (see `../README.md`).

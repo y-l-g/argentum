@@ -2,7 +2,7 @@
 //!
 //! This crate holds the toolkit's foundation: the [`Resource`] trait and the
 //! types that compose an admin UI (Panel, Table, Schema, Action). See the
-//! workspace README and `CONTEXT.md` for the vocabulary and the roadmap.
+//! workspace README and `CONTEXT.md` for the vocabulary.
 #![doc = include_str!("../../../CONTEXT.md")]
 
 #[doc(hidden)]

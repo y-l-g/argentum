@@ -1,28 +1,23 @@
-# Benchmarks — Phase 2 (Relations & polish)
+# Benchmarks
 
-Server-rendering performance harness for Argentum (Phase 2).
+Server-rendering performance harness for Argentum, following the methodology of
+`tokio-rs/topcoat/benchmarks/` (loopback HTTP/1.1 document requests, `oha` load
+generator). The hand-written **Axum + Maud** and **Leptos** apps are compile-only smoke
+stubs, not comparable (GH #159): they render no 50-row workload.
 
-The harness measures the Argentum admin list (Topcoat-based) for the
-Phase-2 workload, following the methodology of
-`tokio-rs/topcoat/benchmarks/` (loopback HTTP/1.1 document requests,
-`oha` load generator). The hand-written **Axum + Maud** and **Leptos**
-apps are compile-only smoke (stubs, not comparable) since GH #159 — they
-render no 50-row workload, so no cross-framework comparison exists.
-
-Phase-2 workload: **list with 50 rows, 2 includes (`author` + `comments`),
-tenancy set, `can_view_any` enforced**, measured on the real list path
-(`TableState::from_cx` → `Table::load` over the tenant-scoped
-`scoped_query` with the declared `.paginate(50)` → `render_with_state` →
-HTML). The raw query-only
-figure is kept as a labeled diagnostic alongside it. The budget is
-**< 40 ms p50** on SQLite/Postgres local (TTFB is the shell and the table's
-`suspense` skeleton, not the query — `docs/dev/architecture.md`).
+Workload: **list with 50 rows, 2 includes (`author` + `comments`), tenancy set,
+`can_view_any` enforced**, measured on the real list path (`TableState::from_cx` →
+`Table::load` over the tenant-scoped `scoped_query` with the declared `.paginate(50)` →
+`render_with_state` → HTML). The raw query-only figure is kept as a labeled diagnostic
+alongside it. Budget: **< 40 ms p50** on local SQLite, with an opt-in Postgres leg
+(see below). The numbers are UNGATED
+(GH #171): the harness prints the budget for reference and never PASS/FAILs on it.
 
 Layout:
 
 ```
 benchmarks/
-  argentum/    Argentum/Topcoat app under test (Phase-2 workload, --bench flag)
+  argentum/    Argentum/Topcoat app under test (50-row workload, --bench flag)
   axum-maud/   Axum + Maud smoke stub (compiles; renders no 50-row workload)
   leptos/      Leptos SSR smoke stub (compiles; renders no 50-row workload)
   scripts/     bench.sh (argentum oha + in-process bench; baselines smoke-only), verify_parity.sh
@@ -37,13 +32,7 @@ so the harness never interferes with `cargo test` / `clippy`.
 ```sh
 # Bench the Argentum list (50 rows, 2 includes) without starting a server:
 cargo run --manifest-path benchmarks/argentum/Cargo.toml -- --bench --iterations 100
-
-# The numbers are UNGATED (GH #171): the harness measures the real list path
-# and prints the <40ms p50 budget for reference, but never PASS/FAILs on it —
-# numbers are collected first, the p50 gate follows in a follow-up. The
-# process exits nonzero only on harness errors (connect/load/render failure).
-# CI's bench-check job compiles the harness with --locked and enforces the
-# lockstep pins; it does not run the benchmark itself.
+# The process exits nonzero only on harness errors (connect/load/render failure).
 
 # Postgres leg (opt-in — no local Postgres assumed):
 # ARGENTUM_BENCH_POSTGRES_URL=postgresql://toasty:toasty@localhost:5432/toasty \
@@ -63,23 +52,16 @@ cargo run --manifest-path benchmarks/argentum/Cargo.toml -- --bench --iterations
 `cargo run --manifest-path benchmarks/argentum/Cargo.toml` (no flag) still
 starts the Topcoat server at `http://localhost:3000/` for manual inspection.
 
-## What "fast" means (Phase 2)
+## What "fast" means
 
 * **Preloading** — `include` for `author` + `comments` (3 operations, not 101).
 * **Boundaries** — `Table` is a `Boundary` (`data-boundary="table"`); search/filter/page
   swaps only the table, not the shell.
 * **Pagination** — cursor pagination (Toasty appends the PK tie-breaker internally).
 
-Budget v2 (Phase 2): list (50 rows, 2 includes) `< 40 ms p50` on the real
-list path (from_cx → load → render_with_state → HTML), tenancy set and policy
-enforced. GH #171 lands the honest bench UNGATED (numbers first, gate with
-headroom in a follow-up): the harness prints the budget for reference and
-never PASS/FAILs on it.
-
 Results are written per run under `benchmarks/results/` (gitignored). CI's
 bench-check job compiles the harness with `--locked` and verifies its
 topcoat/toasty revs match the workspace lock; it does not run the benchmark.
-The harness is intentionally detached so `cargo test --workspace` stays fast.
 
 ## Parity
 

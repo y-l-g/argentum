@@ -73,18 +73,11 @@ See `examples/showcase/src/app.rs` for the full version with forms, filters, and
 
 ## Layout
 
-| Path | What it is |
-| --- | --- |
-| `crates/argentum-core` | `Panel`, the `Resource` trait, `Table` and `Schema` types, auth, tenancy |
-| `crates/argentum-macros` | the `derive(EmbeddedForm)` macro for embedded values (GH #191) |
-| `crates/argentum-ui` | Topcoat primitives plus owned composites (`Page`, `Toast`, `Theme`, `ErrorState`) |
-| `examples/showcase` | runnable admin: `/admin/users`, `/admin/authors`, `/admin/posts`, `/admin/comments` |
-| `benchmarks/` | server-render perf harness plus axum-maud and leptos smoke stubs |
-| `docs/guide` | the user guide, an mdBook |
-| `docs/adr` | one design note per decision |
-| `docs/dev` | contributor specs: commits, prose, labels |
-| `docs/agents` | process notes for agents: issue tracker, domain docs |
-| `CONTEXT.md` | the domain vocabulary the code and the docs share |
+Crate roles live in [`docs/dev/architecture.md`](docs/dev/architecture.md#crates). The user
+guide is [`docs/guide/`](docs/guide/) (mdBook), decisions are in [`docs/adr/`](docs/adr/),
+contributor specs in [`docs/dev/`](docs/dev/), domain vocabulary in
+[`CONTEXT.md`](CONTEXT.md), and the runnable reference in
+[`examples/showcase/`](examples/showcase/).
 
 ## Documentation
 
@@ -100,46 +93,11 @@ See `examples/showcase/src/app.rs` for the full version with forms, filters, and
   `#[component]`, router, cookie and session).
 - The [Filament PHP docs](https://filamentphp.com/docs) are product inspiration, not API source.
 
-## Roadmap
-
-Done:
-
-- CRUD for single resources: typed tables, cursor pagination, search and sort, create and edit
-  forms, row and bulk delete, flash notifications, sidebar shell
-- Relations: preloaded `BelongsTo` and `HasMany`, relation selects, tenant scoping, server-side
-  option search past the cap
-- Table extras: typed filters, page-local grouping with counts, CSV export, live in-place search and
-  sort, empty and error states
-- Auth: default login plus sessions, custom user table seam, explicit opt-out, per-resource policy
-- Media uploads: an app-level `Uploader` seam, and `Panel::serve_dir` for the directory it writes to
-  (ADR-0017)
-- Media library (showcase): a polymorphic `medias` table, an app-level upload page, and a thumbnail
-  or link per stored row (ADR-0021)
-
-Next:
-
-- Widgets and infolists: stats overview, charts, global search
-- Image handling in the framework: transcoding, dimensions (the showcase renders a stored image at
-  thumbnail size, ADR-0021)
-- Documented production migrations
-
-Non-goals for v1:
-
-- Many-to-many helpers in tables
-- DynamoDB-backed admin
-- SQL aggregates beyond row counts
-- WASM admin or SPA mode
-
 ## Contributing
 
-Small fixes can go straight to a PR; larger changes are worth an issue first. Every branch is
-**squash-merged into `master`** as one Conventional Commit (`<type>(<scope>): <description> (#123)`).
-[`CONTRIBUTING.md`](CONTRIBUTING.md) covers the build, the CI gate set, and the commit rules;
-[`AGENTS.md`](AGENTS.md) is the short version for agents. The vendored-primitives rule is worth
-repeating here: `crates/argentum-ui/src/components/primitives/` mirrors the vendored
-`topcoat-ui-registry` components verbatim — never hand-edit it, sync with
-`cargo xtask sync-topcoat-ui` (ADR-0007). Composites
-(`Page`, `Toast`, `Theme`, `ErrorState`) are Argentum's own.
+Small fixes can go straight to a PR; larger changes are worth an issue first.
+[`CONTRIBUTING.md`](CONTRIBUTING.md) covers the build, the [CI gate set](CONTRIBUTING.md#the-gate-set),
+and the commit rules; [`AGENTS.md`](AGENTS.md) is the short version for agents.
 
 ## License
 
