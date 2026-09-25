@@ -70,8 +70,14 @@ fn default_width_style(percent: u8) -> Cow<'static, str> {
 }
 
 /// One filter control: a labelled `<select data-filter-name=…>` carrying the
-/// `value`/`label` pairs, with the empty "All" option that clears the filter
-/// (GH #74).
+/// `value`/`label` pairs, with the leading empty "All" option that clears the
+/// filter (GH #74).
+///
+/// The empty value is reserved for that clear-filter option. Every pair in
+/// `options` renders verbatim, so a caller whose declared options can include
+/// `""` supplies the label that option shows: [`Filter::Select`] passes
+/// `"All"`, the label the empty value already carries, while
+/// [`Filter::Variant`] passes the key itself.
 ///
 /// The control has no `name`, so it never submits on its own; `filters.js`
 /// composes it into the hidden `filters` transport.
@@ -1386,10 +1392,15 @@ impl<M> Table<M> {
             let current = state.filters.get(f.name()).cloned().unwrap_or_default();
             match f {
                 Filter::Select(s) => {
+                    // A declared empty option is the clear-filter value, so it
+                    // renders as the "All" option: value `""`, label "All".
                     let options = s
                         .options()
                         .iter()
-                        .map(|opt| (opt.clone(), opt.clone()))
+                        .map(|opt| {
+                            let label = if opt.is_empty() { "All" } else { opt.as_str() };
+                            (opt.clone(), label.to_string())
+                        })
                         .collect();
                     controls.push(filter_select(
                         cx,
