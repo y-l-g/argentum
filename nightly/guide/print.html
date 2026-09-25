@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-2166541b.js";
+            window.path_to_searchindex_js = "searchindex-533f1657.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-da1679ae.js"></script>
@@ -323,10 +323,12 @@ and how tenancy is declared.</p>
 </span>pub trait Resource: Sized + Send + Sync + 'static {
     type Model: toasty::schema::Model + Send + Sync + 'static;
     fn query(_cx: &amp;Cx) -&gt; Query&lt;List&lt;Self::Model&gt;&gt;; // default: Query::all()
+    fn query_with(_cx: &amp;Cx, _needs: &amp;IncludeNeeds)
+        -&gt; Query&lt;List&lt;Self::Model&gt;&gt;;                // default: query(cx), unchanged
     fn hydrate_form_values(_cx: &amp;Cx, _record: &amp;Self::Model)
         -&gt; HashMap&lt;String, String&gt;;                 // default: empty
     fn export_query(_cx: &amp;Cx, _needs: &amp;IncludeNeeds)
-        -&gt; Query&lt;List&lt;Self::Model&gt;&gt;;                // default: query(cx), unchanged
+        -&gt; Query&lt;List&lt;Self::Model&gt;&gt;;                // default: query_with(cx, needs)
     fn table(_cx: &amp;Cx) -&gt; Table&lt;Self::Model&gt;;       // default: Table::new(), empty until columns + id
     fn form(_cx: &amp;Cx) -&gt; Schema;                    // default: Schema::empty()
     // plus can_* policy fns (default deny), slug/navigation/requires_tenant
@@ -376,15 +378,24 @@ call: <code>for_resource</code> names none, so the panel that mounts the resourc
 URL out instead (<code>NavigationItem::at(..)</code>) only to link somewhere other than the resource’s list
 page — the Panel keeps it verbatim.</li>
 <li><code>query()</code> is the seam for the resource’s <strong>own</strong> row scoping — soft deletes, row-level visibility,
-and the relations a page loads. All list, export, and relation loads use it. Tenancy is not its
-job: when <code>requires_tenant()</code> is <code>true</code> the framework derives the <code>tenant_id</code> filter from the
-model’s own schema and ANDs it onto whatever <code>query</code> returns, at every loader (GH #223), so
-restating it here is redundant. The export builds its base query from <code>export_query(cx, needs)</code>,
-which defaults to <code>query(cx)</code> unchanged; override it to narrow the includes to what the exported
-columns declared with <code>TextColumn::needs(..)</code> — an include <code>query</code> carries for another page then
-stops riding along on every export (GH #177, ADR-0018). Keep the resource’s own scope and whatever
-your <code>can_view</code> reads in the narrowed branch; the <em>tenant</em> half is not the override’s to keep — the
-framework ANDs it onto what <code>export_query</code> returns, exactly as it does for <code>query</code>.</li>
+and the relations a page loads. It is the full base query: the detail page and app code that calls
+<code>scoped_query</code> use it. Tenancy is not its job: when <code>requires_tenant()</code> is <code>true</code> the framework
+derives the <code>tenant_id</code> filter from the model’s own schema and ANDs it onto whatever <code>query</code>
+returns, at every loader (GH #223), so restating it here is redundant.</li>
+<li><code>query_with(cx, needs)</code> is the same base query narrowed to the relations a loader declared
+(GH #298). The default ignores <code>needs</code> and returns <code>query(cx)</code> unchanged, so a resource that
+overrides nothing loads the full base query at every loader. Override it to split the base query
+into one branch per declared name: a loader then loads an include only when it asks for it by name.
+The list and the export pass their table’s <code>Table::include_needs()</code> (the union of the columns’
+<code>TextColumn::needs(..)</code> declarations); the edit page, delete, the bulk fetch, the unique probe,
+the relationship option lists and their targeted FK existence check, and the pagination probes
+pass an empty set. Keep the resource’s own scope and whatever your <code>can_view</code> reads in every
+branch — the <em>tenant</em> half is not the override’s to keep, the framework ANDs it onto what
+<code>query_with</code> returns exactly as it does for <code>query</code>. The option loaders run <code>query_with</code> with an
+empty set, so an option label must project the related record’s own columns.</li>
+<li><code>export_query(cx, needs)</code> is the export’s seed; its default delegates to <code>query_with</code>, so
+overriding <code>query_with</code> narrows the export too (GH #177, GH #298, ADR-0018). Override
+<code>export_query</code> itself only when the CSV needs a branch the other loaders do not.</li>
 <li><code>table()</code> and <code>form()</code> are hand-written, and so is the impl itself: a resource is <code>type Model</code> plus
 whichever hooks it uses. There is no <code>Resource</code> derive (GH #222) — the macros crate ships
 <code>derive(EmbeddedForm)</code> only (GH #191).</li>
