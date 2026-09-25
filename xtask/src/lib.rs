@@ -15,17 +15,18 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use topcoat_ui::{Component, Registry};
+use topcoat_ui::{Component, Dependency, Registry};
 
 /// The registry components Argentum vendors into `primitives/` (ADR-0007).
 ///
 /// The set is the transitive closure of what `crates/argentum-ui/src/lib.rs`
-/// re-exports: the re-exported components plus the components they depend on
-/// (a registry entry names its dependencies). `sync-topcoat-ui` writes these
-/// and `verify-topcoat-ui` expects exactly these, so a registry component the
-/// app never calls is not vendored. Add a component by adding its registry
-/// name here and running `cargo xtask sync-topcoat-ui`; the sync guard fails
-/// until the copy exists.
+/// re-exports: the re-exported components plus the components they depend on.
+/// [`vendored_components`] resolves the set and checks that closure against
+/// `Component::dependencies`, so the sync and the guards fail with the missing
+/// name when a vendored component grows a dependency. `sync-topcoat-ui` writes
+/// these and `verify-topcoat-ui` expects exactly these, so a registry component
+/// the app never calls is not vendored. Add a component by adding its registry
+/// name here and running `cargo xtask sync-topcoat-ui`.
 pub const VENDORED_PRIMITIVES: &[&str] = &[
     "alert",
     "alert_dialog",
@@ -46,9 +47,13 @@ pub const VENDORED_PRIMITIVES: &[&str] = &[
     "textarea",
 ];
 
-/// Resolve [`VENDORED_PRIMITIVES`] against the loaded registry.
+/// Resolve [`VENDORED_PRIMITIVES`] against the loaded registry and check that
+/// the set is closed: every same-registry dependency a vendored component
+/// declares is itself vendored. A dependency in another registry
+/// ([`Dependency::Other`]) is not mirrored into `primitives/`, so only
+/// same-registry names are checked.
 fn vendored_components(registry: &Registry) -> anyhow::Result<Vec<Component<'_>>> {
-    VENDORED_PRIMITIVES
+    let components: Vec<Component<'_>> = VENDORED_PRIMITIVES
         .iter()
         .map(|name| {
             registry.get(name).ok_or_else(|| {
@@ -57,7 +62,21 @@ fn vendored_components(registry: &Registry) -> anyhow::Result<Vec<Component<'_>>
                 )
             })
         })
-        .collect()
+        .collect::<anyhow::Result<_>>()?;
+    for component in &components {
+        for dependency in component.dependencies() {
+            let Dependency::Same(name) = dependency else {
+                continue;
+            };
+            if !VENDORED_PRIMITIVES.contains(&name.as_str()) {
+                anyhow::bail!(
+                    "`{}` depends on `{name}`, which is not in VENDORED_PRIMITIVES; add it",
+                    component.name()
+                );
+            }
+        }
+    }
+    Ok(components)
 }
 
 /// The file names `primitives/` owns: every vendored component's file plus the
@@ -267,7 +286,8 @@ fn ensure_primitives_mod(
 
 /// Guard: every vendored primitive is still the registry's verbatim source,
 /// every SYNC header records the current version *and* the current content
-/// hash, and `mod.rs` still lists exactly [`VENDORED_PRIMITIVES`].
+/// hash, `mod.rs` still lists exactly [`VENDORED_PRIMITIVES`], and the set is
+/// closed under the registry's same-registry dependencies.
 ///
 /// This is Argentum's counterpart of topcoat's own
 /// `examples/ui/tests/registry_sync.rs`: because the sync is byte-for-byte
@@ -373,6 +393,18 @@ pub fn verify_sync() -> anyhow::Result<()> {
     } else {
         anyhow::bail!("registry drift detected:\n{}", failures.join("\n"));
     }
+}
+
+/// Guard: [`VENDORED_PRIMITIVES`] is closed under the registry's
+/// same-registry dependencies ([`vendored_components`] enforces this too).
+pub fn verify_vendored_closure() -> anyhow::Result<()> {
+    let (registry, _version) = locate_registry()?;
+    let components = vendored_components(&registry)?;
+    println!(
+        "verified: {} vendored primitives are closed under their registry dependencies",
+        components.len()
+    );
+    Ok(())
 }
 
 /// The directory holding the hand-written shell JS assets (ADR-0014).

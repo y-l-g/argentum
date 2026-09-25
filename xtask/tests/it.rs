@@ -1,4 +1,4 @@
-//! xtask's two repo guards, in one test target so a single link covers both.
+//! xtask's repo guards, in one test target so a single link covers all of them.
 
 /// Guards the shell-JS hook contract (GH #152, ADR-0014): every hand-written
 /// asset under `crates/argentum-ui/assets/` still exists and stays wired to
@@ -22,4 +22,13 @@ fn shell_assets_match_hook_contract() {
 #[test]
 fn primitives_match_registry_verbatim() {
     xtask::verify_sync().expect("vendored primitives match the registry");
+}
+
+/// Guards that [`xtask::VENDORED_PRIMITIVES`] is the transitive closure the
+/// `lib.rs` re-exports require: every same-registry dependency a vendored
+/// component declares is itself in the set, so the list cannot drift from the
+/// registry's own dependency graph without failing here by name.
+#[test]
+fn vendored_primitives_are_closed_under_registry_dependencies() {
+    xtask::verify_vendored_closure().expect("the vendored set is closed under its dependencies");
 }

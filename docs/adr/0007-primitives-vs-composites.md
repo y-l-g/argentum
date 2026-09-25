@@ -14,10 +14,12 @@ origin.
 
 The vendored set is explicit and app-owned: `xtask::VENDORED_PRIMITIVES` lists the registry
 components Argentum vendors, and `sync-topcoat-ui`, the generated `mod.rs`, and `verify-topcoat-ui`
-all use exactly that set. It is the transitive closure of the components `lib.rs` re-exports (a
-registry entry names the components it depends on), so a registry component no Argentum code calls
-is not vendored. Adding one is a one-line change to the list plus a `sync-topcoat-ui` run; the
-orphan guard flags any file in `primitives/` outside the set.
+all use exactly that set. It is the transitive closure of the components `lib.rs` re-exports: the
+sync and the guards check every vendored component's declared `dependencies` against the set and
+fail by name when one is missing, so the list cannot drift from the registry's dependency graph, and
+a registry component no Argentum code calls is not vendored. Adding a component is a one-line change
+to the list plus a `sync-topcoat-ui` run; the orphan guard flags any file in `primitives/` outside
+the set.
 
 `sync-topcoat-ui` resolves `topcoat-ui-registry` through `cargo metadata` (the same mechanism as
 `topcoat ui`) and reads sources through the registry API, so synced content always matches what Cargo
