@@ -11,7 +11,7 @@
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::quote;
-use syn::{Data, DeriveInput, Fields, Type};
+use syn::{Data, DeriveInput, Fields, Type, ext::IdentExt};
 
 /// Field types this derive binds as a **leaf** (one column, read and written as
 /// text).
@@ -54,8 +54,15 @@ enum Kind {
 }
 
 pub fn expand(input: DeriveInput) -> TokenStream {
+    expand_tokens(input).into()
+}
+
+/// The expansion over `proc_macro2` tokens: the proc-macro entry point converts
+/// its result once, and the attribute checks stay unit-testable without a
+/// proc-macro context.
+fn expand_tokens(input: DeriveInput) -> TokenStream2 {
     if let Err(error) = validate_form_attrs(&input) {
-        return error.to_compile_error().into();
+        return error.to_compile_error();
     }
     let krate = match proc_macro_crate::crate_name("argentum-core") {
         Ok(found) => {
@@ -71,8 +78,7 @@ pub fn expand(input: DeriveInput) -> TokenStream {
                 &input.ident,
                 "argentum-core must be a dependency to #[derive(EmbeddedForm)]",
             )
-            .to_compile_error()
-            .into();
+            .to_compile_error();
         }
     };
 
@@ -86,7 +92,7 @@ pub fn expand(input: DeriveInput) -> TokenStream {
     }
 }
 
-fn unsupported(input: &DeriveInput, expected: &str) -> TokenStream {
+fn unsupported(input: &DeriveInput, expected: &str) -> TokenStream2 {
     syn::Error::new_spanned(
         &input.ident,
         format!(
@@ -95,7 +101,6 @@ fn unsupported(input: &DeriveInput, expected: &str) -> TokenStream {
         ),
     )
     .to_compile_error()
-    .into()
 }
 
 /// The path to field `index` of `owner`, relative to `owner`'s type root.
@@ -142,9 +147,13 @@ fn chained(
 }
 
 /// The label a derived control renders: the Rust field name, humanized.
+///
+/// The name is read through [`IdentExt::unraw`], so a raw identifier drops only
+/// the `r#` prefix a keyword needs: `r#type` renders `Type`, not `R#type`.
 fn label(ident: &syn::Ident) -> String {
-    let mut out = String::with_capacity(ident.to_string().len());
-    for (i, part) in ident.to_string().split('_').enumerate() {
+    let name = ident.unraw().to_string();
+    let mut out = String::with_capacity(name.len());
+    for (i, part) in name.split('_').enumerate() {
         if part.is_empty() {
             continue;
         }
@@ -189,7 +198,9 @@ struct FormAttrs {
 ///
 /// An unknown key or a misplaced one is a compile error rather than a silent
 /// no-op: a typo'd `#[form(text_area)]` that quietly rendered a one-line input
-/// is the quiet failure this repo refuses elsewhere.
+/// is the quiet failure this repo refuses elsewhere. A key whose type the
+/// expansion cannot honour — `textarea` on a non-`String` leaf — is refused
+/// here too, at the attribute, rather than inside the generated code (GH #297).
 fn validate_form_attrs(input: &DeriveInput) -> syn::Result<()> {
     let fields: Vec<&syn::Field> = match &input.data {
         Data::Struct(data) => data.fields.iter().collect(),
@@ -222,6 +233,19 @@ fn validate_form_attrs(input: &DeriveInput) -> syn::Result<()> {
             })?;
         }
         let attrs = form_attrs(&field.attrs);
+        if !is_string(&field.ty)
+            && let Some(attr) = textarea_attr(&field.attrs)
+        {
+            // The control `leaf_control` renders for `textarea` is a
+            // `Textarea`, which binds a `String` leaf; on any other type the
+            // failure belongs here, at the attribute, not inside the expansion
+            // (GH #297).
+            return Err(syn::Error::new_spanned(
+                attr,
+                "`#[form(textarea)]` renders a multi-line control for a `String` field: a \
+                 non-`String` leaf keeps its typed `TextInput` (GH #297)",
+            ));
+        }
         if attrs.rows.is_some() && !attrs.textarea {
             return Err(syn::Error::new_spanned(
                 field,
@@ -230,6 +254,24 @@ fn validate_form_attrs(input: &DeriveInput) -> syn::Result<()> {
         }
     }
     Ok(())
+}
+
+/// The `#[form(textarea)]` attribute of a field, for the span its misuse is
+/// reported at (GH #297).
+fn textarea_attr(attrs: &[syn::Attribute]) -> Option<&syn::Attribute> {
+    attrs.iter().find(|attr| {
+        if !attr.path().is_ident("form") {
+            return false;
+        }
+        let mut found = false;
+        let _ = attr.parse_nested_meta(|meta| {
+            if meta.path.is_ident("textarea") {
+                found = true;
+            }
+            Ok(())
+        });
+        found
+    })
 }
 
 /// `#[form(label = "Canonical URL")]` overrides the humanized label; the rest is
@@ -336,7 +378,7 @@ fn expand_struct(
     krate: &TokenStream2,
     input: &DeriveInput,
     fields: &syn::FieldsNamed,
-) -> TokenStream {
+) -> TokenStream2 {
     let ident = &input.ident;
     let owner = quote! { #ident };
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
@@ -441,11 +483,11 @@ fn expand_struct(
             }
         }
     };
-    expanded.into()
+    expanded
 }
 
 /// The variant control plus one control per payload leaf.
-fn expand_enum(krate: &TokenStream2, input: &DeriveInput, data: &syn::DataEnum) -> TokenStream {
+fn expand_enum(krate: &TokenStream2, input: &DeriveInput, data: &syn::DataEnum) -> TokenStream2 {
     let ident = &input.ident;
     let owner = quote! { #ident };
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
@@ -713,7 +755,7 @@ fn expand_enum(krate: &TokenStream2, input: &DeriveInput, data: &syn::DataEnum) 
             }
         }
     };
-    expanded.into()
+    expanded
 }
 
 /// One variant's group: its own controls, marked with the discriminant value
@@ -760,4 +802,91 @@ fn shared_id(attrs: &[syn::Attribute]) -> Option<String> {
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The expansion of `source`, as the proc-macro entry point would emit it.
+    ///
+    /// A unit test carries no consumer manifest, so `proc_macro_crate` cannot
+    /// resolve `argentum-core` and an input that passes the attribute checks
+    /// expands to that error instead of the impl. Only inputs the checks
+    /// themselves refuse produce a message to assert on; `label` and
+    /// `field_label` are tested directly.
+    fn expansion(source: &str) -> String {
+        let input: DeriveInput = syn::parse_str(source).expect("the derive input parses");
+        expand_tokens(input).to_string()
+    }
+
+    /// The first field of the struct `source` declares.
+    fn first_field(source: &str) -> (DeriveInput, syn::Field) {
+        let input: DeriveInput = syn::parse_str(source).expect("the derive input parses");
+        let field = match &input.data {
+            Data::Struct(data) => data
+                .fields
+                .iter()
+                .next()
+                .expect("the struct declares a field")
+                .clone(),
+            _ => panic!("the source declares a struct"),
+        };
+        (input, field)
+    }
+
+    #[test]
+    fn a_raw_identifier_keeps_its_spelling_without_the_raw_prefix() {
+        let ident: syn::Ident = syn::parse_str("r#type").expect("a raw identifier");
+        assert_eq!(label(&ident), "Type");
+        let ident: syn::Ident = syn::parse_str("canonical_url").expect("an identifier");
+        assert_eq!(label(&ident), "Canonical Url");
+    }
+
+    /// The default label of a `r#type` field is `Type`: the humanizer runs on
+    /// the identifier's own spelling, and `#[form(label = ..)]` still wins.
+    #[test]
+    fn a_raw_identifier_field_is_labelled_without_the_raw_prefix() {
+        let (_, field) = first_field("struct Seo { r#type: String }");
+        let ident = field.ident.as_ref().expect("a named field");
+        assert_eq!(field_label(&field, ident), "Type");
+
+        let (_, field) = first_field(r#"struct Seo { #[form(label = "Kind")] r#type: String }"#);
+        let ident = field.ident.as_ref().expect("a named field");
+        assert_eq!(field_label(&field, ident), "Kind");
+    }
+
+    /// `textarea` renders a `Textarea`, which binds a `String` leaf: on any
+    /// other type the derive refuses it at the attribute rather than failing
+    /// inside the generated code (GH #297).
+    #[test]
+    fn textarea_on_a_non_string_leaf_is_refused_at_the_attribute() {
+        let error = expansion("struct Seo { #[form(textarea)] rank: i64 }");
+        assert!(
+            error.contains("textarea") && error.contains("`String` field"),
+            "the refusal must name the attribute and the type it needs, got {error}"
+        );
+    }
+
+    /// The same attribute on a `String` leaf passes the check: whatever else
+    /// the expansion emits, it is not the textarea refusal.
+    #[test]
+    fn textarea_on_a_string_leaf_passes_the_attribute_check() {
+        let tokens = expansion("struct Seo { #[form(textarea)] body: String }");
+        assert!(
+            !tokens.contains("`String` field"),
+            "a `String` textarea must not be refused, got {tokens}"
+        );
+    }
+
+    /// The refusal fires for a payload field of an enum variant too: the check
+    /// walks every field the derive will bind.
+    #[test]
+    fn textarea_on_a_non_string_enum_payload_is_refused() {
+        let error = expansion("enum Kind { Draft { #[form(textarea)] rank: i64 } }");
+        assert!(
+            error.contains("`String` field"),
+            "an enum payload must be checked too, got {error}"
+        );
+    }
 }
