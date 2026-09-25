@@ -58,9 +58,10 @@ pub(crate) use crate::query_term::clamp_query_term;
 ///   fields. `table`, `form` and `can_create` are declarations and take no request context, because
 ///   build checks them with a Db-only context.
 /// - **Loud at request time**: the record fns ([`create_record`](Self::create_record),
-///   [`update_record`](Self::update_record), [`delete_record`](Self::delete_record),
-///   [`bulk_delete_records`](Self::bulk_delete_records)) default to an error naming the type, so a
-///   resource that never implemented delete says so instead of writing nothing quietly.
+///   [`update_record`](Self::update_record), [`delete_record`](Self::delete_record)) default to an
+///   error naming the type, so a resource that never implemented delete says so instead of writing
+///   nothing quietly. [`bulk_delete_records`](Self::bulk_delete_records) loops `delete_record` by
+///   default, so it stays loud through the same stub.
 /// - **Opt-in chrome, gated per record**: [`deletable`](Self::deletable) and
 ///   [`editable`](Self::editable) are whole-resource flags, false by default; see
 ///   [`deletable`](Self::deletable) for how the row predicates narrow them.
@@ -500,22 +501,23 @@ pub trait Resource: Sized + Send + Sync + 'static {
     /// Bulk-delete the already-authorized `records`: the handler
     /// fetches through the tenancy-scoped `IN` query inside the framework
     /// transaction and checks `can_delete` on every row before calling this.
-    /// Delete them through `ex` — any error rolls the whole batch back, so
-    /// mid-loop failures delete zero rows.
+    /// The default deletes each record through [`Self::delete_record`] in
+    /// order, through the same `ex` — any error rolls the whole batch back,
+    /// so mid-loop failures delete zero rows. Override for a single-statement
+    /// batch.
     fn bulk_delete_records(
-        _cx: &Cx,
-        _records: Vec<Self::Model>,
-        _ex: &mut dyn toasty::Executor,
+        cx: &Cx,
+        records: Vec<Self::Model>,
+        ex: &mut dyn toasty::Executor,
     ) -> impl std::future::Future<Output = Result<()>> + Send
     where
         Self: Sized,
     {
         async move {
-            Err(std::io::Error::other(format!(
-                "bulk delete not implemented for {}",
-                std::any::type_name::<Self>()
-            ))
-            .into())
+            for record in records {
+                Self::delete_record(cx, record, &mut *ex).await?;
+            }
+            Ok(())
         }
     }
 
