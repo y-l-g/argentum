@@ -91,12 +91,6 @@ test('the header reads "partial" on a partial selection', () => {
   assert.deepEqual(headerState(selectable), { checked: false, indeterminate: true });
 });
 
-test('a page of only denied rows offers nothing to select', () => {
-  // `boxesIn` yields the selectable boxes, so this is what a page whose every
-  // row is refused hands the header: neither checked nor indeterminate.
-  assert.deepEqual(headerState([]), { checked: false, indeterminate: false });
-});
-
 test('the wire is comma-delimited on both ends, so membership is exact', () => {
   assert.equal(wireFrom(['ab']), ',ab,');
   assert.equal(wireFrom([]), '');

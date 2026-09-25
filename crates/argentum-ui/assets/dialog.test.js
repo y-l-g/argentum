@@ -28,6 +28,8 @@ const assert = require('node:assert/strict');
 const SCRIPT = require.resolve('./dialog.js');
 const { openDeleteDialog } = require(SCRIPT);
 
+const { listenerDocument } = require('./test-dom');
+
 // A row Delete control, as the DOM hands it over: the dialog it names and the
 // record's POST target.
 const triggerOf = (dialogId, action) => ({
@@ -84,22 +86,12 @@ const docOf = (dialog) => ({
 // the stand-ins have to be in place before the script is required and stay
 // there while its listeners run. It is only as wide as the script needs.
 function standInDocument(dialog) {
-  const byType = new Map();
-  return {
-    addEventListener(type, handler) {
-      if (!byType.has(type)) byType.set(type, []);
-      byType.get(type).push(handler);
-    },
+  return listenerDocument({
     getElementById: (id) => (id === 'admin-users-delete-dialog' ? dialog : null),
     // Escape reads the open dialog off the document.
     querySelector: (selector) =>
       selector === 'dialog[open]' && dialog && dialog.open ? dialog : null,
-    // Every listener for `type`, in registration order: firing them all is what
-    // a browser does for one event.
-    listeners(type) {
-      return byType.get(type) || [];
-    },
-  };
+  });
 }
 
 // Load a fresh copy of the script against `document`, run the case, and drop

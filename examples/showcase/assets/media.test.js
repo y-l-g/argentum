@@ -23,6 +23,8 @@ const assert = require('node:assert/strict');
 
 const SCRIPT = require.resolve('./media.js');
 
+const { listenerDocument } = require('../../../crates/argentum-ui/assets/test-dom.js');
+
 // --- browser stand-ins -------------------------------------------------------
 
 // The widget as the page renders it: a form holding the file input, the preview
@@ -60,22 +62,14 @@ function widget() {
 // A document that records the listeners `install()` registers, so a case can
 // fire them the way a browser does.
 function standInDocument() {
-  const byType = new Map();
-  return {
-    addEventListener(type, handler) {
-      if (!byType.has(type)) byType.set(type, []);
-      byType.get(type).push(handler);
-    },
-    listeners(type) {
-      return byType.get(type) || [];
-    },
+  return listenerDocument({
     createElement(tag) {
       return { tag };
     },
     createTextNode(text) {
       return { text };
     },
-  };
+  });
 }
 
 // Load a fresh copy of the script against `document`: a fresh copy re-runs

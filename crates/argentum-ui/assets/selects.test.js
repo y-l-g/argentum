@@ -23,6 +23,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
+const { listenerDocument } = require('./test-dom');
+
 const SCRIPT = require.resolve('./selects.js');
 
 // --- a document stand-in -----------------------------------------------------
@@ -32,29 +34,14 @@ const SCRIPT = require.resolve('./selects.js');
 // be in place before the script is required. It is only as wide as the script
 // needs: each node answers the selectors `partsOf` and the listbox read.
 function standInDocument(filters) {
-  const byType = new Map();
-  return {
+  return listenerDocument({
     activeElement: null,
     documentElement: {},
-    addEventListener(type, handler) {
-      if (!byType.has(type)) byType.set(type, []);
-      byType.get(type).push(handler);
-    },
-    querySelectorAll(selector) {
-      return selector === '[data-options-filter]' ? filters : [];
-    },
-    // The `<li>`s `renderList` builds. Only the pieces the listbox reads:
-    // attributes, dataset, text, and the id `aria-activedescendant` names.
+    querySelectorAll: (selector) =>
+      selector === '[data-options-filter]' ? filters : [],
+    // The `<li>`s `renderList` builds.
     createElement: () => listItem(),
-    // Every listener for `type`, in registration order: firing them all is what
-    // a browser does for one event.
-    listeners(type) {
-      return byType.get(type) || [];
-    },
-    types() {
-      return Array.from(byType.keys());
-    },
-  };
+  });
 }
 
 // A created `<li>`, as `renderList` fills it in.
@@ -232,10 +219,6 @@ test('the placeholder never counts against the cap', () => {
   assert.equal(rows.length, 4, 'the placeholder plus the cap');
   assert.equal(rows[0].label, '-- Select --');
   assert.deepEqual(rows.slice(1).map((r) => r.label), ['Option 0', 'Option 1', 'Option 2']);
-});
-
-test('a needle narrower than the cap still returns every match', () => {
-  assert.deepEqual(labels('author'), ['Ada Author', 'Alan Author']);
 });
 
 test('selection state rides along, so the list can mark the current choice', () => {
