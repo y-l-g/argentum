@@ -35,7 +35,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-632268ac.js";
+            window.path_to_searchindex_js = "searchindex-3631fb6b.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-da1679ae.js"></script>
@@ -235,17 +235,23 @@ that renders in the form renders here.</li>
             .boxed(),
         );
     }
-    Some(render_relation(cx, "Comments", RelationColumns::columns(
-        RelationColumn::computed("Comment", |c: &amp;Comment| c.body.clone()),
-    ), record.comments.get()))
+    Some(render_relation::&lt;CommentResource&gt;(
+        cx,
+        "Comments",
+        RelationColumns::columns(RelationColumn::computed("Comment", |c: &amp;Comment| c.body.clone())),
+        record.comments.get(),
+    ))
 }
 <span class="boring">}</span></code></pre>
 <p>It is a typed method and not a Schema field because a Schema renders the record’s <em>string
 projection</em> while a relation is a list of records — and <code>Resource::view(cx)</code> is handed no record at
 all, so a Schema node could not read one. Reading <code>record.comments.get()</code> issues no query: it is the
 row the include loaded, and a test counts the statements a detail page runs to hold that
-(<code>the_relation_issues_no_query_of_its_own</code>). Related rows render read-only: no pager, no search, no
-bulk column, no row actions.</p>
+(<code>the_relation_issues_no_query_of_its_own</code>). The call names the related <code>Resource</code>
+(<code>render_relation::&lt;CommentResource&gt;</code>), so the table applies that resource’s <code>can_view</code> to every
+loaded row, and it renders at most <code>MAX_RELATION_ROWS</code> rows, printing a line that names the cap and
+the total when it truncates. Related rows render read-only: no pager, no search, no bulk column, no
+row actions.</p>
 <ul>
 <li>A typed column (<code>Uuid</code>, <code>jiff::Timestamp</code>) is readable: bind it with <code>TextInput::typed</code> (GH #192)
 and the view renders its stored value as text. A foreign key therefore reads as its stored id
