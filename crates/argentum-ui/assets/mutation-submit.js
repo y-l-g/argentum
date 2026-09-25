@@ -22,13 +22,15 @@
 // rerun, which re-hydrates the range it morphs. Driving the shard keeps one
 // renderer — the server — for both halves.
 //
-// Failure paths are the browser's. A POST the server answers itself (4xx/5xx)
-// wrote nothing — the handlers check before the write and roll back on any
-// failure — so the form is handed back and the browser shows the same
-// response a no-JS POST would. A request that never completes leaves the
-// outcome unknown, and a redirect that was followed is a write that landed
-// even when the list render behind it failed: both reload the page rather
-// than post the delete a second time.
+// Failure paths are the browser's. A mutation whose response the client
+// fetched is never posted again: a POST the server answers itself (4xx/5xx)
+// may already have committed the write — a failure after the commit is still a
+// failure response — so the fetched response is rendered into the document,
+// the same page a no-JS POST would have shown, and what to do next is the
+// reader's to decide. A request that never completes leaves the outcome
+// unknown, and a redirect that was followed is a write that landed even when
+// the list render behind it failed: both reload the page rather than post the
+// delete a second time.
 //
 // Without JavaScript none of this runs: the same form POSTs and 303s.
 //
@@ -198,12 +200,14 @@ async function send(form, action, submitter) {
     return;
   }
 
-  // No redirect was followed, so the POST answered itself: the server refused
-  // or failed the write, and nothing was written. Hand the form back so the
-  // browser shows that response exactly as a no-JS POST does.
+  // No redirect was followed, so the POST answered itself. Whether the server
+  // committed the write before answering is not knowable here, so the response
+  // is shown where the browser would have shown it and the mutation is not
+  // sent again: a delete that already committed must not be repeated because
+  // the render behind it failed.
   if (!response.redirected) {
     if (submitter) submitter.disabled = false;
-    form.submit();
+    showResponse(await response.text());
     return;
   }
   // The write is over, so the button that started it is usable again: on a
@@ -289,6 +293,16 @@ function insertToasts(toasts) {
 
 function dismiss(dialog) {
   if (dialog && dialog.open) dialog.close();
+}
+
+// Show a response the client already fetched, without issuing the request
+// again. The browser's own submit renders the server's answer, but repeating a
+// mutation to get that rendering is what must not happen; writing the fetched
+// markup into the document shows the same page the no-JS POST would have.
+function showResponse(html) {
+  document.open();
+  document.write(html);
+  document.close();
 }
 
 // Focus where the deleted row stood: the row that took its place, else the
