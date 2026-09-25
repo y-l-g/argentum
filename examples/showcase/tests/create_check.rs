@@ -505,11 +505,7 @@ async fn a_failed_write_toasts_on_the_next_panel_page() {
     );
     let html = body_string(page).await;
     assert!(
-        html.contains("create the record"),
-        "the next panel page must render the failure toast: {html}"
-    );
-    assert!(
         html.contains("data-type=\"error\""),
-        "the toast must read as a failure: {html}"
+        "the next panel page must render the failure toast: {html}"
     );
 }

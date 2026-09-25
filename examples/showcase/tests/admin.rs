@@ -1,6 +1,6 @@
 use showcase::app::router_for_tests as router;
 
-use crate::common::{body_string, demo_client, find_href_with, seeded_db, user_count};
+use crate::common::{TestClient, body_string, demo_client, find_href_with, seeded_db, user_count};
 
 #[tokio::test]
 async fn admin_resource_list_page_serve_seeded_users() {
@@ -100,9 +100,9 @@ async fn admin_unknown_route_is_not_found() {
     assert_eq!(response.status(), 404);
 }
 
-/// GH #295: the `frame-ancestors` layer covers the router's own error
-/// responses too — the 404 for an unmatched path and the 405 for a wrong method
-/// — not only the responses the panel's handlers build.
+/// GH #295: the `frame-ancestors` layer covers every response the panel's layer
+/// chain produces — the 404 for an unmatched path, the 405 for a wrong method,
+/// and the redirects the handlers build as errors — not only the 200 pages.
 #[tokio::test]
 async fn error_responses_carry_frame_ancestors() {
     use topcoat::router::Body;
@@ -130,6 +130,10 @@ async fn error_responses_carry_frame_ancestors() {
         Some("frame-ancestors 'self'"),
         "a panel page must carry the directive"
     );
+    // Drain the streamed page before the next request: an undrained body keeps
+    // the list query's pooled connection, and a later request that resolves the
+    // session blocks on the pool.
+    let _ = body_string(response).await;
 
     // A path the router does not match answers 404, hardened all the same.
     let response = client.get("/admin/unknown").await;
@@ -153,6 +157,39 @@ async fn error_responses_carry_frame_ancestors() {
         csp(&response).as_deref(),
         Some("frame-ancestors 'self'"),
         "a wrong-method response must carry the directive"
+    );
+
+    // The root's temporary redirect to the first resource leaves through the
+    // same `Err` branch and keeps the directive.
+    let response = client.get("/admin").await;
+    assert_eq!(response.status(), http::StatusCode::TEMPORARY_REDIRECT);
+    assert_eq!(
+        csp(&response).as_deref(),
+        Some("frame-ancestors 'self'"),
+        "the root redirect must carry the directive"
+    );
+
+    // The gate's login redirect does too: an unauthenticated page request is
+    // answered by a redirect to the login route.
+    let anonymous = TestClient::new(&router);
+    let response = anonymous.get("/admin/users").await;
+    assert_eq!(
+        response.status(),
+        http::StatusCode::TEMPORARY_REDIRECT,
+        "an unauthenticated page request redirects to login"
+    );
+    assert!(
+        response
+            .headers()
+            .get(http::header::LOCATION)
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|location| location.starts_with("/admin/login")),
+        "the redirect must name the login route"
+    );
+    assert_eq!(
+        csp(&response).as_deref(),
+        Some("frame-ancestors 'self'"),
+        "the login redirect must carry the directive"
     );
 }
 
