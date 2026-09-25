@@ -50,6 +50,39 @@ pub(crate) async fn find_by_key<R: Resource>(
     id: &str,
     ex: &mut dyn toasty::Executor,
 ) -> Result<R::Model> {
+    find_by_key_in::<R>(id, ex, || crate::resource::scoped_query::<R>(cx)).await
+}
+
+/// [`find_by_key`] for a loader that reads only the record's own columns
+/// (GH #298): the same PK filter over
+/// [`scoped_query_with`](crate::resource::scoped_query_with) with an empty
+/// [`IncludeNeeds`](crate::resource::IncludeNeeds), so the edit handler and
+/// delete do not load the relations the record's list or detail page reads. A
+/// resource that overrides nothing keeps its full
+/// [`query`](crate::resource::Resource::query).
+pub(crate) async fn find_by_key_narrowed<R: Resource>(
+    cx: &Cx,
+    id: &str,
+    ex: &mut dyn toasty::Executor,
+) -> Result<R::Model> {
+    find_by_key_in::<R>(id, ex, || {
+        crate::resource::scoped_query_with::<R>(cx, &crate::resource::IncludeNeeds::default())
+    })
+    .await
+}
+
+/// The shared body of [`find_by_key`] and [`find_by_key_narrowed`]: parse the
+/// URL id against the model's primary key, then fetch the one row through
+/// `seed`.
+///
+/// `seed` is a closure so the composite-PK misdeclaration is reported before
+/// the scoped query is built, the order [`find_by_key`] had before the two
+/// seeds split.
+async fn find_by_key_in<R: Resource>(
+    id: &str,
+    ex: &mut dyn toasty::Executor,
+    seed: impl FnOnce() -> Result<toasty::stmt::Query<toasty::stmt::List<R::Model>>>,
+) -> Result<R::Model> {
     let Some(expr) = crate::schema::pk_eq_expr::<R::Model>(id) else {
         // Composite PKs have no URL representation (GH #95): fail loudly so
         // the misconfiguration surfaces instead of 404ing every id.
@@ -65,7 +98,7 @@ pub(crate) async fn find_by_key<R: Resource>(
         }
         return Err(topcoat::router::error::not_found().into());
     };
-    crate::resource::scoped_query::<R>(cx)?
+    seed()?
         .filter(expr)
         .first()
         .exec(&mut *ex)
@@ -90,6 +123,22 @@ pub(crate) async fn load_viewable<R: Resource>(
 ) -> Result<R::Model> {
     let id = topcoat::router::path_param_segment(cx, "id").to_string();
     let record = find_by_key::<R>(cx, &id, ex).await?;
+    if !R::can_view(cx, &record) {
+        return Err(topcoat::router::error::forbidden().into());
+    }
+    Ok(record)
+}
+
+/// [`load_viewable`] for a loader that reads only the record's own columns
+/// (GH #298): the edit page hydrates its fields from the record, so it uses
+/// [`find_by_key_narrowed`] and does not load the relations the record's list
+/// or detail page reads.
+pub(crate) async fn load_viewable_narrowed<R: Resource>(
+    cx: &Cx,
+    ex: &mut dyn toasty::Executor,
+) -> Result<R::Model> {
+    let id = topcoat::router::path_param_segment(cx, "id").to_string();
+    let record = find_by_key_narrowed::<R>(cx, &id, ex).await?;
     if !R::can_view(cx, &record) {
         return Err(topcoat::router::error::forbidden().into());
     }
@@ -136,7 +185,10 @@ pub(crate) fn resource_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
             let mut db = db(cx);
             let mut tx = db.transaction().await.map_err(crate::db::unavailable)?;
             let id = topcoat::router::path_param_segment(cx, "id").to_string();
-            let record = find_by_key::<R>(cx, &id, &mut tx).await?;
+            // The delete path reads only the record's own columns (GH #298):
+            // `can_view`/`can_delete` are Rust predicates over those, and
+            // `delete_record` consumes the snapshot.
+            let record = find_by_key_narrowed::<R>(cx, &id, &mut tx).await?;
             if !R::can_view(cx, &record) {
                 return Err(forbidden().into());
             }
@@ -231,11 +283,16 @@ pub(crate) fn resource_bulk_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<
             };
             let mut db = db(cx);
             let mut tx = db.transaction().await.map_err(crate::db::unavailable)?;
-            let rows = crate::resource::scoped_query::<R>(cx)?
-                .filter(pk_filter)
-                .exec(&mut tx)
-                .await
-                .map_err(crate::db::unavailable)?;
+            // The batch fetch reads only the records' own columns (GH #298):
+            // the policy predicates and the write below never touch a relation.
+            let rows = crate::resource::scoped_query_with::<R>(
+                cx,
+                &crate::resource::IncludeNeeds::default(),
+            )?
+            .filter(pk_filter)
+            .exec(&mut tx)
+            .await
+            .map_err(crate::db::unavailable)?;
             if rows.len() != ids.len() {
                 return Err(topcoat::router::error::not_found().into());
             }
@@ -376,10 +433,14 @@ fn parse_bulk_ids(raw: &str, max: usize) -> Vec<String> {
 /// 413 reflects what the caller may receive (GH #86, GH #145), and a window
 /// that fills with rows left beyond it is a 413 too, because those rows may
 /// be viewable and dropping them would ship a partial file (GH #279). Both
-/// refusals happen before any byte is sent. Then the streaming pass re-walks
-/// the same window and emits header + rows. A concurrent mutation landing
-/// between the passes can only fill the window or push the second past the
-/// cap — that aborts the stream loudly instead of truncating silently.
+/// refusals happen before any byte is sent. The scan renders no cell, so it
+/// asks for no relation includes (GH #298). Then the streaming pass re-walks
+/// the same window and emits header + rows, loading the includes the rendered
+/// columns declared. A concurrent mutation landing between the passes can only
+/// fill the window or push the second past the cap — that aborts the stream
+/// loudly instead of truncating silently. The header leads the body even when
+/// the window is empty (GH #298), so an empty table downloads a valid CSV
+/// rather than a 0-byte file indistinguishable from a failed download.
 /// Formula cells are defused per OWASP in [`Table::csv_row`], and `?bom=1`
 /// prepends a UTF-8 BOM for Excel interop (GH #94).
 pub(crate) fn resource_export<R: Resource>(cx: &Cx, _body: Body) -> RouteFuture<'_> {
@@ -407,7 +468,15 @@ pub(crate) fn resource_export<R: Resource>(cx: &Cx, _body: Body) -> RouteFuture<
         }
         // Phase 1: bounded visibility scan — count receivable rows inside the
         // raw cap window, so the 413 below fires before any response bytes.
-        let mut chunker = ExportChunker::new(export_base_query::<R>(cx, &table, &state)?);
+        // The scan renders nothing: it calls `R::can_view` per row and reads no
+        // column, so it asks for no relation includes (GH #298) where the
+        // streaming pass below asks for the table's declared ones.
+        let mut chunker = ExportChunker::new(export_base_query::<R>(
+            cx,
+            &table,
+            &state,
+            &crate::resource::IncludeNeeds::default(),
+        )?);
         let mut db_handle = db(cx);
         let mut visible = 0usize;
         while let Some(rows) = chunker.next_chunk(&mut db_handle).await? {
@@ -425,7 +494,15 @@ pub(crate) fn resource_export<R: Resource>(cx: &Cx, _body: Body) -> RouteFuture<
         // The walk moves onto a spawned task with an owned `Cx` clone, so a
         // slow consumer back-pressures the fetch instead of holding the
         // handler — and never an unbounded buffer.
+        //
+        // The window is walked twice on purpose: the row cap must be answered
+        // before the first response byte, and the cap counts rows through
+        // `R::can_view`, a Rust predicate no `COUNT(*)` can run. Trimming the
+        // streaming pass to the cap instead would ship a partial file for a
+        // table the caller may not receive in full (GH #279); the two walks are
+        // the price of a fail-closed 413. This is not a truncating `LIMIT 200`.
         let want_bom = export_wants_bom(cx);
+        let needs = table.include_needs();
         let (tx, body) = http_body_util::Channel::<bytes::Bytes, std::io::Error>::new(8);
         let cx2 = cx.clone();
         tokio::spawn(async move {
@@ -434,7 +511,7 @@ pub(crate) fn resource_export<R: Resource>(cx: &Cx, _body: Body) -> RouteFuture<
             // same `cx`, table and state, so this cannot fail again — but a
             // stream that cannot build its query aborts instead of sending a
             // truncated CSV (GH #223 moved the seed behind a `Result`).
-            let mut chunker = match export_base_query::<R>(&cx2, &table, &state) {
+            let mut chunker = match export_base_query::<R>(&cx2, &table, &state, &needs) {
                 Ok(query) => ExportChunker::new(query),
                 Err(error) => {
                     tracing::error!(resource = R::slug(), error = %error, "export stream failed");
@@ -443,7 +520,19 @@ pub(crate) fn resource_export<R: Resource>(cx: &Cx, _body: Body) -> RouteFuture<
                 }
             };
             let mut db_handle = crate::db::db(&cx2);
-            let mut first = true;
+            // The header leads the body even when the window has no rows
+            // (GH #298): an empty table must download a valid CSV, and a
+            // 0-byte body cannot be told from a failed download.
+            let mut head = table.csv_header();
+            // Opt-in BOM for Excel (GH #94): `?bom=1` prepends U+FEFF
+            // so non-ASCII cells open correctly; default stays
+            // BOM-free so existing clients/tests see plain UTF-8.
+            if want_bom {
+                head.insert(0, '\u{FEFF}');
+            }
+            if tx.send_data(bytes::Bytes::from(head)).await.is_err() {
+                return;
+            }
             let mut visible = 0usize;
             loop {
                 let rows = match chunker.next_chunk(&mut db_handle).await {
@@ -456,17 +545,6 @@ pub(crate) fn resource_export<R: Resource>(cx: &Cx, _body: Body) -> RouteFuture<
                     }
                 };
                 let mut fragment = String::new();
-                if first {
-                    first = false;
-                    let mut head = table.csv_header();
-                    // Opt-in BOM for Excel (GH #94): `?bom=1` prepends U+FEFF
-                    // so non-ASCII cells open correctly; default stays
-                    // BOM-free so existing clients/tests see plain UTF-8.
-                    if want_bom {
-                        head.insert(0, '\u{FEFF}');
-                    }
-                    fragment.push_str(&head);
-                }
                 for row in &rows {
                     if R::can_view(&cx2, row) {
                         visible += 1;
@@ -513,25 +591,30 @@ pub(crate) fn resource_export<R: Resource>(cx: &Cx, _body: Body) -> RouteFuture<
 
 /// The export's filtered + ordered base query (GH #172): the resource's
 /// [`export_query`](crate::resource::Resource::export_query) — the soft-delete /
-/// row-level seam (ADR-0002) narrowed to the relations the rendered columns
-/// declared (GH #177), and tenant-scoped by the framework on the way in
-/// (GH #223, [`crate::resource::scoped_query`]) — with the table's declaration
-/// applied through the one shared routine the list loader uses (GH #210).
+/// row-level seam (ADR-0002) narrowed to the relations `needs` asks for
+/// (GH #177, GH #298), and tenant-scoped by the framework on the way in
+/// (GH #223, [`crate::resource::scoped_query_with`]) — with the table's
+/// declaration applied through the one shared routine the list loader uses
+/// (GH #210).
+///
+/// The visibility scan passes an empty `needs` — it renders no cell — and the
+/// streaming pass passes [`Table::include_needs`], the relations its columns
+/// declared.
 ///
 /// The list and the export differ only in the seed query and the ordering mode:
-/// the list loads the tenant-scoped `Resource::query` with [`OrderMode::List`],
-/// the export the tenant-scoped narrowed `export_query` with
-/// [`OrderMode::Export`] — whose PK fallback applies whether or not the table
-/// paginates, because the chunked cursor walk needs a deterministic order
+/// the list loads the tenant-scoped `Resource::query_with` with
+/// [`OrderMode::List`], the export the tenant-scoped narrowed `export_query`
+/// with [`OrderMode::Export`] — whose PK fallback applies whether or not the
+/// table paginates, because the chunked cursor walk needs a deterministic order
 /// either way. Both pay the same scope, so a gated resource cannot export
 /// unscoped.
 fn export_base_query<R: Resource>(
     cx: &Cx,
     table: &Table<R::Model>,
     state: &TableState,
+    needs: &crate::resource::IncludeNeeds,
 ) -> Result<toasty::stmt::Query<toasty::stmt::List<R::Model>>> {
-    let seed =
-        crate::resource::apply_tenant_scope::<R>(cx, R::export_query(cx, &table.include_needs()))?;
+    let seed = crate::resource::apply_tenant_scope::<R>(cx, R::export_query(cx, needs))?;
     Ok(table.apply_declaration(seed, state, OrderMode::Export))
 }
 
@@ -1635,6 +1718,232 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn export_of_an_empty_table_emits_the_header() {
+        // GH #298: the header leads the body even when the window has no rows,
+        // so an empty table downloads a valid CSV (header, and the BOM when
+        // asked for) instead of a 0-byte file a consumer cannot tell from a
+        // failed download.
+        use std::collections::HashMap;
+
+        use http_body_util::BodyExt;
+
+        use crate::resource::Resource;
+
+        struct EmptyResource;
+        impl Resource for EmptyResource {
+            type Model = Dummy;
+            fn slug() -> String {
+                "dummies".to_string()
+            }
+            fn can_view_any(_cx: &Cx) -> bool {
+                true
+            }
+            fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
+                crate::resource::Table::r#for(cx)
+                    .id(|d: &Dummy| d.id.to_string())
+                    .pk(|d: &Dummy| d.id.to_string())
+                    .columns(crate::resource::TextColumn::r#for(
+                        Dummy::fields().name(),
+                        |d: &Dummy| d.name.clone(),
+                    ))
+            }
+            fn hydrate_form_values(_cx: &Cx, _record: &Dummy) -> HashMap<String, String> {
+                HashMap::new()
+            }
+        }
+
+        let db = Db::builder()
+            .models(toasty::models!(Dummy))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        let router = Panel::new("admin")
+            .app_context(db)
+            .resource::<EmptyResource>()
+            .auth(crate::Auth::disabled())
+            .build()
+            .expect("panel builds");
+        let get = async |uri: &str| {
+            let resp = router
+                .handle(
+                    http::Request::builder()
+                        .uri(uri)
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await;
+            assert!(resp.status().is_success(), "export {uri} failed");
+            resp.into_body().collect().await.unwrap().to_bytes()
+        };
+
+        assert_eq!(
+            get("/admin/dummies/export").await.as_ref(),
+            b"Name\n",
+            "an empty export is the header line, not a 0-byte body"
+        );
+        assert_eq!(
+            get("/admin/dummies/export?bom=1").await.as_ref(),
+            "\u{FEFF}Name\n".as_bytes(),
+            "the BOM variant leads with U+FEFF even when empty"
+        );
+    }
+
+    #[tokio::test]
+    async fn export_visibility_scan_asks_for_no_includes() {
+        // GH #298: the counting pass renders no cell, so it asks for no
+        // relation includes; only the streaming pass loads the ones the
+        // columns declared. `can_view` observes which query loaded the row:
+        // the relation is unloaded in the scan and loaded in the stream, so
+        // both counters must fire.
+        use std::{
+            collections::HashMap,
+            sync::atomic::{AtomicUsize, Ordering},
+        };
+
+        use http_body_util::BodyExt;
+        use toasty::stmt::{Include, List, Query};
+
+        use crate::resource::{IncludeNeeds, Resource};
+
+        static SCAN_UNLOADED: AtomicUsize = AtomicUsize::new(0);
+        static STREAM_LOADED: AtomicUsize = AtomicUsize::new(0);
+
+        #[derive(Debug, toasty::Model, Clone)]
+        struct Parent {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            name: String,
+        }
+
+        #[derive(Debug, toasty::Model, Clone)]
+        struct Child {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            label: String,
+            #[index]
+            parent_id: uuid::Uuid,
+            #[belongs_to(key = parent_id, references = id)]
+            parent: toasty::Deferred<Parent>,
+        }
+
+        fn with_parent() -> Query<List<Child>> {
+            let inc: Include<Child, Parent> = Child::fields().parent().into();
+            Query::<List<Child>>::all().include(inc)
+        }
+
+        struct ScanResource;
+        impl Resource for ScanResource {
+            type Model = Child;
+            fn slug() -> String {
+                "children".to_string()
+            }
+            fn can_view_any(_cx: &Cx) -> bool {
+                true
+            }
+            fn can_view(_cx: &Cx, record: &Child) -> bool {
+                if record.parent.is_unloaded() {
+                    SCAN_UNLOADED.fetch_add(1, Ordering::SeqCst);
+                } else {
+                    STREAM_LOADED.fetch_add(1, Ordering::SeqCst);
+                }
+                true
+            }
+            fn query(_cx: &Cx) -> Query<List<Child>> {
+                with_parent()
+            }
+            fn query_with(_cx: &Cx, needs: &IncludeNeeds) -> Query<List<Child>> {
+                if needs.wants("parent") {
+                    with_parent()
+                } else {
+                    Query::<List<Child>>::all()
+                }
+            }
+            fn table(cx: &Cx) -> crate::resource::Table<Child> {
+                crate::resource::Table::r#for(cx)
+                    .id(|c: &Child| c.id.to_string())
+                    .pk(|c: &Child| c.id.to_string())
+                    .columns(
+                        crate::resource::TextColumn::computed("Parent", |c: &Child| {
+                            if c.parent.is_unloaded() {
+                                "(unloaded)".to_string()
+                            } else {
+                                c.parent.get().name.clone()
+                            }
+                        })
+                        .needs(["parent"]),
+                    )
+            }
+            fn hydrate_form_values(_cx: &Cx, _record: &Child) -> HashMap<String, String> {
+                HashMap::new()
+            }
+        }
+
+        SCAN_UNLOADED.store(0, Ordering::SeqCst);
+        STREAM_LOADED.store(0, Ordering::SeqCst);
+        let mut db = Db::builder()
+            .models(toasty::models!(Parent, Child))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        let parent_id = uuid::Uuid::new_v4();
+        toasty::create!(Parent {
+            id: parent_id,
+            name: "Ada".to_string(),
+        })
+        .exec(&mut db)
+        .await
+        .unwrap();
+        toasty::create!(Child {
+            label: "row".to_string(),
+            parent_id,
+        })
+        .exec(&mut db)
+        .await
+        .unwrap();
+
+        let router = Panel::new("admin")
+            .app_context(db)
+            .resource::<ScanResource>()
+            .auth(crate::Auth::disabled())
+            .build()
+            .expect("panel builds");
+        let resp = router
+            .handle(
+                http::Request::builder()
+                    .uri("/admin/children/export")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await;
+        assert!(resp.status().is_success());
+        let csv = String::from_utf8(
+            resp.into_body()
+                .collect()
+                .await
+                .unwrap()
+                .to_bytes()
+                .to_vec(),
+        )
+        .unwrap();
+        assert!(
+            csv.contains("Ada"),
+            "the stream must render the include: {csv}"
+        );
+        assert!(
+            SCAN_UNLOADED.load(Ordering::SeqCst) > 0,
+            "the counting pass must run without the column includes"
+        );
+        assert!(
+            STREAM_LOADED.load(Ordering::SeqCst) > 0,
+            "the streaming pass must load the declared include"
+        );
+    }
+
+    #[tokio::test]
     async fn export_counts_only_viewable_rows_within_the_window() {
         // GH #145 (with GH #86), preserved under streaming: visibility is
         // counted before the cap inside the raw MAX+1 window, so interleaved
@@ -1842,7 +2151,8 @@ mod tests {
         let table = TinyResource::table(&cx);
         let state = crate::resource::TableState::default();
         let mut chunker = ExportChunker::new(
-            export_base_query::<TinyResource>(&cx, &table, &state).expect("tenant scope"),
+            export_base_query::<TinyResource>(&cx, &table, &state, &table.include_needs())
+                .expect("tenant scope"),
         );
         let first = chunker
             .next_chunk(&mut db)
@@ -1963,7 +2273,8 @@ mod tests {
         );
 
         let mut chunker = ExportChunker::new(
-            export_base_query::<TaskResource>(&cx, &table, &state).expect("tenant scope"),
+            export_base_query::<TaskResource>(&cx, &table, &state, &table.include_needs())
+                .expect("tenant scope"),
         );
         let mut exported: Vec<String> = Vec::new();
         while let Some(rows) = chunker.next_chunk(&mut db).await.unwrap() {
@@ -2372,6 +2683,166 @@ mod tests {
         // test feeds characters that must be escaped and asserts the exact
         // output. These fixtures are "Ada"/"Grace"/"Alan", so a
         // `!html.contains("<script")` here could never fail (GH #216).
+    }
+
+    #[tokio::test]
+    async fn option_load_asks_for_no_relation_includes() {
+        // GH #298: an option load projects a value and a label off the related
+        // record's own columns, so it asks the source for no relation
+        // includes. The source's `query` loads `parent` and `can_view` keeps a
+        // row only while that relation is unloaded, so a rendered option
+        // proves the loader ran the needs-aware branch, not the full `query`.
+        use http_body_util::BodyExt;
+        use toasty::stmt::{Include, List, Query};
+
+        use crate::resource::{IncludeNeeds, Resource};
+
+        #[derive(Debug, toasty::Model, Clone)]
+        struct Parent {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            name: String,
+        }
+
+        #[derive(Debug, toasty::Model, Clone)]
+        struct Child {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            name: String,
+            #[index]
+            parent_id: uuid::Uuid,
+            #[belongs_to(key = parent_id, references = id)]
+            parent: toasty::Deferred<Parent>,
+        }
+
+        fn with_parent() -> Query<List<Child>> {
+            let inc: Include<Child, Parent> = Child::fields().parent().into();
+            Query::<List<Child>>::all().include(inc)
+        }
+
+        struct ChildSource;
+        impl Resource for ChildSource {
+            type Model = Child;
+            fn slug() -> String {
+                "children".to_string()
+            }
+            fn can_view_any(_cx: &Cx) -> bool {
+                true
+            }
+            fn can_view(_cx: &Cx, record: &Child) -> bool {
+                record.parent.is_unloaded()
+            }
+            fn query(_cx: &Cx) -> Query<List<Child>> {
+                with_parent()
+            }
+            fn query_with(_cx: &Cx, needs: &IncludeNeeds) -> Query<List<Child>> {
+                if needs.wants("parent") {
+                    with_parent()
+                } else {
+                    Query::<List<Child>>::all()
+                }
+            }
+            fn table(cx: &Cx) -> crate::resource::Table<Child> {
+                crate::resource::Table::r#for(cx)
+                    .id(|c: &Child| c.id.to_string())
+                    .pk(|c: &Child| c.id.to_string())
+                    .columns(crate::resource::TextColumn::r#for(
+                        Child::fields().name(),
+                        |c: &Child| c.name.clone(),
+                    ))
+            }
+        }
+
+        #[derive(Debug, toasty::Model, Clone)]
+        struct Owner {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            child_id: uuid::Uuid,
+            name: String,
+        }
+
+        struct OwnerResource;
+        impl Resource for OwnerResource {
+            type Model = Owner;
+            fn slug() -> String {
+                "owners".to_string()
+            }
+            fn form(_cx: &Cx) -> crate::schema::Schema {
+                crate::schema::Schema::new(
+                    crate::schema::Select::r#for(Owner::fields().child_id())
+                        .relationship::<ChildSource>(
+                            ChildSource::query,
+                            |c: &Child| c.id,
+                            |c: &Child| c.name.clone(),
+                        )
+                        .searchable(),
+                )
+            }
+            fn table(cx: &Cx) -> crate::resource::Table<Owner> {
+                crate::resource::Table::r#for(cx)
+                    .id(|o: &Owner| o.id.to_string())
+                    .pk(|o: &Owner| o.id.to_string())
+                    .columns(crate::resource::TextColumn::r#for(
+                        Owner::fields().name(),
+                        |o: &Owner| o.name.clone(),
+                    ))
+            }
+        }
+
+        let mut db = Db::builder()
+            .models(toasty::models!(Parent, Child, Owner))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        let parent_id = uuid::Uuid::new_v4();
+        toasty::create!(Parent {
+            id: parent_id,
+            name: "Ada".to_string(),
+        })
+        .exec(&mut db)
+        .await
+        .unwrap();
+        toasty::create!(Child {
+            name: "Only Child".to_string(),
+            parent_id,
+        })
+        .exec(&mut db)
+        .await
+        .unwrap();
+
+        let router = Panel::new("admin")
+            .app_context(db)
+            .resource::<OwnerResource>()
+            .resource::<ChildSource>()
+            .auth(crate::Auth::disabled())
+            .build()
+            .expect("panel builds");
+        let resp = router
+            .handle(
+                http::Request::builder()
+                    .uri("/admin/owners/options?field=child_id")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await;
+        assert!(resp.status().is_success());
+        let html = String::from_utf8(
+            resp.into_body()
+                .collect()
+                .await
+                .unwrap()
+                .to_bytes()
+                .to_vec(),
+        )
+        .unwrap();
+        assert!(
+            html.contains("Only Child"),
+            "the option must render, which it cannot if the loader loaded the source's include: {html}"
+        );
     }
 
     #[tokio::test]

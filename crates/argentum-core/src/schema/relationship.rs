@@ -15,17 +15,18 @@ use topcoat::{Result, context::Cx};
 /// Everything the relationship option loaders read from the thing they load
 /// options from (GH #208).
 ///
-/// The loaders ask seven things: the **tenant-scoped** seed query, the two
-/// policy predicates, the tenant declaration, a name for the log fields, and
-/// the related source's search and default-ordering expressions. It is a
-/// *source* surface rather than a second resource trait: for a `Resource`, four
-/// of the seven forward straight to the matching method (`can_view_any`,
-/// `can_view`, `requires_tenant`, `slug`), `scoped_query` composes the
-/// framework's tenant-scoped query, and the last two read the declared table
-/// (see the blanket impl in [`crate::resource`]). What it buys is that `schema`
-/// names no part of `Resource` — the dependency runs one way — and that a test
-/// fixture declares a model plus the one predicate it exercises instead of a
-/// whole resource with a table.
+/// The loaders ask eight things: the **tenant-scoped** seed query, the
+/// option-load seed query (the same scope, narrowed to the relations an option
+/// projection reads), the two policy predicates, the tenant declaration, a name
+/// for the log fields, and the related source's search and default-ordering
+/// expressions. It is a *source* surface rather than a second resource trait:
+/// for a `Resource`, five of the eight forward straight to the matching method
+/// (`can_view_any`, `can_view`, `requires_tenant`, `slug`), the two query
+/// methods compose the framework's tenant-scoped query, and the last two read
+/// the declared table (see the blanket impl in [`crate::resource`]). What it
+/// buys is that `schema` names no part of `Resource` — the dependency runs one
+/// way — and that a test fixture declares a model plus the one predicate it
+/// exercises instead of a whole resource with a table.
 ///
 /// [`scoped_query`](Self::scoped_query) is **required**: a source states its
 /// own scope, so a gated source cannot end up unscoped by omission. The rest
@@ -76,6 +77,27 @@ pub trait OptionSource: Sized + Send + Sync + 'static {
     /// tenant gate the framework cannot satisfy — reported as
     /// `OptionLoadError::Misdeclared` rather than a retryable failure.
     fn scoped_query(cx: &Cx) -> Result<Query<List<Self::Model>>>;
+
+    /// The seed query an **option load** runs (GH #298).
+    ///
+    /// An option load renders a value and a label per row. Both projections are
+    /// opaque closures the framework cannot inspect, and the loaders read no
+    /// relation of their own, so the query only has to carry the related
+    /// record's own columns. The default returns [`Self::scoped_query`]
+    /// unchanged — a source states its scope once — and narrowing is the
+    /// blanket impl's job: for a
+    /// [`Resource`](crate::resource::Resource) it forwards to the resource's
+    /// needs-aware base query with an empty set, so a resource that overrides
+    /// [`query_with`](crate::resource::Resource::query_with) narrows option
+    /// loads too, while a resource that overrides nothing keeps its full base
+    /// query.
+    ///
+    /// The contract this states: an option label projects the related record's
+    /// own columns. A source whose option label reads a relation cannot declare
+    /// that here, and a narrowed source that does so panics in `Deferred::get`.
+    fn options_query(cx: &Cx) -> Result<Query<List<Self::Model>>> {
+        Self::scoped_query(cx)
+    }
 
     /// Whether the current user may see the source's records at all: `false`
     /// fails the whole option load closed (GH #108), never an empty set that
@@ -200,21 +222,22 @@ where
     Ok(())
 }
 
-/// The relationship option loaders' seed query: [`OptionSource::scoped_query`]
-/// with the load's own error kind (GH #223).
+/// The relationship option loaders' seed query: [`OptionSource::options_query`]
+/// with the load's own error kind (GH #223, GH #298).
 ///
 /// Every loader below starts here rather than at an unscoped base so option
 /// loads inherit the framework's tenant scope (`ensure_option_access` above
-/// already answered the tenantless case with `Denied`). The one error left for
-/// this step is a source the framework cannot scope at all, which is a
-/// **permanent** misdeclaration and therefore
+/// already answered the tenantless case with `Denied`) and ask for only the
+/// relations an option projection reads. The one error left for this step is a
+/// source the framework cannot scope at all, which is a **permanent**
+/// misdeclaration and therefore
 /// [`Misdeclared`](OptionLoadError::Misdeclared) rather than a retryable load
 /// failure.
 fn option_query<R>(cx: &Cx) -> Result<Query<List<R::Model>>, OptionLoadError>
 where
     R: OptionSource,
 {
-    R::scoped_query(cx).map_err(|error| {
+    R::options_query(cx).map_err(|error| {
         tracing::error!(
             resource = R::slug(),
             error = %error,

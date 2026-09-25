@@ -1,6 +1,6 @@
 # Export query scoping: columns declare their includes, the resource narrows
 
-Date: 2026-09-22 — Status: accepted — Amended: 2026-09-22
+Date: 2026-09-22 — Status: accepted — Amended: 2026-09-22, 2026-09-25
 
 ## Decision
 
@@ -18,11 +18,15 @@ wrapping the result exactly as it wraps `query`, so an export cannot be unscoped
 **3. The default inherits `query`, unchanged.** A resource that overrides nothing exports exactly as
 before. Erring towards over-fetching costs a join; dropping an include a rendered column reads breaks
 the render, so the safe default is the one that keeps the old behavior, and narrowing is opt-in per
-resource.
+resource. Since the 2026-09-25 amendment the export default delegates to `Resource::query_with`, which
+itself defaults to `query` unchanged, so this clause still holds for a resource that overrides neither.
 
-**4. Only the export narrows.** The list page keeps inheriting `query`: the export is a different reader
-with a different render — it writes every column once, walks the query in cursor chunks, and has no live
-re-render — so it is where the constant factor is visible.
+**4. Every loader narrows through `query_with`.** The list, edit, delete, bulk-delete, unique-value,
+relationship-option and pagination-probe loaders name the includes they read and the resource answers
+with the matching branch of `Resource::query_with` (2026-09-25 amendment; the export was the first
+reader, and only the export narrowed before it). A loader that reads no relation asks for an empty set;
+the detail page reads `view_relations`, an opaque hook with no declaration, so it keeps the full
+`query`.
 
 **5. The unloaded-relation guard is the check, not a new one.** A column that reads a relation it did
 not declare renders against an unloaded `Deferred`, and its `is_unloaded` guard (ADR-0011:
@@ -48,3 +52,21 @@ what its `can_view` reads, since the export's visibility scan runs before any ce
   `Table::include_needs` is the mechanical union. A table-level list would be equally checkable.
 - Rows-per-chunk memory is unchanged (GH #172); what changes is the per-row join work the database does
   for an include nothing renders.
+
+## Amendment — 2026-09-25
+
+**`query_with(cx, needs)` generalizes the export seam to every loader** (GH #298). `Resource::query`
+stays the full base query; the new `query_with` takes the same `IncludeNeeds` vocabulary and defaults
+to `query(cx)`, so a resource that overrides nothing is unchanged and narrowing stays opt-in.
+`export_query` now defaults to `query_with`, so one override narrows the list and the export together.
+
+The loaders that read no relation — the edit page (both loads), delete, bulk delete, the unique-value
+probe, the relationship option lists and their targeted FK existence check, and the pagination
+probes — pass an empty set. The list and the export pass `Table::include_needs()`. The detail page
+keeps `query`, because `view_relations` is an opaque hook the framework cannot inspect for a
+declaration. The export's visibility scan also passes an empty set: it renders no cell, so it needs
+only what `can_view` reads, which an override states unconditionally.
+
+Consequence the option case states: an option load renders a value and a label per row, and both
+projections are opaque closures, so the option loader asks for nothing. An option label therefore
+projects the related record's own columns; a label that reads a relation panics in `Deferred::get`.

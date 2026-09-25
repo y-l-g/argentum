@@ -742,10 +742,35 @@ impl<M> Table<M> {
     /// applies to the tenant-scoped `Resource::query` (GH #223), so a
     /// page-level shard does not
     /// reimplement filtering, ordering, or cursor validation.
+    ///
+    /// The cursor-existence probes reuse `query`, so they pay the query's
+    /// relation includes. The panel's resource-list loader seeds them from a
+    /// narrower query with the same scope and no includes; this entry point has
+    /// no such seed, so its probes carry the query's includes.
     pub async fn load(
         &self,
         cx: &Cx,
         query: toasty::stmt::Query<List<M>>,
+        state: &TableState,
+    ) -> Result<TablePage<M>>
+    where
+        M: toasty::schema::Model + Send + Sync + 'static,
+    {
+        self.load_with_probe(cx, query.clone(), query, state).await
+    }
+
+    /// [`Self::load`] with a separate seed for the cursor-existence probes
+    /// (GH #298).
+    ///
+    /// The probes only ask whether one more row exists past a cursor, so they
+    /// read no relation and do not need `query`'s includes. `probe_query` is
+    /// the same scope and declaration pipeline with those includes dropped;
+    /// passing `query` itself reproduces [`Self::load`].
+    pub(crate) async fn load_with_probe(
+        &self,
+        cx: &Cx,
+        query: toasty::stmt::Query<List<M>>,
+        probe_query: toasty::stmt::Query<List<M>>,
         state: &TableState,
     ) -> Result<TablePage<M>>
     where
@@ -764,11 +789,13 @@ impl<M> Table<M> {
         let mut db = crate::db::db(cx);
         match self.page_size {
             Some(per_page) => {
-                // Keep a cursor-free copy of the filtered+ordered query for
+                // Keep a cursor-free copy of the filtered+ordered probe seed for
                 // cursor validation: Toasty's `Page` sets `next_cursor`
                 // optimistically whenever `len == page_size`, which leaves a
-                // phantom cursor when the page sits exactly at a boundary.
-                let base_query = query.clone();
+                // phantom cursor when the page sits exactly at a boundary. The
+                // probe seed carries no relation includes (GH #298) because the
+                // probes only ask whether a row exists.
+                let base_query = self.apply_declaration(probe_query, state, OrderMode::List);
                 let mut paginated = toasty::stmt::Paginate::new(query, per_page);
                 // Toasty cursor pagination takes exactly one cursor (GH #155):
                 // a URL carrying both `?after=` and `?before=` must fail loudly

@@ -390,9 +390,17 @@ pub(crate) fn resource_list_live<R: Resource>(
 }
 
 /// Resolve the declared table (search / filters / sort / pagination) against
-/// the tenant-scoped [`scoped_query`](crate::resource::scoped_query) — the
-/// data-loading half of
+/// the tenant-scoped [`scoped_query_with`](crate::resource::scoped_query_with)
+/// — the data-loading half of
 /// [`resource_list`], kept separate so the page shell can stream before it.
+///
+/// The load asks for the includes the table's columns declared
+/// ([`Table::include_needs`], GH #298), so a resource that narrows its loaders
+/// loads exactly what the rendered cells read; the cursor-existence probes ask
+/// for none, because they only test whether a row exists. A resource that
+/// overrides nothing keeps its full
+/// [`query`](crate::resource::Resource::query) at both, the same safe default
+/// the export takes.
 ///
 /// Resource lists must declare a page size (GH #172): without
 /// [`Table::paginate`] the load would be an unbounded `exec`, so the missing
@@ -412,7 +420,12 @@ pub(crate) async fn load_table_page<R: Resource>(
         .into());
     }
     table
-        .load(cx, crate::resource::scoped_query::<R>(cx)?, state)
+        .load_with_probe(
+            cx,
+            crate::resource::scoped_query_with::<R>(cx, &table.include_needs())?,
+            crate::resource::scoped_query_with::<R>(cx, &crate::resource::IncludeNeeds::default())?,
+            state,
+        )
         .await
 }
 
