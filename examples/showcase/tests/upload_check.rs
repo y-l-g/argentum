@@ -1,4 +1,4 @@
-//! The upload demo end to end (GH #188): the showcase's own uploader writes a
+//! The upload demo end to end: the showcase's own uploader writes a
 //! multipart part into the directory the panel serves, the record stores the
 //! URL it returned, and that URL fetches the bytes back.
 //!
@@ -137,7 +137,7 @@ async fn the_edit_page_links_the_stored_upload_and_offers_to_remove_it() {
 }
 
 /// A create that stored a file and then failed another field's validation
-/// carries the upload into the re-rendered form (GH #297): the browser's file
+/// carries the upload into the re-rendered form: the browser's file
 /// input is empty on the next attempt, so without the carry the create fails
 /// `required` and the stored file is lost.
 #[tokio::test]
@@ -225,7 +225,7 @@ async fn a_re_rendered_create_keeps_the_upload() {
 }
 
 /// An edit that uploaded a replacement and then failed another field's
-/// validation keeps the replacement, not the record's old file (GH #297).
+/// validation keeps the replacement, not the record's old file.
 #[tokio::test]
 async fn a_re_rendered_edit_keeps_the_new_upload() {
     let db = full_db().await;
@@ -318,7 +318,7 @@ async fn a_re_rendered_edit_keeps_the_new_upload() {
     );
 }
 
-/// The carry does not re-open GH #277 (GH #297): a client-typed
+/// The carry does not re-open GH #277: a client-typed
 /// `keep_<field>` is used only when the installed store still holds the path,
 /// so a forged one never reaches the record.
 #[tokio::test]

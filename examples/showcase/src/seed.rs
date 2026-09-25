@@ -108,11 +108,11 @@ pub async fn seed(db: &mut Db) -> toasty::Result<()> {
     Ok(())
 }
 
-/// The tenant owning all showcase seed rows (GH #87): seeds never mint
+/// The tenant owning all showcase seed rows: seeds never mint
 /// nil-tenant orphans, and the demo admin owns it.
 pub const DEMO_TENANT: uuid::Uuid = uuid::Uuid::from_u128(100);
 
-/// A deterministic id for the `index`th seeded post (GH #184).
+/// A deterministic id for the `index`th seeded post.
 ///
 /// The six narrative rows take ids 0..=5 and the pagination filler ids above
 /// `7fff…` (`FILLER_ID_BASE`), so primary-key order reads the stories first and
@@ -122,11 +122,11 @@ fn seeded_post_id(index: usize) -> uuid::Uuid {
     uuid::Uuid::from_u128(index as u128)
 }
 
-/// First id handed to a pagination filler row (GH #184): above `7fff…`, so the
+/// First id handed to a pagination filler row: above `7fff…`, so the
 /// filler always sorts after the narrative rows, whose ids start at zero.
 const FILLER_ID_BASE: u128 = 0x8000_0000_0000_0000_0000_0000_0000_0000;
 
-/// Backlog titles for the pagination fixture (GH #184): sixty drafts, which
+/// Backlog titles for the pagination fixture: sixty drafts, which
 /// with the six rows above and `PostResource`'s page size of 25 give three
 /// pages — enough to walk forward, walk back, and land mid-list.
 ///
@@ -206,7 +206,7 @@ pub const DEMO_ADMIN_PASSWORD: &str = "password";
 /// tests: valid credentials, no tenant to bridge.
 pub const TENANTLESS_ADMIN_EMAIL: &str = "root@example.com";
 
-/// The body of a comment whose content the panel has removed (GH #296).
+/// The body of a comment whose content the panel has removed.
 ///
 /// The row stays so a thread keeps its shape. `CommentResource::can_view`
 /// refuses it, so the surfaces that trim by that predicate — the post's
@@ -240,7 +240,7 @@ pub async fn create_admin(
 /// Argon2id at the shipped parameters costs ~0.4s in a debug build *by design*,
 /// and the integration suite seats a fresh database for almost every test —
 /// so the same two demo passwords were being hashed ~260 times per run, which
-/// was the suite's single largest setup cost (GH #218). The hash is a pure
+/// was the suite's single largest setup cost. The hash is a pure
 /// function of the password, so compute it once and hand the same PHC string to
 /// every caller.
 ///
@@ -262,7 +262,7 @@ fn memoized_password_hash(password: &str) -> String {
         .or_insert_with(|| hash_password(password).expect("hash a demo password"))
         .clone()
 }
-/// The embedded shapes a filler/backlog row carries (GH #185).
+/// The embedded shapes a filler/backlog row carries.
 ///
 /// A compact, valid default so the pagination filler does not repeat four
 /// nested literals sixty times. The narrative rows below spell theirs out, so
@@ -342,7 +342,7 @@ pub async fn seed_phase2(db: &mut Db) -> toasty::Result<()> {
             created_at: "2024-01-15T09:30:00Z".parse::<Timestamp>().unwrap(),
             image_path: "hello-toasty.jpg".to_string(),
             tags: "rust,async".to_string(),
-            // Embedded shapes with real values (GH #185): an embedded struct,
+            // Embedded shapes with real values: an embedded struct,
             // an embedded enum whose timestamps share one column, an embedded
             // struct nested inside a variant, and an embedded struct of typed
             // leaves.
@@ -455,7 +455,7 @@ pub async fn seed_phase2(db: &mut Db) -> toasty::Result<()> {
             .exec(db)
             .await?;
         }
-        // Pagination filler (GH #184): `PostResource` paginates at 25, and the
+        // Pagination filler: `PostResource` paginates at 25, and the
         // six rows above do not fill one page — these sixty drafts make the
         // list three pages, so the pager is walkable. They are drafts with
         // `featured = false`, which keeps every published/featured assertion
@@ -520,7 +520,7 @@ pub async fn seed_phase2(db: &mut Db) -> toasty::Result<()> {
             .exec(db)
             .await?;
         }
-        // A removed comment (GH #296): the fixture the relation's `can_view`
+        // A removed comment: the fixture the relation's `can_view`
         // filter needs, since every other seeded comment is viewable.
         toasty::create!(Comment {
             body: REMOVED_COMMENT_BODY,

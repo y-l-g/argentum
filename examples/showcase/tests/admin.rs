@@ -20,7 +20,7 @@ async fn admin_resource_list_page_serve_seeded_users() {
     );
     let html = body_string(response).await;
 
-    // Light first paint (GH #184): a visitor with no stored preference gets a
+    // Light first paint: a visitor with no stored preference gets a
     // light document, and the preference plumbing itself is covered in
     // `auth_check`.
     assert!(
@@ -32,8 +32,8 @@ async fn admin_resource_list_page_serve_seeded_users() {
         "missing sidebar in {html}"
     );
     // Sidebar lists one entry per resource: Users, Writers, Blog Posts,
-    // Comments. No manual saved view (GH #184) and no Showcase documentation
-    // entry (GH #163).
+    // Comments. No manual saved view and no Showcase documentation
+    // entry.
     assert!(html.contains("Users"), "missing Users label in {html}");
     assert!(
         html.contains("href=\"/admin/users\"") || html.contains("/admin/users"),
@@ -76,7 +76,7 @@ async fn admin_resource_list_page_serve_seeded_users() {
     // admin_list_pagination_walks_cursor_links, which seeds one row past the
     // page size.
     assert!(html.contains("Users</h1>"), "missing heading in {html}");
-    // The create button is worded from the same label (GH #246).
+    // The create button is worded from the same label.
     assert!(
         html.contains("Create Users"),
         "missing create entry point in {html}"

@@ -1,5 +1,5 @@
 //! Shared fixtures and request scaffolding for the showcase integration
-//! tests (GH #111, #128). Every test crate includes this module via
+//! tests (#128). Every test crate includes this module via
 //! `mod common;` and uses a subset of it, so `dead_code` is expected here and
 //! allowed once instead of leaking per-crate warnings.
 
@@ -16,10 +16,10 @@ use topcoat::{
 };
 
 /// A fresh in-memory `Db` carrying the **full** showcase model set, schema
-/// pushed and no rows — the one place the model list is written (GH #217).
+/// pushed and no rows — the one place the model list is written.
 ///
 /// The list is the whole showcase set even though most tests touch one or two
-/// tables (GH #185): a lens path is resolved against the app schema, and the
+/// tables: a lens path is resolved against the app schema, and the
 /// `Panel` registers every resource regardless of which tables a given test
 /// cares about. A narrower `models!(..)` made the panel's schema incomplete, so
 /// a form for an unregistered model could not resolve its embedded paths — and
@@ -164,7 +164,7 @@ pub async fn tenanted_db() -> (Db, uuid::Uuid, uuid::Uuid) {
     .exec(&mut db)
     .await
     .expect("create post t2");
-    // One comment per tenant post (GH #169): the inherit-through-the-relation
+    // One comment per tenant post: the inherit-through-the-relation
     // fixture for the Comments queue's tenant scoping.
     toasty::create!(showcase::models::Comment {
         body: "T1 comment",
@@ -183,7 +183,7 @@ pub async fn tenanted_db() -> (Db, uuid::Uuid, uuid::Uuid) {
     (db, t1, t2)
 }
 
-/// One request client for every showcase suite (GH #128).
+/// One request client for every showcase suite.
 ///
 /// Replaces the ad-hoc free-function helpers: every request is built here, so
 /// a suite attaches cookies, a tenant, or (later) a session in one place.
@@ -236,7 +236,7 @@ impl<'a> TestClient<'a> {
     }
 
     /// Carry a tenant as a `Tenant` request extension — the server-set
-    /// override seam (GH #131). It takes precedence over the logged-in user's
+    /// override seam. It takes precedence over the logged-in user's
     /// tenant, letting a suite scope one request to another tenant.
     pub fn tenant(&self, tenant: uuid::Uuid) -> Self {
         let mut client = self.clone();
@@ -280,7 +280,7 @@ impl<'a> TestClient<'a> {
     }
 
     /// POST a JSON body to a runtime endpoint (a shard or procedure), with the
-    /// page identity header the browser runtime sends (GH #154 §2 tests).
+    /// page identity header the browser runtime sends (§2 tests).
     pub async fn post_json(&self, uri: &str, body: String, identity: &str) -> http::Response<Body> {
         let mut request = self.request(http::Method::POST, uri);
         request.headers_mut().insert(
@@ -357,7 +357,7 @@ pub async fn login<'a>(router: &'a Router, email: &str, password: &str) -> TestC
 }
 
 /// The raw session cookie value for the seeded admin with `email`, minted
-/// directly into `db` (GH #218).
+/// directly into `db`.
 ///
 /// The login handler writes one `AuthSession` row keyed by the SHA-256 of a
 /// random token and hands the client the encoded token; this does exactly that
@@ -398,7 +398,7 @@ pub async fn mint_session(db: &Db, email: &str) -> String {
     token.encode()
 }
 
-/// A client holding a freshly minted session for `email` (GH #218).
+/// A client holding a freshly minted session for `email`.
 pub async fn signed_in_client<'a>(router: &'a Router, db: &Db, email: &str) -> TestClient<'a> {
     let token = mint_session(db, email).await;
     TestClient::new(router).cookie(SESSION_COOKIE, &token)
@@ -464,7 +464,7 @@ pub fn form_body(pairs: &[(&str, &str)]) -> String {
 }
 
 /// A multipart body: text fields, then one file part per `(field, filename,
-/// bytes)` (GH #277).
+/// bytes)`.
 ///
 /// The framing is what a browser sends for a form with a file input, so a
 /// create can carry a real upload through the panel instead of a client-typed
@@ -494,7 +494,7 @@ pub fn multipart_body(
 ///
 /// Handles both quote styles (`value="…"` and `value='…'`); the controlled
 /// UUID markup only emits double quotes today, but an encoder change must
-/// not silently turn every lookup into `None` (GH #136 harness hardening).
+/// not silently turn every lookup into `None` (harness hardening).
 pub fn input_value(html: &str, name: &str) -> Option<String> {
     let double = format!("name=\"{name}\"");
     let single = format!("name='{name}'");
@@ -522,7 +522,7 @@ pub fn input_value(html: &str, name: &str) -> Option<String> {
 ///
 /// Reads the control the UI actually renders rather than re-deriving identity:
 /// `Table::id` is a display projection and `Table::pk` is the record key
-/// (GH #168), so a test that guessed from the display key would be asserting
+/// so a test that guessed from the display key would be asserting
 /// the wrong thing.
 pub fn row_link_key(html: &str, kind: &str) -> Option<String> {
     let needle = format!("{kind}=");
@@ -543,7 +543,7 @@ pub fn row_link_key(html: &str, kind: &str) -> Option<String> {
 /// Attributes render in no guaranteed order (topcoat#122), so callers assert
 /// on the whole tag rather than a single attribute's position. Needed because
 /// native validation — `required` on a file input — is exactly what broke the
-/// post edit form (GH #184), and only the markup can pin it.
+/// post edit form, and only the markup can pin it.
 pub fn file_input_tag(html: &str) -> String {
     let at = html.find("type=\"file\"").expect("a file input");
     let start = html[..at].rfind("<input").expect("its opening tag");
@@ -694,7 +694,7 @@ pub async fn post_count(db: &Db) -> usize {
         .len()
 }
 
-/// How many `User` rows the database holds (GH #217).
+/// How many `User` rows the database holds.
 ///
 /// [`post_count`]'s pattern for the user list: a seeded-row literal like
 /// `8` asserts the fixture's size. Write/delete tests compare this before and
@@ -708,7 +708,7 @@ pub async fn user_count(db: &Db) -> usize {
         .len()
 }
 
-/// How many `Comment` rows the database holds (GH #217).
+/// How many `Comment` rows the database holds.
 pub async fn comment_count(db: &Db) -> usize {
     let mut db = db.clone();
     showcase::models::Comment::all()
@@ -724,7 +724,7 @@ pub async fn body_string(response: http::Response<Body>) -> String {
     String::from_utf8_lossy(&bytes).into_owned()
 }
 
-/// Assert every hydrated key is a declared form field (GH #89): a renamed
+/// Assert every hydrated key is a declared form field: a renamed
 /// lens without an updated string literal would render blank and break the
 /// unique unchanged-skip.
 pub fn assert_hydrate_keys_are_form_fields<R: Resource>(cx: &Cx, record: &R::Model) {

@@ -56,7 +56,7 @@ async fn bulk_delete_deletes_selected() {
         "redirect to list, got {}",
         loc
     );
-    // Post/Redirect/Get with one-time semantics (GH #97, #126): 303, flash
+    // Post/Redirect/Get with one-time semantics (#126): 303, flash
     // cookie on the redirect, clean Location.
     assert_eq!(resp.status(), 303, "a completed bulk delete is a 303 PRG");
     assert!(
@@ -355,7 +355,7 @@ fn input_tag_at(html: &str) -> String {
 
 /// The row ids the page offers for bulk selection, in document order: every
 /// `data-row-select` checkbox a user can check. A row the per-record policy
-/// denies delete renders `disabled` (GH #235), and `bulk.js`'s `boxesIn` skips
+/// denies delete renders `disabled`, and `bulk.js`'s `boxesIn` skips
 /// exactly those — so this is what select-all submits.
 fn selectable_row_ids(html: &str) -> Vec<String> {
     let mut ids = Vec::new();

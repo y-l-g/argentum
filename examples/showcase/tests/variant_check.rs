@@ -1,4 +1,4 @@
-//! Hidden variant groups and validation (GH #297).
+//! Hidden variant groups and validation.
 //!
 //! An embedded enum's form renders every variant's payload in a marked `Group`,
 //! and `variant.js` shows only the group the discriminant names. Validation has

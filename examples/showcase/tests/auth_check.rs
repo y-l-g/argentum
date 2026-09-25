@@ -49,7 +49,7 @@ async fn login_page_is_standalone_with_csrf_and_no_demo_hint_by_default() {
         html.contains("<html>"),
         "login must share the light first paint: {html}"
     );
-    // The stored preference is authoritative both ways (GH #184): the pre-paint
+    // The stored preference is authoritative both ways: the pre-paint
     // script must be able to remove a dark class, not only add one.
     assert!(
         html.contains("classList.add") && html.contains("classList.remove"),

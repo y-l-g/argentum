@@ -83,7 +83,7 @@ async fn posts_filter_ternary_featured_false() {
     let router = router(db.clone());
     let client = demo_client(&router, &db).await;
     // Search rather than read the default page: the seed carries a pagination
-    // fixture (GH #184), so with 60-odd non-featured posts the title-ordered
+    // fixture, so with 60-odd non-featured posts the title-ordered
     // first page no longer reaches "Second Post". The search narrows to the
     // row under test, which is what this assertion is about.
     let resp = client
@@ -204,7 +204,7 @@ async fn typo_filter_warns_on_list_but_refuses_export() {
         "typo filter must warn, got {html}"
     );
 
-    // Colon-less segments are malformed, not silently dropped (GH #148): the
+    // Colon-less segments are malformed, not silently dropped: the
     // list banners them, export refuses with 400.
     let resp = client.get("/admin/posts?filters=foobar").await;
     assert!(resp.status().is_success(), "malformed filter keeps 200");
@@ -355,7 +355,7 @@ async fn posts_filter_with_cursor_paginates_filtered_rows() {
     );
 }
 
-/// A post the seed does not carry, for the facet test below (GH #246).
+/// A post the seed does not carry, for the facet test below.
 ///
 /// The seed's only featured post is published and every other post is a
 /// non-featured draft, so each option of the facet needs a row that the

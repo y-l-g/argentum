@@ -22,7 +22,7 @@ async fn delete_requires_confirmation_and_deletes() {
 
     // The list renders a Delete link that opens the confirmation dialog
     // (`?delete=<key>`) — no per-row POST form, no navigation to open. The
-    // row action is destructive (GH #154 §6), matching the bulk Delete and
+    // row action is destructive (§6), matching the bulk Delete and
     // the dialog's confirm.
     let resp = client.get("/admin/users").await;
     let html = body_string(resp).await;
@@ -42,7 +42,7 @@ async fn delete_requires_confirmation_and_deletes() {
         href.starts_with("/admin/users?") && href.ends_with(&format!("delete={id}")),
         "the control must keep its fallback href, got {href}"
     );
-    // The control opens the table's one dialog in place (GH #233): it names
+    // The control opens the table's one dialog in place: it names
     // that dialog and carries this record's POST target, so the click costs no
     // navigation and the dialog's Delete posts to the clicked row.
     let dialog_id = attr_value(row_delete, "data-row-delete-trigger");
@@ -71,7 +71,7 @@ async fn delete_requires_confirmation_and_deletes() {
     );
 
     // ?delete=<id> renders the alert dialog on the list page: destructive
-    // confirm, Cancel, and the confirmed POST target (GH #151).
+    // confirm, Cancel, and the confirmed POST target.
     let resp = client.get(&format!("/admin/users?delete={id}")).await;
     assert!(resp.status().is_success());
     let html = body_string(resp).await;
@@ -81,7 +81,7 @@ async fn delete_requires_confirmation_and_deletes() {
         "?delete= must render the row dialog open, got {dialog}"
     );
     // The open one is the only one: the streamed table's shard output carries
-    // no dialog of its own (GH #233), so the live page's eager copy stands
+    // no dialog of its own, so the live page's eager copy stands
     // alone. A second copy would duplicate the dialog's ids and give the morph
     // one to replace mid-dismissal.
     assert_eq!(
@@ -95,7 +95,7 @@ async fn delete_requires_confirmation_and_deletes() {
         "Delete this record?",
         "data-dialog-close",
         // URL-driven dialogs carry the marker dialog.js mirrors `?open=`
-        // through (GH #154 §3); signal-driven dialogs do not.
+        // through (§3); signal-driven dialogs do not.
         "data-dialog-open-param=\"open\"",
         "bg-destructive",
         action.as_str(),
@@ -103,7 +103,7 @@ async fn delete_requires_confirmation_and_deletes() {
     ] {
         assert!(html.contains(needle), "dialog missing {needle} in {html}");
     }
-    // Cancel is a button (GH #233): dismissal closes in place instead of
+    // Cancel is a button: dismissal closes in place instead of
     // navigating to the list URL.
     let from_title = &html[html
         .find("Delete this record?")
@@ -121,7 +121,7 @@ async fn delete_requires_confirmation_and_deletes() {
         .await;
     let html = body_string(resp).await;
     // The row dialog specifically: the page also carries the bulk bar's own
-    // confirm dialog (GH #184), which is unrelated to `?delete=`/`?open=`.
+    // confirm dialog, which is unrelated to `?delete=`/`?open=`.
     let dialog = tag_with(&html, &format!("id=\"{dialog_id}\""));
     assert!(
         !dialog.contains("open=\"\""),
@@ -161,7 +161,7 @@ async fn delete_requires_confirmation_and_deletes() {
         "redirect to list, got {}",
         loc
     );
-    // Post/Redirect/Get with one-time semantics (GH #97, #126): 303, flash
+    // Post/Redirect/Get with one-time semantics (#126): 303, flash
     // cookie on the redirect, clean Location.
     assert_eq!(resp.status(), 303, "a completed delete is a 303 PRG");
     assert!(
@@ -239,7 +239,7 @@ async fn forged_delete_runs_no_record_query() {
     // query, which calls the resource's `query_with` — and `CountingResource`
     // overrides no `query_with`, so that default calls the `query` override
     // the counter sits on. A counter there proves "no find_by_key query
-    // observed" (GH #144 acceptance) instead of inferring it from a status.
+    // observed" (acceptance) instead of inferring it from a status.
     static QUERIES: AtomicUsize = AtomicUsize::new(0);
     fn counted_query(_cx: &topcoat::context::Cx) -> toasty::stmt::Query<toasty::stmt::List<Dummy>> {
         QUERIES.fetch_add(1, Ordering::SeqCst);
@@ -387,7 +387,7 @@ async fn delete_sso_managed_user_is_forbidden() {
     );
 }
 
-/// The in-place delete path is client-side only (GH #234): both confirms opt
+/// The in-place delete path is client-side only: both confirms opt
 /// in through `data-mutation-submit`, and without JavaScript the markup is the
 /// ordinary POST it always was — same method, same action, same 303 the
 /// redirect test above pins.
@@ -422,7 +422,7 @@ async fn delete_forms_opt_in_without_changing_the_post() {
     );
 
     // The confirmation the handlers require rides inside the form either way:
-    // the client path is an affordance, never the safeguard (GH #184).
+    // the client path is an affordance, never the safeguard.
     assert_eq!(
         html.matches("name=\"confirm\" value=\"1\"").count(),
         2,

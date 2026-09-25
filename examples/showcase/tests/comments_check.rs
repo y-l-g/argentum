@@ -33,7 +33,7 @@ async fn comments_list_shows_body_and_post_title() {
 
 #[tokio::test]
 async fn comments_list_offers_row_and_bulk_delete() {
-    // GH #184: the queue moderates. GH #226 then made chrome opt-in, so
+    // GH #184: the queue moderates. then made chrome opt-in, so
     // `CommentResource` declares `deletable()`/`editable()` — the row Delete
     // control and the bulk bar render, and `can_delete`, `delete_record` and
     // `bulk_delete_records` stop being unreachable.
@@ -47,7 +47,7 @@ async fn comments_list_offers_row_and_bulk_delete() {
         "the moderation queue must offer bulk delete: {html}"
     );
     // The row control is a `?delete=<key>` link that opens the confirmation
-    // dialog (GH #151); the confirmed POST is what removes the row.
+    // dialog; the confirmed POST is what removes the row.
     assert!(
         html.contains("delete="),
         "the moderation queue must offer row delete: {html}"
@@ -71,7 +71,7 @@ async fn comments_row_delete_removes_the_comment() {
     let html = body_string(resp).await;
     let csrf = input_value(&html, "csrf_token").expect("the list carries csrf");
     // Follow the row control the moderator actually clicks: identity is two
-    // projections (GH #168), and the delete route takes the record key the
+    // projections, and the delete route takes the record key the
     // `?delete=` link carries — not the table's display key.
     let key = row_link_key(&html, "delete").expect("a row delete control");
 
@@ -220,7 +220,7 @@ async fn comment_writes_recheck_the_parent_post_tenant_inside_the_transaction() 
         .build();
 
     // The posts are read through `scoped_query`, the framework's tenant-scoped
-    // entry point (GH #223): plain `PostResource::query` is the unscoped base
+    // entry point: plain `PostResource::query` is the unscoped base
     // now, so it could hand back either tenant's post and this test would be
     // asserting nothing.
     // A post that exists — in the other tenant.
@@ -256,7 +256,7 @@ async fn comment_writes_recheck_the_parent_post_tenant_inside_the_transaction() 
     let error = refused.expect_err("a cross-tenant post must not accept a comment");
     drop(tx);
     // The guard's own 404, not a driver or FK failure: "wrong tenant looks
-    // exactly like unknown id" is the contract here (GH #86/#169).
+    // exactly like unknown id" is the contract here (#169).
     let refusal = error
         .into_response(&cx)
         .expect("the refusal renders a response");

@@ -69,7 +69,7 @@ async fn create_invalid_submission_rerenders_with_inline_errors() {
 }
 
 /// A valid submission is a Post/Redirect/Get with one-time flash semantics
-/// (GH #97, #126): 303, clean Location, the toast on the flash cookie, and the
+/// (#126): 303, clean Location, the toast on the flash cookie, and the
 /// follow-up response consuming it.
 #[tokio::test]
 async fn create_valid_redirects_with_a_one_time_flash() {
@@ -226,7 +226,7 @@ async fn create_policy_deny() {
             _ex: &mut dyn toasty::Executor,
         ) -> topcoat::Result<DummyUser> {
             // `can_create` denies before the handler ever calls this, so there
-            // is no row to return (a create returns what it wrote, GH #112).
+            // is no row to return (a create returns what it wrote).
             Err(std::io::Error::other("unreachable: create is denied by policy").into())
         }
     }

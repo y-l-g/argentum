@@ -1,4 +1,4 @@
-//! The route gate matrix (GH #281): every panel route's auth, CSRF, tenant and
+//! The route gate matrix: every panel route's auth, CSRF, tenant and
 //! policy gates restated as a request-level assertion.
 //!
 //! The handlers apply every gate; the point of this module is that each one is
@@ -25,7 +25,7 @@ use crate::common::{
 };
 
 /// A session-holding POST with **no** CSRF cookie and no `csrf_token` field is
-/// refused (GH #281): the double-submit check needs both halves, so an absent
+/// refused: the double-submit check needs both halves, so an absent
 /// cookie must not read as "nothing to compare" and let the write through.
 ///
 /// The forged rows above always present a CSRF cookie; this pins the
@@ -62,7 +62,7 @@ async fn a_csrf_cookie_and_field_are_both_required() {
 
 /// A forged CSRF pair is refused on the post routes whose rejection no other
 /// suite pins — url-encoded delete and bulk delete, plus the multipart
-/// create/edit upload path — and nothing they name changes (GH #281).
+/// create/edit upload path — and nothing they name changes.
 ///
 /// Each route is sent twice: a field token that differs from the cookie, and no
 /// `csrf_token` field at all. Both must answer 403. The regression it catches
@@ -208,7 +208,7 @@ async fn forged_posts_answer_403_and_change_nothing() {
 }
 
 /// A forged login POST is refused before any credential work and mints no
-/// session (GH #281).
+/// session.
 ///
 /// The CSRF verify runs before the password is read, so a mismatched token and
 /// a missing `csrf_token` field are both 403 rather than a credential verdict,
@@ -250,7 +250,7 @@ async fn forged_login_answers_403_and_sets_no_session() {
     }
 }
 
-/// A forged logout POST is refused and leaves the session usable (GH #281).
+/// A forged logout POST is refused and leaves the session usable.
 ///
 /// Both a mismatched token and a missing `csrf_token` field must 403. The
 /// regression it catches is a logout that deletes the session row before
@@ -290,7 +290,7 @@ async fn forged_logout_answers_403_and_keeps_the_session() {
     );
 }
 
-/// A valid CSRF pair does not buy a cross-tenant write (GH #281): tenant B's
+/// A valid CSRF pair does not buy a cross-tenant write: tenant B's
 /// edit and delete of tenant A's post and comment 404 through the tenant-scoped
 /// load, and the rows are untouched.
 ///
@@ -447,7 +447,7 @@ async fn cross_tenant_edit_and_delete_404_and_touch_nothing() {
 }
 
 /// The policy gate refuses `BLOCKED_TENANT` on every read route, not only the
-/// list (GH #281): the list, the CSV export and the detail page each consult
+/// list: the list, the CSV export and the detail page each consult
 /// `can_view_any`/`can_view`, so a refactor that dropped the policy check from
 /// one of them fails here.
 ///
@@ -516,7 +516,7 @@ async fn blocked_tenant_is_refused_on_every_read_route() {
     }
 }
 
-/// Anonymous requests are gated on every route shape (GH #281): reads redirect
+/// Anonymous requests are gated on every route shape: reads redirect
 /// to the login page, mutations answer 401 and change nothing.
 ///
 /// `auth_check.rs` asserts the exact `Location` for five panel GETs (four list

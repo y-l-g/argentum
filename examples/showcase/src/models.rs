@@ -1,7 +1,7 @@
 use jiff::Timestamp;
 use toasty::Deferred;
 
-/// The seeder and the demo constants (GH #87) live in the private `seed`
+/// The seeder and the demo constants live in the private `seed`
 /// module; re-exported so the panel, the binary and the tests keep one import
 /// path.
 pub use crate::seed::{
@@ -9,7 +9,7 @@ pub use crate::seed::{
     TENANTLESS_ADMIN_EMAIL, create_admin, seed, seed_phase2,
 };
 
-/// User shown in the admin list — the realistic spec model (US16, GH #13):
+/// User shown in the admin list — the realistic spec model (US16):
 /// role/active/created_at plus `#[index]` on the searchable `name` column.
 /// `email` keeps only `#[unique]` — a unique constraint already implies an
 /// index, and stacking `#[index]` on top would double it.
@@ -22,16 +22,15 @@ pub struct User {
     pub name: String,
     #[unique]
     pub email: String,
-    /// "admin" or "member" — the form renders them as a static-options Select
-    /// (GH #13).
+    /// "admin" or "member" — the form renders them as a static-options Select.
     pub role: String,
     pub active: bool,
     pub created_at: Timestamp,
 }
 
 #[derive(Debug, Clone, toasty::Model)]
-// Scoped, not global (GH #88): the form's unique probe runs through the
-// tenant-scoped query (`scoped_query`, GH #223), so a *global* unique index
+// Scoped, not global: the form's unique probe runs through the
+// tenant-scoped query (`scoped_query`), so a *global* unique index
 // on `email` would be rejected by the database for an email another tenant
 // already owns — after the probe passed — and surface as a 500. Constraining
 // `(tenant_id, email)` makes the constraint say what the probe enforces, so two
@@ -50,7 +49,7 @@ pub struct Author {
     pub posts: Deferred<Vec<Post>>,
 }
 
-/// SEO metadata for a post — an embedded struct (GH #185).
+/// SEO metadata for a post — an embedded struct.
 ///
 /// Flattens into the parent table as `seo_title` / `seo_description`: the same
 /// row, no join, but two more columns the form binds like any other.
@@ -58,13 +57,12 @@ pub struct Author {
 pub struct Seo {
     pub title: String,
     /// A multi-line control: the derive renders one `TextInput` per leaf, and
-    /// this is the one leaf the panel wants as a `Textarea` (GH #191).
+    /// this is the one leaf the panel wants as a `Textarea`.
     #[form(textarea, rows = 3)]
     pub description: String,
 }
 
-/// A post's lifecycle — an embedded enum whose **timestamps are shared**
-/// (GH #185).
+/// A post's lifecycle — an embedded enum whose **timestamps are shared**.
 ///
 /// Every variant declares a timestamp under the same `#[shared(timestamp)]`
 /// identifier, so the three coalesce into one `publication_timestamp` column
@@ -81,7 +79,7 @@ pub enum Publication {
     #[column(variant = 1)]
     Scheduled {
         /// The shared column's one control renders from the first variant that
-        /// declares it, so its label is written there (GH #191).
+        /// declares it, so its label is written there.
         #[shared(timestamp)]
         #[form(label = "Publication timestamp")]
         scheduled_at: String,
@@ -104,7 +102,7 @@ pub enum Publication {
 }
 
 /// Image / video attachment — an embedded enum with an embedded struct **nested
-/// inside a variant** (GH #185).
+/// inside a variant**.
 ///
 /// `Video` carries a `Poster`, which itself embeds a `Credit`, so the column is
 /// `media_poster_credit_author` — three levels deep, one flat column.
@@ -142,7 +140,7 @@ pub enum Media {
     },
 }
 
-/// Post statistics — an embedded struct (GH #185), bindable since GH #192.
+/// Post statistics — an embedded struct.
 ///
 /// Embedding flattens it into `post_stats_word_count` /
 /// `post_stats_read_minutes`, and those are integers the form binds through
@@ -172,7 +170,7 @@ pub struct Post {
     pub created_at: Timestamp,
     pub image_path: String,
     pub tags: String,
-    /// Embedded struct (GH #185).
+    /// Embedded struct.
     pub seo: Seo,
     /// Shared column + per-variant payloads.
     pub publication: Publication,
@@ -199,7 +197,7 @@ pub struct Comment {
     pub post: Deferred<Post>,
 }
 
-/// One stored file in the media library (GH #248) — the `medias` table.
+/// One stored file in the media library — the `medias` table.
 ///
 /// **`owner_type`/`owner_id` are a polymorphic pair.** A media row names the
 /// record it belongs to without a foreign key, because that record is a `Post`
@@ -222,7 +220,7 @@ pub struct MediaAsset {
     #[auto]
     pub id: uuid::Uuid,
     /// The tenant that uploaded the file, like every other showcase row
-    /// (GH #87): the library lists one tenant's media.
+    /// the library lists one tenant's media.
     #[index]
     pub tenant_id: uuid::Uuid,
     /// Which table `owner_id` names: [`crate::media::OWNER_POST`] or
@@ -230,7 +228,7 @@ pub struct MediaAsset {
     pub owner_type: String,
     pub owner_id: uuid::Uuid,
     /// What the app's [`Uploader`](argentum_core::Uploader) returned, stored
-    /// verbatim and rendered as the URL the file is served at (GH #188).
+    /// verbatim and rendered as the URL the file is served at.
     pub path: String,
     /// The client's filename, a basename, for display.
     pub filename: String,
