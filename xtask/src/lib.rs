@@ -21,7 +21,7 @@ use topcoat_ui::{Component, Dependency, Registry};
 ///
 /// The set is the transitive closure of what `crates/argentum-ui/src/lib.rs`
 /// re-exports: the re-exported components plus the components they depend on.
-/// [`vendored_components`] resolves the set and checks that closure against
+/// `vendored_components` resolves the set and checks that closure against
 /// `Component::dependencies`, so the sync and the guards fail with the missing
 /// name when a vendored component grows a dependency. `sync-topcoat-ui` writes
 /// these and `verify-topcoat-ui` expects exactly these, so a registry component
@@ -396,7 +396,7 @@ pub fn verify_sync() -> anyhow::Result<()> {
 }
 
 /// Guard: [`VENDORED_PRIMITIVES`] is closed under the registry's
-/// same-registry dependencies ([`vendored_components`] enforces this too).
+/// same-registry dependencies (`vendored_components` enforces this too).
 pub fn verify_vendored_closure() -> anyhow::Result<()> {
     let (registry, _version) = locate_registry()?;
     let components = vendored_components(&registry)?;
