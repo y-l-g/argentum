@@ -6,7 +6,7 @@ use toasty::{Db, Deferred};
 use topcoat::{
     Result,
     context::{Cx, CxTestBuilder},
-    router::{Router, Slot, layout},
+    router::{Body, Next, Router, Slot, layer, layout, response::Response},
     view::{View, ViewExt},
 };
 
@@ -462,6 +462,21 @@ async fn admin_layout(cx: &Cx, slot: Slot<'_>) -> Result<impl View> {
     Panel::layout_shell(cx, slot).await
 }
 
+/// The tenant the HTTP mode seeds and serves. The HTTP mode runs with
+/// `Auth::disabled()`, which injects no tenant, and `bench_cx` sets this value
+/// on the bench path.
+const SERVER_TENANT: uuid::Uuid = uuid::Uuid::nil();
+
+/// Supplies the HTTP mode's tenant.
+///
+/// Without a `Tenant` scoped value the auth gate has none to inject and
+/// `/admin/posts` answers 403. This layer sets the one the server seeds, the
+/// same value `bench_cx` sets on the bench path.
+#[layer("/admin")]
+async fn inject_server_tenant(cx: &Cx, body: Body, next: Next<'_>) -> Result<Response> {
+    next.run(&cx.with(Tenant(SERVER_TENANT)), body).await
+}
+
 fn router(db: Db) -> Router {
     Panel::new("admin")
         .app_context(db)
@@ -494,7 +509,7 @@ async fn main() {
         .await
         .expect("connect");
     db.push_schema().await.expect("push_schema");
-    seed_50(&mut db, uuid::Uuid::nil()).await;
+    seed_50(&mut db, SERVER_TENANT).await;
     let router = router(db);
     println!("storefront-argentum listening on http://localhost:3000/ (try /admin/posts)");
     topcoat::start(router).await.unwrap();

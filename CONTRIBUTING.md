@@ -40,7 +40,7 @@ and all ten before merging.
 1. `cargo test --workspace --locked`
 2. `cargo clippy --workspace --all-targets --locked -- -D warnings`
 3. `cargo test -p argentum-core --no-default-features --locked`
-4. `cargo +nightly fmt --all -- --check`
+4. `cargo +nightly-2026-08-24 fmt --all -- --check`
 5. `topcoat fmt`, then `git diff --exit-code`
 6. `cargo check --locked --manifest-path benchmarks/argentum/Cargo.toml`
 7. `cargo clippy --locked --manifest-path benchmarks/argentum/Cargo.toml --all-targets -- -D warnings`
@@ -51,12 +51,24 @@ and all ten before merging.
 Gate 3 keeps the opt-out auth feature compiling and its tests passing: `auth`
 is on by default in `argentum-core`, `default-features = false` stays a working
 escape hatch, and `Panel::build` refuses a panel that has not called
-`.auth(Auth::disabled())` (GH #129, GH #282). Gate 8 is the MSRV floor declared
+`.auth(Auth::disabled())` (GH #129, GH #282). Gate 4 runs on the dated nightly
+recorded in `rust-toolchain.toml`'s comment: `rustfmt.toml`'s keys are
+nightly-only (GH #269), and the fixed date keeps the rustfmt version the gate
+enforces from moving without a commit here. Gate 8 is the MSRV floor declared
 in `Cargo.toml` (GH #175). Gate 10 guards unused dependencies (GH #271);
 `--all-features` keeps a feature-gated
-dependency from looking unused. CI also
-runs `cargo fmt -- --check` inside each detached bench workspace and verifies
-that the two lockfiles pin identical `topcoat` and `toasty` revs.
+dependency from looking unused.
+
+CI runs four more checks outside the ten, and a change touching what they cover
+has to pass them too:
+
+- the `docs` job builds rustdoc with
+  `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked`, then
+  builds the guide with `mdbook build docs/guide`;
+- the `fmt` job runs `cargo fmt -- --check` inside each detached `benchmarks/*`
+  workspace (`benchmarks/argentum`, `benchmarks/axum-maud`, `benchmarks/leptos`);
+- the `bench-check` job verifies that `Cargo.lock` and
+  `benchmarks/argentum/Cargo.lock` pin identical `topcoat` and `toasty` revs.
 
 ### The `topcoat fmt` trap
 

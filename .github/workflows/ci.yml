@@ -104,16 +104,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      # The workspace check runs on nightly: rustfmt.toml's keys are
+      # The workspace check runs on the pinned nightly: rustfmt.toml's keys are
       # nightly-only (GH #269) and stable rustfmt ignores them with a warning.
-      # The default toolchain stays stable so the detached-bench `cargo fmt`
-      # steps below and the topcoat-cli build keep running on it.
+      # The date is fixed so the rustfmt version the gate enforces cannot move
+      # without a commit here; rust-toolchain.toml records the choice. The
+      # default toolchain stays stable so the detached-bench `cargo fmt` steps
+      # below and the topcoat-cli build keep running on it.
       - run: rustup update stable && rustup default stable
-      - run: rustup toolchain install nightly --profile minimal --component rustfmt
+      - run: rustup toolchain install nightly-2026-08-24 --profile minimal --component rustfmt
       - uses: Swatinem/rust-cache@v2
       # `fmt --all` covers every workspace member; the detached benches
       # (workspace `exclude`) keep their own stable checks below.
-      - run: cargo +nightly fmt --all -- --check
+      - run: cargo +nightly-2026-08-24 fmt --all -- --check
       # The detached benches have their own workspaces/lockfiles (GH #175):
       # check each in its own directory.
       - name: fmt detached benches

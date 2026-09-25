@@ -15,8 +15,8 @@ tenancy set, `can_view_any` enforced**, measured on the real list path
 `scoped_query` with the declared `.paginate(50)` → `render_with_state` →
 HTML). The raw query-only
 figure is kept as a labeled diagnostic alongside it. The budget is
-**< 40 ms p50** on SQLite/Postgres local (TTFB dominated by the
-slowest `defer` region's skeleton, not the query — `README.md:8`).
+**< 40 ms p50** on SQLite/Postgres local (TTFB is the shell and the table's
+`suspense` skeleton, not the query — `docs/dev/architecture.md`).
 
 Layout:
 
@@ -54,7 +54,7 @@ cargo run --manifest-path benchmarks/argentum/Cargo.toml -- --bench --iterations
 
 # Full bench incl. HTTP leg (requires `oha` for the HTTP leg; timings informational, ungated):
 ./benchmarks/scripts/bench.sh
-# -> benchmarks/results/bench.json + results.md (argentum only; baselines smoke-only)
+# -> benchmarks/results/<timestamp>/results.md + oha JSON (argentum only; baselines smoke-only)
 
 # Smoke + self-check (argentum 50 rows + baseline compiles):
 ./benchmarks/scripts/verify_parity.sh
@@ -65,15 +65,11 @@ starts the Topcoat server at `http://localhost:3000/` for manual inspection.
 
 ## What "fast" means (Phase 2)
 
-* **Concurrent rendering** — sibling components and rows `try_join!` (no waterfalls).
-* **Memoization** — `#[memoize]` on the loader (`Post::all().include(...).exec`)
-  so streaming re-renders don't repeat I/O.
 * **Preloading** — `include` for `author` + `comments` (3 operations, not 101).
 * **Boundaries** — `Table` is a `Boundary` (`data-boundary="table"`); search/filter/page
   swaps only the table, not the shell.
 * **Pagination** — cursor pagination (Toasty appends the PK tie-breaker internally).
 
-Budget v1 (Phase 1): list (25 rows, 2 includes, 1 count) `< 40 ms p50`.
 Budget v2 (Phase 2): list (50 rows, 2 includes) `< 40 ms p50` on the real
 list path (from_cx → load → render_with_state → HTML), tenancy set and policy
 enforced. GH #171 lands the honest bench UNGATED (numbers first, gate with
