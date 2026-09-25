@@ -65,4 +65,5 @@ topcoat-ui-registry = { git = "https://github.com/tokio-rs/topcoat", branch = "m
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 uuid = "1.23"
 jiff = "0.2"
+percent-encoding = "2"
 serde = { version = "1", features = ["derive"] }

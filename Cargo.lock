@@ -135,6 +135,7 @@ dependencies = [
  "http-body-util",
  "jiff",
  "password-hash",
+ "percent-encoding",
  "serde",
  "serde_json",
  "subtle",

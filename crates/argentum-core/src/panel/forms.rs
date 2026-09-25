@@ -5,6 +5,7 @@
 
 use std::collections::{HashMap, HashSet};
 
+use percent_encoding::percent_decode_str;
 use topcoat::{
     Result,
     context::Cx,
@@ -363,28 +364,18 @@ fn is_windows_reserved_name(name: &str) -> bool {
 /// Decode an RFC 5987/6266 `filename*=UTF-8''...` value (GH #90).
 ///
 /// Only UTF-8 is supported; other charsets yield `None` so the caller falls
-/// back to `filename=`. Malformed percent sequences fail the whole value
-/// rather than lossy-mangling the stored name.
+/// back to `filename=`. A byte sequence that is not valid UTF-8 fails the
+/// whole value rather than lossy-mangling the stored name.
 fn decode_rfc5987(value: &str) -> Option<String> {
     let (charset, rest) = value.split_once('\'')?;
     let (_lang, encoded) = rest.split_once('\'')?;
     if !charset.eq_ignore_ascii_case("utf-8") {
         return None;
     }
-    let bytes = encoded.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'%' {
-            let hex = std::str::from_utf8(bytes.get(i + 1..i + 3)?).ok()?;
-            out.push(u8::from_str_radix(hex, 16).ok()?);
-            i += 3;
-        } else {
-            out.push(bytes[i]);
-            i += 1;
-        }
-    }
-    String::from_utf8(out).ok()
+    percent_decode_str(encoded)
+        .decode_utf8()
+        .ok()
+        .map(|decoded| decoded.into_owned())
 }
 
 /// Pure half of [`parse_form_body`] — testable without a request.
