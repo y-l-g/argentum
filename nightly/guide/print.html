@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-3631fb6b.js";
+            window.path_to_searchindex_js = "searchindex-2166541b.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-da1679ae.js"></script>
@@ -965,10 +965,14 @@ transaction.</li>
 <code>escape_like_pattern</code>), never a raw pattern. Do not interpolate raw input into SQL.</li>
 <li>Session, CSRF, and notification cookies use hardened <code>__Host-</code> + <code>Secure</code> settings. Localhost is
 exempt; non-localhost deploys need HTTPS or browsers drop them and mutations 403.</li>
-<li>Responses carry <code>Content-Security-Policy: frame-ancestors 'self'</code>, so an admin page cannot be
-clickjacked from another origin. <code>Panel::frame_ancestors(..)</code> widens it for a deployment that
-frames the panel, <code>Panel::without_frame_ancestors()</code> sends none for a proxy that owns the whole
-policy, and an app’s own <code>Content-Security-Policy</code> always wins — the layer only fills the gap.</li>
+<li>Every response the panel’s layer chain produces, including the router’s own 404 and 405, carries
+<code>Content-Security-Policy: frame-ancestors 'self'</code>, so an admin page cannot be clickjacked from
+another origin. <code>Panel::frame_ancestors(..)</code> widens it for a deployment that frames the panel,
+<code>Panel::without_frame_ancestors()</code> sends none for a proxy that owns the whole policy, and an
+app’s own <code>Content-Security-Policy</code> on a handler response always wins — the layer only fills the
+gap. Three router responses are built outside every registered layer, so no layer can harden them: the 403 for a
+cross-site request, the 400 for a malformed <code>x-topcoat-identity</code> header, and the bare 500 for a
+panic.</li>
 <li>Redirects: <code>Err(redirect(..))</code> (307) for GETs, <code>Err(see_other(..))</code> (303 PRG) after mutations.
 Mid-stream they degrade to <code>window.location.replace</code>; streamed regions own their failure
 rendering. Wrap <code>Slot</code> in <code>error_boundary</code> for branded error pages.</li>
@@ -976,8 +980,9 @@ rendering. Wrap <code>Slot</code> in <code>error_boundary</code> for branded err
 directory route serves carries <code>X-Content-Type-Options: nosniff</code>, a fixed sandboxing
 <code>Content-Security-Policy</code>, and <code>Content-Disposition: attachment</code> unless the file is a common raster
 image, audio/video or <code>text/plain</code>. An app that serves active documents mounts them on its own
-origin; the policy is not configurable. A 404 keeps Topcoat’s <code>text/plain</code> error page; a 405
-carries only <code>Allow</code> and an empty body. Neither carries user content.</li>
+origin; the policy is not configurable. The directory route’s own failures keep Topcoat’s
+<code>text/plain</code> 404 page and an <code>Allow</code>-only empty 405, so they carry none of the served-file policy
+and no user content; the panel’s <code>frame-ancestors</code> layer still covers both.</li>
 </ul>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="testing-and-benchmarks"><a class="header" href="#testing-and-benchmarks">Testing and benchmarks</a></h1>
