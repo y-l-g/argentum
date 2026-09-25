@@ -116,8 +116,8 @@ async fn comments_create_form_shows_post_select() {
 /// `view_relations` read.
 #[tokio::test]
 async fn post_options_do_not_load_every_posts_comments() {
-    use argentum_core::{IncludeNeeds, Resource, Tenant, db::db as db_handle};
     use showcase::app::PostResource;
+    use tablo_core::{IncludeNeeds, Resource, Tenant, db::db as db_handle};
     use topcoat::context::CxTestBuilder;
 
     let (db, t1, _t2) = tenanted_db().await;
@@ -209,8 +209,8 @@ async fn comments_create_valid_redirects_and_creates() {
 async fn comment_writes_recheck_the_parent_post_tenant_inside_the_transaction() {
     use std::collections::HashMap;
 
-    use argentum_core::{Resource, Tenant, db::db as db_handle, scoped_query};
     use showcase::app::{CommentResource, PostResource};
+    use tablo_core::{Resource, Tenant, db::db as db_handle, scoped_query};
     use topcoat::{context::CxTestBuilder, router::response::IntoResponse};
 
     let (db, t1, t2) = tenanted_db().await;

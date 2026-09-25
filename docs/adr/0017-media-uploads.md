@@ -55,7 +55,7 @@ the auth gate installs exactly two layers — the panel prefix and `/_topcoat/ru
 directory mounted outside both is ungated by construction. Public media is a legitimate shape, and
 gating a served directory remains a possible future option; the rule for apps is that a directory meant
 to be private is mounted behind the app's own gate, never assumed private from the mount path.
-`a_served_directory_is_reachable_without_a_session` in `crates/argentum-core/tests/uploads.rs` pins
+`a_served_directory_is_reachable_without_a_session` in `crates/tablo-core/tests/uploads.rs` pins
 the anonymous case.
 
 **A served directory is public and inert** (GH #278): because it shares the panel's origin, every file
@@ -80,7 +80,7 @@ fails validation is unreferenced, not wrong, and a store with a real write cost 
   shows an empty field beside the reason.
 - The showcase demonstrates the whole path: `DirUploader` writes into a served directory, the record
   stores the returned URL, and the URL fetches the bytes back (GH #188).
-- `argentum-core` enables topcoat's `fs` feature, which upstream's directory route lives behind, and
+- `tablo-core` enables topcoat's `fs` feature, which upstream's directory route lives behind, and
   both lockfiles carry the crates it pulls. Image handling (thumbnails, transcoding, dimensions) and
   storage drivers stay out of scope: the field links a stored path, and the trait is the seam for the
   bytes.

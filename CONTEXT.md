@@ -1,4 +1,4 @@
-# Argentum
+# Tablo
 
 Admin toolkit for Rust — server-rendered on Topcoat, persisted with Toasty. Provides the CRUD
 core of Filament (Panel + Resource → Table + Schema, deletes via Resource record fns) with no
@@ -11,7 +11,7 @@ the same seam: the POST still 303s, and the client that follows it re-runs the t
 of morphing the response (GH #234, ADR-0020).
 
 > **Shipped vs spec:** everything the terms below call shipped — Panel, Resource, Table, Schema,
-> Policy, authentication, tenancy, and uploads — lives in `argentum-core`. `examples/showcase` is
+> Policy, authentication, tenancy, and uploads — lives in `tablo-core`. `examples/showcase` is
 > the runnable reference and `docs/guide` the user guide for what each seam does in detail. A term
 > marked spec-level or future work is not implemented.
 
@@ -299,7 +299,7 @@ _Avoid_: Layout, Wrapper, Chrome
 ### Sidebar
 
 The persistent navigation region inside the Shell. The upstream Topcoat `sidebar` primitive (synced
-into `argentum-ui`, topcoat#419): header, content, footer, groups and menus, collapsing to
+into `tablo-ui`, topcoat#419): header, content, footer, groups and menus, collapsing to
 offcanvas on desktop and to its own sheet drawer below `md`. Its open state is runtime signals —
 `Panel::render_shell` seeds `open` from the `sidebar_state` cookie, the trigger pair carries
 `@click` handlers, and `assets/sidebar.js` mirrors changes back to the cookie.
@@ -315,10 +315,10 @@ _Avoid_: Container, Wrapper, Layout
 
 ### Theme
 
-The named set of design tokens that determines the admin's look. Argentum provides **no stylesheet**:
+The named set of design tokens that determines the admin's look. Tablo provides **no stylesheet**:
 the tokens are the app's, declared in its `styles.css` as the per-app contract of ADR-0006, and
 `examples/showcase/styles.css` is the reference — a neutral set that re-tunes upstream's
-`--primary`/`--ring`. The one theme component `argentum-ui` owns is `theme_init_script`, a free
+`--primary`/`--ring`. The one theme component `tablo-ui` owns is `theme_init_script`, a free
 function (not a `Theme` type) that reconciles the `dark` class before first paint;
 `Panel::dark_mode` supplies its fallback for a visitor with no stored choice.
 
@@ -334,14 +334,14 @@ _Avoid_: Variable, Color
 ### Primitive
 
 A re-exported Topcoat UI component (button, card, select, table, input...) vendored verbatim from
-`topcoat-ui-registry` into `argentum-ui/src/components/primitives/` and synced via
+`topcoat-ui-registry` into `tablo-ui/src/components/primitives/` and synced via
 `cargo xtask sync-topcoat-ui`.
 
 _Avoid_: Component (when meaning synced primitive), Widget
 
 ### Component
 
-An owned Topcoat `#[component]` in `argentum-ui/src/components/composites/` (Page, ErrorState,
+An owned Topcoat `#[component]` in `tablo-ui/src/components/composites/` (Page, ErrorState,
 Theme, Toast) that composes Primitives and Tokens. Hand-written, never overwritten by sync.
 
 _Avoid_: Primitive, Widget, Element, View

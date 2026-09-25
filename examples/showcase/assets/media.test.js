@@ -23,7 +23,7 @@ const assert = require('node:assert/strict');
 
 const SCRIPT = require.resolve('./media.js');
 
-const { listenerDocument } = require('../../../crates/argentum-ui/assets/test-dom.js');
+const { listenerDocument } = require('../../../crates/tablo-ui/assets/test-dom.js');
 
 // --- browser stand-ins -------------------------------------------------------
 

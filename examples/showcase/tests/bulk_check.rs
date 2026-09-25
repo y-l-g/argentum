@@ -63,7 +63,7 @@ async fn bulk_delete_deletes_selected() {
         !loc.contains("notification"),
         "the toast must not ride the query, got {loc}"
     );
-    let flash = set_cookie_header(&resp, "__Host-argentum_notification")
+    let flash = set_cookie_header(&resp, "__Host-tablo_notification")
         .expect("the flash cookie is set on the redirect");
     assert!(
         flash.contains("Bulk"),
@@ -113,7 +113,7 @@ async fn bulk_delete_without_ids_redirects_with_the_reason() {
     );
     let loc = resp.headers().get(LOCATION).unwrap().to_str().unwrap();
     assert!(loc.contains("/admin/users"), "redirect to list, got {loc}");
-    let flash = set_cookie_header(&resp, "__Host-argentum_notification")
+    let flash = set_cookie_header(&resp, "__Host-tablo_notification")
         .expect("the flash cookie carries the reason");
     assert!(
         flash.contains("error") && flash.contains("Select"),
@@ -387,7 +387,7 @@ fn selectable_row_ids(html: &str) -> Vec<String> {
 /// handler's own `can_delete` check would leave this test green.
 #[tokio::test]
 async fn bulk_delete_hand_crafted_partial_deny_is_refused() {
-    use argentum_core::{Resource, Schema, Table, TextColumn, TextInput};
+    use tablo_core::{Resource, Schema, Table, TextColumn, TextInput};
 
     #[derive(Debug, toasty::Model, Clone)]
     struct DummyUser {
@@ -442,9 +442,9 @@ async fn bulk_delete_hand_crafted_partial_deny_is_refused() {
     .exec(&mut db)
     .await
     .unwrap();
-    let router = argentum_core::Panel::new("admin")
+    let router = tablo_core::Panel::new("admin")
         .app_context(db.clone())
-        .auth(argentum_core::Auth::disabled())
+        .auth(tablo_core::Auth::disabled())
         .resource::<PartialDenyResource>()
         .build()
         .expect("panel builds");

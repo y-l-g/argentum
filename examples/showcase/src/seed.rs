@@ -1,8 +1,8 @@
 //! The showcase's demo rows: the users the panel lists, the two admin
 //! accounts, and the phase-2 authors, posts and comments.
 
-use argentum_core::auth::{AdminUser, hash_password};
 use jiff::Timestamp;
+use tablo_core::auth::{AdminUser, hash_password};
 use toasty::Db;
 
 use crate::models::{

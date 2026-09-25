@@ -23,7 +23,7 @@ concurrency:
 
 jobs:
   build:
-    if: github.repository == 'y-l-g/argentum'
+    if: github.repository == 'y-l-g/tablo'
     name: Build and deploy docs
     runs-on: ubuntu-latest
     steps:
@@ -79,7 +79,7 @@ jobs:
           <!DOCTYPE html>
           <html>
             <head><meta http-equiv="refresh" content="0; url=nightly/guide/"></head>
-            <body><a href="nightly/guide/">Redirect to the Argentum Guide</a></body>
+            <body><a href="nightly/guide/">Redirect to the Tablo Guide</a></body>
           </html>
           HTML
           fi

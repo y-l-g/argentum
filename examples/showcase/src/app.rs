@@ -1,6 +1,6 @@
 use std::{collections::HashMap, path::PathBuf};
 
-use argentum_core::{
+use tablo_core::{
     Brand, ColumnWidth, Committed, DateFilter, FileUpload, Grid, Group, IncludeNeeds, Panel,
     RelationColumn, RelationColumns, Repeater, Resource, Schema, Section, Select, SelectFilter,
     Table, Tabs, TernaryFilter, TextColumn, TextInput, Textarea, Uploader, VariantFilter,
@@ -114,7 +114,7 @@ fn kept_embedded<M, T, L>(
 ) -> T
 where
     M: toasty::schema::Model,
-    T: argentum_core::EmbeddedForm + Clone,
+    T: tablo_core::EmbeddedForm + Clone,
     L: Into<toasty::stmt::Path<M, T>>,
 {
     if submitted(cx, field(), values) {
@@ -1381,7 +1381,7 @@ fn build_router(db: Db, bundle: Option<AssetBundle>, uploads: Option<PathBuf>) -
     let mut panel = Panel::new("admin")
         .app_context(db)
         .brand(
-            Brand::new("Argentum Blog").logo(
+            Brand::new("Tablo Blog").logo(
                 "data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2024%2024'%3E%3Ccircle%20cx='12'%20cy='12'%20r='10'%20fill='%236366f1'/%3E%3Ctext%20x='12'%20y='16'%20text-anchor='middle'%20font-size='12'%20fill='white'%20font-family='sans-serif'%3EA%3C/text%3E%3C/svg%3E",
             ),
         )

@@ -33,7 +33,7 @@ jobs:
       # panel that has not called `.auth(Auth::disabled())`, so
       # `default-features = false` stays a real escape hatch an app asks for
       # explicitly (GH #282).
-      - run: cargo test -p argentum-core --no-default-features --locked
+      - run: cargo test -p tablo-core --no-default-features --locked
 
   # The JS assets are plain browser scripts loaded through `asset!`: no build
   # step, no dependencies, nothing to install, and the runner's Node runs them
@@ -48,12 +48,12 @@ jobs:
       - uses: actions/checkout@v7
       - run: >-
           node --test
-          crates/argentum-ui/assets/selects.test.js
-          crates/argentum-ui/assets/bulk.test.js
-          crates/argentum-ui/assets/dialog.test.js
-          crates/argentum-ui/assets/mutation-submit.test.js
-          crates/argentum-ui/assets/notifications.test.js
-          crates/argentum-ui/assets/filters.test.js
+          crates/tablo-ui/assets/selects.test.js
+          crates/tablo-ui/assets/bulk.test.js
+          crates/tablo-ui/assets/dialog.test.js
+          crates/tablo-ui/assets/mutation-submit.test.js
+          crates/tablo-ui/assets/notifications.test.js
+          crates/tablo-ui/assets/filters.test.js
           examples/showcase/assets/media.test.js
 
   clippy:
@@ -73,7 +73,7 @@ jobs:
       - run: rustup update stable && rustup default stable
       - uses: Swatinem/rust-cache@v2
       # Nothing else here builds the docs: `cargo test` and `cargo clippy` never
-      # run rustdoc, so 44 errors in argentum-core (broken intra-doc links to
+      # run rustdoc, so 44 errors in tablo-core (broken intra-doc links to
       # private items, unclosed HTML tags, an unparseable Rust code block)
       # accumulated unnoticed and left the Pages workflow red on master.
       # `-D warnings` promotes every rustdoc lint to a failure, so the next one
@@ -122,7 +122,7 @@ jobs:
       # check each in its own directory.
       - name: fmt detached benches
         run: |
-          for bench in benchmarks/argentum benchmarks/axum-maud benchmarks/leptos; do
+          for bench in benchmarks/tablo benchmarks/axum-maud benchmarks/leptos; do
             echo "--- fmt --check $bench"
             (cd "$bench" && cargo fmt -- --check)
           done
@@ -165,15 +165,15 @@ jobs:
         with:
           # The bench workspace is detached (see workspace `exclude`), so it
           # has its own target dir and lockfile.
-          workspaces: benchmarks/argentum
+          workspaces: benchmarks/tablo
       # Compile the harness locked: it rotted once (#103) and nothing else in
       # CI would notice, because `cargo test --workspace` never sees it.
       - name: Check detached bench workspace (locked)
-        run: cargo check --locked --manifest-path benchmarks/argentum/Cargo.toml
+        run: cargo check --locked --manifest-path benchmarks/tablo/Cargo.toml
       # Same blind spot as fmt had (GH #175): `clippy --workspace` never sees
       # the detached bench, so lint it by manifest path.
       - name: Clippy detached bench workspace (locked)
-        run: cargo clippy --locked --manifest-path benchmarks/argentum/Cargo.toml --all-targets -- -D warnings
+        run: cargo clippy --locked --manifest-path benchmarks/tablo/Cargo.toml --all-targets -- -D warnings
       # Pin policy (Cargo.toml comment / ADR-0003): the bench must measure the
       # same upstream revs the workspace ships, so the two lockfiles stay in
       # lockstep through every `cargo update -p topcoat|toasty`.
@@ -181,7 +181,7 @@ jobs:
         run: |
           for crate in topcoat toasty; do
             root=$(grep -A 2 "^name = \"$crate\"$" Cargo.lock | grep -o '#[0-9a-f]\{40\}' | head -1)
-            bench=$(grep -A 2 "^name = \"$crate\"$" benchmarks/argentum/Cargo.lock | grep -o '#[0-9a-f]\{40\}' | head -1)
+            bench=$(grep -A 2 "^name = \"$crate\"$" benchmarks/tablo/Cargo.lock | grep -o '#[0-9a-f]\{40\}' | head -1)
             if [ -z "$root" ] || [ "$root" != "$bench" ]; then
               echo "::error::$crate rev drift: workspace=$root bench=$bench"
               exit 1

@@ -5,10 +5,10 @@
 
 #![allow(dead_code)]
 
-use argentum_core::{Resource, Tenant};
 use http::header::{CONTENT_TYPE, COOKIE};
 use http_body_util::BodyExt;
 use showcase::models::{DEMO_ADMIN_EMAIL, DEMO_ADMIN_PASSWORD, create_admin, seed, seed_phase2};
+use tablo_core::{Resource, Tenant};
 use toasty::Db;
 use topcoat::{
     context::Cx,
@@ -33,8 +33,8 @@ pub async fn empty_schema_db() -> Db {
             showcase::models::Post,
             showcase::models::Comment,
             showcase::models::MediaAsset,
-            argentum_core::auth::AdminUser,
-            argentum_core::auth::AuthSession
+            tablo_core::auth::AdminUser,
+            tablo_core::auth::AuthSession
         ))
         .connect("sqlite::memory:")
         .await
@@ -232,7 +232,7 @@ impl<'a> TestClient<'a> {
 
     /// Attach the CSRF cookie the form's `csrf_token` field must match.
     pub fn csrf(&self, token: &str) -> Self {
-        self.cookie(argentum_core::csrf::COOKIE_NAME, token)
+        self.cookie(tablo_core::csrf::COOKIE_NAME, token)
     }
 
     /// Carry a tenant as a `Tenant` request extension — the server-set
@@ -370,7 +370,7 @@ pub async fn login<'a>(router: &'a Router, email: &str, password: &str) -> TestC
 pub async fn mint_session(db: &Db, email: &str) -> String {
     use std::{fmt::Write as _, time::SystemTime};
 
-    use argentum_core::auth::{AdminUser, AuthSession, SESSION_LIFETIME};
+    use tablo_core::auth::{AdminUser, AuthSession, SESSION_LIFETIME};
     use topcoat::session::Token;
 
     let mut db = db.clone();

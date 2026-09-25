@@ -9,14 +9,14 @@
 
 use std::collections::HashMap;
 
-use argentum_core::{Auth, Panel, Resource, Schema, Table, TextColumn, TextInput, read_embedded};
+use tablo_core::{Auth, Panel, Resource, Schema, Table, TextColumn, TextInput, read_embedded};
 use toasty::Db;
 use uuid::Uuid;
 
 use crate::common::{TestClient, body_string};
 
 /// The embedded value under test: one variant whose payload is a typed leaf.
-#[derive(Debug, Clone, PartialEq, toasty::Embed, argentum_core::EmbeddedForm)]
+#[derive(Debug, Clone, PartialEq, toasty::Embed, tablo_core::EmbeddedForm)]
 enum Body {
     #[column(variant = 1)]
     Text { note: String },

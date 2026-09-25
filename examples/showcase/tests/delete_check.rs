@@ -168,7 +168,7 @@ async fn delete_requires_confirmation_and_deletes() {
         !loc.contains("notification"),
         "the toast must not ride the query, got {loc}"
     );
-    let flash = set_cookie_header(&resp, "__Host-argentum_notification")
+    let flash = set_cookie_header(&resp, "__Host-tablo_notification")
         .expect("the flash cookie is set on the redirect");
     assert!(
         flash.contains("Deleted"),
@@ -233,7 +233,7 @@ async fn delete_404_for_an_unknown_id() {
 async fn forged_delete_runs_no_record_query() {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    use argentum_core::{Resource, Schema, Table, TextColumn, TextInput};
+    use tablo_core::{Resource, Schema, Table, TextColumn, TextInput};
 
     // Every load (find_by_key, the tx fetch) starts from the tenant-scoped
     // query, which calls the resource's `query_with` — and `CountingResource`
@@ -305,9 +305,9 @@ async fn forged_delete_runs_no_record_query() {
     .exec(&mut db)
     .await
     .unwrap();
-    let router = argentum_core::Panel::new("admin")
+    let router = tablo_core::Panel::new("admin")
         .app_context(db.clone())
-        .auth(argentum_core::Auth::disabled())
+        .auth(tablo_core::Auth::disabled())
         .resource::<CountingResource>()
         .build()
         .expect("panel builds");

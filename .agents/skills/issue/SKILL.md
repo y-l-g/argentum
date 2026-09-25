@@ -1,6 +1,6 @@
 ---
 name: issue
-description: Always use this skill before opening an issue in the Argentum repository
+description: Always use this skill before opening an issue in the Tablo repository
 ---
 
 # Opening Issues
@@ -22,7 +22,7 @@ Issue templates live in [`.github/ISSUE_TEMPLATE/`](../../../.github/ISSUE_TEMPL
   a new feature or public-API change. Leads with the problem and who hits it,
   sketches the concrete API, lists alternatives considered and a scope estimate.
 - [`upstream_gap.yml`](../../../.github/ISSUE_TEMPLATE/upstream_gap.yml) — a
-  missing or unstable Toasty/Topcoat API forcing an Argentum workaround. One gap
+  missing or unstable Toasty/Topcoat API forcing an Tablo workaround. One gap
   per issue. The body is the status: edit it when the upstream state changes,
   never discuss status in comments.
 

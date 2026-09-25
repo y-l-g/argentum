@@ -1,6 +1,6 @@
 # Security
 
-The defaults Argentum ships with, and the deployment assumptions they depend on.
+The defaults Tablo ships with, and the deployment assumptions they depend on.
 
 - All POSTs verify a double-submit `csrf_token` before any DB work. `confirm=1` is a UX step, not a
   boundary.

@@ -1,6 +1,6 @@
 ---
 name: pr
-description: Always use this skill before opening a pull request in the Argentum repository
+description: Always use this skill before opening a pull request in the Tablo repository
 ---
 
 # Opening Pull Requests
@@ -36,5 +36,5 @@ If an AI agent created the change, name the model and describe what it did.
 
 ## Be succinct
 
-Reviewers already know Argentum and Rust. Include what they need to evaluate the
+Reviewers already know Tablo and Rust. Include what they need to evaluate the
 change, and nothing else.

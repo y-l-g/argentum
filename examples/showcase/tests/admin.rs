@@ -227,8 +227,8 @@ async fn removed_showcase_routes_are_not_found() {
 
 #[tokio::test]
 async fn admin_table_via_resource_has_searchable_sortable() {
-    use argentum_core::Resource;
     use showcase::app::UserResource;
+    use tablo_core::Resource;
     use topcoat::context::CxTestBuilder;
     let cx = CxTestBuilder::new().build();
     let table = UserResource::table(&cx);
@@ -592,7 +592,7 @@ async fn admin_list_search_matches_substrings_and_escapes_wildcards() {
             .parse::<jiff::Timestamp>()
             .expect("timestamp"),
     })
-    .exec(&mut argentum_core::db::db(
+    .exec(&mut tablo_core::db::db(
         &topcoat::context::CxTestBuilder::new()
             .app_context(db.clone())
             .build(),

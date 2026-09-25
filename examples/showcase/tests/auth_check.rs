@@ -3,12 +3,12 @@
 //! account controls, and the fail-closed gate over the panel and runtime
 //! prefixes.
 
-use argentum_core::auth::{AdminUser, AuthSession};
 use http::header::{COOKIE, LOCATION};
 use showcase::{
     app::router_for_tests as router,
     models::{DEMO_ADMIN_EMAIL, DEMO_ADMIN_PASSWORD},
 };
+use tablo_core::auth::{AdminUser, AuthSession};
 use topcoat::{context::CxTestBuilder, router::Body};
 
 use crate::common::{
@@ -44,7 +44,7 @@ async fn login_page_is_standalone_with_csrf_and_no_demo_hint_by_default() {
     assert_eq!(response.status(), 200);
     let html = body_string(response).await;
     assert!(html.contains("Sign in"), "missing heading: {html}");
-    assert!(html.contains("Argentum Blog"), "missing brand: {html}");
+    assert!(html.contains("Tablo Blog"), "missing brand: {html}");
     assert!(
         html.contains("<html>"),
         "login must share the light first paint: {html}"
@@ -288,7 +288,7 @@ async fn revoke_sessions_for_user_ends_access() {
         .unwrap()
         .expect("seeded admin");
     let cx = CxTestBuilder::new().app_context(db.clone()).build();
-    argentum_core::auth::revoke_sessions_for_user(&cx, &admin.id.to_string())
+    tablo_core::auth::revoke_sessions_for_user(&cx, &admin.id.to_string())
         .await
         .unwrap();
 
@@ -444,9 +444,9 @@ async fn login_returns_to_the_originally_requested_page() {
 #[tokio::test]
 async fn auth_disabled_serves_the_panel_without_login() {
     let db = full_db().await;
-    let router = argentum_core::Panel::new("admin")
+    let router = tablo_core::Panel::new("admin")
         .app_context(db)
-        .auth(argentum_core::Auth::disabled())
+        .auth(tablo_core::Auth::disabled())
         .resource::<showcase::app::UserResource>()
         .build()
         .expect("panel builds");

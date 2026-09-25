@@ -1,14 +1,14 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/argentum-core",
-    "crates/argentum-macros",
-    "crates/argentum-ui",
+    "crates/tablo-core",
+    "crates/tablo-macros",
+    "crates/tablo-ui",
     "examples/showcase",
     "xtask",
 ]
 exclude = [
-    "benchmarks/argentum",
+    "benchmarks/tablo",
     "benchmarks/axum-maud",
     "benchmarks/leptos",
 ]
@@ -35,7 +35,7 @@ too_many_lines = "allow"
 
 # Topcoat and Toasty are git dependencies tracking their `main` branches, pinned by
 # Cargo.lock. Bump deliberately (`cargo update -p topcoat -p toasty`, then `cargo check
-# --offline`); sync `benchmarks/argentum/Cargo.lock` in the same commit. See
+# --offline`); sync `benchmarks/tablo/Cargo.lock` in the same commit. See
 # CONTRIBUTING.md "Dependency pins" (GH #103). `topcoat fmt` needs the CLI built from the
 # locked rev (see the fmt job in `.github/workflows/ci.yml`). For temporary live-editing
 # against a local checkout, add an uncommitted `[patch]` section redirecting to

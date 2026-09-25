@@ -4,7 +4,7 @@ Date: 2026-08-19 — Status: accepted — Amended: 2026-09-10, 2026-09-22
 
 ## Decision
 
-Argentum's reactivity is committed behind owned APIs: page state (query/sort/page) is owned by the
+Tablo's reactivity is committed behind owned APIs: page state (query/sort/page) is owned by the
 page, and resources never write their own `#[shard]` — a shard endpoint stays an optimization, not the
 API surface. The migration to the current Topcoat runtime is done: `suspense` streams the resource list
 behind `Table::render_skeleton`, and later reruns (page or shard) morph in place (topcoat #392) so

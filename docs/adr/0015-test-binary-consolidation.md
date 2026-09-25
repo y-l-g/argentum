@@ -4,12 +4,12 @@ Date: 2026-09-19 — Status: accepted — Amended: none
 
 ## Decision
 
-Cargo builds one test binary per file in `tests/`, and each one links the crates it uses. Argentum's
+Cargo builds one test binary per file in `tests/`, and each one links the crates it uses. Tablo's
 integration tests all pull the full stack (topcoat's server runtime, toasty, bundled sqlite), so the
 per-file targets cost ~160-190 MB of artifacts each and `cargo test --workspace` spent most of its
 link time producing the same dependency graph over and over.
 
-Both `examples/showcase` and `crates/argentum-core` therefore set `autotests = false` and declare a
+Both `examples/showcase` and `crates/tablo-core` therefore set `autotests = false` and declare a
 single `[[test]] name = "it"` target. `tests/it.rs` declares each former test file as a module, and
 each module imports the shared fixture through `crate::common::…`, so the fixture is compiled once per
 crate instead of once per file. `xtask/tests/` keeps its two files: 30 MB total is not worth choking

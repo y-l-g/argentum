@@ -5,17 +5,17 @@ How the crates fit together, what happens on a request, and where the extension 
 
 ## Crates
 
-`argentum-macros` and `argentum-ui` are leaves. `argentum-core` depends on both, and the showcase
-depends on `argentum-core` and `argentum-ui`.
+`tablo-macros` and `tablo-ui` are leaves. `tablo-core` depends on both, and the showcase
+depends on `tablo-core` and `tablo-ui`.
 
 | Crate | Depends on | Contents |
 | --- | --- | --- |
-| `argentum-macros` | — | the `EmbeddedForm` derive |
-| `argentum-ui` | `topcoat` | synced primitives, owned composites, `icons.rs` |
-| `argentum-core` | `argentum-macros`, `argentum-ui`, `toasty` | Panel, Resource, Table, Schema, auth, tenancy, upload |
-| `examples/showcase` | `argentum-core`, `argentum-ui`, `toasty` | the runnable admin and the integration tests |
+| `tablo-macros` | — | the `EmbeddedForm` derive |
+| `tablo-ui` | `topcoat` | synced primitives, owned composites, `icons.rs` |
+| `tablo-core` | `tablo-macros`, `tablo-ui`, `toasty` | Panel, Resource, Table, Schema, auth, tenancy, upload |
+| `examples/showcase` | `tablo-core`, `tablo-ui`, `toasty` | the runnable admin and the integration tests |
 
-`argentum-core` never depends on a concrete database driver. Everything reaches the database through
+`tablo-core` never depends on a concrete database driver. Everything reaches the database through
 Toasty's `Db` and `Executor`, which is why an app-level `Uploader` and the `Authenticator` are traits
 the app implements rather than crates the toolkit picks.
 
@@ -87,7 +87,7 @@ committed write, and a failure in it is logged without rolling the write back.
 | `Resource::can_*` | `resource/mod.rs` | authorization, default deny |
 | `Resource::editable` / `deletable` | `resource/mod.rs` | whether the row chrome renders, default off |
 | `schema::OptionSource` | `schema/relationship.rs` | what a relationship select offers, and who may see it |
-| `EmbeddedForm` | `argentum-macros` | the flat form map ↔ a typed embedded value |
+| `EmbeddedForm` | `tablo-macros` | the flat form map ↔ a typed embedded value |
 | `Uploader` | `upload.rs` | where a `FileUpload`'s bytes go |
 | `Authenticator` | `auth.rs` | how credentials resolve to a `CurrentUser` |
 | `Table::id` / `Table::pk` | `resource/table/mod.rs` | row identity for keyed diffs and for action URLs |
@@ -112,8 +112,8 @@ streamed region.
 
 ## Assets
 
-`argentum-ui` owns ten browser scripts under `crates/argentum-ui/assets/`. They are loaded through
-`asset!`, so they have no build step. Each one is wired to a constant in `argentum-ui/src/lib.rs`,
+`tablo-ui` owns ten browser scripts under `crates/tablo-ui/assets/`. They are loaded through
+`asset!`, so they have no build step. Each one is wired to a constant in `tablo-ui/src/lib.rs`,
 and a test guards the pairing: `cargo test -p xtask` runs `shell_assets_match_hook_contract`, which
 fails when an asset is missing or a hook no longer appears in both its JavaScript and the Rust that
 renders it. `asset!` does not read its source at compile time, so nothing else checks the JavaScript
@@ -122,12 +122,12 @@ side of that coupling.
 `cargo xtask sync-topcoat-ui` re-vendors the components listed in `xtask::VENDORED_PRIMITIVES`
 from `topcoat-ui-registry` and writes a content hash into each file header. Those files are never hand-edited;
 `cargo xtask verify-topcoat-ui` fails on drift. Components in `components/composites/` are
-Argentum's own and are never overwritten.
+Tablo's own and are never overwritten.
 
 ## Module map
 
 ```
-crates/argentum-core/src/
+crates/tablo-core/src/
   panel/      mod, list, forms, actions, detail, search, shell, headers
   resource/   mod, table/{mod,render,export}, column, state, filter, relation,
               navigation, naming, commit

@@ -1,8 +1,8 @@
 //! xtask's repo guards, in one test target so a single link covers all of them.
 
 /// Guards the shell-JS hook contract (ADR-0014): every hand-written
-/// asset under `crates/argentum-ui/assets/` still exists and stays wired to
-/// its `argentum-ui` constant, and every hook in the checked-in
+/// asset under `crates/tablo-ui/assets/` still exists and stays wired to
+/// its `tablo-ui` constant, and every hook in the checked-in
 /// [`xtask::ASSET_HOOKS`] list still appears in both its JS asset and a Rust
 /// render site. A missing/renamed asset or a rename on either side of a
 /// string-selector coupling fails here, because `asset!` does not stat its
@@ -12,7 +12,7 @@ fn shell_assets_match_hook_contract() {
     xtask::verify_asset_hooks().expect("shell JS assets match the hook contract");
 }
 
-/// Guards that the primitives vendored into `argentum-ui` stay verbatim with
+/// Guards that the primitives vendored into `tablo-ui` stay verbatim with
 /// the `topcoat-ui-registry` sources this workspace compiles against — the
 /// same contract topcoat's own `examples/ui/tests/registry_sync.rs` enforces
 /// for its example app. Because the sync is byte-for-byte (no string patches,

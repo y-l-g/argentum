@@ -53,7 +53,7 @@ pub struct Author {
 ///
 /// Flattens into the parent table as `seo_title` / `seo_description`: the same
 /// row, no join, but two more columns the form binds like any other.
-#[derive(Debug, Clone, toasty::Embed, argentum_core::EmbeddedForm)]
+#[derive(Debug, Clone, toasty::Embed, tablo_core::EmbeddedForm)]
 pub struct Seo {
     pub title: String,
     /// A multi-line control: the derive renders one `TextInput` per leaf, and
@@ -74,7 +74,7 @@ pub struct Seo {
 /// field is a `String` lens: the Schema's text fields accept `Path<M, String>`,
 /// and a typed leaf (a timestamp, an integer) cannot bind as text yet. The
 /// shared column's *coalescing* is what this demonstrates.
-#[derive(Debug, Clone, PartialEq, toasty::Embed, argentum_core::EmbeddedForm)]
+#[derive(Debug, Clone, PartialEq, toasty::Embed, tablo_core::EmbeddedForm)]
 pub enum Publication {
     #[column(variant = 1)]
     Scheduled {
@@ -106,21 +106,21 @@ pub enum Publication {
 ///
 /// `Video` carries a `Poster`, which itself embeds a `Credit`, so the column is
 /// `media_poster_credit_author` — three levels deep, one flat column.
-#[derive(Debug, Clone, toasty::Embed, argentum_core::EmbeddedForm)]
+#[derive(Debug, Clone, toasty::Embed, tablo_core::EmbeddedForm)]
 pub struct Credit {
     #[form(label = "Poster credit")]
     pub author: String,
     pub licence: String,
 }
 
-#[derive(Debug, Clone, toasty::Embed, argentum_core::EmbeddedForm)]
+#[derive(Debug, Clone, toasty::Embed, tablo_core::EmbeddedForm)]
 pub struct Poster {
     #[form(label = "Poster URL")]
     pub url: String,
     pub credit: Credit,
 }
 
-#[derive(Debug, Clone, toasty::Embed, argentum_core::EmbeddedForm)]
+#[derive(Debug, Clone, toasty::Embed, tablo_core::EmbeddedForm)]
 pub enum Media {
     #[column(variant = 1)]
     Image {
@@ -145,7 +145,7 @@ pub enum Media {
 /// Embedding flattens it into `post_stats_word_count` /
 /// `post_stats_read_minutes`, and those are integers the form binds through
 /// `TextInput::typed`.
-#[derive(Debug, Clone, toasty::Embed, argentum_core::EmbeddedForm)]
+#[derive(Debug, Clone, toasty::Embed, tablo_core::EmbeddedForm)]
 pub struct PostStats {
     #[form(label = "Word count")]
     pub word_count: i64,
@@ -227,7 +227,7 @@ pub struct MediaAsset {
     /// [`crate::media::OWNER_USER`].
     pub owner_type: String,
     pub owner_id: uuid::Uuid,
-    /// What the app's [`Uploader`](argentum_core::Uploader) returned, stored
+    /// What the app's [`Uploader`](tablo_core::Uploader) returned, stored
     /// verbatim and rendered as the URL the file is served at.
     pub path: String,
     /// The client's filename, a basename, for display.

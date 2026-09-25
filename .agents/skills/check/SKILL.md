@@ -1,6 +1,6 @@
 ---
 name: check
-description: Always use this skill to verify a change locally before committing or opening a pull request in the Argentum repository
+description: Always use this skill to verify a change locally before committing or opening a pull request in the Tablo repository
 ---
 
 # Verifying a Change
@@ -23,13 +23,13 @@ Rules that catch the recurring failures:
   [`CONTRIBUTING.md`](../../../CONTRIBUTING.md#the-topcoat-fmt-trap)) and run that.
 - `cargo fmt` covers workspace members only; the detached `benchmarks/*`
   workspaces are formatted and linted by manifest path.
-- Any lockfile change syncs `benchmarks/argentum/Cargo.lock` in the same commit,
+- Any lockfile change syncs `benchmarks/tablo/Cargo.lock` in the same commit,
   with identical `topcoat`/`toasty` revs.
 - Give each worktree its own target directory; a shared `CARGO_TARGET_DIR`
   cross-contaminates.
 - Never pipe when you need the exit code: `| tail` masks it. Read `PIPESTATUS`
   or redirect to a file.
-- Never hand-edit `crates/argentum-ui/src/components/primitives/`; sync it with
+- Never hand-edit `crates/tablo-ui/src/components/primitives/`; sync it with
   `cargo xtask sync-topcoat-ui`.
 - `cargo udeps` needs `cargo-udeps` on nightly for `-Z binary-dep-depinfo`:
   `cargo +nightly install cargo-udeps --locked`, then the udeps gate in

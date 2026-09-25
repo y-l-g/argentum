@@ -28,7 +28,7 @@ A `Resource` registered on a `Panel` is fully writable on the framework's existi
   it, and `Panel::build` refuses a `.unique()` marker on a column with no unique index.
 - **Notification** is a transient status + title (`success`/`error`, ~4s) produced by a mutation's
   result and rendered in the shell's top-level stack so it survives table swaps. It travels as a
-  one-time flash cookie on a `303 See Other` redirect — `__Host-argentum_notification`, carrying
+  one-time flash cookie on a `303 See Other` redirect — `__Host-tablo_notification`, carrying
   `Secure` like the session and CSRF cookies, holding Topcoat's `CookieStore` JSON — so following the
   redirect consumes it and a reload never replays it. A page can also mount one in place
   (`notification::live_toast` plus the shell's `live_toaster`).

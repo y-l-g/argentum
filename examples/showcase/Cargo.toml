@@ -5,7 +5,7 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 publish = false
-description = "Showcase: real-world Panel demo (Users, Authors, Posts) exercising every Argentum feature through real resources."
+description = "Showcase: real-world Panel demo (Users, Authors, Posts) exercising every Tablo feature through real resources."
 
 # GH #179 / ADR-0015: one integration-test binary per crate. Cargo autodiscovers
 # every file under `tests/` as its own target, which is exactly the per-file
@@ -18,8 +18,8 @@ name = "it"
 path = "tests/it.rs"
 
 [dependencies]
-argentum-core = { path = "../../crates/argentum-core" }
-argentum-ui = { path = "../../crates/argentum-ui" }
+tablo-core = { path = "../../crates/tablo-core" }
+tablo-ui = { path = "../../crates/tablo-ui" }
 jiff.workspace = true
 toasty.workspace = true
 # `fs` is for the demo uploader's `tokio::fs` write (GH #188); `multipart` is
@@ -30,7 +30,7 @@ topcoat = { workspace = true, features = ["serve", "tailwind", "font", "font-fon
 uuid.workspace = true
 
 [build-dependencies]
-argentum-ui = { path = "../../crates/argentum-ui" }
+tablo-ui = { path = "../../crates/tablo-ui" }
 topcoat = { workspace = true, features = ["tailwind"] }
 
 [dev-dependencies]
@@ -40,7 +40,7 @@ http-body-util = "0.1"
 # Query counting for the no-N+1 test (GH #187): toasty's sqlite driver emits a
 # `driver exec` tracing event per statement, so a subscriber scoped to the test
 # counts what one page render issues. `tracing` itself is already a dependency
-# of argentum-core.
+# of tablo-core.
 tracing = "0.1"
 tracing-subscriber = "0.3"
 

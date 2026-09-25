@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
-# Argentum Phase 2 bench — oha + in-process honest bench for the Argentum list
+# Tablo Phase 2 bench — oha + in-process honest bench for the Tablo list
 # (50 rows, 2 includes, real list path with tenancy + policy, GH #171).
 # Baselines (axum-maud, leptos) are compile-only smoke, not comparable
 # (GH #159): they render stubs, so no cross-framework oha matrix exists.
 # Mirrors tokio-rs/topcoat/benchmarks/scripts/bench.sh methodology
-# (loopback HTTP/1.1, oha) for the Argentum target only.
+# (loopback HTTP/1.1, oha) for the Tablo target only.
 #
 # UNGATED (GH #171): the in-process leg collects numbers, it does not gate —
 # no PASS/FAIL on timings. The oha p50 print below is informational too.
-# Postgres leg: set ARGENTUM_BENCH_POSTGRES_URL (disposable bench database)
+# Postgres leg: set TABLO_BENCH_POSTGRES_URL (disposable bench database)
 # and the in-process run covers it alongside SQLite; otherwise SQLite only.
 #
 # Usage:
-#   ./benchmarks/scripts/bench.sh [argentum|axum-maud|leptos]   (default: argentum)
-#   argentum runs the oha + in-process bench; axum-maud/leptos only verify
+#   ./benchmarks/scripts/bench.sh [tablo|axum-maud|leptos]   (default: tablo)
+#   tablo runs the oha + in-process bench; axum-maud/leptos only verify
 #   the baseline still compiles (smoke).
 # Tunables:
 #   DURATION=5s WARMUP=2s CONNECTIONS=32 RATE=100 RUNS=1 PORT=3000
@@ -33,7 +33,7 @@ RESULTS_DIR="${RESULTS_DIR:-$BENCH/results/$(date +%Y%m%d-%H%M%S)}"
 
 FRAMEWORKS=("$@")
 if [ ${#FRAMEWORKS[@]} -eq 0 ]; then
-  FRAMEWORKS=(argentum)
+  FRAMEWORKS=(tablo)
 fi
 
 mkdir -p "$RESULTS_DIR"
@@ -50,7 +50,7 @@ if command -v oha >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
   HAS_OHA=1
 else
   HAS_OHA=0
-  echo "bench.sh: oha or jq not found — falling back to in-process --bench for argentum" >&2
+  echo "bench.sh: oha or jq not found — falling back to in-process --bench for tablo" >&2
 fi
 
 wait_ready() {
@@ -93,17 +93,17 @@ run_oha() {
 
 for fw in "${FRAMEWORKS[@]}"; do
   case "$fw" in
-    argentum|storefront-argentum)
-      echo "==> building argentum (storefront-argentum)"
-      cargo build --manifest-path "$BENCH/argentum/Cargo.toml" --release 2>&1 | tail -n 5
+    tablo|storefront-tablo)
+      echo "==> building tablo (storefront-tablo)"
+      cargo build --manifest-path "$BENCH/tablo/Cargo.toml" --release 2>&1 | tail -n 5
       if [ "$HAS_OHA" -eq 1 ]; then
-        echo "==> starting argentum on http://localhost:3000"
-        PORT=3000 cargo run --manifest-path "$BENCH/argentum/Cargo.toml" --release >/tmp/argentum-bench.log 2>&1 &
+        echo "==> starting tablo on http://localhost:3000"
+        PORT=3000 cargo run --manifest-path "$BENCH/tablo/Cargo.toml" --release >/tmp/tablo-bench.log 2>&1 &
         SERVER_PID=$!
         trap 'kill_tree "$SERVER_PID"' EXIT INT TERM
         if ! wait_ready "http://localhost:3000/admin/posts"; then
-          echo "argentum server failed to start, log:"
-          cat /tmp/argentum-bench.log || true
+          echo "tablo server failed to start, log:"
+          cat /tmp/tablo-bench.log || true
           kill_tree "$SERVER_PID" || true
           trap - EXIT INT TERM
           exit 1
@@ -111,20 +111,20 @@ for fw in "${FRAMEWORKS[@]}"; do
         echo "==> warming up ($WARMUP)"
         oha "http://localhost:3000/admin/posts" -z "$WARMUP" -c "$CONNECTIONS" --no-tui >/dev/null 2>&1 || true
         for run in $(seq 1 "$RUNS"); do
-          run_oha "http://localhost:3000/admin/posts" "$RESULTS_DIR/argentum_run${run}.json"
+          run_oha "http://localhost:3000/admin/posts" "$RESULTS_DIR/tablo_run${run}.json"
           # Also hit filtered + grouped variants
-          run_oha "http://localhost:3000/admin/posts?filters=status:published" "$RESULTS_DIR/argentum_filtered_run${run}.json" || true
-          run_oha "http://localhost:3000/admin/posts?group_by=status" "$RESULTS_DIR/argentum_grouped_run${run}.json" || true
+          run_oha "http://localhost:3000/admin/posts?filters=status:published" "$RESULTS_DIR/tablo_filtered_run${run}.json" || true
+          run_oha "http://localhost:3000/admin/posts?group_by=status" "$RESULTS_DIR/tablo_grouped_run${run}.json" || true
         done
         # Also run in-process bench as ground truth
         echo "==> in-process bench (cargo run -- --bench)"
-        cargo run --manifest-path "$BENCH/argentum/Cargo.toml" --release -- --bench --iterations 100 | tee "$RESULTS_DIR/argentum_bench.txt"
+        cargo run --manifest-path "$BENCH/tablo/Cargo.toml" --release -- --bench --iterations 100 | tee "$RESULTS_DIR/tablo_bench.txt"
         kill_tree "$SERVER_PID"
         trap - EXIT INT TERM
         sleep 1
       else
         echo "==> oha not found, running in-process bench only"
-        cargo run --manifest-path "$BENCH/argentum/Cargo.toml" -- --bench --iterations 100 | tee "$RESULTS_DIR/argentum_bench.txt"
+        cargo run --manifest-path "$BENCH/tablo/Cargo.toml" -- --bench --iterations 100 | tee "$RESULTS_DIR/tablo_bench.txt"
       fi
       ;;
     axum-maud|axum_maud)
@@ -138,7 +138,7 @@ for fw in "${FRAMEWORKS[@]}"; do
       echo "==> leptos smoke passed (no server to benchmark; template stub only)"
       ;;
     *)
-      echo "unknown framework $fw (expected argentum|axum-maud|leptos)" >&2
+      echo "unknown framework $fw (expected tablo|axum-maud|leptos)" >&2
       exit 1
       ;;
   esac
@@ -166,10 +166,10 @@ done
     done
   else
     echo "No oha JSON (oha not installed or no runs). In-process bench output:"
-    cat "$RESULTS_DIR"/argentum_bench.txt 2>/dev/null || echo "no bench.txt"
+    cat "$RESULTS_DIR"/tablo_bench.txt 2>/dev/null || echo "no bench.txt"
   fi
   echo ""
-  echo "Budget: Phase 2 Argentum list (50 rows, 2 includes) <40ms p50 — reference only, UNGATED per GH #171 (numbers first, gate follows). Baselines are smoke-only, not comparable (GH #159)."
+  echo "Budget: Phase 2 Tablo list (50 rows, 2 includes) <40ms p50 — reference only, UNGATED per GH #171 (numbers first, gate follows). Baselines are smoke-only, not comparable (GH #159)."
 } | tee "$RESULTS_DIR/results.md"
 
 echo "bench.sh: done -> $RESULTS_DIR/results.md"

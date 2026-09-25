@@ -17,7 +17,7 @@
 
 use std::sync::LazyLock;
 
-use argentum_core::{Resource, db::db};
+use tablo_core::{Resource, db::db};
 use topcoat::{
     Result,
     context::Cx,
@@ -86,17 +86,17 @@ fn subscribe() -> tokio::sync::broadcast::Receiver<()> {
 async fn live_page(cx: &Cx) -> Result<impl View> {
     Ok(view! {
         cx =>
-        argentum_ui::page(
-            argentum_ui::page_header(
-                argentum_ui::page_title("Live activity")
-                argentum_ui::page_description(
+        tablo_ui::page(
+            tablo_ui::page_header(
+                tablo_ui::page_title("Live activity")
+                tablo_ui::page_description(
                     "The newest users, re-read after every committed write and pushed over a WebSocket."
                 )
             )
-            argentum_ui::page_content(
-                argentum_ui::card(
-                    argentum_ui::card_header(argentum_ui::card_title("Newest users"))
-                    argentum_ui::card_content(live_feed())
+            tablo_ui::page_content(
+                tablo_ui::card(
+                    tablo_ui::card_header(tablo_ui::card_title("Newest users"))
+                    tablo_ui::card_content(live_feed())
                 )
             )
         )
@@ -115,8 +115,8 @@ async fn live_feed(cx: &Cx) -> Result<impl View> {
     // Runtime endpoints bypass page guards (Topcoat's shard contract), so the
     // shard restates the panel gate: a request without a permitted user must
     // not read the rows, over HTTP or over the connection.
-    if argentum_core::auth::enforced(cx) {
-        argentum_core::auth::require_authenticated(cx)?;
+    if tablo_core::auth::enforced(cx) {
+        tablo_core::auth::require_authenticated(cx)?;
     }
     Ok(live! {
         let mut changed = subscribe();
@@ -168,7 +168,7 @@ async fn newest_users(cx: &Cx) -> Result<Vec<User>> {
 mod tests {
     use std::time::Duration;
 
-    use argentum_core::Committed;
+    use tablo_core::Committed;
 
     use super::*;
 

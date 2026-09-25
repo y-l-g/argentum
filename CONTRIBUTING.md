@@ -1,4 +1,4 @@
-# Contributing to Argentum
+# Contributing to Tablo
 
 Small fixes, documentation corrections, and tests can go straight to a pull request. For a new
 feature or a public-API change, open an issue first and describe the problem: redirecting a
@@ -28,9 +28,9 @@ cargo run -p showcase
 # open http://localhost:3000/admin/users
 ```
 
-`crates/argentum-core` is the framework. `examples/showcase` is the runnable admin, the reference
+`crates/tablo-core` is the framework. `examples/showcase` is the runnable admin, the reference
 for panel and resource declarations, and the home of the integration tests (`cargo test -p
-showcase`); the JavaScript unit tests are `node --test crates/argentum-ui/assets/*.test.js`
+showcase`); the JavaScript unit tests are `node --test crates/tablo-ui/assets/*.test.js`
 (the explicit suite list is gate 9 in the gate set below).
 
 ## The gate set
@@ -41,13 +41,13 @@ your change before pushing, and all ten before merging.
 
 1. `cargo test --workspace --locked`
 2. `cargo clippy --workspace --all-targets --locked -- -D warnings`
-3. `cargo test -p argentum-core --no-default-features --locked`
+3. `cargo test -p tablo-core --no-default-features --locked`
 4. `cargo +nightly-2026-08-24 fmt --all -- --check`
 5. `topcoat fmt`, then `git diff --exit-code`
-6. `cargo check --locked --manifest-path benchmarks/argentum/Cargo.toml`
-7. `cargo clippy --locked --manifest-path benchmarks/argentum/Cargo.toml --all-targets -- -D warnings`
+6. `cargo check --locked --manifest-path benchmarks/tablo/Cargo.toml`
+7. `cargo clippy --locked --manifest-path benchmarks/tablo/Cargo.toml --all-targets -- -D warnings`
 8. `cargo +1.98 check --workspace --locked`
-9. `node --test crates/argentum-ui/assets/selects.test.js crates/argentum-ui/assets/bulk.test.js crates/argentum-ui/assets/dialog.test.js crates/argentum-ui/assets/mutation-submit.test.js crates/argentum-ui/assets/notifications.test.js crates/argentum-ui/assets/filters.test.js examples/showcase/assets/media.test.js`
+9. `node --test crates/tablo-ui/assets/selects.test.js crates/tablo-ui/assets/bulk.test.js crates/tablo-ui/assets/dialog.test.js crates/tablo-ui/assets/mutation-submit.test.js crates/tablo-ui/assets/notifications.test.js crates/tablo-ui/assets/filters.test.js examples/showcase/assets/media.test.js`
 10. `cargo +nightly udeps --workspace --all-targets --all-features --locked`
 
 Gate 3 keeps the opt-out auth feature compiling and tested (GH #129, GH #282).
@@ -63,9 +63,9 @@ has to pass them too:
   `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked`, then
   builds the guide with `mdbook build docs/guide`;
 - the `fmt` job runs `cargo fmt -- --check` inside each detached `benchmarks/*`
-  workspace (`benchmarks/argentum`, `benchmarks/axum-maud`, `benchmarks/leptos`);
+  workspace (`benchmarks/tablo`, `benchmarks/axum-maud`, `benchmarks/leptos`);
 - the `bench-check` job verifies that `Cargo.lock` and
-  `benchmarks/argentum/Cargo.lock` pin identical `topcoat` and `toasty` revs.
+  `benchmarks/tablo/Cargo.lock` pin identical `topcoat` and `toasty` revs.
 
 ### The `topcoat fmt` trap
 
@@ -79,13 +79,13 @@ the `Install topcoat CLI` step of the `fmt` job in
 
 ## Vendored primitives
 
-`crates/argentum-ui/src/components/primitives/` mirrors the `topcoat-ui-registry`
+`crates/tablo-ui/src/components/primitives/` mirrors the `topcoat-ui-registry`
 crate verbatim, under a `SYNC` header recording the registry version and the
 source hash. Never hand-edit those files: update them with
 `cargo xtask sync-topcoat-ui`. `cargo xtask verify-topcoat-ui` fails when a
 vendored file has drifted, and the xtask test suite runs it on every
-`cargo test`. Components Argentum owns live in
-`crates/argentum-ui/src/components/composites/` and are edited normally
+`cargo test`. Components Tablo owns live in
+`crates/tablo-ui/src/components/composites/` and are edited normally
 (ADR-0007).
 
 ## Dependency pins
@@ -100,9 +100,9 @@ cargo check --offline
 ```
 
 `cargo check --offline` proves the new revs resolve from the local git cache
-instead of failing halfway through a fetch. `benchmarks/argentum` is a detached
+instead of failing halfway through a fetch. `benchmarks/tablo` is a detached
 workspace with its own lockfile: bump it in the same commit
-(`cd benchmarks/argentum && cargo update -p topcoat -p toasty`) and keep its
+(`cd benchmarks/tablo && cargo update -p topcoat -p toasty`) and keep its
 revs identical to the root lockfile. Drift means the benchmark measures
 different upstream code than the workspace builds.
 

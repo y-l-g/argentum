@@ -1,16 +1,16 @@
-/* Neutral theme — Tailwind + Tokens for Argentum showcase.
+/* Neutral theme — Tailwind + Tokens for Tablo showcase.
    This is the per-app contract: one styles.css + one 3-line build.rs.
    See ADR-0006 and examples/showcase as reference. */
 
 @import "tailwindcss";
 
-/* Scan the app's Rust sources and argentum-ui's sources for Tailwind classes.
-   Argentum-ui is the single dependency source that must be added; Tailwind
+/* Scan the app's Rust sources and tablo-ui's sources for Tailwind classes.
+   Tablo-ui is the single dependency source that must be added; Tailwind
    scanning of dependency sources is an ADR-visible contract until Topcoat
    documents it natively (see EXTERNAL_GAPS.md). */
 @source "./src/**/*.rs";
-@source "../../crates/argentum-ui/src/**/*.rs";
-@source "../../crates/argentum-core/src/**/*.rs";
+@source "../../crates/tablo-ui/src/**/*.rs";
+@source "../../crates/tablo-core/src/**/*.rs";
 
 /* Dark mode is opted into by putting the `dark` class on an ancestor,
    typically <html>. */

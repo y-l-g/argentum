@@ -1,6 +1,6 @@
 //! Detail page: `GET /admin/{slug}/{id}`, read-only.
 //!
-//! The page's own rendering is pinned in `argentum-core`'s unit tests (the
+//! The page's own rendering is pinned in `tablo-core`'s unit tests (the
 //! schema walk and the read-only field shapes); this module pins the HTTP
 //! contract — routing, policy, and the answers a bad id gets.
 
