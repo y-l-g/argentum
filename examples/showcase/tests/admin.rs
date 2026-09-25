@@ -353,6 +353,7 @@ async fn admin_list_pagination_walks_cursor_links() {
     // decoding below observable (a one-parameter URL has no `&` to encode).
     let response = client.get("/admin/users?sort=name&dir=asc").await;
     let page1 = body_string(response).await;
+    let page1_titles = row_titles(&page1);
 
     // Page 1 (name asc, 25 per page): Ada + Alan + Grace, not the last user; a real Next link.
     assert!(page1.contains("Ada Lovelace"), "page1 missing Ada: {page1}");
@@ -411,9 +412,12 @@ async fn admin_list_pagination_walks_cursor_links() {
         response.status()
     );
     let page1_again = body_string(response).await;
-    assert!(
-        page1_again.contains("Ada Lovelace") || page1_again.contains("Alan Turing"),
-        "previous page must show page-1 rows: {page1_again}"
+    // The same rows, in the same order: a one-row page, a repeated page 2, or
+    // a page that merely contains a seeded name would all pass a looser check.
+    assert_eq!(
+        row_titles(&page1_again),
+        page1_titles,
+        "following Previous must restore page 1 unchanged"
     );
 }
 
