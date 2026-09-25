@@ -1021,20 +1021,13 @@ mod tests {
     use toasty::Db;
 
     use super::{super::Panel, *};
-
+    use crate::panel::test_support::{Dummy, dummy_table, panel_for};
     #[tokio::test]
     async fn edit_post_requires_can_view_as_well_as_can_update() {
         use std::collections::HashMap;
 
         use crate::resource::Resource;
 
-        #[derive(Debug, toasty::Model, Clone)]
-        struct Dummy {
-            #[key]
-            #[auto]
-            id: uuid::Uuid,
-            name: String,
-        }
         struct ViewDeniedResource;
         impl Resource for ViewDeniedResource {
             type Model = Dummy;
@@ -1047,9 +1040,6 @@ mod tests {
             fn can_update(_cx: &Cx, _record: &Dummy) -> bool {
                 true
             }
-            fn hydrate_form_values(_cx: &Cx, _record: &Dummy) -> HashMap<String, String> {
-                HashMap::new()
-            }
             async fn update_record(
                 _cx: &Cx,
                 record: Dummy,
@@ -1061,12 +1051,7 @@ mod tests {
                 Ok(record)
             }
             fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
-                crate::resource::Table::r#for(cx)
-                    .id(|d: &Dummy| d.id.to_string())
-                    .columns(crate::resource::TextColumn::r#for(
-                        Dummy::fields().name(),
-                        |d: &Dummy| d.name.clone(),
-                    ))
+                dummy_table(cx)
             }
         }
 
@@ -1082,10 +1067,7 @@ mod tests {
         .exec(&mut db)
         .await
         .unwrap();
-        let router = Panel::new("admin")
-            .app_context(db)
-            .resource::<ViewDeniedResource>()
-            .auth(crate::Auth::disabled())
+        let router = panel_for::<ViewDeniedResource>(db)
             .build()
             .expect("panel builds");
         let url = format!("/admin/dummies/{}/edit", row.id);
@@ -1221,10 +1203,7 @@ mod tests {
             .await
             .unwrap();
         db.push_schema().await.unwrap();
-        let router = Panel::new("admin")
-            .app_context(db)
-            .resource::<CapturingResource>()
-            .auth(crate::Auth::disabled())
+        let router = panel_for::<CapturingResource>(db)
             .build()
             .expect("panel builds");
         let csrf = uuid::Uuid::new_v4().to_string();
@@ -1292,14 +1271,6 @@ mod tests {
             resource::Resource,
             schema::{Schema, TextInput},
         };
-
-        #[derive(Debug, toasty::Model, Clone)]
-        struct Dummy {
-            #[key]
-            #[auto]
-            id: uuid::Uuid,
-            name: String,
-        }
 
         struct WritingResource;
         impl Resource for WritingResource {
@@ -1415,14 +1386,6 @@ mod tests {
             resource::Resource,
             schema::{Schema, TextInput},
         };
-
-        #[derive(Debug, toasty::Model, Clone)]
-        struct Dummy {
-            #[key]
-            #[auto]
-            id: uuid::Uuid,
-            name: String,
-        }
 
         // The hook's own write targets this model: its unique column is not
         // one the panel's form probes, so the duplicate is the driver's to
@@ -1575,13 +1538,6 @@ mod tests {
 
         const COOKIE_NAME: &str = crate::notification::COOKIE_NAME;
 
-        #[derive(Debug, toasty::Model, Clone)]
-        struct Dummy {
-            #[key]
-            #[auto]
-            id: uuid::Uuid,
-            name: String,
-        }
         struct NotifyingResource;
         impl Resource for NotifyingResource {
             type Model = Dummy;
@@ -1616,9 +1572,6 @@ mod tests {
                 .await
                 .map_err(|error| -> topcoat::Error { error.into() })
             }
-            fn hydrate_form_values(_cx: &Cx, _record: &Dummy) -> HashMap<String, String> {
-                HashMap::new()
-            }
             fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
                 crate::resource::Table::r#for(cx)
                     .id(|r: &Dummy| r.id.to_string())
@@ -1635,10 +1588,7 @@ mod tests {
             .await
             .unwrap();
         db.push_schema().await.unwrap();
-        let router = Panel::new("admin")
-            .app_context(db)
-            .resource::<NotifyingResource>()
-            .auth(crate::Auth::disabled())
+        let router = panel_for::<NotifyingResource>(db)
             .build()
             .expect("panel builds");
         let token = uuid::Uuid::new_v4().to_string();
@@ -2004,10 +1954,7 @@ mod tests {
             .await
             .unwrap();
         db.push_schema().await.unwrap();
-        let router = Panel::new("admin")
-            .app_context(db.clone())
-            .resource::<SubscriberResource>()
-            .auth(crate::Auth::disabled())
+        let router = panel_for::<SubscriberResource>(db.clone())
             .build()
             .expect("panel builds");
 
@@ -2309,13 +2256,6 @@ mod tests {
     async fn multipart_over_the_form_cap_413s_through_the_router() {
         use crate::resource::Resource;
 
-        #[derive(Debug, toasty::Model, Clone)]
-        struct Dummy {
-            #[key]
-            #[auto]
-            id: uuid::Uuid,
-            name: String,
-        }
         struct DummyResource;
         impl Resource for DummyResource {
             type Model = Dummy;
@@ -2326,12 +2266,7 @@ mod tests {
                 true
             }
             fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
-                crate::resource::Table::r#for(cx)
-                    .id(|d: &Dummy| d.id.to_string())
-                    .columns(crate::resource::TextColumn::r#for(
-                        Dummy::fields().name(),
-                        |d: &Dummy| d.name.clone(),
-                    ))
+                dummy_table(cx)
             }
             fn form(_cx: &Cx) -> crate::schema::Schema {
                 crate::schema::Schema::new(crate::schema::FileUpload::r#for(Dummy::fields().name()))
@@ -2349,10 +2284,7 @@ mod tests {
         }
 
         let db = Db::builder().connect("sqlite::memory:").await.unwrap();
-        let router = Panel::new("admin")
-            .app_context(db)
-            .resource::<DummyResource>()
-            .auth(crate::Auth::disabled())
+        let router = panel_for::<DummyResource>(db)
             .build()
             .expect("panel builds");
         let boundary = "----Boundary123";
@@ -2791,10 +2723,7 @@ mod tests {
         .exec(&mut db_q)
         .await
         .unwrap();
-        let router = Panel::new("admin")
-            .app_context(db.clone())
-            .resource::<TaggedResource>()
-            .auth(crate::Auth::disabled())
+        let router = panel_for::<TaggedResource>(db.clone())
             .build()
             .expect("panel builds");
 
@@ -2888,10 +2817,7 @@ mod tests {
         .exec(&mut db_q)
         .await
         .unwrap();
-        let router = Panel::new("admin")
-            .app_context(db.clone())
-            .resource::<TaggedResource>()
-            .auth(crate::Auth::disabled())
+        let router = panel_for::<TaggedResource>(db.clone())
             .build()
             .expect("panel builds");
 

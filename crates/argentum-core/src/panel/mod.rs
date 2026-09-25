@@ -17,6 +17,8 @@ mod headers;
 mod list;
 mod search;
 mod shell;
+#[cfg(test)]
+mod test_support;
 
 use std::{collections::HashMap, path::PathBuf};
 
@@ -950,7 +952,7 @@ mod tests {
     use toasty::Db;
 
     use super::*;
-
+    use crate::panel::test_support::{Dummy, dummy_table, panel_for};
     /// GH #188: a served directory's path is a route pattern ending in a
     /// catch-all, and only that; everything else is a build error rather than
     /// the panic upstream `serve_dir` would raise.
@@ -1027,31 +1029,16 @@ mod tests {
     async fn panel_mounts_runtime_page_rerun_routes() {
         use crate::resource::Resource;
 
-        #[derive(Debug, toasty::Model, Clone)]
-        struct Dummy {
-            #[key]
-            #[auto]
-            id: uuid::Uuid,
-            name: String,
-        }
         struct DummyResource;
         impl Resource for DummyResource {
             type Model = Dummy;
             fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
-                crate::resource::Table::r#for(cx)
-                    .id(|d: &Dummy| d.id.to_string())
-                    .columns(crate::resource::TextColumn::r#for(
-                        Dummy::fields().name(),
-                        |d: &Dummy| d.name.clone(),
-                    ))
+                dummy_table(cx)
             }
         }
 
         let db = Db::builder().connect("sqlite::memory:").await.unwrap();
-        let router = Panel::new("admin")
-            .app_context(db)
-            .resource::<DummyResource>()
-            .auth(crate::Auth::disabled())
+        let router = panel_for::<DummyResource>(db)
             .build()
             .expect("panel builds");
 
@@ -1069,6 +1056,49 @@ mod tests {
             .unwrap();
         let response = router.handle(request).await;
         assert_eq!(response.status(), http::StatusCode::FORBIDDEN);
+    }
+
+    /// GH #102: `Panel::dark_mode` is the theme a first-time visitor gets. It
+    /// must reach the rendered document's `<html class>`.
+    #[cfg(feature = "auth")]
+    #[tokio::test]
+    async fn dark_mode_sets_the_document_class() {
+        let db = Db::builder()
+            .models(toasty::models!(
+                crate::auth::AdminUser,
+                crate::auth::AuthSession
+            ))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        let router = Panel::new("admin")
+            .app_context(db)
+            .auth(crate::Auth::password())
+            .dark_mode(true)
+            .build()
+            .expect("panel builds");
+
+        // The standalone login page renders the same document the admin shell
+        // does (ADR-0013), so it carries the theme class without a session.
+        let response = router
+            .handle(
+                http::Request::builder()
+                    .uri("/admin/login")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await;
+        assert_eq!(response.status(), http::StatusCode::OK);
+        let bytes = http_body_util::BodyExt::collect(response.into_body())
+            .await
+            .unwrap()
+            .to_bytes();
+        let html = String::from_utf8_lossy(&bytes);
+        assert!(
+            html.contains("<html class=\"dark\">"),
+            "dark_mode(true) must set the document's dark class, got {html}"
+        );
     }
 
     /// The panel root answers the gate before reading `RootRedirect`
@@ -1203,24 +1233,12 @@ mod tests {
     async fn build_refuses_an_unacknowledged_ungated_panel() {
         use crate::resource::Resource;
 
-        #[derive(Debug, toasty::Model, Clone)]
-        struct Dummy {
-            #[key]
-            #[auto]
-            id: uuid::Uuid,
-            name: String,
-        }
         struct DummyResource;
         impl Resource for DummyResource {
             type Model = Dummy;
 
             fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
-                crate::resource::Table::r#for(cx)
-                    .id(|d: &Dummy| d.id.to_string())
-                    .columns(crate::resource::TextColumn::r#for(
-                        Dummy::fields().name(),
-                        |d: &Dummy| d.name.clone(),
-                    ))
+                dummy_table(cx)
             }
         }
 
@@ -1249,24 +1267,12 @@ mod tests {
     async fn build_accepts_the_explicit_opt_out() {
         use crate::resource::Resource;
 
-        #[derive(Debug, toasty::Model, Clone)]
-        struct Dummy {
-            #[key]
-            #[auto]
-            id: uuid::Uuid,
-            name: String,
-        }
         struct DummyResource;
         impl Resource for DummyResource {
             type Model = Dummy;
 
             fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
-                crate::resource::Table::r#for(cx)
-                    .id(|d: &Dummy| d.id.to_string())
-                    .columns(crate::resource::TextColumn::r#for(
-                        Dummy::fields().name(),
-                        |d: &Dummy| d.name.clone(),
-                    ))
+                dummy_table(cx)
             }
         }
 
@@ -1275,10 +1281,7 @@ mod tests {
             .connect("sqlite::memory:")
             .await
             .unwrap();
-        Panel::new("admin")
-            .app_context(db)
-            .resource::<DummyResource>()
-            .auth(crate::Auth::disabled())
+        panel_for::<DummyResource>(db)
             .build()
             .expect("the explicit opt-out builds the panel");
     }
@@ -1294,13 +1297,6 @@ mod tests {
             schema::{Schema, TextInput},
         };
 
-        #[derive(Debug, toasty::Model, Clone)]
-        struct Dummy {
-            #[key]
-            #[auto]
-            id: uuid::Uuid,
-            name: String,
-        }
         struct DummyResource;
         impl Resource for DummyResource {
             type Model = Dummy;
@@ -1309,12 +1305,7 @@ mod tests {
                 true
             }
             fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
-                crate::resource::Table::r#for(cx)
-                    .id(|d: &Dummy| d.id.to_string())
-                    .columns(crate::resource::TextColumn::r#for(
-                        Dummy::fields().name(),
-                        |d: &Dummy| d.name.clone(),
-                    ))
+                dummy_table(cx)
             }
             fn form(_cx: &Cx) -> Schema {
                 Schema::new(TextInput::r#for(Dummy::fields().name()))
@@ -1327,10 +1318,7 @@ mod tests {
             .await
             .unwrap();
         db.push_schema().await.unwrap();
-        let router = Panel::new("admin")
-            .app_context(db)
-            .resource::<DummyResource>()
-            .auth(crate::Auth::disabled())
+        let router = panel_for::<DummyResource>(db)
             .build()
             .expect("the explicit opt-out builds the panel");
 
@@ -1361,13 +1349,6 @@ mod tests {
     async fn panel_sends_frame_ancestors_unless_opted_out() {
         use crate::resource::Resource;
 
-        #[derive(Debug, toasty::Model, Clone)]
-        struct Dummy {
-            #[key]
-            #[auto]
-            id: uuid::Uuid,
-            name: String,
-        }
         struct DummyResource;
         impl Resource for DummyResource {
             type Model = Dummy;
@@ -1379,12 +1360,7 @@ mod tests {
                 true
             }
             fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
-                crate::resource::Table::r#for(cx)
-                    .id(|d: &Dummy| d.id.to_string())
-                    .columns(crate::resource::TextColumn::r#for(
-                        Dummy::fields().name(),
-                        |d: &Dummy| d.name.clone(),
-                    ))
+                dummy_table(cx)
             }
         }
 
@@ -1412,12 +1388,7 @@ mod tests {
             .await
             .unwrap();
         db.push_schema().await.unwrap();
-        let base = || {
-            Panel::new("admin")
-                .app_context(db.clone())
-                .resource::<DummyResource>()
-                .auth(crate::Auth::disabled())
-        };
+        let base = || panel_for::<DummyResource>(db.clone());
 
         assert_eq!(
             policy(base()).await.as_deref(),
@@ -1441,13 +1412,6 @@ mod tests {
     fn panel_navigation_item_respects_prefix() {
         use crate::resource::Resource;
 
-        #[derive(Debug, toasty::Model, Clone)]
-        struct Dummy {
-            #[key]
-            #[auto]
-            id: uuid::Uuid,
-            name: String,
-        }
         struct DummyResource;
         impl Resource for DummyResource {
             type Model = Dummy;
@@ -1476,13 +1440,6 @@ mod tests {
     fn panel_navigation_item_honours_override_order_with_prefix_adjusted_url() {
         use crate::resource::{NavigationItem, Resource};
 
-        #[derive(Debug, toasty::Model, Clone)]
-        struct Dummy {
-            #[key]
-            #[auto]
-            id: uuid::Uuid,
-            name: String,
-        }
         struct DummyResource;
         impl Resource for DummyResource {
             type Model = Dummy;
@@ -1528,13 +1485,6 @@ mod tests {
 
         use crate::resource::{NavigationItem, Resource};
 
-        #[derive(Debug, toasty::Model, Clone)]
-        struct Dummy {
-            #[key]
-            #[auto]
-            id: uuid::Uuid,
-            name: String,
-        }
         struct PinnedResource;
         impl Resource for PinnedResource {
             type Model = Dummy;
@@ -1609,13 +1559,6 @@ mod tests {
     fn panel_navigation_item_keeps_urls_the_override_spells_out() {
         use crate::resource::{NavTarget, NavigationItem, Resource};
 
-        #[derive(Debug, toasty::Model, Clone)]
-        struct Dummy {
-            #[key]
-            #[auto]
-            id: uuid::Uuid,
-            name: String,
-        }
         struct DraftsResource;
         impl Resource for DraftsResource {
             type Model = Dummy;
@@ -1686,13 +1629,6 @@ mod tests {
     fn panel_navigation_items_are_distinct_for_multiple_resources() {
         use crate::resource::Resource;
 
-        #[derive(Debug, toasty::Model, Clone)]
-        struct Dummy {
-            #[key]
-            #[auto]
-            id: uuid::Uuid,
-            name: String,
-        }
         struct UserResource;
         impl Resource for UserResource {
             type Model = Dummy;
@@ -1724,13 +1660,6 @@ mod tests {
     fn panel_build_rejects_duplicate_resource_slugs() {
         use crate::resource::Resource;
 
-        #[derive(Debug, toasty::Model, Clone)]
-        struct Dummy {
-            #[key]
-            #[auto]
-            id: uuid::Uuid,
-            name: String,
-        }
         struct FirstResource;
         impl Resource for FirstResource {
             type Model = Dummy;
@@ -1766,13 +1695,6 @@ mod tests {
     fn panel_build_rejects_a_hostile_slug() {
         use crate::resource::Resource;
 
-        #[derive(Debug, toasty::Model, Clone)]
-        struct Dummy {
-            #[key]
-            #[auto]
-            id: uuid::Uuid,
-            name: String,
-        }
         struct HostileResource;
         impl Resource for HostileResource {
             type Model = Dummy;
@@ -1799,14 +1721,6 @@ mod tests {
     #[test]
     fn panel_build_rejects_route_pattern_characters_in_a_slug() {
         use crate::resource::Resource;
-
-        #[derive(Debug, toasty::Model, Clone)]
-        struct Dummy {
-            #[key]
-            #[auto]
-            id: uuid::Uuid,
-            name: String,
-        }
 
         macro_rules! pattern_resource {
             ($name:ident, $slug:literal) => {
@@ -1859,13 +1773,6 @@ mod tests {
     async fn a_plain_slug_builds_and_resolves() {
         use crate::resource::Resource;
 
-        #[derive(Debug, toasty::Model, Clone)]
-        struct Dummy {
-            #[key]
-            #[auto]
-            id: uuid::Uuid,
-            name: String,
-        }
         struct PlainResource;
         impl Resource for PlainResource {
             type Model = Dummy;
@@ -1893,10 +1800,7 @@ mod tests {
             .await
             .unwrap();
         db.push_schema().await.unwrap();
-        let router = Panel::new("admin")
-            .app_context(db)
-            .resource::<PlainResource>()
-            .auth(crate::Auth::disabled())
+        let router = panel_for::<PlainResource>(db)
             .build()
             .expect("a plain slug builds");
         let request = http::Request::builder()
@@ -1931,13 +1835,6 @@ mod tests {
     async fn a_star_slug_builds_and_resolves() {
         use crate::resource::Resource;
 
-        #[derive(Debug, toasty::Model, Clone)]
-        struct Dummy {
-            #[key]
-            #[auto]
-            id: uuid::Uuid,
-            name: String,
-        }
         struct StarResource;
         impl Resource for StarResource {
             type Model = Dummy;
@@ -1965,10 +1862,7 @@ mod tests {
             .await
             .unwrap();
         db.push_schema().await.unwrap();
-        let router = Panel::new("admin")
-            .app_context(db)
-            .resource::<StarResource>()
-            .auth(crate::Auth::disabled())
+        let router = panel_for::<StarResource>(db)
             .build()
             .expect("a slug containing `*` builds");
         let request = http::Request::builder()
@@ -2164,10 +2058,7 @@ mod tests {
             .connect("sqlite::memory:")
             .await
             .unwrap();
-        Panel::new("admin")
-            .app_context(db)
-            .resource::<AuthorResource>()
-            .auth(crate::Auth::disabled())
+        panel_for::<AuthorResource>(db)
             .build()
             .expect("a composite unique index backs the marker");
     }
@@ -2376,19 +2267,10 @@ mod tests {
     async fn panel_build_rejects_a_gated_resource_with_no_tenant_predicate() {
         use crate::resource::{Resource, Table, TextColumn};
 
-        /// No `tenant_id` column to derive from, so only an override can scope
-        /// this model.
-        #[derive(Debug, toasty::Model, Clone)]
-        struct Dummy {
-            #[key]
-            #[auto]
-            id: uuid::Uuid,
-            name: String,
-        }
-
         /// A renderable table, so tenancy is the *only* thing either resource
         /// below could be refused for: the rejection is the tenant probe's, not
-        /// a page essential's.
+        /// a page essential's. The model has no `tenant_id` column, so only an
+        /// override can scope it.
         fn dummy_table(cx: &Cx) -> Table<Dummy> {
             Table::r#for(cx)
                 .id(|d: &Dummy| d.id.to_string())

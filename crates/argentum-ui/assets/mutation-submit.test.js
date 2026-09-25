@@ -33,6 +33,8 @@ const {
   wireOf,
 } = require(SCRIPT);
 
+const { listenerDocument } = require('./test-dom');
+
 // --- the record a row-delete action names -----------------------------------
 
 test('a row-delete action names its record key', () => {
@@ -217,16 +219,8 @@ test('every toast surface the response carries is handed over', () => {
 // the script is required and stay there while its listeners run. `written`
 // records the page `showResponse` replaces the document with.
 function standInDocument() {
-  const byType = new Map();
-  return {
+  return listenerDocument({
     written: [],
-    addEventListener(type, handler) {
-      if (!byType.has(type)) byType.set(type, []);
-      byType.get(type).push(handler);
-    },
-    listeners(type) {
-      return byType.get(type) || [];
-    },
     // The wiring reads the page before it posts: the row a delete came from
     // and the dialog it was confirmed in.
     querySelectorAll: () => [],
@@ -237,7 +231,7 @@ function standInDocument() {
       this.written.push(html);
     },
     close() {},
-  };
+  });
 }
 
 // A form stand-in: the marker answers the listener's `closest`, the action is

@@ -70,15 +70,7 @@ mod tests {
     use topcoat::context::CxTestBuilder;
 
     use super::*;
-    use crate::resource::TextColumn;
-
-    #[derive(Debug, Clone, toasty::Model)]
-    struct User {
-        #[key]
-        #[auto]
-        id: uuid::Uuid,
-        name: String,
-    }
+    use crate::{resource::TextColumn, test_support::User};
 
     #[test]
     fn csv_row_defuses_formula_cells_per_owasp() {

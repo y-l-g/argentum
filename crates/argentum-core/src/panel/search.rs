@@ -211,7 +211,7 @@ mod tests {
     use topcoat::router::Body;
 
     use super::{super::Panel, *};
-
+    use crate::panel::test_support::{Dummy, panel_for};
     /// The signal id the live retry link writes (GH #294): read from the
     /// control's own `increment()` handler, which is the side that re-runs the
     /// shard. Locating it by offset from the marker instead would read whatever
@@ -256,13 +256,6 @@ mod tests {
 
         use crate::resource::Resource;
 
-        #[derive(Debug, toasty::Model, Clone)]
-        struct Dummy {
-            #[key]
-            #[auto]
-            id: uuid::Uuid,
-            name: String,
-        }
         struct DummyResource;
         impl Resource for DummyResource {
             type Model = Dummy;
@@ -350,19 +343,11 @@ mod tests {
         // inside the shard invocation — the invocation must render the branded
         // in-region `ErrorState` + retry link (same as the streamed list via
         // `retry_url_for_error`), not error the shard.
-        use std::collections::HashMap;
 
         use http_body_util::BodyExt;
 
         use crate::resource::Resource;
 
-        #[derive(Debug, toasty::Model, Clone)]
-        struct Dummy {
-            #[key]
-            #[auto]
-            id: uuid::Uuid,
-            name: String,
-        }
         struct LiveResource;
         impl Resource for LiveResource {
             type Model = Dummy;
@@ -389,9 +374,6 @@ mod tests {
                     .paginate(1)
                     .live_search(true)
             }
-            fn hydrate_form_values(_cx: &Cx, _record: &Dummy) -> HashMap<String, String> {
-                HashMap::new()
-            }
         }
 
         let mut db = Db::builder()
@@ -406,12 +388,7 @@ mod tests {
         .exec(&mut db)
         .await
         .unwrap();
-        let router = Panel::new("admin")
-            .app_context(db)
-            .resource::<LiveResource>()
-            .auth(crate::Auth::disabled())
-            .build()
-            .expect("panel builds");
+        let router = panel_for::<LiveResource>(db).build().expect("panel builds");
 
         let sig = |n: u8, v: &str| format!(r#"{{"t":"Signal","id":"{:032x}","v":"{v}"}}"#, n);
         // Positional shard args: q, filters, sort, dir, the single cursor wire
@@ -543,7 +520,6 @@ mod tests {
         // GH #294: a token that decodes but was cut from another ordering is
         // refused by the engine, not by the decoder. The retry must still drop
         // pagination instead of repeating the identical failing request.
-        use std::collections::HashMap;
 
         use http_body_util::BodyExt;
         use toasty::stmt::Value;
@@ -551,13 +527,6 @@ mod tests {
 
         use crate::resource::Resource;
 
-        #[derive(Debug, toasty::Model, Clone)]
-        struct Dummy {
-            #[key]
-            #[auto]
-            id: uuid::Uuid,
-            name: String,
-        }
         struct LiveResource;
         impl Resource for LiveResource {
             type Model = Dummy;
@@ -584,9 +553,6 @@ mod tests {
                     .paginate(1)
                     .live_search(true)
             }
-            fn hydrate_form_values(_cx: &Cx, _record: &Dummy) -> HashMap<String, String> {
-                HashMap::new()
-            }
         }
 
         let mut db = Db::builder()
@@ -603,12 +569,7 @@ mod tests {
             .await
             .unwrap();
         }
-        let router = Panel::new("admin")
-            .app_context(db)
-            .resource::<LiveResource>()
-            .auth(crate::Auth::disabled())
-            .build()
-            .expect("panel builds");
+        let router = panel_for::<LiveResource>(db).build().expect("panel builds");
 
         // The query orders by name then the primary key, so three fields is
         // one too many: the token decodes, the statement does not verify.
@@ -670,7 +631,6 @@ mod tests {
         //
         // The unpaginated table is the deterministic non-cursor failure: the
         // list loader refuses it before any cursor is decoded.
-        use std::collections::HashMap;
 
         use http_body_util::BodyExt;
 
@@ -712,9 +672,6 @@ mod tests {
                     ))
                     .live_search(true)
             }
-            fn hydrate_form_values(_cx: &Cx, _record: &Dummy) -> HashMap<String, String> {
-                HashMap::new()
-            }
         }
 
         let mut db = Db::builder()
@@ -730,10 +687,7 @@ mod tests {
         .exec(&mut db)
         .await
         .unwrap();
-        let router = Panel::new("admin")
-            .app_context(db)
-            .resource::<UnpaginatedLive>()
-            .auth(crate::Auth::disabled())
+        let router = panel_for::<UnpaginatedLive>(db)
             .build()
             .expect("panel builds");
 
@@ -799,19 +753,11 @@ mod tests {
         // GH #157: grouping travels as a live signal, not a page-load
         // snapshot — the shard groups by the signal value, so a rerun with
         // the signal set renders headers and a rerun with it cleared does not.
-        use std::collections::HashMap;
 
         use http_body_util::BodyExt;
 
         use crate::resource::Resource;
 
-        #[derive(Debug, toasty::Model, Clone)]
-        struct Dummy {
-            #[key]
-            #[auto]
-            id: uuid::Uuid,
-            name: String,
-        }
         struct GroupedResource;
         impl Resource for GroupedResource {
             type Model = Dummy;
@@ -839,9 +785,6 @@ mod tests {
                     .paginate(25)
                     .live_search(true)
             }
-            fn hydrate_form_values(_cx: &Cx, _record: &Dummy) -> HashMap<String, String> {
-                HashMap::new()
-            }
         }
 
         let mut db = Db::builder()
@@ -858,10 +801,7 @@ mod tests {
             .await
             .unwrap();
         }
-        let router = Panel::new("admin")
-            .app_context(db)
-            .resource::<GroupedResource>()
-            .auth(crate::Auth::disabled())
+        let router = panel_for::<GroupedResource>(db)
             .build()
             .expect("panel builds");
 
@@ -961,8 +901,6 @@ mod tests {
     /// `can_view_any` denial is refused even with a tenant present.
     #[tokio::test]
     async fn live_shard_enforces_tenant_and_policy_gates() {
-        use std::collections::HashMap;
-
         use http_body_util::BodyExt;
 
         use crate::resource::Resource;
@@ -1007,9 +945,6 @@ mod tests {
                     .paginate(10)
                     .live_search(true)
             }
-            fn hydrate_form_values(_cx: &Cx, _record: &TenantDummy) -> HashMap<String, String> {
-                HashMap::new()
-            }
         }
 
         struct DeniedLive;
@@ -1038,9 +973,6 @@ mod tests {
                     )
                     .paginate(10)
                     .live_search(true)
-            }
-            fn hydrate_form_values(_cx: &Cx, _record: &TenantDummy) -> HashMap<String, String> {
-                HashMap::new()
             }
         }
 

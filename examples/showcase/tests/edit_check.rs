@@ -632,11 +632,8 @@ async fn post_edit_round_trips_typed_leaves_and_refuses_a_bad_number() {
         "a bad number re-renders the form, got {}",
         resp.status()
     );
-    let html = body_string(resp).await;
-    assert!(
-        html.contains("`twelve` is not a valid whole number"),
-        "the error names the offending input, got {html}"
-    );
+    // The refusal's wording is `typed_leaves`'s; this pins the HTTP wiring: the
+    // route re-renders the form and writes nothing.
     let after_bad = Post::filter(Post::fields().id().eq(post.id))
         .first()
         .exec(&mut db_q)

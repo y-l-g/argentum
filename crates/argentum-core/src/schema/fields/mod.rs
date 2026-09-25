@@ -82,13 +82,8 @@ fn render_value_view<'a>(cx: &'a Cx, label: &str, value: BoxView<'a>) -> Result<
 
 #[cfg(test)]
 mod test_support {
-    use topcoat::context::CxTestBuilder;
-
     use super::*;
-
-    pub(super) fn cx() -> Cx {
-        CxTestBuilder::new().build()
-    }
+    pub(super) use crate::test_support::cx;
     #[derive(Debug, toasty::Model)]
     pub(super) struct DummyUser {
         #[key]

@@ -332,10 +332,8 @@ async fn render_live_toaster<'a>(
 
 #[cfg(test)]
 mod tests {
-    use http::Request;
-    use topcoat::context::CxTestBuilder;
-
     use super::*;
+    use crate::test_support::cx_with_cookie;
 
     /// topcoat#441: the shard is served at the named path, so its endpoint is the
     /// same in every build.
@@ -346,30 +344,11 @@ mod tests {
         assert_eq!(live_toaster.path().as_str(), LIVE_TOASTER_PATH);
     }
 
-    fn cx_with_cookie(value: Option<&str>) -> Cx {
-        let mut builder = Request::builder().uri("/").body(()).unwrap().into_parts().0;
-        if let Some(v) = value {
-            builder.headers.insert(
-                http::header::COOKIE,
-                format!("{COOKIE_NAME}={v}").parse().unwrap(),
-            );
-        }
-        // Need cookie layer: the test builder must have a CookieJarCell.
-        // Topcoat's cookies() expects request_context::<CookieJarCell> to exist,
-        // which is installed by the cookie router layer. For unit tests we
-        // manually insert a CookieJarCell.
-        use topcoat::cookie::CookieJarCell;
-        CxTestBuilder::new()
-            .request_context(builder)
-            .request_context(CookieJarCell::new())
-            .build()
-    }
-
     /// GH #174: a failed write flashes an error the user can read — the
     /// operation, not the driver's error text.
     #[test]
     fn write_failure_notification_names_the_operation() {
-        let cx = cx_with_cookie(None);
+        let cx = cx_with_cookie(COOKIE_NAME, None);
         notify_write_failure(&cx, "create the record");
         let notification = take_notification(&cx).expect("a failed write must flash");
         assert_eq!(notification.status, NotificationStatus::Error);
@@ -383,7 +362,7 @@ mod tests {
     #[test]
     fn take_notification_decodes_the_json_cookie() {
         let enc = serde_json::to_string(&Notification::success("hello")).unwrap();
-        let cx = cx_with_cookie(Some(&enc));
+        let cx = cx_with_cookie(COOKIE_NAME, Some(&enc));
         let n = take_notification(&cx);
         assert!(n.is_some(), "the JSON flash cookie decodes");
         assert_eq!(n.unwrap().title, "hello");
@@ -394,7 +373,7 @@ mod tests {
     #[test]
     fn percent_encoded_json_cookie_decodes() {
         let enc = "%7B%22status%22%3A%22success%22%2C%22title%22%3A%22Created%22%7D";
-        let cx = cx_with_cookie(Some(enc));
+        let cx = cx_with_cookie(COOKIE_NAME, Some(enc));
         let n = take_notification(&cx);
         assert!(n.is_some(), "the percent-encoded flash cookie decodes");
         assert_eq!(n.unwrap().title, "Created");
@@ -405,7 +384,7 @@ mod tests {
     /// (GH #139).
     #[test]
     fn unreadable_flash_cookie_is_expired_silently() {
-        let cx = cx_with_cookie(Some("not-json"));
+        let cx = cx_with_cookie(COOKIE_NAME, Some("not-json"));
         assert!(take_notification(&cx).is_none(), "garbage yields no toast");
         let mut headers = http::HeaderMap::new();
         topcoat::cookie::write_cookies(&cx, &mut headers);
@@ -436,11 +415,12 @@ mod tests {
         assert!(
             enc.contains("\"status\":\"warning\"") && enc.contains("\"description\":\"Low disk\"")
         );
-        let back = take_notification(&cx_with_cookie(Some(&enc))).expect("decodes");
+        let back = take_notification(&cx_with_cookie(COOKIE_NAME, Some(&enc))).expect("decodes");
         assert_eq!(back.description.as_deref(), Some("Low disk"));
-        let old = take_notification(&cx_with_cookie(Some(
-            r#"{"status":"success","title":"hi"}"#,
-        )))
+        let old = take_notification(&cx_with_cookie(
+            COOKIE_NAME,
+            Some(r#"{"status":"success","title":"hi"}"#),
+        ))
         .expect("a pre-description cookie decodes");
         assert!(old.description.is_none());
 
@@ -455,7 +435,7 @@ mod tests {
     /// `Secure`, `HttpOnly`, `SameSite=Lax`, `Path=/`, no `Domain`.
     #[test]
     fn notification_cookie_is_host_prefixed_and_secure() {
-        let cx = cx_with_cookie(None);
+        let cx = cx_with_cookie(COOKIE_NAME, None);
         set_notification(&cx, Notification::success("hello"));
         let cookie = cookies(&cx)
             .get(COOKIE_NAME)
@@ -481,7 +461,7 @@ mod tests {
         use http::header::SET_COOKIE;
 
         let enc = serde_json::to_string(&Notification::success("hello")).unwrap();
-        let cx = cx_with_cookie(Some(&enc));
+        let cx = cx_with_cookie(COOKIE_NAME, Some(&enc));
         let n = take_notification(&cx);
         assert!(n.is_some(), "the flash cookie must decode");
 

@@ -20,9 +20,45 @@ use showcase::{
 use uuid::Uuid;
 
 use crate::common::{
-    TestClient, comment_count, demo_client, form_body, full_db, post_count, session_cookie_value,
-    tenanted_db,
+    SESSION_COOKIE, TestClient, comment_count, demo_client, form_body, full_db, mint_session,
+    post_count, session_cookie_value, tenanted_db, user_count,
 };
+
+/// A session-holding POST with **no** CSRF cookie and no `csrf_token` field is
+/// refused (GH #281): the double-submit check needs both halves, so an absent
+/// cookie must not read as "nothing to compare" and let the write through.
+///
+/// The forged rows above always present a CSRF cookie; this pins the
+/// conjunction on the url-encoded create route their multipart rows do not
+/// cover.
+#[tokio::test]
+async fn a_csrf_cookie_and_field_are_both_required() {
+    let db = full_db().await;
+    let router = router(db.clone());
+    // A real session, so the auth gate passes and the CSRF check is the only
+    // gate that can refuse the request.
+    let session = mint_session(&db, DEMO_ADMIN_EMAIL).await;
+    let client = TestClient::new(&router).cookie(SESSION_COOKIE, &session);
+    let before = user_count(&db).await;
+
+    let resp = client
+        .post_form(
+            "/admin/users/create",
+            "name=NoToken&email=notoken%40example.com".to_string(),
+        )
+        .await;
+    assert_eq!(
+        resp.status(),
+        403,
+        "a POST with no CSRF cookie and no field must 403, got {}",
+        resp.status()
+    );
+    assert_eq!(
+        user_count(&db).await,
+        before,
+        "a refused CSRF check must create nothing"
+    );
+}
 
 /// A forged CSRF pair is refused on the post routes whose rejection no other
 /// suite pins — url-encoded delete and bulk delete, plus the multipart

@@ -827,18 +827,10 @@ mod tests {
     use toasty::Db;
 
     use super::{super::Panel, *};
-
+    use crate::panel::test_support::{Dummy, dummy_table, panel_for};
     /// The minimal table-backed model most of this module's tests share
     /// (GH #217): it was declared nine times, byte-identically, inside the test
     /// bodies. The resources that use it differ; the table does not.
-    #[derive(Debug, Clone, toasty::Model)]
-    struct Dummy {
-        #[key]
-        #[auto]
-        id: uuid::Uuid,
-        name: String,
-    }
-
     /// Seed `rows` dummies in a single batched insert (GH #218).
     ///
     /// The export-cap tests seed more rows than a per-row `toasty::create!`
@@ -868,7 +860,6 @@ mod tests {
         // GH #168: the edit contract extends to deletes — a record that
         // cannot be viewed cannot be deleted by UUID-guessing the route,
         // even with `can_delete == true`.
-        use std::collections::HashMap;
 
         use crate::resource::Resource;
 
@@ -885,16 +876,7 @@ mod tests {
                 true
             }
             fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
-                crate::resource::Table::r#for(cx)
-                    .id(|d: &Dummy| d.id.to_string())
-                    .pk(|d: &Dummy| d.id.to_string())
-                    .columns(crate::resource::TextColumn::r#for(
-                        Dummy::fields().name(),
-                        |d: &Dummy| d.name.clone(),
-                    ))
-            }
-            fn hydrate_form_values(_cx: &Cx, _record: &Dummy) -> HashMap<String, String> {
-                HashMap::new()
+                dummy_table(cx)
             }
         }
 
@@ -910,10 +892,7 @@ mod tests {
         .exec(&mut db)
         .await
         .unwrap();
-        let router = Panel::new("admin")
-            .app_context(db)
-            .resource::<ViewDeniedResource>()
-            .auth(crate::Auth::disabled())
+        let router = panel_for::<ViewDeniedResource>(db)
             .build()
             .expect("panel builds");
         let token = uuid::Uuid::new_v4().to_string();
@@ -962,8 +941,6 @@ mod tests {
 
     #[tokio::test]
     async fn bulk_delete_caps_ids_and_ignores_display_key() {
-        use std::collections::HashMap;
-
         use crate::resource::Resource;
 
         struct UpperKeyResource;
@@ -998,9 +975,6 @@ mod tests {
             ) -> Result<()> {
                 Ok(())
             }
-            fn hydrate_form_values(_cx: &Cx, _record: &Dummy) -> HashMap<String, String> {
-                HashMap::new()
-            }
         }
 
         let mut db = Db::builder()
@@ -1015,10 +989,7 @@ mod tests {
         .exec(&mut db)
         .await
         .unwrap();
-        let router = Panel::new("admin")
-            .app_context(db)
-            .resource::<UpperKeyResource>()
-            .auth(crate::Auth::disabled())
+        let router = panel_for::<UpperKeyResource>(db)
             .build()
             .expect("panel builds");
         // Canonical lowercase id succeeds despite uppercase Table::id.
@@ -1095,7 +1066,6 @@ mod tests {
         // GH #168 defect 1 round-trip: `Table::id` projects a non-PK value
         // (the name), `Table::pk` carries the typed PK. Handlers must 404
         // the display value and accept the record key, for single and bulk.
-        use std::collections::HashMap;
 
         use crate::resource::Resource;
 
@@ -1134,9 +1104,6 @@ mod tests {
             ) -> Result<()> {
                 Ok(())
             }
-            fn hydrate_form_values(_cx: &Cx, _record: &Dummy) -> HashMap<String, String> {
-                HashMap::new()
-            }
         }
 
         let mut db = Db::builder()
@@ -1151,10 +1118,7 @@ mod tests {
         .exec(&mut db)
         .await
         .unwrap();
-        let router = Panel::new("admin")
-            .app_context(db)
-            .resource::<NameKeyResource>()
-            .auth(crate::Auth::disabled())
+        let router = panel_for::<NameKeyResource>(db)
             .build()
             .expect("panel builds");
         let token = uuid::Uuid::new_v4().to_string();
@@ -1228,7 +1192,6 @@ mod tests {
         // GH #84 acceptance: fetch, policy checks, and deletes share one
         // framework transaction — an impl that fails halfway rolls everything
         // back instead of half-applying.
-        use std::collections::HashMap;
 
         use crate::resource::Resource;
 
@@ -1245,13 +1208,7 @@ mod tests {
                 true
             }
             fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
-                crate::resource::Table::r#for(cx)
-                    .id(|d: &Dummy| d.id.to_string())
-                    .pk(|d: &Dummy| d.id.to_string())
-                    .columns(crate::resource::TextColumn::r#for(
-                        Dummy::fields().name(),
-                        |d: &Dummy| d.name.clone(),
-                    ))
+                dummy_table(cx)
             }
             async fn bulk_delete_records(
                 _cx: &Cx,
@@ -1267,9 +1224,6 @@ mod tests {
                     .await
                     .map_err(topcoat::Error::from)?;
                 Err(std::io::Error::other("boom").into())
-            }
-            fn hydrate_form_values(_cx: &Cx, _record: &Dummy) -> HashMap<String, String> {
-                HashMap::new()
             }
         }
 
@@ -1295,10 +1249,7 @@ mod tests {
             .map(|r| r.id.to_string())
             .collect::<Vec<_>>()
             .join(",");
-        let router = Panel::new("admin")
-            .app_context(db.clone())
-            .resource::<FlakyBulkResource>()
-            .auth(crate::Auth::disabled())
+        let router = panel_for::<FlakyBulkResource>(db.clone())
             .build()
             .expect("panel builds");
         let token = uuid::Uuid::new_v4().to_string();
@@ -1337,8 +1288,6 @@ mod tests {
 
     #[tokio::test]
     async fn export_drops_rows_failing_can_view() {
-        use std::collections::HashMap;
-
         use http_body_util::BodyExt;
 
         use crate::resource::Resource;
@@ -1356,16 +1305,7 @@ mod tests {
                 record.name != "denied"
             }
             fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
-                crate::resource::Table::r#for(cx)
-                    .id(|d: &Dummy| d.id.to_string())
-                    .pk(|d: &Dummy| d.id.to_string())
-                    .columns(crate::resource::TextColumn::r#for(
-                        Dummy::fields().name(),
-                        |d: &Dummy| d.name.clone(),
-                    ))
-            }
-            fn hydrate_form_values(_cx: &Cx, _record: &Dummy) -> HashMap<String, String> {
-                HashMap::new()
+                dummy_table(cx)
             }
         }
 
@@ -1383,10 +1323,7 @@ mod tests {
             .await
             .unwrap();
         }
-        let router = Panel::new("admin")
-            .app_context(db)
-            .resource::<RowPolicyResource>()
-            .auth(crate::Auth::disabled())
+        let router = panel_for::<RowPolicyResource>(db)
             .build()
             .expect("panel builds");
         let resp = router
@@ -1422,8 +1359,6 @@ mod tests {
     /// declared include loads the parent, the silent one does not.
     #[tokio::test]
     async fn export_query_narrows_to_the_declared_column_includes() {
-        use std::collections::HashMap;
-
         use http_body_util::BodyExt;
         use toasty::stmt::{Include, List, Query};
 
@@ -1501,9 +1436,6 @@ mod tests {
                     .id(|c: &Child| c.id.to_string())
                     .pk(|c: &Child| c.id.to_string())
                     .columns(column)
-            }
-            fn hydrate_form_values(_cx: &Cx, _record: &Child) -> HashMap<String, String> {
-                HashMap::new()
             }
         }
 
@@ -1614,7 +1546,6 @@ mod tests {
         // buffered CSV (header + rows, BOM variant included), arrives without
         // a Content-Length (chunked), and multi-chunk tables cross chunk
         // boundaries without repeating or dropping rows.
-        use std::collections::HashMap;
 
         use http_body_util::BodyExt;
 
@@ -1633,16 +1564,7 @@ mod tests {
                 true
             }
             fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
-                crate::resource::Table::r#for(cx)
-                    .id(|d: &Dummy| d.id.to_string())
-                    .pk(|d: &Dummy| d.id.to_string())
-                    .columns(crate::resource::TextColumn::r#for(
-                        Dummy::fields().name(),
-                        |d: &Dummy| d.name.clone(),
-                    ))
-            }
-            fn hydrate_form_values(_cx: &Cx, _record: &Dummy) -> HashMap<String, String> {
-                HashMap::new()
+                dummy_table(cx)
             }
         }
 
@@ -1662,10 +1584,7 @@ mod tests {
             .await
             .unwrap();
         }
-        let router = Panel::new("admin")
-            .app_context(db)
-            .resource::<ChunkedResource>()
-            .auth(crate::Auth::disabled())
+        let router = panel_for::<ChunkedResource>(db)
             .build()
             .expect("panel builds");
         let get_csv = async |uri: &str| {
@@ -1723,7 +1642,6 @@ mod tests {
         // so an empty table downloads a valid CSV (header, and the BOM when
         // asked for) instead of a 0-byte file a consumer cannot tell from a
         // failed download.
-        use std::collections::HashMap;
 
         use http_body_util::BodyExt;
 
@@ -1739,16 +1657,7 @@ mod tests {
                 true
             }
             fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
-                crate::resource::Table::r#for(cx)
-                    .id(|d: &Dummy| d.id.to_string())
-                    .pk(|d: &Dummy| d.id.to_string())
-                    .columns(crate::resource::TextColumn::r#for(
-                        Dummy::fields().name(),
-                        |d: &Dummy| d.name.clone(),
-                    ))
-            }
-            fn hydrate_form_values(_cx: &Cx, _record: &Dummy) -> HashMap<String, String> {
-                HashMap::new()
+                dummy_table(cx)
             }
         }
 
@@ -1758,10 +1667,7 @@ mod tests {
             .await
             .unwrap();
         db.push_schema().await.unwrap();
-        let router = Panel::new("admin")
-            .app_context(db)
-            .resource::<EmptyResource>()
-            .auth(crate::Auth::disabled())
+        let router = panel_for::<EmptyResource>(db)
             .build()
             .expect("panel builds");
         let get = async |uri: &str| {
@@ -1796,10 +1702,7 @@ mod tests {
         // columns declared. `can_view` observes which query loaded the row:
         // the relation is unloaded in the scan and loaded in the stream, so
         // both counters must fire.
-        use std::{
-            collections::HashMap,
-            sync::atomic::{AtomicUsize, Ordering},
-        };
+        use std::sync::atomic::{AtomicUsize, Ordering};
 
         use http_body_util::BodyExt;
         use toasty::stmt::{Include, List, Query};
@@ -1876,9 +1779,6 @@ mod tests {
                         .needs(["parent"]),
                     )
             }
-            fn hydrate_form_values(_cx: &Cx, _record: &Child) -> HashMap<String, String> {
-                HashMap::new()
-            }
         }
 
         SCAN_UNLOADED.store(0, Ordering::SeqCst);
@@ -1905,12 +1805,7 @@ mod tests {
         .await
         .unwrap();
 
-        let router = Panel::new("admin")
-            .app_context(db)
-            .resource::<ScanResource>()
-            .auth(crate::Auth::disabled())
-            .build()
-            .expect("panel builds");
+        let router = panel_for::<ScanResource>(db).build().expect("panel builds");
         let resp = router
             .handle(
                 http::Request::builder()
@@ -1949,7 +1844,6 @@ mod tests {
         // counted before the cap inside the raw MAX+1 window, so interleaved
         // denied rows yield a 200 with the visible subset — never a 413, and
         // no count leak.
-        use std::collections::HashMap;
 
         use http_body_util::BodyExt;
 
@@ -1968,16 +1862,7 @@ mod tests {
                 !record.name.starts_with("denied-")
             }
             fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
-                crate::resource::Table::r#for(cx)
-                    .id(|d: &Dummy| d.id.to_string())
-                    .pk(|d: &Dummy| d.id.to_string())
-                    .columns(crate::resource::TextColumn::r#for(
-                        Dummy::fields().name(),
-                        |d: &Dummy| d.name.clone(),
-                    ))
-            }
-            fn hydrate_form_values(_cx: &Cx, _record: &Dummy) -> HashMap<String, String> {
-                HashMap::new()
+                dummy_table(cx)
             }
         }
 
@@ -1995,10 +1880,7 @@ mod tests {
             }
         })
         .await;
-        let router = Panel::new("admin")
-            .app_context(db)
-            .resource::<MixedResource>()
-            .auth(crate::Auth::disabled())
+        let router = panel_for::<MixedResource>(db)
             .build()
             .expect("panel builds");
         let resp = router
@@ -2023,7 +1905,6 @@ mod tests {
         // GH #279: the cap counts viewable rows, but only inside the raw
         // window. With rows left past it, a 200 would be a partial CSV — the
         // export must refuse with the same 413 the cap uses.
-        use std::collections::HashMap;
 
         use http_body_util::BodyExt;
 
@@ -2042,16 +1923,7 @@ mod tests {
                 !record.name.starts_with("denied-")
             }
             fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
-                crate::resource::Table::r#for(cx)
-                    .id(|d: &Dummy| d.id.to_string())
-                    .pk(|d: &Dummy| d.id.to_string())
-                    .columns(crate::resource::TextColumn::r#for(
-                        Dummy::fields().name(),
-                        |d: &Dummy| d.name.clone(),
-                    ))
-            }
-            fn hydrate_form_values(_cx: &Cx, _record: &Dummy) -> HashMap<String, String> {
-                HashMap::new()
+                dummy_table(cx)
             }
         }
 
@@ -2071,10 +1943,7 @@ mod tests {
             }
         })
         .await;
-        let router = Panel::new("admin")
-            .app_context(db)
-            .resource::<WindowedResource>()
-            .auth(crate::Auth::disabled())
+        let router = panel_for::<WindowedResource>(db)
             .build()
             .expect("panel builds");
         let resp = router
@@ -2104,7 +1973,6 @@ mod tests {
         // GH #172: a short chunk ends the walk — re-fetching cursor-free
         // would rescan from the start and multiply the visible count past
         // the cap.
-        use std::collections::HashMap;
 
         use crate::resource::Resource;
 
@@ -2118,16 +1986,7 @@ mod tests {
                 true
             }
             fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
-                crate::resource::Table::r#for(cx)
-                    .id(|d: &Dummy| d.id.to_string())
-                    .pk(|d: &Dummy| d.id.to_string())
-                    .columns(crate::resource::TextColumn::r#for(
-                        Dummy::fields().name(),
-                        |d: &Dummy| d.name.clone(),
-                    ))
-            }
-            fn hydrate_form_values(_cx: &Cx, _record: &Dummy) -> HashMap<String, String> {
-                HashMap::new()
+                dummy_table(cx)
             }
         }
 
@@ -2213,9 +2072,6 @@ mod tests {
                         Task::fields().status(),
                         vec!["published".to_string(), "draft".to_string()],
                     ))
-            }
-            fn hydrate_form_values(_cx: &Cx, _record: &Task) -> HashMap<String, String> {
-                HashMap::new()
             }
         }
 
@@ -2309,7 +2165,6 @@ mod tests {
         // GH #172 decision 2: the MAX_EXPORT_ROWS cap stays as the backstop
         // above streaming — decided by the pre-body visibility scan, so the
         // 413 carries no partial CSV.
-        use std::collections::HashMap;
 
         use crate::resource::Resource;
 
@@ -2326,16 +2181,7 @@ mod tests {
                 true
             }
             fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
-                crate::resource::Table::r#for(cx)
-                    .id(|d: &Dummy| d.id.to_string())
-                    .pk(|d: &Dummy| d.id.to_string())
-                    .columns(crate::resource::TextColumn::r#for(
-                        Dummy::fields().name(),
-                        |d: &Dummy| d.name.clone(),
-                    ))
-            }
-            fn hydrate_form_values(_cx: &Cx, _record: &Dummy) -> HashMap<String, String> {
-                HashMap::new()
+                dummy_table(cx)
             }
         }
 
@@ -2346,10 +2192,7 @@ mod tests {
             .unwrap();
         db.push_schema().await.unwrap();
         seed_dummies(&mut db, MAX_EXPORT_ROWS + 1, |i| format!("user-{i:05}")).await;
-        let router = Panel::new("admin")
-            .app_context(db)
-            .resource::<CappedResource>()
-            .auth(crate::Auth::disabled())
+        let router = panel_for::<CappedResource>(db)
             .build()
             .expect("panel builds");
         let resp = router
@@ -2466,7 +2309,6 @@ mod tests {
     async fn composite_pk_edit_fails_loudly_not_404() {
         // GH #95: a composite-PK resource is a programming error the URL
         // scheme cannot serve — 500 with a message, never per-id 404s.
-        use std::collections::HashMap;
 
         use crate::resource::Resource;
 
@@ -2501,9 +2343,6 @@ mod tests {
                         |p: &Pair| p.name.clone(),
                     ))
             }
-            fn hydrate_form_values(_cx: &Cx, _record: &Pair) -> HashMap<String, String> {
-                HashMap::new()
-            }
         }
 
         let db = Db::builder()
@@ -2512,12 +2351,7 @@ mod tests {
             .await
             .unwrap();
         db.push_schema().await.unwrap();
-        let router = Panel::new("admin")
-            .app_context(db)
-            .resource::<PairResource>()
-            .auth(crate::Auth::disabled())
-            .build()
-            .expect("panel builds");
+        let router = panel_for::<PairResource>(db).build().expect("panel builds");
         let resp = router
             .handle(
                 http::Request::builder()

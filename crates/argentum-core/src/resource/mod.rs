@@ -38,8 +38,6 @@ pub(crate) use state::{
     RECORD_ROUTE_PARAM, create_page_url, cursor_after, cursor_before, cursor_none,
 };
 pub use state::{Sort, TablePage, TableSignals, TableState};
-#[cfg(test)]
-pub(crate) use state::{filters_param_encodes, reset_filters_param_encodes};
 pub(crate) use table::TableChrome;
 pub use table::{GroupDef, GroupKey, OrderMode, RowActions, RowKey, RowPolicy, Table};
 
@@ -839,14 +837,7 @@ mod tests {
     use topcoat::context::CxTestBuilder;
 
     use super::*;
-
-    #[derive(Debug, Clone, toasty::Model)]
-    struct User {
-        #[key]
-        #[auto]
-        id: uuid::Uuid,
-        name: String,
-    }
+    use crate::test_support::User;
 
     struct UserResource;
 

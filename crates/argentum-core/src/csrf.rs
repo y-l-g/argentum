@@ -122,28 +122,8 @@ fn is_valid_token(value: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use topcoat::context::CxTestBuilder;
-
     use super::*;
-
-    fn cx_with_cookie(value: Option<&str>) -> Cx {
-        let mut parts = http::Request::builder()
-            .uri("/")
-            .body(())
-            .unwrap()
-            .into_parts()
-            .0;
-        if let Some(v) = value {
-            parts.headers.insert(
-                http::header::COOKIE,
-                format!("{COOKIE_NAME}={v}").parse().unwrap(),
-            );
-        }
-        CxTestBuilder::new()
-            .request_context(parts)
-            .request_context(CookieJarCell::new())
-            .build()
-    }
+    use crate::test_support::cx_with_cookie;
 
     #[test]
     fn valid_token_format() {
@@ -155,7 +135,7 @@ mod tests {
     #[test]
     fn verify_matches_cookie_and_rejects_mismatch() {
         let token = uuid::Uuid::new_v4().to_string();
-        let cx = cx_with_cookie(Some(&token));
+        let cx = cx_with_cookie(COOKIE_NAME, Some(&token));
         let mut values = std::collections::HashMap::new();
         values.insert(FIELD_NAME.to_string(), token.clone());
         assert!(verify(&cx, &values).is_ok());
@@ -164,7 +144,7 @@ mod tests {
         assert!(verify(&cx, &std::collections::HashMap::new()).is_err());
         assert!(
             verify(
-                &cx_with_cookie(None),
+                &cx_with_cookie(COOKIE_NAME, None),
                 &std::collections::HashMap::from([(FIELD_NAME.to_string(), token)])
             )
             .is_err()
@@ -176,7 +156,7 @@ mod tests {
     /// `Path=/`, no `Domain`.
     #[test]
     fn ensured_cookie_is_host_prefixed_and_secure() {
-        let cx = cx_with_cookie(None);
+        let cx = cx_with_cookie(COOKIE_NAME, None);
         let token = ensure_token(&cx);
         assert!(is_valid_token(&token));
         let cookie = cookies(&cx)
