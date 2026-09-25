@@ -5,38 +5,10 @@ description: Always use this skill to verify a change locally before committing 
 
 # Verifying a Change
 
-Keep this file in sync with `.github/workflows/ci.yml`.
-
-Run the gates covering the touched area before pushing, and all ten before merging:
-
-```
-cargo test --workspace --locked
-cargo clippy --workspace --all-targets --locked -- -D warnings
-cargo test -p argentum-core --no-default-features --locked
-cargo +nightly-2026-08-24 fmt --all -- --check
-topcoat fmt && git diff --exit-code
-cargo check --locked --manifest-path benchmarks/argentum/Cargo.toml
-cargo clippy --locked --manifest-path benchmarks/argentum/Cargo.toml --all-targets -- -D warnings
-cargo +1.98 check --workspace --locked
-node --test crates/argentum-ui/assets/selects.test.js crates/argentum-ui/assets/bulk.test.js \
-  crates/argentum-ui/assets/dialog.test.js crates/argentum-ui/assets/mutation-submit.test.js \
-  crates/argentum-ui/assets/notifications.test.js \
-  crates/argentum-ui/assets/filters.test.js \
-  examples/showcase/assets/media.test.js
-cargo +nightly udeps --workspace --all-targets --all-features --locked
-```
-
-CI also runs four checks outside the ten; run the ones covering your change:
-
-```
-RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked  # docs job
-mdbook build docs/guide                                             # docs job
-for bench in benchmarks/argentum benchmarks/axum-maud benchmarks/leptos; do
-  (cd "$bench" && cargo fmt -- --check)                             # fmt job, per detached workspace
-done
-# bench-check job: Cargo.lock and benchmarks/argentum/Cargo.lock must pin
-# identical topcoat/toasty revs.
-```
+Run the gates in [`CONTRIBUTING.md`](../../../CONTRIBUTING.md#the-gate-set): the ones
+covering the touched area before pushing, and all ten before merging. That list mirrors
+`.github/workflows/ci.yml` and is the canonical copy; the extra checks outside the ten
+(docs, detached-bench fmt, bench-check) are listed there too.
 
 The asset suites are named rather than globbed, exactly as the CI `assets` job
 names them: a glob would silently shrink the run when a suite is renamed, while
@@ -60,7 +32,7 @@ Rules that catch the recurring failures:
 - Never hand-edit `crates/argentum-ui/src/components/primitives/`; sync it with
   `cargo xtask sync-topcoat-ui`.
 - `cargo udeps` needs `cargo-udeps` on nightly for `-Z binary-dep-depinfo`:
-  `cargo +nightly install cargo-udeps --locked`, then the gate command above.
+  `cargo +nightly install cargo-udeps --locked`, then the udeps gate in `CONTRIBUTING.md`.
 - A gate whose command names a toolchain installs it on demand; gate 4's dated
   nightly up front is
   `rustup toolchain install nightly-2026-08-24 --profile minimal --component rustfmt`

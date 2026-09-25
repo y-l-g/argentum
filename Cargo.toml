@@ -33,29 +33,13 @@ warnings = "deny"
 [workspace.lints.clippy]
 too_many_lines = "allow"
 
-# Topcoat and Toasty are git dependencies tracking their `main` branches:
-# Cargo fetches them from GitHub and Cargo.lock pins the exact commit, so no
-# sibling clone is needed — locally or in CI. Bump deliberately with
-# `cargo update -p topcoat -p toasty`, naming the `-core`/`-ui`/`-registry`
-# crates too. Cargo resolves a git source whole, so one name per repo is
-# enough — the extra names are the ones this workspace calls directly, and
-# naming them keeps the intent legible. Follow it with `cargo check
-# --offline`: that proves the new revs are resolvable from the local git
-# cache instead of failing halfway through a fetch. For temporary live-editing
-# against a local checkout, add an uncommitted `[patch]` section redirecting
-# to `../topcoat` / `../toasty` (see ADR-0003).
-#
-# `topcoat fmt` reflows `view!` markup and only agrees with the CLI built from
-# the locked rev — CI installs the CLI at exactly that rev before running it,
-# so a locally installed CLI of another version can propose a diff CI then
-# rejects. Do not "fix" such a diff by hand; install the CLI at the locked rev
-# (see the fmt job in `.github/workflows/ci.yml`) and run that.
-#
-# Pin policy (GH #103): `benchmarks/argentum` is a detached workspace with
-# its own lockfile resolving `main` independently — bump it in the same
-# commit (`cd benchmarks/argentum && cargo update -p topcoat -p toasty`),
-# and keep the revs identical to this lockfile. Drift means the bench
-# measures different upstream code than the workspace ships.
+# Topcoat and Toasty are git dependencies tracking their `main` branches, pinned by
+# Cargo.lock. Bump deliberately (`cargo update -p topcoat -p toasty`, then `cargo check
+# --offline`); sync `benchmarks/argentum/Cargo.lock` in the same commit. See
+# CONTRIBUTING.md "Dependency pins" (GH #103). `topcoat fmt` needs the CLI built from the
+# locked rev (see the fmt job in `.github/workflows/ci.yml`). For temporary live-editing
+# against a local checkout, add an uncommitted `[patch]` section redirecting to
+# `../topcoat` / `../toasty`.
 [workspace.dependencies]
 topcoat = { git = "https://github.com/tokio-rs/topcoat", branch = "main", default-features = false, features = ["view", "router", "discover"] }
 toasty = { git = "https://github.com/tokio-rs/toasty", branch = "main", default-features = false, features = ["sqlite", "jiff"] }

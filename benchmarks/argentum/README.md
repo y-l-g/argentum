@@ -12,5 +12,3 @@ cargo run
 # Measure the list path in process; see ../README.md for the workload.
 cargo run -- --bench --iterations 100
 ```
-
-This app is detached from the root workspace on purpose (see `../README.md`).

@@ -12,5 +12,3 @@ rustup target add wasm32-unknown-unknown
 cargo install cargo-leptos --locked
 cargo leptos build --release
 ```
-
-Detached from the Argentum workspace on purpose (see `../README.md`).

@@ -2,32 +2,11 @@
 
 ## Commands
 
+The gate set lives in [`CONTRIBUTING.md`](CONTRIBUTING.md#the-gate-set): ten commands
+mirroring `.github/workflows/ci.yml`. Run the ones covering your change, all ten before
+merging. CI also runs the docs, fmt-detached, and bench-check jobs listed there.
+
 ```sh
-# The gate set (.github/workflows/ci.yml). All ten before merging.
-cargo test --workspace --locked
-cargo clippy --workspace --all-targets --locked -- -D warnings
-cargo test -p argentum-core --no-default-features --locked
-cargo +nightly-2026-08-24 fmt --all -- --check   # pinned nightly (rust-toolchain.toml, GH #269); rustup installs it on demand
-topcoat fmt && git diff --exit-code
-cargo check --locked --manifest-path benchmarks/argentum/Cargo.toml
-cargo clippy --locked --manifest-path benchmarks/argentum/Cargo.toml --all-targets -- -D warnings
-cargo +1.98 check --workspace --locked           # MSRV floor (rust-version 1.98)
-node --test crates/argentum-ui/assets/selects.test.js crates/argentum-ui/assets/bulk.test.js \
-  crates/argentum-ui/assets/dialog.test.js crates/argentum-ui/assets/mutation-submit.test.js \
-  crates/argentum-ui/assets/notifications.test.js \
-  crates/argentum-ui/assets/filters.test.js \
-  examples/showcase/assets/media.test.js
-cargo +nightly udeps --workspace --all-targets --all-features --locked  # GH #271
-
-# CI also runs, outside the ten:
-RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked  # docs job
-mdbook build docs/guide                                             # docs job
-for bench in benchmarks/argentum benchmarks/axum-maud benchmarks/leptos; do
-  (cd "$bench" && cargo fmt -- --check)                             # fmt job, per detached workspace
-done
-# bench-check job: Cargo.lock and benchmarks/argentum/Cargo.lock must pin
-# identical topcoat/toasty revs.
-
 cargo run -p showcase                            # http://localhost:3000/admin/users
 cargo xtask sync-topcoat-ui                      # re-vendor primitives, verbatim
 cargo xtask verify-topcoat-ui                    # fail on vendored drift
@@ -65,34 +44,22 @@ issue in the subject: `<type>(<scope>): <description> (#123)` (`docs/dev/COMMITS
 
 ## Layout
 
-| Path | Contents |
-| --- | --- |
-| `crates/argentum-core` | Panel, Resource, Table, Schema, auth, tenancy |
-| `crates/argentum-macros` | the `EmbeddedForm` derive |
-| `crates/argentum-ui` | vendored primitives + owned composites |
-| `examples/showcase` | runnable admin + integration tests |
-| `benchmarks/` | `argentum`, `axum-maud`, `leptos` — detached workspaces |
-| `README.md` | entry point; the user guide is `docs/guide` (mdBook) |
-| `CONTEXT.md`, `docs/adr` | domain vocabulary, decisions |
-| `docs/dev` | specs (commits, prose, labels, testing) and `architecture.md` |
-| `docs/agents` | tracker notes for agents |
-| `.agents/skills` | load-when instructions: `check`, `issue`, `pr`, `prose`, `style` |
+Crate roles live in [`docs/dev/architecture.md`](docs/dev/architecture.md#crates). The user
+guide is `docs/guide/` (mdBook), decisions are in `docs/adr/`, contributor specs in
+`docs/dev/`, domain vocabulary in `CONTEXT.md`, and agent tracker notes in `docs/agents/`.
 
 ## Renovate PRs
 
-- Never blanket `cargo update`: `topcoat`/`toasty` track `main`. Bump with `cargo update -p
-  topcoat -p toasty`, then `cargo check --offline`; update each green bot branch onto `master`,
-  verify, merge.
-- Coupled or breaking sets (e.g. `argon2` + `password-hash`) merge as one combined manual bump,
-  verified once; close the bot PRs as superseded.
-- Every bump touching the workspace lock syncs `benchmarks/argentum/Cargo.lock` in the same
-  commit (GH #103).
-- Two `syn` majors remain (GH #181), not because of topcoat: the #193 bump moved every
-  `topcoat-*-macro`/`-grammar` crate to `syn 3`. The `syn 2` half is 24 crates-io proc-macro
-  crates nobody here controls, so it does not clear when any one moves; do not force-unify.
+Bump `topcoat`/`toasty` deliberately, never with a blanket `cargo update`; sync
+`benchmarks/argentum/Cargo.lock` in the same commit. Coupled sets (e.g. `argon2` +
+`password-hash`) merge as one combined manual bump. See
+[`CONTRIBUTING.md`](CONTRIBUTING.md#dependency-pins) for the commands and GH #103.
+Two `syn` majors remain (GH #181, GH #193); do not force-unify.
 
 ## Further reading
 
-`CONTRIBUTING.md` · `docs/dev/architecture.md` · `docs/dev/COMMITS.md` · `docs/dev/PROSE.md` ·
-`docs/dev/LABELS.md` · `docs/dev/TESTING.md` · `docs/dev/design/` ·
-`docs/dev/upstream-notes.md` · `docs/guide/` · `CONTEXT.md` · `docs/adr/` · `docs/agents/`.
+- Build and verify: [`CONTRIBUTING.md`](CONTRIBUTING.md), `docs/dev/architecture.md`,
+  `docs/dev/TESTING.md`
+- Write: `docs/dev/PROSE.md`, `docs/dev/COMMITS.md`, `docs/dev/LABELS.md`, `docs/guide/`,
+  `CONTEXT.md`
+- Decide: `docs/adr/`, `docs/dev/design/`, `docs/dev/upstream-notes.md`, `docs/agents/`.
