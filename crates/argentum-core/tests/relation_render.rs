@@ -134,6 +134,39 @@ async fn a_relation_omits_rows_the_related_resource_refuses() {
 /// The related rows are already loaded, so the cap bounds the page rather than
 /// a query; a table that stopped at the cap without a line saying so would read
 /// as the whole relation.
+/// The policy runs before the cap, so a refused row never spends a slot
+/// (GH #296).
+///
+/// The refused rows come first: a cap applied before the filter would spend
+/// every slot on rows the reader may not see and render an empty table.
+#[tokio::test]
+async fn a_relation_filters_before_it_caps() {
+    let cx = CxTestBuilder::new().build();
+    let mut rows: Vec<Row> = (0..MAX_RELATION_ROWS + 10)
+        .map(|_| row("denied-row"))
+        .collect();
+    rows.extend((0..3).map(|i| row(&format!("kept-{i}"))));
+    let html = render_relation::<NamedRows>(&cx, "Related", columns(), &rows)
+        .single()
+        .await
+        .unwrap()
+        .render(&cx);
+    for i in 0..3 {
+        assert!(
+            html.contains(&format!("kept-{i}")),
+            "a visible row behind the refused ones still renders: {html}"
+        );
+    }
+    assert!(
+        !html.contains("None."),
+        "refused rows must not fill the cap: {html}"
+    );
+    assert!(
+        !html.contains("Showing the first"),
+        "three visible rows do not overflow the cap: {html}"
+    );
+}
+
 #[tokio::test]
 async fn a_relation_caps_its_rows_and_says_so() {
     let cx = CxTestBuilder::new().build();
@@ -154,7 +187,7 @@ async fn a_relation_caps_its_rows_and_says_so() {
     );
     assert!(
         html.contains(&format!(
-            "the first {MAX_RELATION_ROWS} of {total} related rows"
+            "the first {MAX_RELATION_ROWS} of {total} related rows you can view"
         )),
         "a truncated table names the cap and the total: {html}"
     );

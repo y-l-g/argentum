@@ -210,7 +210,7 @@ pub const TENANTLESS_ADMIN_EMAIL: &str = "root@example.com";
 ///
 /// The row stays so a thread keeps its shape. `CommentResource::can_view`
 /// refuses it, so the surfaces that trim by that predicate — the post's
-/// relation, option lists, exports — omit it, and the moderation queue lists it
+/// relation table and the CSV export — omit it, and the comments list shows it
 /// without row actions.
 pub const REMOVED_COMMENT_BODY: &str = "[removed]";
 

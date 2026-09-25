@@ -102,12 +102,14 @@ pub trait Resource: Sized + Send + Sync + 'static {
     ///
     /// Checked on the edit page (GET), the edit POST (which requires both
     /// `can_view` and `can_update`, GH #86), per row in CSV export, on each
-    /// record behind a relationship `Select`'s options (GH #108), and on the
-    /// list page as the per-row gate of every action link (GH #235: the View
-    /// link, and the `can_view` half of Edit and Delete). Note
-    /// both hooks default-deny: a resource used as a relationship target
-    /// must allow `can_view_any` **and** `can_view` (overriding one does not
-    /// imply the other). The list page deliberately checks only
+    /// record behind a relationship `Select`'s options (GH #108), on each row
+    /// of a detail page's relation table (GH #296), and on the list page as
+    /// the per-row gate of every action link (GH #235: the View link, and the
+    /// `can_view` half of Edit and Delete). Note both hooks default-deny: a
+    /// resource used as a relationship target for option loads must allow
+    /// `can_view_any` **and** `can_view` (overriding one does not imply the
+    /// other), while a relation table consults `can_view` alone (GH #296). The
+    /// list page deliberately checks only
     /// `can_view_any` for *membership* (GH #86): `can_view` is an in-memory
     /// Rust predicate that cannot run in SQL, and filtering rows after cursor
     /// pagination would mislabel pages (holes, wrong Next/Prev). Row-level

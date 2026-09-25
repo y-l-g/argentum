@@ -171,8 +171,9 @@ pub fn render_relation<'a, R: Resource>(
         })
         .collect();
     let has_rows = !cells.is_empty();
-    let overflow = (total > MAX_RELATION_ROWS)
-        .then(|| format!("Showing the first {MAX_RELATION_ROWS} of {total} related rows."));
+    let overflow = (total > MAX_RELATION_ROWS).then(|| {
+        format!("Showing the first {MAX_RELATION_ROWS} of {total} related rows you can view.")
+    });
     // Row ids are positional: this table does not reorder or swap, so it needs
     // no record key — the list's `Table::id` contract exists for keyed diffs
     // and action URLs, and neither exists here.

@@ -95,7 +95,7 @@ async fn detail_page_shows_the_records_own_related_rows() {
 ///
 /// The reader sees the parent post and the comments that policy admits; the
 /// removed placeholder `CommentResource::can_view` refuses does not render. A
-/// relation declared through the framework therefore cannot show a related row
+/// relation drawn through `render_relation` therefore cannot show a related row
 /// the reader may not see, and the row is refused by the resource rather than
 /// by a filter the hook could drop.
 #[tokio::test]
