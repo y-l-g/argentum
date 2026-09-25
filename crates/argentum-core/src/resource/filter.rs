@@ -4,33 +4,63 @@ use toasty::stmt::Expr;
 
 use crate::schema::{FieldLens, lens_field, lens_label};
 
+/// Generate a filter's label accessors, its `Clone`, and its metadata-only
+/// `Debug`.
+///
+/// Every filter declares a `name` and a `label`, so the accessors need no list.
+/// `debug` pairs each field `Debug` prints with the expression that renders it;
+/// that expression reads the receiver through the `this` bound alongside the
+/// type, because a macro body's own `self` is not visible to a call-site
+/// expression. `Clone` copies the `clone` list, lens included, because a cloned
+/// filter still builds the same predicate. `#[derive]` would put
+/// `M: Clone + Debug` on every impl, which `toasty::schema::Model` does not
+/// carry; `Path`'s `Clone` and `Debug` are unconditional at the pinned toasty
+/// rev, so the expanded impls stay bound-free.
+macro_rules! filter_impls {
+    (
+        $ty:ident, $this:ident {
+            $( $field:ident: $value:expr ),* $(,)?
+        }
+        clone { $( $clone:ident ),* $(,)? }
+    ) => {
+        impl<M> $ty<M>
+        where
+            M: toasty::schema::Model,
+        {
+            pub fn name(&self) -> &str {
+                &self.name
+            }
+
+            pub fn label_str(&self) -> &str {
+                &self.label
+            }
+        }
+
+        impl<M> Clone for $ty<M> {
+            fn clone(&self) -> Self {
+                Self {
+                    $( $clone: self.$clone.clone(), )*
+                }
+            }
+        }
+
+        impl<M> std::fmt::Debug for $ty<M> {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                let $this = self;
+                f.debug_struct(stringify!($ty))
+                    $( .field(stringify!($field), $value) )*
+                    .finish()
+            }
+        }
+    };
+}
+
 /// Select filter — exact match on a `String` field (e.g. `status = "published"`).
 pub struct SelectFilter<M> {
     name: String,
     label: String,
     lens: FieldLens<M, String>,
     options: Vec<String>,
-}
-
-impl<M> std::fmt::Debug for SelectFilter<M> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("SelectFilter")
-            .field("name", &self.name)
-            .field("label", &self.label)
-            .field("options", &self.options)
-            .finish()
-    }
-}
-
-impl<M> Clone for SelectFilter<M> {
-    fn clone(&self) -> Self {
-        Self {
-            name: self.name.clone(),
-            label: self.label.clone(),
-            lens: self.lens.clone(),
-            options: self.options.clone(),
-        }
-    }
 }
 
 impl<M> SelectFilter<M>
@@ -61,15 +91,18 @@ where
         Some(self.lens.clone().eq(v.to_string()))
     }
 
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-    pub fn label_str(&self) -> &str {
-        &self.label
-    }
     pub fn options(&self) -> &[String] {
         &self.options
     }
+}
+
+filter_impls! {
+    SelectFilter, this {
+        name: &this.name,
+        label: &this.label,
+        options: &this.options,
+    }
+    clone { name, label, lens, options }
 }
 
 /// Ternary filter — `true` / `false` / `all` (no filter) on a `bool` field.
@@ -77,25 +110,6 @@ pub struct TernaryFilter<M> {
     name: String,
     label: String,
     lens: FieldLens<M, bool>,
-}
-
-impl<M> std::fmt::Debug for TernaryFilter<M> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("TernaryFilter")
-            .field("name", &self.name)
-            .field("label", &self.label)
-            .finish()
-    }
-}
-
-impl<M> Clone for TernaryFilter<M> {
-    fn clone(&self) -> Self {
-        Self {
-            name: self.name.clone(),
-            label: self.label.clone(),
-            lens: self.lens.clone(),
-        }
-    }
 }
 
 impl<M> TernaryFilter<M>
@@ -124,13 +138,14 @@ where
     pub fn is_noop_value(value: &str) -> bool {
         value.trim() == "all"
     }
+}
 
-    pub fn name(&self) -> &str {
-        &self.name
+filter_impls! {
+    TernaryFilter, this {
+        name: &this.name,
+        label: &this.label,
     }
-    pub fn label_str(&self) -> &str {
-        &self.label
-    }
+    clone { name, label, lens }
 }
 
 /// Date filter — same-calendar-day match on a `Timestamp` field
@@ -140,25 +155,6 @@ pub struct DateFilter<M> {
     name: String,
     label: String,
     lens: FieldLens<M, jiff::Timestamp>,
-}
-
-impl<M> std::fmt::Debug for DateFilter<M> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("DateFilter")
-            .field("name", &self.name)
-            .field("label", &self.label)
-            .finish()
-    }
-}
-
-impl<M> Clone for DateFilter<M> {
-    fn clone(&self) -> Self {
-        Self {
-            name: self.name.clone(),
-            label: self.label.clone(),
-            lens: self.lens.clone(),
-        }
-    }
 }
 
 impl<M> DateFilter<M>
@@ -209,13 +205,14 @@ where
         }
         None
     }
+}
 
-    pub fn name(&self) -> &str {
-        &self.name
+filter_impls! {
+    DateFilter, this {
+        name: &this.name,
+        label: &this.label,
     }
-    pub fn label_str(&self) -> &str {
-        &self.label
-    }
+    clone { name, label, lens }
 }
 
 /// Variant filter — exact match on an embedded-enum variant (e.g. `vehicule = "Moto"`).
@@ -230,30 +227,6 @@ pub struct VariantFilter<M> {
     label: String,
     options: Vec<(String, Expr<bool>)>,
     _marker: std::marker::PhantomData<M>,
-}
-
-impl<M> std::fmt::Debug for VariantFilter<M> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("VariantFilter")
-            .field("name", &self.name)
-            .field("label", &self.label)
-            .field(
-                "options",
-                &self.options.iter().map(|(k, _)| k).collect::<Vec<_>>(),
-            )
-            .finish()
-    }
-}
-
-impl<M> Clone for VariantFilter<M> {
-    fn clone(&self) -> Self {
-        Self {
-            name: self.name.clone(),
-            label: self.label.clone(),
-            options: self.options.clone(),
-            _marker: std::marker::PhantomData,
-        }
-    }
 }
 
 impl<M> VariantFilter<M>
@@ -286,15 +259,18 @@ where
             .map(|(_, e)| e.clone())
     }
 
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-    pub fn label_str(&self) -> &str {
-        &self.label
-    }
     pub fn options(&self) -> &[(String, Expr<bool>)] {
         &self.options
     }
+}
+
+filter_impls! {
+    VariantFilter, this {
+        name: &this.name,
+        label: &this.label,
+        options: &this.options.iter().map(|(k, _)| k).collect::<Vec<_>>(),
+    }
+    clone { name, label, options, _marker }
 }
 
 /// Filter enum — the `Table::filters` seam.
@@ -388,36 +364,34 @@ impl<M> IntoFilters<M> for VariantFilter<M> {
         vec![self.into()]
     }
 }
-impl<M, A, B> IntoFilters<M> for (A, B)
-where
-    A: Into<Filter<M>>,
-    B: Into<Filter<M>>,
-{
-    fn into_filters(self) -> Vec<Filter<M>> {
-        vec![self.0.into(), self.1.into()]
-    }
+/// Generate the tuple impls of [`IntoFilters`] from one list per arity.
+///
+/// One invocation builds the destructured bindings and the converted vector
+/// from the same list, so an element cannot reach one and not the other. Arity
+/// eight is the shared ceiling [`IntoColumns`](super::IntoColumns) documents.
+macro_rules! into_filters_tuples {
+    ($($T:ident => $v:ident),+ $(,)?) => {
+        impl<M, $($T),+> IntoFilters<M> for ($($T,)+)
+        where
+            $($T: Into<Filter<M>>,)+
+        {
+            fn into_filters(self) -> Vec<Filter<M>> {
+                let ($($v,)+) = self;
+                vec![$($v.into(),)+]
+            }
+        }
+    };
 }
-impl<M, A, B, C> IntoFilters<M> for (A, B, C)
-where
-    A: Into<Filter<M>>,
-    B: Into<Filter<M>>,
-    C: Into<Filter<M>>,
-{
-    fn into_filters(self) -> Vec<Filter<M>> {
-        vec![self.0.into(), self.1.into(), self.2.into()]
-    }
-}
-impl<M, A, B, C, D> IntoFilters<M> for (A, B, C, D)
-where
-    A: Into<Filter<M>>,
-    B: Into<Filter<M>>,
-    C: Into<Filter<M>>,
-    D: Into<Filter<M>>,
-{
-    fn into_filters(self) -> Vec<Filter<M>> {
-        vec![self.0.into(), self.1.into(), self.2.into(), self.3.into()]
-    }
-}
+
+into_filters_tuples!(A => a, B => b);
+into_filters_tuples!(A => a, B => b, C => c);
+into_filters_tuples!(A => a, B => b, C => c, D => d);
+into_filters_tuples!(A => a, B => b, C => c, D => d, E => e);
+into_filters_tuples!(A => a, B => b, C => c, D => d, E => e, F => f);
+into_filters_tuples!(A => a, B => b, C => c, D => d, E => e, F => f, G => g);
+into_filters_tuples!(
+    A => a, B => b, C => c, D => d, E => e, F => f, G => g, H => h
+);
 
 #[cfg(test)]
 mod tests {

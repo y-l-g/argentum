@@ -108,17 +108,37 @@ impl<R> IntoRelationColumns<R> for RelationColumn<R> {
     }
 }
 
-impl<R, A, B> IntoRelationColumns<R> for (A, B)
-where
-    A: IntoRelationColumns<R>,
-    B: IntoRelationColumns<R>,
-{
-    fn into_relation_columns(self) -> RelationColumns<R> {
-        let mut columns = self.0.into_relation_columns().columns;
-        columns.extend(self.1.into_relation_columns().columns);
-        RelationColumns { columns }
-    }
+/// Generate the flat tuple impls of [`IntoRelationColumns`] from one list per
+/// arity.
+///
+/// Each list names the binding a tuple element moves through; the `@element`
+/// rule supplies the single element type every position shares. Every element
+/// is a [`RelationColumn<R>`], so `(a, (b, c))` is not a column list: a table's
+/// columns sit in one flat tuple. Arity eight is the shared ceiling
+/// [`IntoColumns`](super::IntoColumns) documents.
+macro_rules! into_relation_columns_tuples {
+    ($($v:ident),+ $(,)?) => {
+        impl<R> IntoRelationColumns<R>
+            for ($(into_relation_columns_tuples!(@element $v)),+)
+        {
+            fn into_relation_columns(self) -> RelationColumns<R> {
+                let ($($v,)+) = self;
+                RelationColumns {
+                    columns: vec![$($v,)+],
+                }
+            }
+        }
+    };
+    (@element $v:ident) => { RelationColumn<R> };
 }
+
+into_relation_columns_tuples!(a, b);
+into_relation_columns_tuples!(a, b, c);
+into_relation_columns_tuples!(a, b, c, d);
+into_relation_columns_tuples!(a, b, c, d, e);
+into_relation_columns_tuples!(a, b, c, d, e, f);
+into_relation_columns_tuples!(a, b, c, d, e, f, g);
+into_relation_columns_tuples!(a, b, c, d, e, f, g, h);
 
 /// Render `rows` as a titled, read-only table (GH #187, GH #296).
 ///

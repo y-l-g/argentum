@@ -79,4 +79,4 @@ row actions.
   and the view renders its stored value as text. A foreign key therefore reads as its stored id
   rather than the related record's label — render the relation through `view_relations` when the
   label is what a reader needs.
-- `IntoSchema` takes at most four top-level blocks; a longer view wraps a fifth in a `Group`.
+- `IntoSchema` takes at most eight top-level blocks; a longer view wraps a ninth in a `Group`.

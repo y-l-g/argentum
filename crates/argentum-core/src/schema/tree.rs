@@ -140,52 +140,6 @@ pub(crate) fn validate_leaf<'a>(
     }
 }
 
-impl From<TextInput> for Node {
-    fn from(v: TextInput) -> Self {
-        Node::TextInput(Box::new(v))
-    }
-}
-impl From<Textarea> for Node {
-    fn from(v: Textarea) -> Self {
-        Node::Textarea(Box::new(v))
-    }
-}
-impl From<Section> for Node {
-    fn from(v: Section) -> Self {
-        Node::Section(Box::new(v))
-    }
-}
-impl From<Group> for Node {
-    fn from(v: Group) -> Self {
-        Node::Group(Box::new(v))
-    }
-}
-impl From<Grid> for Node {
-    fn from(v: Grid) -> Self {
-        Node::Grid(Box::new(v))
-    }
-}
-impl From<Select> for Node {
-    fn from(v: Select) -> Self {
-        Node::Select(Box::new(v))
-    }
-}
-impl From<FileUpload> for Node {
-    fn from(v: FileUpload) -> Self {
-        Node::FileUpload(Box::new(v))
-    }
-}
-impl From<Repeater> for Node {
-    fn from(v: Repeater) -> Self {
-        Node::Repeater(Box::new(v))
-    }
-}
-impl From<Tabs> for Node {
-    fn from(v: Tabs) -> Self {
-        Node::Tabs(Box::new(v))
-    }
-}
-
 impl Node {
     /// Nested schema for container nodes; `None` for leaf fields.
     pub(crate) fn children(&self) -> Option<&Schema> {
@@ -296,108 +250,66 @@ impl IntoSchema for Schema {
         self
     }
 }
-impl IntoSchema for Section {
-    fn into_schema(self) -> Schema {
-        Schema {
-            nodes: vec![self.into()],
-        }
-    }
-}
-impl IntoSchema for Group {
-    fn into_schema(self) -> Schema {
-        Schema {
-            nodes: vec![self.into()],
-        }
-    }
-}
-impl IntoSchema for Grid {
-    fn into_schema(self) -> Schema {
-        Schema {
-            nodes: vec![self.into()],
-        }
-    }
-}
-impl IntoSchema for TextInput {
-    fn into_schema(self) -> Schema {
-        Schema {
-            nodes: vec![self.into()],
-        }
-    }
-}
-impl IntoSchema for Textarea {
-    fn into_schema(self) -> Schema {
-        Schema {
-            nodes: vec![self.into()],
-        }
-    }
-}
-impl IntoSchema for Select {
-    fn into_schema(self) -> Schema {
-        Schema {
-            nodes: vec![self.into()],
-        }
-    }
-}
-impl IntoSchema for FileUpload {
-    fn into_schema(self) -> Schema {
-        Schema {
-            nodes: vec![self.into()],
-        }
-    }
-}
-impl IntoSchema for Repeater {
-    fn into_schema(self) -> Schema {
-        Schema {
-            nodes: vec![self.into()],
-        }
-    }
-}
-impl IntoSchema for Tabs {
-    fn into_schema(self) -> Schema {
-        Schema {
-            nodes: vec![self.into()],
-        }
-    }
+/// Generate the [`Node`] conversion and the single-node [`IntoSchema`] impl for
+/// every schema type.
+///
+/// Each type shares its name with its `Node` variant, so one list drives both
+/// impls: a new schema type is one entry here, not two hand-written blocks.
+macro_rules! schema_nodes {
+    ($($ty:ident),+ $(,)?) => {
+        $(
+            impl From<$ty> for Node {
+                fn from(v: $ty) -> Self {
+                    Node::$ty(Box::new(v))
+                }
+            }
+
+            impl IntoSchema for $ty {
+                fn into_schema(self) -> Schema {
+                    Schema {
+                        nodes: vec![self.into()],
+                    }
+                }
+            }
+        )+
+    };
 }
 
-impl<A, B> IntoSchema for (A, B)
-where
-    A: Into<Node>,
-    B: Into<Node>,
-{
-    fn into_schema(self) -> Schema {
-        Schema {
-            nodes: vec![self.0.into(), self.1.into()],
+schema_nodes!(
+    TextInput, Textarea, Section, Group, Grid, Select, FileUpload, Repeater, Tabs
+);
+
+/// Generate the tuple impls of [`IntoSchema`] from one list per arity.
+///
+/// One invocation builds the destructured bindings and the `nodes` vector from
+/// the same list, so an element cannot reach one and not the other. Arity eight
+/// is the shared ceiling [`IntoColumns`](crate::resource::IntoColumns)
+/// documents.
+macro_rules! into_schema_tuples {
+    ($($T:ident => $v:ident),+ $(,)?) => {
+        impl<$($T),+> IntoSchema for ($($T,)+)
+        where
+            $($T: Into<Node>,)+
+        {
+            fn into_schema(self) -> Schema {
+                let ($($v,)+) = self;
+                Schema {
+                    nodes: vec![$($v.into(),)+],
+                }
+            }
         }
-    }
+    };
 }
-// 4-tuple limit is intentional: without variadic generics this is idiomatic
-// — see `IntoColumns` in `resource/column.rs`. Macro deferred until 5+ columns are needed.
-impl<A, B, C> IntoSchema for (A, B, C)
-where
-    A: Into<Node>,
-    B: Into<Node>,
-    C: Into<Node>,
-{
-    fn into_schema(self) -> Schema {
-        Schema {
-            nodes: vec![self.0.into(), self.1.into(), self.2.into()],
-        }
-    }
-}
-impl<A, B, C, D> IntoSchema for (A, B, C, D)
-where
-    A: Into<Node>,
-    B: Into<Node>,
-    C: Into<Node>,
-    D: Into<Node>,
-{
-    fn into_schema(self) -> Schema {
-        Schema {
-            nodes: vec![self.0.into(), self.1.into(), self.2.into(), self.3.into()],
-        }
-    }
-}
+
+into_schema_tuples!(A => a, B => b);
+into_schema_tuples!(A => a, B => b, C => c);
+into_schema_tuples!(A => a, B => b, C => c, D => d);
+into_schema_tuples!(A => a, B => b, C => c, D => d, E => e);
+into_schema_tuples!(A => a, B => b, C => c, D => d, E => e, F => f);
+into_schema_tuples!(A => a, B => b, C => c, D => d, E => e, F => f, G => g);
+into_schema_tuples!(
+    A => a, B => b, C => c, D => d, E => e, F => f, G => g, H => h
+);
 
 #[cfg(test)]
 mod tests {

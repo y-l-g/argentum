@@ -386,10 +386,12 @@ impl<M> std::fmt::Debug for TextColumn<M> {
 /// column types (GH #228). A single column converts on its own, with no
 /// one-element tuple.
 ///
-/// 5-tuple limit: without variadic generics this is idiomatic Rust — one arity
-/// past `IntoSchema` in `schema/tree.rs`, which stops at four. Tables wider
-/// than five columns are rare in admin UIs; extend when a real Resource needs
-/// it.
+/// Tuple arities stop at eight, the ceiling every tuple-collection trait
+/// shares: `IntoFilters` in `resource/filter.rs`, `IntoSchema` in
+/// `schema/tree.rs`, and `IntoRelationColumns` in `resource/relation.rs`.
+/// Without variadic generics the idiom is one `macro_rules!` invocation per
+/// arity, and eight covers the widest tuple a Resource declares. Extend every
+/// list together when a real Resource needs more.
 pub trait IntoColumns<M> {
     fn into_columns(self) -> Vec<TextColumn<M>>;
 }
@@ -400,37 +402,29 @@ impl<M> IntoColumns<M> for TextColumn<M> {
     }
 }
 
-impl<M> IntoColumns<M> for (TextColumn<M>, TextColumn<M>) {
-    fn into_columns(self) -> Vec<TextColumn<M>> {
-        vec![self.0, self.1]
-    }
+/// Generate the tuple impls of [`IntoColumns`] from one list per arity.
+///
+/// Each list names the binding a tuple element moves through; the `@element`
+/// rule supplies the single element type every position shares.
+macro_rules! into_columns_tuples {
+    ($($v:ident),+ $(,)?) => {
+        impl<M> IntoColumns<M> for ($(into_columns_tuples!(@element $v)),+) {
+            fn into_columns(self) -> Vec<TextColumn<M>> {
+                let ($($v,)+) = self;
+                vec![$($v,)+]
+            }
+        }
+    };
+    (@element $v:ident) => { TextColumn<M> };
 }
 
-impl<M> IntoColumns<M> for (TextColumn<M>, TextColumn<M>, TextColumn<M>) {
-    fn into_columns(self) -> Vec<TextColumn<M>> {
-        vec![self.0, self.1, self.2]
-    }
-}
-
-impl<M> IntoColumns<M> for (TextColumn<M>, TextColumn<M>, TextColumn<M>, TextColumn<M>) {
-    fn into_columns(self) -> Vec<TextColumn<M>> {
-        vec![self.0, self.1, self.2, self.3]
-    }
-}
-
-impl<M> IntoColumns<M>
-    for (
-        TextColumn<M>,
-        TextColumn<M>,
-        TextColumn<M>,
-        TextColumn<M>,
-        TextColumn<M>,
-    )
-{
-    fn into_columns(self) -> Vec<TextColumn<M>> {
-        vec![self.0, self.1, self.2, self.3, self.4]
-    }
-}
+into_columns_tuples!(a, b);
+into_columns_tuples!(a, b, c);
+into_columns_tuples!(a, b, c, d);
+into_columns_tuples!(a, b, c, d, e);
+into_columns_tuples!(a, b, c, d, e, f);
+into_columns_tuples!(a, b, c, d, e, f, g);
+into_columns_tuples!(a, b, c, d, e, f, g, h);
 
 #[cfg(test)]
 mod tests {

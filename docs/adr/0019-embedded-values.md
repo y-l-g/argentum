@@ -1,6 +1,6 @@
 # Embedded values: a derived codec, and the discriminant column as the variant rule
 
-Date: 2026-09-22 — Status: accepted — Amended: 2026-09-22
+Date: 2026-09-22 — Status: accepted — Amended: 2026-09-22, 2026-09-25
 
 ## Decision
 
@@ -80,3 +80,13 @@ nodes.
 - It is a visible breaking change: the discriminant is a visible `Select`, not a hidden input, so an app
   or test reading the form markup for it updates. The submitted value, `read_form`, the
   unknown-discriminant refusal and the fallback are unchanged.
+
+## Amendment — 2026-09-25
+
+**The `IntoSchema` tuple ceiling is eight.** Rule 6's "`IntoSchema`'s tuple form stops at four
+nodes" is superseded by this amendment: the ceiling is the one `IntoColumns`, `IntoFilters` and
+`IntoRelationColumns` share, one `macro_rules!` invocation per arity 2..=8, so `Schema::extend`
+remains the seam for a derived form with more controls than a tuple holds.
+
+**`IntoRelationColumns` takes a flat tuple.** Every element is a `RelationColumn<R>`; a nested tuple
+such as `(a, (b, c))` does not convert.

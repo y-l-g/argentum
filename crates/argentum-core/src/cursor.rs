@@ -153,52 +153,84 @@ fn decode_inner(token: &str) -> Result<Value> {
 /// Max nested-record depth accepted on decode (GH #95).
 const MAX_CURSOR_DEPTH: usize = 16;
 
+/// Generate the codec for the variants with a uniform payload from one table.
+///
+/// `bytes` rows are little-endian fixed-width scalars; `text` rows are
+/// length-prefixed `to_string` spellings parsed back into their jiff type,
+/// with `as "<label>"` naming the type in a decode error. `write_tagged` and
+/// `read_tagged` expand from the same rows, so a variant cannot reach one side
+/// of the codec only. The write side reports whether it encoded `value`; the
+/// read side reports whether it knows `tag`, leaving the variants with their
+/// own framing (`Null`, `Bool`, `String`, `Uuid`, `Bytes`, `Record`) to the
+/// matches below.
+macro_rules! cursor_tags {
+    (
+        bytes: $( $btag:ident => $bv:ident($bty:ty) ),* $(,)? ;
+        text: $( $ttag:ident => $tv:ident($tty:ty) as $tlabel:literal ),* $(,)? ;
+    ) => {
+        fn write_tagged(value: &Value, out: &mut Vec<u8>) -> Result<bool> {
+            match value {
+                $(
+                    Value::$bv(v) => {
+                        out.push($btag);
+                        out.extend_from_slice(&v.to_le_bytes());
+                    }
+                )*
+                $(
+                    Value::$tv(v) => {
+                        out.push($ttag);
+                        write_len_prefixed(v.to_string().as_bytes(), out)?;
+                    }
+                )*
+                _ => return Ok(false),
+            }
+            Ok(true)
+        }
+
+        fn read_tagged(tag: u8, buf: &mut &[u8]) -> Result<Option<Value>> {
+            Ok(Some(match tag {
+                $(
+                    $btag => Value::$bv(<$bty>::from_le_bytes(
+                        take::<{ std::mem::size_of::<$bty>() }>(buf)?,
+                    )),
+                )*
+                $(
+                    $ttag => {
+                        let s = read_len_prefixed(buf)?;
+                        let text = std::str::from_utf8(&s).map_err(|e| {
+                            std::io::Error::other(format!("cursor: invalid {}: {e}", $tlabel))
+                        })?;
+                        Value::$tv(text.parse::<$tty>().map_err(|e| {
+                            std::io::Error::other(format!("cursor: invalid {}: {e}", $tlabel))
+                        })?)
+                    }
+                )*
+                _ => return Ok(None),
+            }))
+        }
+    };
+}
+
+cursor_tags! {
+    bytes: TAG_I8 => I8(i8), TAG_I16 => I16(i16), TAG_I32 => I32(i32), TAG_I64 => I64(i64),
+        TAG_U8 => U8(u8), TAG_U16 => U16(u16), TAG_U32 => U32(u32), TAG_U64 => U64(u64),
+        TAG_F32 => F32(f32), TAG_F64 => F64(f64);
+    text: TAG_TIMESTAMP => Timestamp(jiff::Timestamp) as "timestamp",
+        TAG_DATE => Date(jiff::civil::Date) as "date",
+        TAG_DATETIME => DateTime(jiff::civil::DateTime) as "datetime",
+        TAG_TIME => Time(jiff::civil::Time) as "time",
+        TAG_ZONED => Zoned(jiff::Zoned) as "zoned";
+}
+
 fn write_value(value: &Value, out: &mut Vec<u8>) -> Result<()> {
+    if write_tagged(value, out)? {
+        return Ok(());
+    }
     match value {
         Value::Null => out.push(TAG_NULL),
         Value::Bool(b) => {
             out.push(TAG_BOOL);
             out.push(u8::from(*b));
-        }
-        Value::I8(v) => {
-            out.push(TAG_I8);
-            out.extend_from_slice(&v.to_le_bytes());
-        }
-        Value::I16(v) => {
-            out.push(TAG_I16);
-            out.extend_from_slice(&v.to_le_bytes());
-        }
-        Value::I32(v) => {
-            out.push(TAG_I32);
-            out.extend_from_slice(&v.to_le_bytes());
-        }
-        Value::I64(v) => {
-            out.push(TAG_I64);
-            out.extend_from_slice(&v.to_le_bytes());
-        }
-        Value::U8(v) => {
-            out.push(TAG_U8);
-            out.push(*v);
-        }
-        Value::U16(v) => {
-            out.push(TAG_U16);
-            out.extend_from_slice(&v.to_le_bytes());
-        }
-        Value::U32(v) => {
-            out.push(TAG_U32);
-            out.extend_from_slice(&v.to_le_bytes());
-        }
-        Value::U64(v) => {
-            out.push(TAG_U64);
-            out.extend_from_slice(&v.to_le_bytes());
-        }
-        Value::F32(v) => {
-            out.push(TAG_F32);
-            out.extend_from_slice(&v.to_le_bytes());
-        }
-        Value::F64(v) => {
-            out.push(TAG_F64);
-            out.extend_from_slice(&v.to_le_bytes());
         }
         Value::String(v) => {
             out.push(TAG_STRING);
@@ -211,26 +243,6 @@ fn write_value(value: &Value, out: &mut Vec<u8>) -> Result<()> {
         Value::Bytes(v) => {
             out.push(TAG_BYTES);
             write_len_prefixed(v, out)?;
-        }
-        Value::Timestamp(v) => {
-            out.push(TAG_TIMESTAMP);
-            write_len_prefixed(v.to_string().as_bytes(), out)?;
-        }
-        Value::Date(v) => {
-            out.push(TAG_DATE);
-            write_len_prefixed(v.to_string().as_bytes(), out)?;
-        }
-        Value::DateTime(v) => {
-            out.push(TAG_DATETIME);
-            write_len_prefixed(v.to_string().as_bytes(), out)?;
-        }
-        Value::Time(v) => {
-            out.push(TAG_TIME);
-            write_len_prefixed(v.to_string().as_bytes(), out)?;
-        }
-        Value::Zoned(v) => {
-            out.push(TAG_ZONED);
-            write_len_prefixed(v.to_string().as_bytes(), out)?;
         }
         Value::Record(record) => {
             out.push(TAG_RECORD);
@@ -259,6 +271,9 @@ fn read_value_with_depth(buf: &[u8], depth: usize) -> Result<(Value, &[u8])> {
     }
     let mut buf = buf;
     let tag = take::<1>(&mut buf)?[0];
+    if let Some(value) = read_tagged(tag, &mut buf)? {
+        return Ok((value, buf));
+    }
     match tag {
         TAG_NULL => Ok((Value::Null, buf)),
         TAG_BOOL => {
@@ -269,16 +284,6 @@ fn read_value_with_depth(buf: &[u8], depth: usize) -> Result<(Value, &[u8])> {
                 _ => Err(std::io::Error::other("cursor: invalid bool byte").into()),
             }
         }
-        TAG_I8 => Ok((Value::I8(i8::from_le_bytes(take::<1>(&mut buf)?)), buf)),
-        TAG_I16 => Ok((Value::I16(i16::from_le_bytes(take::<2>(&mut buf)?)), buf)),
-        TAG_I32 => Ok((Value::I32(i32::from_le_bytes(take::<4>(&mut buf)?)), buf)),
-        TAG_I64 => Ok((Value::I64(i64::from_le_bytes(take::<8>(&mut buf)?)), buf)),
-        TAG_U8 => Ok((Value::U8(take::<1>(&mut buf)?[0]), buf)),
-        TAG_U16 => Ok((Value::U16(u16::from_le_bytes(take::<2>(&mut buf)?)), buf)),
-        TAG_U32 => Ok((Value::U32(u32::from_le_bytes(take::<4>(&mut buf)?)), buf)),
-        TAG_U64 => Ok((Value::U64(u64::from_le_bytes(take::<8>(&mut buf)?)), buf)),
-        TAG_F32 => Ok((Value::F32(f32::from_le_bytes(take::<4>(&mut buf)?)), buf)),
-        TAG_F64 => Ok((Value::F64(f64::from_le_bytes(take::<8>(&mut buf)?)), buf)),
         TAG_STRING => {
             let s = read_len_prefixed(&mut buf)?;
             Ok((
@@ -298,68 +303,9 @@ fn read_value_with_depth(buf: &[u8], depth: usize) -> Result<(Value, &[u8])> {
                 buf,
             ))
         }
-        TAG_TIMESTAMP => {
-            let s = read_len_prefixed(&mut buf)?;
-            let text = std::str::from_utf8(&s)
-                .map_err(|e| std::io::Error::other(format!("cursor: invalid timestamp: {e}")))?;
-            Ok((
-                Value::Timestamp(text.parse::<jiff::Timestamp>().map_err(|e| {
-                    std::io::Error::other(format!("cursor: invalid timestamp: {e}"))
-                })?),
-                buf,
-            ))
-        }
-        TAG_DATE => {
-            let s = read_len_prefixed(&mut buf)?;
-            let text = std::str::from_utf8(&s)
-                .map_err(|e| std::io::Error::other(format!("cursor: invalid date: {e}")))?;
-            Ok((
-                Value::Date(
-                    text.parse::<jiff::civil::Date>()
-                        .map_err(|e| std::io::Error::other(format!("cursor: invalid date: {e}")))?,
-                ),
-                buf,
-            ))
-        }
-        TAG_DATETIME => {
-            let s = read_len_prefixed(&mut buf)?;
-            let text = std::str::from_utf8(&s)
-                .map_err(|e| std::io::Error::other(format!("cursor: invalid datetime: {e}")))?;
-            Ok((
-                Value::DateTime(text.parse::<jiff::civil::DateTime>().map_err(|e| {
-                    std::io::Error::other(format!("cursor: invalid datetime: {e}"))
-                })?),
-                buf,
-            ))
-        }
-        TAG_TIME => {
-            let s = read_len_prefixed(&mut buf)?;
-            let text = std::str::from_utf8(&s)
-                .map_err(|e| std::io::Error::other(format!("cursor: invalid time: {e}")))?;
-            Ok((
-                Value::Time(
-                    text.parse::<jiff::civil::Time>()
-                        .map_err(|e| std::io::Error::other(format!("cursor: invalid time: {e}")))?,
-                ),
-                buf,
-            ))
-        }
         TAG_BYTES => {
             let s = read_len_prefixed(&mut buf)?;
             Ok((Value::Bytes(s), buf))
-        }
-        TAG_ZONED => {
-            let s = read_len_prefixed(&mut buf)?;
-            let text = std::str::from_utf8(&s)
-                .map_err(|e| std::io::Error::other(format!("cursor: invalid zoned: {e}")))?;
-            Ok((
-                Value::Zoned(
-                    text.parse::<jiff::Zoned>().map_err(|e| {
-                        std::io::Error::other(format!("cursor: invalid zoned: {e}"))
-                    })?,
-                ),
-                buf,
-            ))
         }
         TAG_RECORD => {
             let count = u32::from_le_bytes(take::<4>(&mut buf)?) as usize;
@@ -510,6 +456,34 @@ mod tests {
             Value::Uuid(uuid::Uuid::new_v4()),
         ]));
         round_trip(cursor);
+    }
+
+    /// The wire format is a contract with tokens already in browsers' URLs, so
+    /// its exact bytes are pinned here instead of only round-tripped: a
+    /// symmetric tag swap or payload-width change round-trips cleanly and still
+    /// breaks every URL in flight. `VERSION` is the escape hatch — bump it for a
+    /// deliberate layout change and update this token with it; a token that
+    /// stops matching this test without a version bump is a bug.
+    #[test]
+    fn the_wire_format_is_pinned() {
+        assert_eq!(VERSION, 1);
+
+        // The engine's multi-column cursor, [sort value, primary key], sized to
+        // cross the record, i64, string and uuid tags.
+        let value = Value::Record(ValueRecord::from_vec(vec![
+            Value::I64(42),
+            Value::String("Ada Lovelace".to_string()),
+            Value::Uuid(uuid::Uuid::nil()),
+        ]));
+        let token = encode(&value).expect("encode");
+        assert_eq!(
+            token,
+            concat!(
+                "017203000000382a00000000000000730c000000416461204c6f76656c616365",
+                "7500000000000000000000000000000000",
+            )
+        );
+        assert_eq!(decode(&token).expect("decode"), value);
     }
 
     #[test]
