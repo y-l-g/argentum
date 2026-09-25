@@ -237,6 +237,11 @@ async fn count_statements_once(client: &TestClient<'_>, path: &str) -> usize {
         .with(tracing_subscriber::filter::LevelFilter::TRACE)
         .with(SqlCounter(hits.clone()));
     let _guard = tracing::subscriber::set_default(subscriber);
+    // Installing the subscriber does not re-evaluate callsites that other tests
+    // in this binary already hit: their interest is cached against the default
+    // dispatcher, so the driver's events would be skipped here. Rebuilding the
+    // cache makes this thread's subscriber the one those callsites consult.
+    tracing::callsite::rebuild_interest_cache();
     // Collect the whole body: a page streams (a skeleton, then the swapped
     // region), and the statements that load the record run while the body is
     // polled. Dropping the response without reading it would measure a page
@@ -245,26 +250,40 @@ async fn count_statements_once(client: &TestClient<'_>, path: &str) -> usize {
     hits.load(Ordering::SeqCst)
 }
 
-/// A counting subscriber is thread-local, and the default `#[tokio::test]`
-/// runtime is multi-threaded: a request can resume on a worker that never saw
-/// the subscriber, which made this test fail roughly one run in four. Pinning
-/// the runtime to the current thread fixed that; `statements_for_page` warms the
-/// counter because `tracing` caches the callsite's interest, which the fixtures
-/// have already fixed against the default dispatcher.
+/// The counting subscriber is thread-local, so the runtime is pinned to the
+/// current thread: the default multi-thread runtime can resume a request on a
+/// worker that never saw the subscriber. `count_statements_once` rebuilds the
+/// callsite interest cache after installing it, because the callsites other
+/// tests already hit have cached their interest against the default dispatcher.
 #[tokio::test(flavor = "current_thread")]
 async fn the_relation_issues_no_query_of_its_own() {
     // The property item 6 asked for, measured rather than argued: a record
     // page's cost must not depend on how many related rows it shows. A per-row
     // load would scale with the comment count; a second query for the relation
     // would show up as a difference between the two pages.
+    //
+    // The driver runs a statement on whichever thread its connection hands it
+    // to, so one measurement can see a subset of a page's statements (GH #314);
+    // a subset is unstable, so the two pages agree only once each measurement
+    // has seen its whole page. A per-row load disagrees on every attempt, which
+    // is what the assertions below fail on.
     let db = full_db().await;
     let router = router(db.clone());
     let client = demo_client(&router, &db).await;
     let mut db_q = db.clone();
     let (commented, bare) = fixture_posts(&mut db_q).await;
 
-    let with_rows = statements_for_page(&client, &format!("/admin/posts/{}", commented.id)).await;
-    let without_rows = statements_for_page(&client, &format!("/admin/posts/{}", bare.id)).await;
+    let mut observed = (0usize, 0usize);
+    for _ in 0..8 {
+        observed = (
+            statements_for_page(&client, &format!("/admin/posts/{}", commented.id)).await,
+            statements_for_page(&client, &format!("/admin/posts/{}", bare.id)).await,
+        );
+        if observed.0 > 0 && observed.0 == observed.1 {
+            break;
+        }
+    }
+    let (with_rows, without_rows) = observed;
 
     assert!(
         with_rows > 0,
