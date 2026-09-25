@@ -36,6 +36,15 @@ use crate::panel::{LoginHint, Panel, PanelPrefix, route_path};
 /// How long a session stays valid: seven days, fixed (ADR-0013).
 pub const SESSION_LIFETIME: Duration = Duration::from_hours(24 * 7);
 
+/// Max body the login route accepts (GH #295): 64 KiB.
+///
+/// A credential form submits an email, a password, a `next` and a CSRF token,
+/// all short strings; the panel's 10 MiB form cap is for multipart uploads,
+/// which the login route never carries. 64 KiB leaves room for the fields plus
+/// percent-encoding growth while keeping the one unauthenticated POST route
+/// from buffering a megabyte-scale body.
+pub(crate) const MAX_LOGIN_BYTES: usize = 64 * 1024;
+
 /// Form field carrying the login identifier (the shipped default reads it as
 /// an email address).
 pub const LOGIN_FIELD: &str = "email";
@@ -502,6 +511,29 @@ pub async fn revoke_sessions_for_user(cx: &Cx, user_id: &str) -> topcoat::Result
     Ok(())
 }
 
+/// Drop the expired session rows of `user_id` (GH #295).
+///
+/// [`resolve`] purges a session row when its token is looked up expired, so a
+/// row whose token is never presented again stays in the table. Login is the
+/// bounded sweep: the user is present, the table is already open, and only
+/// their rows are touched. Revocation ([`revoke_sessions_for_user`]) is the
+/// unbounded counterpart that drops the live rows too.
+async fn purge_expired_sessions_for_user(cx: &Cx, user_id: &str) -> topcoat::Result<()> {
+    let now = Timestamp::now();
+    let mut db = crate::db::db(cx);
+    AuthSession::filter(
+        AuthSession::fields()
+            .user_id()
+            .eq(user_id.to_string())
+            .and(AuthSession::fields().expires_at().le(now)),
+    )
+    .delete()
+    .exec(&mut db)
+    .await
+    .map_err(infrastructure_failure)?;
+    Ok(())
+}
+
 /// Resolve the request's session into a user, lazily and without touching the
 /// database when no session cookie is present.
 pub(crate) async fn resolve(
@@ -717,6 +749,13 @@ pub(crate) fn login_post(cx: &Cx, body: Body) -> RouteFuture<'_> {
         // Rotate on login: a token this request presented cannot be replayed.
         if let Some(hash) = session::token_hash(cx).await? {
             delete_session(cx, &hash).await?;
+        }
+        // Bounded housekeeping (GH #295): the expired rows of the user signing
+        // in go with the rotation. A failure is logged rather than fatal — a
+        // credential that verified must not become a 503 because cleanup could
+        // not run.
+        if let Err(error) = purge_expired_sessions_for_user(cx, &user.id).await {
+            tracing::error!(error = %error, "expired-session purge failed");
         }
         let session = session::start(cx).await?;
         let mut db = crate::db::db(cx);
@@ -1125,6 +1164,217 @@ mod tests {
         assert!(
             !rendered.contains(UNAVAILABLE_ERROR),
             "a rejected password must not read as an outage, got {rendered:?}"
+        );
+    }
+
+    /// A router for a password-auth panel over `db`.
+    fn auth_router(db: Db) -> topcoat::router::Router {
+        Panel::new("admin")
+            .app_context(db)
+            .auth(Auth::password())
+            .build()
+            .expect("panel builds")
+    }
+
+    /// A login POST as the router sees it: urlencoded, carrying the CSRF cookie
+    /// the double-submit check reads.
+    fn login_request(body: String, csrf: &str) -> http::Request<Body> {
+        http::Request::builder()
+            .method(http::Method::POST)
+            .uri("/admin/login")
+            .header(
+                http::header::CONTENT_TYPE,
+                "application/x-www-form-urlencoded",
+            )
+            .header(
+                http::header::COOKIE,
+                format!("{}={csrf}", crate::csrf::COOKIE_NAME),
+            )
+            .body(Body::from(body))
+            .unwrap()
+    }
+
+    /// The `Set-Cookie` header for the session token, when the response set one.
+    fn session_cookie(response: &http::Response<Body>) -> Option<String> {
+        response
+            .headers()
+            .get_all(http::header::SET_COOKIE)
+            .iter()
+            .filter_map(|value| value.to_str().ok())
+            .find(|value| value.starts_with("__Host-session="))
+            .map(str::to_string)
+    }
+
+    /// A `Db` with the shipped auth models, schema pushed, and one active admin.
+    async fn db_with_admin(email: &str) -> Db {
+        let mut db = Db::builder()
+            .models(toasty::models!(AdminUser, AuthSession))
+            .connect("sqlite::memory:")
+            .await
+            .expect("connect to in-memory sqlite");
+        db.push_schema().await.expect("push schema");
+        toasty::create!(AdminUser {
+            email: email.to_string(),
+            password_hash: hash_password("opensesame").expect("hash"),
+            display_name: "Ada".to_string(),
+            active: true,
+            tenant_id: None,
+            created_at: Timestamp::now(),
+        })
+        .exec(&mut db)
+        .await
+        .expect("seed admin");
+        db
+    }
+
+    /// GH #295: the login route caps its body at a credential form's size, not
+    /// the panel's 10 MiB form cap.
+    #[tokio::test]
+    async fn an_oversized_login_post_is_refused() {
+        let db = db_with_admin("ada@example.com").await;
+        let router = auth_router(db);
+
+        let token = Uuid::new_v4().to_string();
+        let oversized = format!(
+            "email={}&password=opensesame&csrf_token={token}",
+            "a".repeat(MAX_LOGIN_BYTES)
+        );
+        let resp = router.handle(login_request(oversized, &token)).await;
+        assert_eq!(
+            resp.status(),
+            http::StatusCode::PAYLOAD_TOO_LARGE,
+            "a login body over the credential cap must be refused, got {}",
+            resp.status()
+        );
+        assert!(
+            session_cookie(&resp).is_none(),
+            "a refused login must not start a session"
+        );
+
+        // A normal credential POST still signs in.
+        let token = Uuid::new_v4().to_string();
+        let resp = router
+            .handle(login_request(
+                format!("email=ada@example.com&password=opensesame&csrf_token={token}"),
+                &token,
+            ))
+            .await;
+        assert_eq!(
+            resp.status(),
+            http::StatusCode::SEE_OTHER,
+            "a normal credential POST must sign in, got {}",
+            resp.status()
+        );
+        assert!(
+            session_cookie(&resp).is_some(),
+            "a successful login starts a session"
+        );
+    }
+
+    /// GH #295: login drops the signing-in user's expired session rows. A row
+    /// whose token is never presented again would otherwise stay in the table
+    /// forever, because [`resolve`] only purges a row it looks up.
+    #[tokio::test]
+    async fn login_purges_the_users_expired_sessions() {
+        let mut db = db_with_admin("ada@example.com").await;
+        let other = toasty::create!(AdminUser {
+            email: "grace@example.com".to_string(),
+            password_hash: hash_password("opensesame").expect("hash"),
+            display_name: "Grace".to_string(),
+            active: true,
+            tenant_id: None,
+            created_at: Timestamp::now(),
+        })
+        .exec(&mut db)
+        .await
+        .expect("seed the other admin");
+        let ada = AdminUser::filter(
+            AdminUser::fields()
+                .email()
+                .eq("ada@example.com".to_string()),
+        )
+        .first()
+        .exec(&mut db)
+        .await
+        .expect("look up ada")
+        .expect("ada exists");
+        let expired = "2000-01-01T00:00:00Z"
+            .parse::<Timestamp>()
+            .expect("a past timestamp");
+        let live = "2100-01-01T00:00:00Z"
+            .parse::<Timestamp>()
+            .expect("a future timestamp");
+        for (token_hash, user_id, expires_at) in [
+            ("expired-mine", ada.id.to_string(), expired),
+            ("live-mine", ada.id.to_string(), live),
+            ("expired-other", other.id.to_string(), expired),
+        ] {
+            toasty::create!(AuthSession {
+                token_hash: token_hash.to_string(),
+                user_id,
+                expires_at,
+                created_at: Timestamp::now(),
+            })
+            .exec(&mut db)
+            .await
+            .expect("seed a session row");
+        }
+
+        let router = auth_router(db.clone());
+        let token = Uuid::new_v4().to_string();
+        let resp = router
+            .handle(login_request(
+                format!("email=ada@example.com&password=opensesame&csrf_token={token}"),
+                &token,
+            ))
+            .await;
+        assert_eq!(
+            resp.status(),
+            http::StatusCode::SEE_OTHER,
+            "the login must succeed"
+        );
+
+        let mut check = db.clone();
+        assert!(
+            AuthSession::filter(
+                AuthSession::fields()
+                    .token_hash()
+                    .eq("expired-mine".to_string())
+            )
+            .first()
+            .exec(&mut check)
+            .await
+            .expect("query")
+            .is_none(),
+            "the signing-in user's expired session must be purged"
+        );
+        let mut check = db.clone();
+        assert!(
+            AuthSession::filter(
+                AuthSession::fields()
+                    .token_hash()
+                    .eq("live-mine".to_string())
+            )
+            .first()
+            .exec(&mut check)
+            .await
+            .expect("query")
+            .is_some(),
+            "a live session of the same user survives the purge"
+        );
+        let mut check = db.clone();
+        assert!(
+            AuthSession::filter(
+                AuthSession::fields()
+                    .token_hash()
+                    .eq("expired-other".to_string())
+            )
+            .first()
+            .exec(&mut check)
+            .await
+            .expect("query")
+            .is_some(),
+            "another user's expired session is out of the sweep's scope"
         );
     }
 
