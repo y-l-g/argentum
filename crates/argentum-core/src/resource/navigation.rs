@@ -160,14 +160,7 @@ mod tests {
     use topcoat::context::Cx;
 
     use super::*;
-
-    #[derive(Debug, Clone, toasty::Model)]
-    struct User {
-        #[key]
-        #[auto]
-        id: uuid::Uuid,
-        name: String,
-    }
+    use crate::test_support::User;
 
     struct UserResource;
 

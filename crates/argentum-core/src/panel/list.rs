@@ -431,22 +431,12 @@ pub(crate) async fn load_table_page<R: Resource>(
 mod tests {
     use toasty::Db;
 
-    use super::{
-        super::{Panel, TABLE_SEARCH_PATH},
-        *,
-    };
+    use super::{super::TABLE_SEARCH_PATH, *};
+    use crate::panel::test_support::{Dummy, dummy_table, panel_for};
 
     /// The minimal table-backed model the list-chrome tests share (GH #217):
     /// `list_html` was declared twice with byte-identical bodies apart from one
     /// seeded row, so a change to the panel's list route had to be made twice.
-    #[derive(Debug, toasty::Model, Clone)]
-    struct Dummy {
-        #[key]
-        #[auto]
-        id: uuid::Uuid,
-        name: String,
-    }
-
     /// The `GET /admin/dummies` body for a resource registered with one seeded
     /// row, so the row-chrome assertions have a row to look at.
     async fn list_html<R: Resource>() -> String {
@@ -472,12 +462,7 @@ mod tests {
             .await
             .unwrap();
         }
-        let router = Panel::new("admin")
-            .app_context(db)
-            .resource::<R>()
-            .auth(crate::Auth::disabled())
-            .build()
-            .expect("panel builds");
+        let router = panel_for::<R>(db).build().expect("panel builds");
         let resp = router
             .handle(
                 http::Request::builder()
@@ -496,7 +481,6 @@ mod tests {
         // GH #104: opt-in tables render the signal host (page bodies are
         // hoisted, so signals work there); the slug-dispatched shard serves
         // the table and 404s unknown paths.
-        use std::collections::HashMap;
 
         use http_body_util::BodyExt;
 
@@ -547,9 +531,6 @@ mod tests {
                     .paginate(1)
                     .live_search(true)
             }
-            fn hydrate_form_values(_cx: &Cx, _record: &Dummy) -> HashMap<String, String> {
-                HashMap::new()
-            }
         }
 
         let mut db = Db::builder()
@@ -565,10 +546,7 @@ mod tests {
         .exec(&mut db)
         .await
         .unwrap();
-        let router = Panel::new("admin")
-            .app_context(db.clone())
-            .resource::<LiveResource>()
-            .auth(crate::Auth::disabled())
+        let router = panel_for::<LiveResource>(db.clone())
             .build()
             .expect("panel builds");
 
@@ -839,19 +817,11 @@ mod tests {
         // local until the debounce delay), the hidden transport carries the
         // bound `@change` write, and the GET form survives as the no-JS
         // fallback.
-        use std::collections::HashMap;
 
         use http_body_util::BodyExt;
 
         use crate::resource::Resource;
 
-        #[derive(Debug, toasty::Model, Clone)]
-        struct Dummy {
-            #[key]
-            #[auto]
-            id: uuid::Uuid,
-            name: String,
-        }
         struct LiveResource;
         impl Resource for LiveResource {
             type Model = Dummy;
@@ -878,9 +848,6 @@ mod tests {
                     .paginate(25)
                     .live_search(true)
             }
-            fn hydrate_form_values(_cx: &Cx, _record: &Dummy) -> HashMap<String, String> {
-                HashMap::new()
-            }
         }
 
         let mut db = Db::builder()
@@ -895,12 +862,7 @@ mod tests {
         .exec(&mut db)
         .await
         .unwrap();
-        let router = Panel::new("admin")
-            .app_context(db)
-            .resource::<LiveResource>()
-            .auth(crate::Auth::disabled())
-            .build()
-            .expect("panel builds");
+        let router = panel_for::<LiveResource>(db).build().expect("panel builds");
         let resp = router
             .handle(
                 http::Request::builder()
@@ -940,19 +902,10 @@ mod tests {
 
     #[tokio::test]
     async fn read_only_resource_hides_delete_chrome() {
-        use std::collections::HashMap;
-
         use http_body_util::BodyExt;
 
         use crate::resource::Resource;
 
-        #[derive(Debug, toasty::Model, Clone)]
-        struct Dummy {
-            #[key]
-            #[auto]
-            id: uuid::Uuid,
-            name: String,
-        }
         struct ReadOnlyResource;
         impl Resource for ReadOnlyResource {
             type Model = Dummy;
@@ -966,17 +919,7 @@ mod tests {
                 true
             }
             fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
-                crate::resource::Table::r#for(cx)
-                    .id(|d: &Dummy| d.id.to_string())
-                    .pk(|d: &Dummy| d.id.to_string())
-                    .columns(crate::resource::TextColumn::r#for(
-                        Dummy::fields().name(),
-                        |d: &Dummy| d.name.clone(),
-                    ))
-                    .paginate(25)
-            }
-            fn hydrate_form_values(_cx: &Cx, _record: &Dummy) -> HashMap<String, String> {
-                HashMap::new()
+                dummy_table(cx).paginate(25)
             }
         }
 
@@ -992,10 +935,7 @@ mod tests {
         .exec(&mut db)
         .await
         .unwrap();
-        let router = Panel::new("admin")
-            .app_context(db)
-            .resource::<ReadOnlyResource>()
-            .auth(crate::Auth::disabled())
+        let router = panel_for::<ReadOnlyResource>(db)
             .build()
             .expect("panel builds");
         let resp = router
@@ -1034,19 +974,11 @@ mod tests {
         // GH #172: a resource list without `Table::paginate` fails loudly in
         // the table region instead of unbounded-loading the whole table — the
         // seeded row must not render, and the branded error state must.
-        use std::collections::HashMap;
 
         use http_body_util::BodyExt;
 
         use crate::resource::Resource;
 
-        #[derive(Debug, toasty::Model, Clone)]
-        struct Dummy {
-            #[key]
-            #[auto]
-            id: uuid::Uuid,
-            name: String,
-        }
         struct UnpaginatedResource;
         impl Resource for UnpaginatedResource {
             type Model = Dummy;
@@ -1060,16 +992,7 @@ mod tests {
                 true
             }
             fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
-                crate::resource::Table::r#for(cx)
-                    .id(|d: &Dummy| d.id.to_string())
-                    .pk(|d: &Dummy| d.id.to_string())
-                    .columns(crate::resource::TextColumn::r#for(
-                        Dummy::fields().name(),
-                        |d: &Dummy| d.name.clone(),
-                    ))
-            }
-            fn hydrate_form_values(_cx: &Cx, _record: &Dummy) -> HashMap<String, String> {
-                HashMap::new()
+                dummy_table(cx)
             }
         }
 
@@ -1085,10 +1008,7 @@ mod tests {
         .exec(&mut db)
         .await
         .unwrap();
-        let router = Panel::new("admin")
-            .app_context(db)
-            .resource::<UnpaginatedResource>()
-            .auth(crate::Auth::disabled())
+        let router = panel_for::<UnpaginatedResource>(db)
             .build()
             .expect("panel builds");
         let resp = router
@@ -1121,13 +1041,6 @@ mod tests {
 
         use crate::resource::{Table, TableState, TextColumn};
 
-        #[derive(Debug, Clone, toasty::Model)]
-        struct Dummy {
-            #[key]
-            #[auto]
-            id: uuid::Uuid,
-            name: String,
-        }
         let mut db = Db::builder()
             .models(toasty::models!(Dummy))
             .connect("sqlite::memory:")
@@ -1168,7 +1081,6 @@ mod tests {
     async fn list_header_renders_create_entry_point_when_allowed() {
         // GH #162 (Filament's List page `CreateAction` in the page header):
         // the Create link is eager page chrome, gated on `can_create`.
-        use std::collections::HashMap;
 
         use crate::resource::Resource;
 
@@ -1185,17 +1097,7 @@ mod tests {
                 true
             }
             fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
-                crate::resource::Table::r#for(cx)
-                    .id(|d: &Dummy| d.id.to_string())
-                    .pk(|d: &Dummy| d.id.to_string())
-                    .columns(crate::resource::TextColumn::r#for(
-                        Dummy::fields().name(),
-                        |d: &Dummy| d.name.clone(),
-                    ))
-                    .paginate(25)
-            }
-            fn hydrate_form_values(_cx: &Cx, _record: &Dummy) -> HashMap<String, String> {
-                HashMap::new()
+                dummy_table(cx).paginate(25)
             }
             fn form(_cx: &Cx) -> crate::schema::Schema {
                 crate::schema::Schema::new(crate::schema::TextInput::r#for(Dummy::fields().name()))
@@ -1212,9 +1114,6 @@ mod tests {
             }
             fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
                 CreatableResource::table(cx)
-            }
-            fn hydrate_form_values(_cx: &Cx, _record: &Dummy) -> HashMap<String, String> {
-                HashMap::new()
             }
         }
 
@@ -1235,7 +1134,6 @@ mod tests {
         // GH #162: `editable()` is the `deletable()` (GH #96) counterpart for
         // the per-row Edit link — read-only resources hide it, writable ones
         // link each row to `{list}/{id}/edit`.
-        use std::collections::HashMap;
 
         use crate::resource::Resource;
 
@@ -1268,17 +1166,7 @@ mod tests {
                 true
             }
             fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
-                crate::resource::Table::r#for(cx)
-                    .id(|d: &Dummy| d.id.to_string())
-                    .pk(|d: &Dummy| d.id.to_string())
-                    .columns(crate::resource::TextColumn::r#for(
-                        Dummy::fields().name(),
-                        |d: &Dummy| d.name.clone(),
-                    ))
-                    .paginate(25)
-            }
-            fn hydrate_form_values(_cx: &Cx, _record: &Dummy) -> HashMap<String, String> {
-                HashMap::new()
+                dummy_table(cx).paginate(25)
             }
             fn form(_cx: &Cx) -> crate::schema::Schema {
                 crate::schema::Schema::new(crate::schema::TextInput::r#for(Dummy::fields().name()))
@@ -1301,9 +1189,6 @@ mod tests {
             }
             fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
                 WritableResource::table(cx)
-            }
-            fn hydrate_form_values(_cx: &Cx, _record: &Dummy) -> HashMap<String, String> {
-                HashMap::new()
             }
         }
 
@@ -1333,19 +1218,9 @@ mod tests {
     /// for the row the list never links.
     #[tokio::test]
     async fn denied_rows_render_no_edit_chrome() {
-        use std::collections::HashMap;
-
         use http_body_util::BodyExt;
 
         use crate::resource::Resource;
-
-        #[derive(Debug, toasty::Model, Clone)]
-        struct Dummy {
-            #[key]
-            #[auto]
-            id: uuid::Uuid,
-            name: String,
-        }
 
         /// The minimum a resource can declare: `can_view_any` so the list
         /// renders, a grid and a form so there is something to link to, and
@@ -1360,17 +1235,7 @@ mod tests {
                 true
             }
             fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
-                crate::resource::Table::r#for(cx)
-                    .id(|d: &Dummy| d.id.to_string())
-                    .pk(|d: &Dummy| d.id.to_string())
-                    .columns(crate::resource::TextColumn::r#for(
-                        Dummy::fields().name(),
-                        |d: &Dummy| d.name.clone(),
-                    ))
-                    .paginate(25)
-            }
-            fn hydrate_form_values(_cx: &Cx, _record: &Dummy) -> HashMap<String, String> {
-                HashMap::new()
+                dummy_table(cx).paginate(25)
             }
             fn form(_cx: &Cx) -> crate::schema::Schema {
                 crate::schema::Schema::new(crate::schema::TextInput::r#for(Dummy::fields().name()))
@@ -1389,10 +1254,7 @@ mod tests {
         .exec(&mut db)
         .await
         .unwrap();
-        let router = Panel::new("admin")
-            .app_context(db)
-            .resource::<DeniedResource>()
-            .auth(crate::Auth::disabled())
+        let router = panel_for::<DeniedResource>(db)
             .build()
             .expect("panel builds");
 
@@ -1448,8 +1310,6 @@ mod tests {
     /// hand-written `row_actions` closure proves the renderer, not the wiring.
     #[tokio::test]
     async fn per_record_policy_narrows_the_wired_chrome() {
-        use std::collections::HashMap;
-
         use crate::{
             resource::Resource,
             schema::{Schema, TextInput},
@@ -1482,17 +1342,7 @@ mod tests {
                 record.name != "Locked"
             }
             fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
-                crate::resource::Table::r#for(cx)
-                    .id(|d: &Dummy| d.id.to_string())
-                    .pk(|d: &Dummy| d.id.to_string())
-                    .columns(crate::resource::TextColumn::r#for(
-                        Dummy::fields().name(),
-                        |d: &Dummy| d.name.clone(),
-                    ))
-                    .paginate(25)
-            }
-            fn hydrate_form_values(_cx: &Cx, _record: &Dummy) -> HashMap<String, String> {
-                HashMap::new()
+                dummy_table(cx).paginate(25)
             }
             fn form(_cx: &Cx) -> Schema {
                 Schema::new(TextInput::r#for(Dummy::fields().name()))
@@ -1637,8 +1487,6 @@ mod tests {
 
     #[tokio::test]
     async fn tenant_gated_resource_fails_closed_without_tenant() {
-        use std::collections::HashMap;
-
         use crate::resource::Resource;
 
         #[derive(Debug, toasty::Model, Clone)]
@@ -1682,9 +1530,6 @@ mod tests {
                     ))
                     .paginate(25)
             }
-            fn hydrate_form_values(_cx: &Cx, _record: &Dummy) -> HashMap<String, String> {
-                HashMap::new()
-            }
             fn form(_cx: &Cx) -> crate::schema::Schema {
                 crate::schema::Schema::new(crate::schema::TextInput::r#for(Dummy::fields().name()))
             }
@@ -1696,10 +1541,7 @@ mod tests {
             .await
             .unwrap();
         db.push_schema().await.unwrap();
-        let router = Panel::new("admin")
-            .app_context(db)
-            .resource::<GatedResource>()
-            .auth(crate::Auth::disabled())
+        let router = panel_for::<GatedResource>(db)
             .build()
             .expect("panel builds");
         // No tenant anywhere → 403, not unscoped rows (GH #87).
@@ -1815,10 +1657,7 @@ mod tests {
         .await
         .unwrap();
 
-        let router = Panel::new("admin")
-            .app_context(db)
-            .resource::<ScopedResource>()
-            .auth(crate::Auth::disabled())
+        let router = panel_for::<ScopedResource>(db)
             .build()
             .expect("panel builds");
         // A server-set `Tenant` request extension supplies the tenant (GH #131).
@@ -1898,10 +1737,7 @@ mod tests {
             .exec(&mut db)
             .await
             .unwrap();
-        let router = Panel::new("admin")
-            .app_context(db)
-            .resource::<SubscriberResource>()
-            .auth(crate::Auth::disabled())
+        let router = panel_for::<SubscriberResource>(db)
             .build()
             .expect("panel builds");
 
@@ -2051,10 +1887,7 @@ mod tests {
             .await
             .unwrap();
         }
-        let router = Panel::new("admin")
-            .app_context(db.clone())
-            .resource::<SubscriberResource>()
-            .auth(crate::Auth::disabled())
+        let router = panel_for::<SubscriberResource>(db.clone())
             .build()
             .expect("panel builds");
 

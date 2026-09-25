@@ -468,14 +468,11 @@ impl Default for Tabs {
 mod tests {
     use std::collections::HashMap;
 
-    use topcoat::context::{Cx, CxTestBuilder};
-
     use super::*;
-    use crate::schema::{Schema, TextInput};
-
-    fn cx() -> Cx {
-        CxTestBuilder::new().build()
-    }
+    use crate::{
+        schema::{Schema, TextInput},
+        test_support::cx,
+    };
 
     /// The `<div>` nesting depth at the first occurrence of `marker` in `html`,
     /// the outermost `<div>` counting as 1.

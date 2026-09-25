@@ -403,14 +403,12 @@ where
 mod tests {
     use std::collections::HashMap;
 
-    use topcoat::context::{Cx, CxTestBuilder};
-
     use super::*;
-    use crate::schema::{Group, Schema, Section, TextInput};
+    use crate::{
+        schema::{Group, Schema, Section, TextInput},
+        test_support::cx,
+    };
 
-    fn cx() -> Cx {
-        CxTestBuilder::new().build()
-    }
     #[derive(Debug, toasty::Model)]
     struct DummyUser {
         #[key]

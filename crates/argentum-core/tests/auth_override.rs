@@ -4,7 +4,7 @@
 //! This is the "bring your own user table" path ADR-0013 promises.
 
 use argentum_core::{
-    Auth, Panel, Resource, Table, TextColumn,
+    Auth, Resource, Table, TextColumn,
     auth::{AuthFuture, Authenticator, CurrentUser},
 };
 use http::header::{COOKIE, LOCATION, SET_COOKIE};
@@ -14,6 +14,10 @@ use topcoat::{
     router::{Body, Router, response::Response},
 };
 use uuid::Uuid;
+
+use crate::common::{
+    body_string, cookies, get_with_cookies, input_value, memory_db, post_form, router_with,
+};
 
 /// A custom user table — deliberately not `AdminUser`.
 #[derive(Debug, Clone, toasty::Model)]
@@ -106,12 +110,7 @@ impl Resource for MemberResource {
 }
 
 async fn seeded_db() -> Db {
-    let mut db = Db::builder()
-        .models(toasty::models!(Member, argentum_core::auth::AuthSession))
-        .connect("sqlite::memory:")
-        .await
-        .expect("connect");
-    db.push_schema().await.expect("push_schema");
+    let mut db = memory_db(toasty::models!(Member, argentum_core::auth::AuthSession)).await;
     toasty::create!(Member {
         handle: "ada".to_string(),
         secret: "opensesame".to_string(),
@@ -125,65 +124,6 @@ async fn seeded_db() -> Db {
     db
 }
 
-fn router(db: Db) -> Router {
-    Panel::new("admin")
-        .app_context(db)
-        .auth(Auth::custom(MemberAuth))
-        .resource::<MemberResource>()
-        .build()
-        .expect("panel builds")
-}
-
-async fn get(router: &Router, uri: &str, cookies: &[(&str, String)]) -> Response<Body> {
-    let mut request = http::Request::builder().uri(uri);
-    if !cookies.is_empty() {
-        let jar = cookies
-            .iter()
-            .map(|(name, value)| format!("{name}={value}"))
-            .collect::<Vec<_>>()
-            .join("; ");
-        request = request.header(COOKIE, jar);
-    }
-    router.handle(request.body(Body::empty()).unwrap()).await
-}
-
-async fn post_form(
-    router: &Router,
-    uri: &str,
-    cookies: &[(&str, String)],
-    body: String,
-) -> Response<Body> {
-    let mut request = http::Request::builder()
-        .method(http::Method::POST)
-        .uri(uri)
-        .header(
-            http::header::CONTENT_TYPE,
-            "application/x-www-form-urlencoded",
-        );
-    if !cookies.is_empty() {
-        let jar = cookies
-            .iter()
-            .map(|(name, value)| format!("{name}={value}"))
-            .collect::<Vec<_>>()
-            .join("; ");
-        request = request.header(COOKIE, jar);
-    }
-    router.handle(request.body(Body::from(body)).unwrap()).await
-}
-
-/// The `(name, value)` pairs a response's `Set-Cookie` headers carry.
-fn cookies(response: &Response<Body>) -> Vec<(String, String)> {
-    response
-        .headers()
-        .get_all(SET_COOKIE)
-        .iter()
-        .filter_map(|value| value.to_str().ok())
-        .filter_map(|value| value.split(';').next())
-        .filter_map(|pair| pair.split_once('='))
-        .map(|(name, value)| (name.trim().to_string(), value.trim().to_string()))
-        .collect()
-}
-
 fn cookie_value(response: &Response<Body>, name: &str) -> Option<String> {
     cookies(response)
         .into_iter()
@@ -194,15 +134,9 @@ fn cookie_value(response: &Response<Body>, name: &str) -> Option<String> {
 /// Scrape the login page's CSRF pair (cookie + hidden token) — the shared
 /// first step of every login flow in this suite.
 async fn csrf_pair(router: &Router) -> (String, String) {
-    let page = get(router, "/admin/login", &[]).await;
+    let page = get_with_cookies(router, "/admin/login", &[]).await;
     let csrf_cookie = cookie_value(&page, argentum_core::csrf::COOKIE_NAME).expect("CSRF cookie");
-    let html = String::from_utf8_lossy(
-        &http_body_util::BodyExt::collect(page.into_body())
-            .await
-            .unwrap()
-            .to_bytes(),
-    )
-    .into_owned();
+    let html = body_string(page).await;
     let csrf = input_value(&html, "csrf_token").expect("CSRF field");
     (csrf_cookie, csrf)
 }
@@ -228,7 +162,7 @@ async fn login_session(router: &Router) -> String {
 #[tokio::test]
 async fn revoked_panel_access_can_still_log_out() {
     let db = seeded_db().await;
-    let router = router(db.clone());
+    let router = router_with::<MemberResource>(db.clone(), Auth::custom(MemberAuth));
     let session = login_session(&router).await;
 
     // Revoke the member's panel access; the live session still resolves.
@@ -245,7 +179,7 @@ async fn revoked_panel_access_can_still_log_out() {
         .unwrap();
 
     // Panel pages now 403 the de-permitted user...
-    let response = get(
+    let response = get_with_cookies(
         &router,
         "/admin/members",
         &[("__Host-session", session.clone())],
@@ -298,31 +232,13 @@ async fn revoked_panel_access_can_still_log_out() {
     );
 }
 
-/// The `value` of the named hidden input in rendered HTML.
-fn input_value(html: &str, name: &str) -> Option<String> {
-    let name_attr = format!("name=\"{name}\"");
-    for tag in html.split('<').skip(1) {
-        if !tag.contains(&name_attr) {
-            continue;
-        }
-        let attrs = &tag[..tag.find('>')?];
-        if let Some(start) = attrs.find("value=\"") {
-            let rest = &attrs[start + "value=\"".len()..];
-            if let Some(end) = rest.find('"') {
-                return Some(rest[..end].to_string());
-            }
-        }
-    }
-    None
-}
-
 #[tokio::test]
 async fn custom_authenticator_completes_a_full_login_round_trip() {
     let db = seeded_db().await;
-    let router = router(db);
+    let router = router_with::<MemberResource>(db, Auth::custom(MemberAuth));
 
     // No session: the panel gate redirects to the login page with `next`.
-    let response = get(&router, "/admin/members", &[]).await;
+    let response = get_with_cookies(&router, "/admin/members", &[]).await;
     assert_eq!(response.status(), 307);
     assert_eq!(
         response.headers().get(LOCATION).unwrap(),
@@ -345,13 +261,9 @@ async fn custom_authenticator_completes_a_full_login_round_trip() {
     .await;
     assert_eq!(wrong.status(), 403);
     assert!(
-        String::from_utf8_lossy(
-            &http_body_util::BodyExt::collect(wrong.into_body())
-                .await
-                .unwrap()
-                .to_bytes()
-        )
-        .contains("Invalid email or password.")
+        body_string(wrong)
+            .await
+            .contains("Invalid email or password.")
     );
 
     let login = post_form(
@@ -365,20 +277,14 @@ async fn custom_authenticator_completes_a_full_login_round_trip() {
     let session = cookie_value(&login, "__Host-session").expect("session cookie");
 
     // The same request now serves the gated page.
-    let response = get(
+    let response = get_with_cookies(
         &router,
         "/admin/members",
         &[("__Host-session", session.clone())],
     )
     .await;
     assert_eq!(response.status(), 200);
-    let html = String::from_utf8_lossy(
-        &http_body_util::BodyExt::collect(response.into_body())
-            .await
-            .unwrap()
-            .to_bytes(),
-    )
-    .into_owned();
+    let html = body_string(response).await;
     assert!(html.contains("ada"), "member list must render: {html}");
 
     // The session is server-side: logging out revokes it and the cookie
@@ -405,6 +311,7 @@ async fn custom_authenticator_completes_a_full_login_round_trip() {
         )
         .await;
     assert_eq!(logout.status(), 303);
-    let response = get(&router, "/admin/members", &[("__Host-session", session)]).await;
+    let response =
+        get_with_cookies(&router, "/admin/members", &[("__Host-session", session)]).await;
     assert_eq!(response.status(), 307, "logout must revoke the session");
 }

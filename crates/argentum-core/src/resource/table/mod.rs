@@ -975,15 +975,10 @@ mod tests {
     use topcoat::context::CxTestBuilder;
 
     use super::*;
-    use crate::resource::{SelectFilter, Sort, TableState, TernaryFilter, TextColumn};
-
-    #[derive(Debug, Clone, toasty::Model)]
-    struct User {
-        #[key]
-        #[auto]
-        id: uuid::Uuid,
-        name: String,
-    }
+    use crate::{
+        resource::{SelectFilter, Sort, TableState, TernaryFilter, TextColumn},
+        test_support::User,
+    };
 
     #[derive(Debug, Clone, toasty::Model)]
     struct Task {

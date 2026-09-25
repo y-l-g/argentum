@@ -435,14 +435,7 @@ impl<M> IntoColumns<M>
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[derive(Debug, Clone, toasty::Model)]
-    struct User {
-        #[key]
-        #[auto]
-        id: uuid::Uuid,
-        name: String,
-    }
+    use crate::test_support::User;
 
     /// GH #116: `%` and `_` in a search term are literal characters, not
     /// wildcards, and the term is wrapped for a substring match.

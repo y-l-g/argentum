@@ -9,16 +9,13 @@
 
 use std::collections::HashMap;
 
-use argentum_core::{
-    Auth, Committed, Mutation, Panel, Resource, Schema, Table, TextColumn, TextInput,
-};
-use http::header::{CONTENT_TYPE, COOKIE, LOCATION};
+use argentum_core::{Committed, Mutation, Resource, Schema, Table, TextColumn, TextInput};
+use http::header::LOCATION;
 use toasty::Db;
-use topcoat::{
-    context::Cx,
-    router::{Body, Router, response::Response},
-};
+use topcoat::{context::Cx, router::Body};
 use uuid::Uuid;
+
+use crate::common::{memory_db, post_fields, router};
 
 #[derive(Debug, toasty::Model, Clone)]
 struct Note {
@@ -324,51 +321,7 @@ impl Resource for FailingHookResource {
 }
 
 async fn seeded_db() -> Db {
-    let db = Db::builder()
-        .models(toasty::models!(Note, Audit))
-        .connect("sqlite::memory:")
-        .await
-        .expect("connect");
-    db.push_schema().await.expect("push_schema");
-    db
-}
-
-fn router<R: Resource>(db: Db) -> Router {
-    Panel::new("admin")
-        .app_context(db)
-        // The seam under test is the commit ordering; the auth gate has its own
-        // suite, so it is off here.
-        .auth(Auth::disabled())
-        .resource::<R>()
-        .build()
-        .expect("panel builds")
-}
-
-/// A URL-encoded POST with the matching CSRF cookie + field.
-async fn post(router: &Router, uri: &str, csrf: &str, body: String) -> Response<Body> {
-    let request = http::Request::builder()
-        .method(http::Method::POST)
-        .uri(uri)
-        .header(
-            CONTENT_TYPE,
-            "application/x-www-form-urlencoded".to_string(),
-        )
-        .header(
-            COOKIE,
-            format!("{}={csrf}", argentum_core::csrf::COOKIE_NAME),
-        )
-        .body(Body::from(body))
-        .expect("request builds");
-    router.handle(request).await
-}
-
-async fn post_form(router: &Router, uri: &str, fields: &[(&str, &str)]) -> Response<Body> {
-    let csrf = Uuid::new_v4().to_string();
-    let mut body = format!("csrf_token={csrf}");
-    for (name, value) in fields {
-        body.push_str(&format!("&{name}={value}"));
-    }
-    post(router, uri, &csrf, body).await
+    memory_db(toasty::models!(Note, Audit)).await
 }
 
 async fn seed_note(db: &Db, title: &str) -> Note {
@@ -396,7 +349,7 @@ async fn a_create_audits_the_row_it_committed_exactly_once() {
     let db = seeded_db().await;
     let router = router::<AuditedResource>(db.clone());
 
-    let response = post_form(&router, "/admin/notes/create", &[("title", "Alpha")]).await;
+    let response = post_fields(&router, "/admin/notes/create", &[("title", "Alpha")]).await;
     assert_eq!(response.status(), 303, "a valid create redirects");
 
     let created = notes(&db).await;
@@ -418,7 +371,7 @@ async fn an_edit_and_a_delete_each_audit_the_row_they_named() {
     let router = router::<AuditedResource>(db.clone());
     let note = seed_note(&db, "Alpha").await;
 
-    let response = post_form(
+    let response = post_fields(
         &router,
         &format!("/admin/notes/{}/edit", note.id),
         &[("title", "Beta")],
@@ -438,7 +391,7 @@ async fn an_edit_and_a_delete_each_audit_the_row_they_named() {
         "an update hands over the committed row, not the loaded snapshot"
     );
 
-    let response = post_form(
+    let response = post_fields(
         &router,
         &format!("/admin/notes/{}/delete", note.id),
         &[("confirm", "1")],
@@ -461,7 +414,7 @@ async fn a_bulk_delete_is_one_call_for_the_whole_batch() {
     let second = seed_note(&db, "Beta").await;
 
     let ids = format!("{},{}", first.id, second.id);
-    let response = post_form(
+    let response = post_fields(
         &router,
         "/admin/notes/bulk-delete",
         &[("ids", &ids), ("confirm", "1")],
@@ -487,7 +440,7 @@ async fn a_refused_submit_never_reaches_the_hook() {
 
     // `title` is required: validation re-renders the form and the transaction
     // is never opened.
-    let response = post_form(&router, "/admin/notes/create", &[("title", "")]).await;
+    let response = post_fields(&router, "/admin/notes/create", &[("title", "")]).await;
     assert_eq!(response.status(), 200, "the form re-renders");
 
     assert!(notes(&db).await.is_empty());
@@ -502,7 +455,7 @@ async fn a_failed_write_never_reaches_the_hook() {
     let db = seeded_db().await;
     let router = router::<FailingWriteResource>(db.clone());
 
-    let response = post_form(
+    let response = post_fields(
         &router,
         "/admin/failing-writes/create",
         &[("title", "Alpha")],
@@ -526,7 +479,7 @@ async fn a_failing_hook_does_not_undo_the_write() {
     let db = seeded_db().await;
     let router = router::<FailingHookResource>(db.clone());
 
-    let response = post_form(
+    let response = post_fields(
         &router,
         "/admin/failing-hooks/create",
         &[("title", "Alpha")],
@@ -555,7 +508,7 @@ async fn a_resource_without_the_hook_writes_exactly_as_before() {
     let db = seeded_db().await;
     let router = router::<PlainResource>(db.clone());
 
-    let response = post_form(&router, "/admin/plain-notes/create", &[("title", "Alpha")]).await;
+    let response = post_fields(&router, "/admin/plain-notes/create", &[("title", "Alpha")]).await;
     assert_eq!(response.status(), 303, "the default hook is a no-op");
     let response = router
         .handle(

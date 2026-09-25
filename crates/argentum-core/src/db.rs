@@ -62,14 +62,7 @@ mod tests {
     use topcoat::context::CxTestBuilder;
 
     use super::*;
-
-    #[derive(Debug, toasty::Model)]
-    struct User {
-        #[key]
-        #[auto]
-        id: uuid::Uuid,
-        name: String,
-    }
+    use crate::test_support::User;
 
     async fn seeded_db() -> Db {
         let mut db = Db::builder()

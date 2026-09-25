@@ -1,4 +1,4 @@
-//! Embedded lens resolution (GH #185).
+//! Embedded lens resolution through the request's app schema (GH #185).
 //!
 //! `TextInput::r#for` binds a top-level field: it resolves against the owned
 //! `app::Model`, which cannot see embedded models, so a path through an
@@ -6,9 +6,10 @@
 //! resolves through the request's app schema instead, so the leaf arrives as
 //! its flattened storage column.
 //!
-//! This is the render-path proof: the flattened name has to be what the form
-//! posts and what `field_names()` allow-lists, or a bound embedded field would
-//! render blank and then be refused as an unknown key.
+//! This is the render-path proof: the flattened name is what the form posts
+//! and what `field_names()` allow-lists, or a bound embedded field would
+//! render blank and then be refused as an unknown key. The resolver walk
+//! itself is covered by `schema::lenses`'s own tests.
 
 use std::collections::HashMap;
 
@@ -27,62 +28,6 @@ struct Seo {
 #[derive(Debug, Clone, toasty::Embed)]
 struct Meta {
     seo: Seo,
-    note: String,
-}
-
-#[derive(Debug, Clone, toasty::Model)]
-struct Author {
-    #[key]
-    #[auto]
-    id: uuid::Uuid,
-    name: String,
-}
-
-/// A unit-or-payload enum: the payload columns are `kind_at` / `kind_url`,
-/// with the variant label living in the `kind` discriminant column.
-#[derive(Debug, Clone, toasty::Embed)]
-enum Kind {
-    Scheduled { at: String },
-    Published { url: String },
-}
-
-/// A shared column: every variant declares a timestamp under the same shared
-/// identifier, so they coalesce into one column named after the identifier.
-#[derive(Debug, Clone, toasty::Embed)]
-enum Publication {
-    #[column(variant = 1)]
-    Scheduled {
-        #[shared(timestamp)]
-        scheduled_at: String,
-    },
-    #[column(variant = 2)]
-    Published {
-        #[shared(timestamp)]
-        published_at: String,
-    },
-}
-
-/// A document embeds into **one** column named after the field itself.
-#[derive(Debug, Clone, toasty::Embed)]
-struct Extra {
-    note: String,
-}
-
-/// A two-variant enum, for the nested variant-rooted case.
-#[derive(Debug, Clone, toasty::Embed)]
-enum Media {
-    #[column(variant = 1)]
-    Image { url: String },
-    #[column(variant = 2)]
-    Video { video_url: String },
-}
-
-/// An embedded struct that itself holds an embedded struct and an enum — the
-/// shape that makes a variant-rooted path start deeper than one step.
-#[derive(Debug, Clone, toasty::Embed)]
-struct Wrapper {
-    inner: Meta,
-    media: Media,
 }
 
 #[derive(Debug, Clone, toasty::Model)]
@@ -93,21 +38,12 @@ struct Article {
     #[index]
     title: String,
     meta: Meta,
-    kind: Kind,
-    #[document]
-    extra: Extra,
-    wrapper: Wrapper,
-    publication: Publication,
-    #[index]
-    author_id: uuid::Uuid,
-    #[belongs_to(key = author_id, references = id)]
-    author: toasty::Deferred<Author>,
 }
 
 /// A `Db` built from the article model — the app schema comes with it.
 async fn article_cx() -> Cx {
     let db = toasty::Db::builder()
-        .models(toasty::models!(Article, Author))
+        .models(toasty::models!(Article))
         .connect("sqlite::memory:")
         .await
         .expect("connect");
@@ -147,106 +83,6 @@ async fn embedded_leaf_resolves_to_its_flattened_column() {
         html.contains("name=\"meta_seo_title\""),
         "the control must post the flattened column, got {html}"
     );
-}
-
-#[tokio::test]
-async fn a_one_level_embedded_leaf_resolves_too() {
-    let cx = article_cx().await;
-    let input = TextInput::r#for_context(&cx, Article::fields().meta().note());
-    assert_eq!(input.field_name(), "meta_note");
-}
-
-#[tokio::test]
-async fn a_top_level_field_still_resolves_through_the_schema_path() {
-    let cx = article_cx().await;
-    let input = TextInput::r#for_context(&cx, Article::fields().title());
-    assert_eq!(
-        input.field_name(),
-        "title",
-        "a single-segment lens must be unchanged by the schema-aware path"
-    );
-}
-
-/// A document collapses to its own column, so binding an inner path must
-/// target that column rather than accumulate the document's inner steps.
-#[tokio::test]
-async fn a_document_leaf_resolves_to_the_document_column() {
-    let cx = article_cx().await;
-    let input = TextInput::r#for_context(&cx, Article::fields().extra().note());
-    assert_eq!(
-        input.field_name(),
-        "extra",
-        "a #[document] field stores as one column named after the field"
-    );
-}
-
-/// An enum payload column is `{enum_field}_{field}`; the variant name lives in
-/// the discriminant column and must not leak into the payload column.
-#[tokio::test]
-async fn an_enum_payload_leaf_uses_the_field_name_not_the_variant() {
-    let cx = article_cx().await;
-    let at = TextInput::r#for_context(&cx, Article::fields().kind().scheduled().at());
-    assert_eq!(at.field_name(), "kind_at");
-
-    let url = TextInput::r#for_context(&cx, Article::fields().kind().published().url());
-    assert_eq!(url.field_name(), "kind_url");
-}
-
-/// A shared column is reachable through the variant-rooted accessor the field
-/// carries — the interim path while the un-gated accessor is upstream (GH #140,
-/// tokio-rs/toasty#1212). What matters here is the *storage* name: it is the
-/// shared identifier, not the declaring variant's field name.
-#[tokio::test]
-async fn a_shared_column_resolves_to_the_shared_identifier() {
-    let cx = article_cx().await;
-    let scheduled = TextInput::r#for_context(
-        &cx,
-        Article::fields().publication().scheduled().scheduled_at(),
-    );
-    assert_eq!(
-        scheduled.field_name(),
-        "publication_timestamp",
-        "a #[shared] column is named after the shared identifier"
-    );
-
-    // Both variants land on the same column — that is what "shared" means.
-    let published = TextInput::r#for_context(
-        &cx,
-        Article::fields().publication().published().published_at(),
-    );
-    assert_eq!(published.field_name(), "publication_timestamp");
-}
-
-/// A variant-rooted path whose parent walks through embedded structs: the enum
-/// payload accessor rebases onto the variant, so the root carries a *multi-step*
-/// parent path. Both the app side and the mapping side have to follow it.
-#[tokio::test]
-async fn a_variant_rooted_path_through_nested_structs_resolves() {
-    let cx = article_cx().await;
-    // Article.wrapper.inner.seo.title -> the app side walks two struct levels.
-    let nested = TextInput::r#for_context(&cx, Article::fields().wrapper().inner().seo().title());
-    assert_eq!(nested.field_name(), "wrapper_inner_seo_title");
-
-    // Article.wrapper.media.video().video_url -> a variant root whose parent
-    // path is wrapper.media, with two variant-local steps.
-    let payload =
-        TextInput::r#for_context(&cx, Article::fields().wrapper().media().video().video_url());
-    assert_eq!(payload.field_name(), "wrapper_media_video_url");
-
-    // Article.wrapper.media.image().url -> a unit-ish payload one level down.
-    let image = TextInput::r#for_context(&cx, Article::fields().wrapper().media().image().url());
-    assert_eq!(image.field_name(), "wrapper_media_url");
-}
-
-/// A traversal lens over a relation is not an embedded step, and this walk is
-/// for embedded binding only. It must fail loudly rather than bind anything —
-/// `author_id` and `name` are different columns, so a silent misbind here would
-/// write the wrong one (GH #100).
-#[tokio::test]
-#[should_panic(expected = "only embedded steps")]
-async fn a_relation_traversal_is_refused_rather_than_misbound() {
-    let cx = article_cx().await;
-    let _ = TextInput::r#for_context(&cx, Article::fields().author().name());
 }
 
 /// The allow-list and validation read the same name the control posts, so a
@@ -290,13 +126,4 @@ async fn the_flattened_name_participates_in_allow_list_and_validation() {
             .contains_key("meta_seo_description"),
         "an explicitly required embedded leaf must validate presence"
     );
-}
-
-/// Without a `Db` there is no app schema, and the single-segment rule must
-/// still refuse a traversal lens loudly rather than bind the wrong column.
-#[tokio::test]
-#[should_panic(expected = "single-field lens")]
-async fn without_a_schema_a_traversal_lens_still_fails_loudly() {
-    let cx = CxTestBuilder::new().build();
-    let _ = TextInput::r#for_context(&cx, Article::fields().meta().note());
 }

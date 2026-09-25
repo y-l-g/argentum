@@ -30,6 +30,8 @@ mod query_term;
 pub mod resource;
 pub mod schema;
 pub mod tenancy;
+#[cfg(test)]
+mod test_support;
 pub mod upload;
 
 pub use argentum_macros::EmbeddedForm;

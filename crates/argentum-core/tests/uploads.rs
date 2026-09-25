@@ -17,16 +17,18 @@ use argentum_core::{
 };
 #[cfg(feature = "auth")]
 use http::header::LOCATION;
-use http::header::{
-    CONTENT_DISPOSITION, CONTENT_SECURITY_POLICY, CONTENT_TYPE, COOKIE, IF_MODIFIED_SINCE,
-    LAST_MODIFIED, X_CONTENT_TYPE_OPTIONS,
-};
+use http::header::{CONTENT_DISPOSITION, IF_MODIFIED_SINCE, LAST_MODIFIED, X_CONTENT_TYPE_OPTIONS};
 use toasty::Db;
 use topcoat::{
     context::Cx,
     router::{Body, Router, response::Response},
 };
 use uuid::Uuid;
+
+use crate::common::{
+    body_bytes, body_string, csp, get, memory_db, multipart_body, new_csrf, panel, post,
+    post_multipart,
+};
 
 /// A document with one required and one optional upload: the two ends of the
 /// clear-control rule (GH #188).
@@ -189,13 +191,7 @@ fn stored_values(values: &HashMap<String, String>) -> (String, String, String) {
 }
 
 async fn seeded_db() -> Db {
-    let db = Db::builder()
-        .models(toasty::models!(Doc))
-        .connect("sqlite::memory:")
-        .await
-        .expect("connect");
-    db.push_schema().await.expect("push_schema");
-    db
+    memory_db(toasty::models!(Doc)).await
 }
 
 /// The same DB, with the shipped auth models registered so a panel can be
@@ -203,27 +199,20 @@ async fn seeded_db() -> Db {
 /// whose `AdminUser`/`AuthSession` pair is missing.
 #[cfg(feature = "auth")]
 async fn auth_seeded_db() -> Db {
-    let db = Db::builder()
-        .models(toasty::models!(
-            Doc,
-            argentum_core::auth::AdminUser,
-            argentum_core::auth::AuthSession
-        ))
-        .connect("sqlite::memory:")
-        .await
-        .expect("connect");
-    db.push_schema().await.expect("push_schema");
-    db
+    memory_db(toasty::models!(
+        Doc,
+        argentum_core::auth::AdminUser,
+        argentum_core::auth::AuthSession
+    ))
+    .await
 }
 
 /// A panel over `Doc`, optionally with an uploader — the seam's own on/off
 /// switch, which is the whole point of the default being additive.
 fn router(db: Db, uploader: Option<impl Uploader>) -> Router {
-    let panel = Panel::new("admin")
-        .app_context(db)
-        // The upload seam is what these tests exercise; the auth gate is
-        // covered by its own suite.
-        .auth(Auth::disabled());
+    // The upload seam is what these tests exercise; the auth gate is covered
+    // by its own suite, so `panel` disables it.
+    let panel = panel(db);
     let panel = match uploader {
         Some(uploader) => panel.uploads(uploader),
         None => panel,
@@ -241,72 +230,6 @@ fn temp_dir(tag: &str) -> PathBuf {
     dir
 }
 
-/// A multipart body, one part per entry: `None` is a text part, `Some("")` the
-/// browser's "no file chosen" file part, `Some(name)` a chosen file.
-fn multipart_body(boundary: &str, parts: &[(&str, Option<&str>, &str)]) -> String {
-    let mut body = String::new();
-    for (name, filename, content) in parts {
-        body.push_str(&format!(
-            "--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\""
-        ));
-        if let Some(filename) = filename {
-            body.push_str(&format!("; filename=\"{filename}\""));
-        }
-        body.push_str("\r\n\r\n");
-        body.push_str(content);
-        body.push_str("\r\n");
-    }
-    body.push_str(&format!("--{boundary}--\r\n"));
-    body
-}
-
-/// A POST carrying a matching CSRF cookie + field (the double-submit pair).
-async fn post(
-    router: &Router,
-    uri: &str,
-    csrf: &str,
-    content_type: String,
-    body: String,
-) -> Response<Body> {
-    let request = http::Request::builder()
-        .method(http::Method::POST)
-        .uri(uri)
-        .header(CONTENT_TYPE, content_type)
-        .header(
-            COOKIE,
-            format!("{}={csrf}", argentum_core::csrf::COOKIE_NAME),
-        )
-        .body(Body::from(body))
-        .expect("request builds");
-    router.handle(request).await
-}
-
-/// POST a multipart form (every upload form's enctype).
-async fn post_multipart(
-    router: &Router,
-    uri: &str,
-    csrf: &str,
-    boundary: &str,
-    body: String,
-) -> Response<Body> {
-    post(
-        router,
-        uri,
-        csrf,
-        format!("multipart/form-data; boundary={boundary}"),
-        body,
-    )
-    .await
-}
-
-async fn get(router: &Router, uri: &str) -> Response<Body> {
-    let request = http::Request::builder()
-        .uri(uri)
-        .body(Body::empty())
-        .expect("request builds");
-    router.handle(request).await
-}
-
 /// A GET that revalidates: the directory route answers `304` when the file has
 /// not changed since `since`.
 async fn get_if_modified_since(router: &Router, uri: &str, since: &str) -> Response<Body> {
@@ -318,38 +241,11 @@ async fn get_if_modified_since(router: &Router, uri: &str, since: &str) -> Respo
     router.handle(request).await
 }
 
-async fn body_bytes(response: Response<Body>) -> Vec<u8> {
-    http_body_util::BodyExt::collect(response.into_body())
-        .await
-        .expect("collect body")
-        .to_bytes()
-        .to_vec()
-}
-
-async fn body_string(response: Response<Body>) -> String {
-    String::from_utf8_lossy(&body_bytes(response).await).into_owned()
-}
-
-/// The `Content-Security-Policy` a response carries.
-fn csp(response: &Response<Body>) -> &str {
-    response
-        .headers()
-        .get(CONTENT_SECURITY_POLICY)
-        .expect("response carries a policy")
-        .to_str()
-        .expect("the policy is ASCII")
-}
-
 /// The exact directive a served file must carry. Spelled out rather than read
 /// from the implementation constant: the `frame-ancestors` directive is the one
 /// `FrameAncestors` cannot supply for a response that already has a policy.
 const SERVED_FILE_POLICY: &str = "default-src 'none'; img-src 'self'; media-src 'self'; \
      style-src 'unsafe-inline'; sandbox; frame-ancestors 'self'";
-
-/// A new CSRF token, paired with the cookie `post` sends.
-fn new_csrf() -> String {
-    Uuid::new_v4().to_string()
-}
 
 async fn seed_doc(db: &Db, title: &str, cover: &str, attachment: &str) -> Doc {
     let mut db = db.clone();

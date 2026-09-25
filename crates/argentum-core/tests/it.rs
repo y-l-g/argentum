@@ -6,6 +6,8 @@
 //!
 //! Filter per file with `cargo test -p argentum-core --test it <module>::`.
 
+mod common;
+
 mod after_commit;
 #[cfg(feature = "auth")]
 mod auth_override;
