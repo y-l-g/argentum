@@ -30,7 +30,9 @@ pub use commit::{Committed, Mutation};
 pub use filter::{DateFilter, Filter, IntoFilters, SelectFilter, TernaryFilter, VariantFilter};
 use naming::{kebab_case, pluralize, type_short_name};
 pub use navigation::{NavTarget, NavigationItem};
-pub use relation::{IntoRelationColumns, RelationColumn, RelationColumns, render_relation};
+pub use relation::{
+    IntoRelationColumns, MAX_RELATION_ROWS, RelationColumn, RelationColumns, render_relation,
+};
 pub(crate) use state::{
     BULK_DELETE_ROUTE_SEGMENT, CREATE_ROUTE_SEGMENT, DELETE_ROUTE_SEGMENT, EDIT_ROUTE_SEGMENT,
     RECORD_ROUTE_PARAM, create_page_url, cursor_after, cursor_before, cursor_none,

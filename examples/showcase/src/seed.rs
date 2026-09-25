@@ -206,6 +206,14 @@ pub const DEMO_ADMIN_PASSWORD: &str = "password";
 /// tests: valid credentials, no tenant to bridge.
 pub const TENANTLESS_ADMIN_EMAIL: &str = "root@example.com";
 
+/// The body of a comment whose content the panel has removed (GH #296).
+///
+/// The row stays so a thread keeps its shape. `CommentResource::can_view`
+/// refuses it, so the surfaces that trim by that predicate — the post's
+/// relation, option lists, exports — omit it, and the moderation queue lists it
+/// without row actions.
+pub const REMOVED_COMMENT_BODY: &str = "[removed]";
+
 /// Create an active admin (or another app user) with an Argon2id-hashed
 /// password. Used by the showcase seed and the tenancy test fixtures.
 pub async fn create_admin(
@@ -512,6 +520,14 @@ pub async fn seed_phase2(db: &mut Db) -> toasty::Result<()> {
             .exec(db)
             .await?;
         }
+        // A removed comment (GH #296): the fixture the relation's `can_view`
+        // filter needs, since every other seeded comment is viewable.
+        toasty::create!(Comment {
+            body: REMOVED_COMMENT_BODY,
+            post_id: first_post.id,
+        })
+        .exec(db)
+        .await?;
     }
     Ok(())
 }
