@@ -472,8 +472,9 @@ impl PostResource {
     ///
     /// `query` is the list/detail half and loads both — the Comments column
     /// renders the count and the detail page reads `view_relations` — while
-    /// `export_query` gets the includes the exported table's columns declared.
-    /// Both go through this one function so the includes cannot drift apart.
+    /// [`query_with`](Resource::query_with) narrows to the includes a loader
+    /// declared (GH #298), which is what the list and the export pass. Both go
+    /// through this one function so the includes cannot drift apart.
     /// It takes no `Cx` because there is nothing left to resolve from the
     /// request: the scope belongs to the framework now.
     fn base(needs: &IncludeNeeds) -> toasty::stmt::Query<toasty::stmt::List<Post>> {
@@ -502,13 +503,12 @@ impl Resource for PostResource {
         Self::base(&IncludeNeeds::from(["author", "comments"]))
     }
 
-    /// The export asks for the includes the exported columns declared
-    /// (GH #177), so this table's two relation columns decide what the CSV
-    /// query loads.
-    fn export_query(
-        _cx: &Cx,
-        needs: &IncludeNeeds,
-    ) -> toasty::stmt::Query<toasty::stmt::List<Post>> {
+    /// The list and export load the includes their columns declared
+    /// (GH #177, GH #298); the edit, delete, bulk and option loaders ask for
+    /// none, so a Comment form's post options no longer carry every post's
+    /// comments. The export inherits this branch through its default
+    /// [`export_query`](Resource::export_query).
+    fn query_with(_cx: &Cx, needs: &IncludeNeeds) -> toasty::stmt::Query<toasty::stmt::List<Post>> {
         Self::base(needs)
     }
 
@@ -1118,16 +1118,18 @@ async fn ensure_post_in_tenant(
 
 impl CommentResource {
     /// The comments base query with the post loaded only when `needs` asks
-    /// (GH #177).
+    /// (GH #177, GH #298).
     ///
     /// No tenant filter (GH #223): the scope is declared once, in
     /// [`tenant_scope`](Resource::tenant_scope), and the framework ANDs it onto
     /// whatever this returns — for the list, the edit load, the bulk fetch, the
     /// export and the relationship option loads alike.
     ///
-    /// The list/detail half always loads the post — the Post column renders the
-    /// title and the edit form's relationship `Select` reads it — while the
-    /// export passes what its columns declared (GH #177).
+    /// The list half loads the post — the Post column renders its title — and
+    /// the detail page, were one declared, would read it through
+    /// [`view_relations`](Resource::view_relations). Every other loader asks
+    /// for nothing: the edit page, the delete paths and the option loads read
+    /// only the comment's own columns.
     fn base(needs: &IncludeNeeds) -> toasty::stmt::Query<toasty::stmt::List<Comment>> {
         let mut q = toasty::stmt::Query::<toasty::stmt::List<Comment>>::all();
         if needs.wants("post") {
@@ -1202,9 +1204,10 @@ impl Resource for CommentResource {
         Self::base(&IncludeNeeds::from(["post"]))
     }
 
-    /// The export asks for the includes the exported columns declared
-    /// (GH #177) — here the Post column's `post`.
-    fn export_query(
+    /// The list and export load the includes their columns declared
+    /// (GH #177, GH #298) — here the Post column's `post` — while the edit,
+    /// delete, bulk and option loaders ask for none.
+    fn query_with(
         _cx: &Cx,
         needs: &IncludeNeeds,
     ) -> toasty::stmt::Query<toasty::stmt::List<Comment>> {

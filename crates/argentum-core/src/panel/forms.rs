@@ -17,7 +17,7 @@ use topcoat::{
 };
 
 use super::{
-    actions::{find_by_key, load_viewable},
+    actions::{find_by_key_narrowed, load_viewable_narrowed},
     enforce_auth, enforce_tenant, list_url,
 };
 use crate::{
@@ -591,13 +591,15 @@ async fn check_unique<R: Resource>(
         // snapshot as the write that follows. A failing probe fails the
         // submit (GH #167) — swallowing it would write past a check that
         // never ran. The probe runs through the tenant-scoped query (GH #223),
-        // like every other loader.
-        let rows = crate::resource::scoped_query::<R>(cx)?
-            .filter(input.eq_filter::<R::Model>(submitted))
-            .limit(1)
-            .exec(&mut *ex)
-            .await
-            .map_err(crate::db::unavailable)?;
+        // like every other loader, and reads only the record's own columns
+        // (GH #298), so it asks for no relation includes.
+        let rows =
+            crate::resource::scoped_query_with::<R>(cx, &crate::resource::IncludeNeeds::default())?
+                .filter(input.eq_filter::<R::Model>(submitted))
+                .limit(1)
+                .exec(&mut *ex)
+                .await
+                .map_err(crate::db::unavailable)?;
         if !rows.is_empty() {
             errors.insert(
                 name,
@@ -741,7 +743,7 @@ pub(crate) fn resource_edit<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
         enforce_auth(cx)?;
         enforce_tenant::<R>(cx)?;
         let mut db = db(cx);
-        let record = load_viewable::<R>(cx, &mut db).await?;
+        let record = load_viewable_narrowed::<R>(cx, &mut db).await?;
         if !R::can_update(cx, &record) {
             return Err(forbidden().into());
         }
@@ -778,7 +780,7 @@ pub(crate) fn resource_edit_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_
         // runs on its own handle and must never execute while the tx holds
         // the pool (see `db` pool discipline).
         let mut db0 = db(cx);
-        let advisory = find_by_key::<R>(cx, &id, &mut db0).await?;
+        let advisory = find_by_key_narrowed::<R>(cx, &id, &mut db0).await?;
         if !R::can_view(cx, &advisory) {
             return Err(forbidden().into());
         }
@@ -834,7 +836,7 @@ pub(crate) fn resource_edit_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_
         // the write — never a silent re-load outside the checked snapshot.
         let mut db = db(cx);
         let mut tx = db.transaction().await.map_err(crate::db::unavailable)?;
-        let record = find_by_key::<R>(cx, &id, &mut tx).await?;
+        let record = find_by_key_narrowed::<R>(cx, &id, &mut tx).await?;
         if !R::can_view(cx, &record) {
             return Err(forbidden().into());
         }

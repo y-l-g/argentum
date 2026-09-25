@@ -9,10 +9,12 @@ One resource maps one Toasty model to its admin UI:
 pub trait Resource: Sized + Send + Sync + 'static {
     type Model: toasty::schema::Model + Send + Sync + 'static;
     fn query(_cx: &Cx) -> Query<List<Self::Model>>; // default: Query::all()
+    fn query_with(_cx: &Cx, _needs: &IncludeNeeds)
+        -> Query<List<Self::Model>>;                // default: query(cx), unchanged
     fn hydrate_form_values(_cx: &Cx, _record: &Self::Model)
         -> HashMap<String, String>;                 // default: empty
     fn export_query(_cx: &Cx, _needs: &IncludeNeeds)
-        -> Query<List<Self::Model>>;                // default: query(cx), unchanged
+        -> Query<List<Self::Model>>;                // default: query_with(cx, needs)
     fn table(_cx: &Cx) -> Table<Self::Model>;       // default: Table::new(), empty until columns + id
     fn form(_cx: &Cx) -> Schema;                    // default: Schema::empty()
     // plus can_* policy fns (default deny), slug/navigation/requires_tenant
@@ -64,15 +66,25 @@ omission has to fail loudly instead of quietly:
   URL out instead (`NavigationItem::at(..)`) only to link somewhere other than the resource's list
   page — the Panel keeps it verbatim.
 - `query()` is the seam for the resource's **own** row scoping — soft deletes, row-level visibility,
-  and the relations a page loads. All list, export, and relation loads use it. Tenancy is not its
-  job: when `requires_tenant()` is `true` the framework derives the `tenant_id` filter from the
-  model's own schema and ANDs it onto whatever `query` returns, at every loader (GH #223), so
-  restating it here is redundant. The export builds its base query from `export_query(cx, needs)`,
-  which defaults to `query(cx)` unchanged; override it to narrow the includes to what the exported
-  columns declared with `TextColumn::needs(..)` — an include `query` carries for another page then
-  stops riding along on every export (GH #177, ADR-0018). Keep the resource's own scope and whatever
-  your `can_view` reads in the narrowed branch; the *tenant* half is not the override's to keep — the
-  framework ANDs it onto what `export_query` returns, exactly as it does for `query`.
+  and the relations a page loads. It is the full base query: the detail page and app code that calls
+  `scoped_query` use it. Tenancy is not its job: when `requires_tenant()` is `true` the framework
+  derives the `tenant_id` filter from the model's own schema and ANDs it onto whatever `query`
+  returns, at every loader (GH #223), so restating it here is redundant.
+- `query_with(cx, needs)` is the same base query narrowed to the relations a loader declared
+  (GH #298). The default ignores `needs` and returns `query(cx)` unchanged, so a resource that
+  overrides nothing loads exactly what it did before. Override it to split the base query into one
+  branch per declared name — an include `query` carries for the detail page then stops riding along
+  on the list, the edit page, delete, the bulk fetch, the unique probe, the relationship option lists
+  and the pagination probes. The list and the export pass their table's
+  `Table::include_needs()` (the union of the columns' `TextColumn::needs(..)` declarations); the
+  edit, delete, bulk, option and probe loaders pass an empty set. Keep the resource's own scope and
+  whatever your `can_view` reads in every branch — the *tenant* half is not the override's to keep,
+  the framework ANDs it onto what `query_with` returns exactly as it does for `query`. The option
+  loaders run `query_with` with an empty set, so an option label must project the related record's
+  own columns.
+- `export_query(cx, needs)` is the export's seed; its default delegates to `query_with`, so
+  overriding `query_with` narrows the export too (GH #177, GH #298, ADR-0018). Override
+  `export_query` itself only when the CSV needs a branch the other loaders do not.
 - `table()` and `form()` are hand-written, and so is the impl itself: a resource is `type Model` plus
   whichever hooks it uses. There is no `Resource` derive (GH #222) — the macros crate ships
   `derive(EmbeddedForm)` only (GH #191).

@@ -248,10 +248,13 @@ fn summarize(mut times: Vec<f64>) -> (f64, f64, f64, f64, f64) {
 /// (the tenant-scoped query + the declared `.paginate(50)`, tenancy set, policy
 /// enforced) → `render_with_state` → HTML. Fresh `Cx` per iteration.
 ///
-/// This is the exact body of the shipped `panel::load_table_page`
-/// (`table.load(cx, scoped_query::<R>(cx)?, state)` behind its paginate guard —
-/// `load_table_page` itself is `pub(crate)`, so the detached harness mirrors
-/// it rather than calling through). The declared page size is asserted so the
+/// This mirrors the shipped `panel::load_table_page` (`table.load(cx,
+/// scoped_query::<R>(cx)?, state)` behind its paginate guard — `load_table_page`
+/// itself is `pub(crate)`, so the detached harness mirrors it rather than
+/// calling through). The shipped loader seeds through the needs-aware
+/// `scoped_query_with`; this resource overrides no `query_with`, so
+/// `scoped_query` is the branch it takes and the measured query is the same.
+/// The declared page size is asserted so the
 /// `.paginate(50)` on the resource table is genuinely exercised through the
 /// loader, not merely declared.
 async fn bench_list_path(db: &Db, tenant: uuid::Uuid, iterations: usize) -> Vec<f64> {

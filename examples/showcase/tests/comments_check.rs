@@ -108,6 +108,48 @@ async fn comments_create_form_shows_post_select() {
     assert!(html.contains("Hello Toasty"), "missing post option: {html}");
 }
 
+/// GH #298: a Comment form's Post options are loaded through the resource's
+/// needs-aware query, which asks for no relation includes, so the option load
+/// no longer pulls every comment of every post. This pins the branch the
+/// loader runs: the empty set leaves both relations unloaded, while the
+/// list/detail `query` keeps the includes its columns and `view_relations`
+/// read.
+#[tokio::test]
+async fn post_options_do_not_load_every_posts_comments() {
+    use argentum_core::{IncludeNeeds, Resource, Tenant, db::db as db_handle};
+    use showcase::app::PostResource;
+    use topcoat::context::CxTestBuilder;
+
+    let (db, t1, _t2) = tenanted_db().await;
+    let cx = CxTestBuilder::new()
+        .app_context(db.clone())
+        .request_context(Tenant(t1))
+        .build();
+    let mut handle = db_handle(&cx);
+
+    let option_row = <PostResource as Resource>::query_with(&cx, &IncludeNeeds::default())
+        .first()
+        .exec(&mut handle)
+        .await
+        .unwrap()
+        .expect("the tenant seeds a post");
+    assert!(
+        option_row.comments.is_unloaded() && option_row.author.is_unloaded(),
+        "the option-load branch must not carry the resource's relation includes"
+    );
+
+    let list_row = <PostResource as Resource>::query(&cx)
+        .first()
+        .exec(&mut handle)
+        .await
+        .unwrap()
+        .expect("the tenant seeds a post");
+    assert!(
+        !list_row.comments.is_unloaded() && !list_row.author.is_unloaded(),
+        "the list/detail query keeps the includes its columns and view_relations read"
+    );
+}
+
 #[tokio::test]
 async fn comments_create_valid_redirects_and_creates() {
     let db = full_db().await;
