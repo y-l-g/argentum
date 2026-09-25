@@ -59,3 +59,7 @@ Rules that catch the recurring failures:
   `cargo xtask sync-topcoat-ui`.
 - `cargo udeps` needs `cargo-udeps` on nightly for `-Z binary-dep-depinfo`:
   `cargo +nightly install cargo-udeps --locked`, then the gate command above.
+- A gate whose command names a toolchain installs it on demand; gate 4's dated
+  nightly up front is
+  `rustup toolchain install nightly-2026-08-24 --profile minimal --component rustfmt`
+  (gate 8 and gate 10 name `1.98` and `nightly`).

@@ -54,7 +54,10 @@ escape hatch, and `Panel::build` refuses a panel that has not called
 `.auth(Auth::disabled())` (GH #129, GH #282). Gate 4 runs on the dated nightly
 recorded in `rust-toolchain.toml`'s comment: `rustfmt.toml`'s keys are
 nightly-only (GH #269), and the fixed date keeps the rustfmt version the gate
-enforces from moving without a commit here. Gate 8 is the MSRV floor declared
+enforces from moving without a commit here. Rustup installs a missing toolchain
+on first use; `rustup toolchain install nightly-2026-08-24 --profile minimal
+--component rustfmt` does it up front, and gates 8 and 10 name `1.98` and
+`nightly` the same way. Gate 8 is the MSRV floor declared
 in `Cargo.toml` (GH #175). Gate 10 guards unused dependencies (GH #271);
 `--all-features` keeps a feature-gated
 dependency from looking unused.

@@ -3,7 +3,7 @@
   "extends": ["config:recommended"],
   "prBodyNotes": [
     "Pin policy (GH #103): any change to the workspace Cargo.lock must sync benchmarks/argentum/Cargo.lock in the same commit, keeping topcoat/toasty revs identical.",
-    "Lockfile maintenance is off (AGENTS.md \"Renovate PRs\"): topcoat and toasty are bumped deliberately with cargo update -p, never by a blanket cargo update, and the workspace lock stays in lockstep with benchmarks/argentum/Cargo.lock."
+    "Lockfile maintenance is off: topcoat and toasty are bumped deliberately with cargo update -p, never by a blanket cargo update (AGENTS.md \"Renovate PRs\"), and the workspace lock stays in lockstep with benchmarks/argentum/Cargo.lock."
   ],
   "lockFileMaintenance": {
     "enabled": false

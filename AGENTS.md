@@ -7,7 +7,7 @@
 cargo test --workspace --locked
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test -p argentum-core --no-default-features --locked
-cargo +nightly-2026-08-24 fmt --all -- --check   # pinned nightly (rust-toolchain.toml, GH #269)
+cargo +nightly-2026-08-24 fmt --all -- --check   # pinned nightly (rust-toolchain.toml, GH #269); rustup installs it on demand
 topcoat fmt && git diff --exit-code
 cargo check --locked --manifest-path benchmarks/argentum/Cargo.toml
 cargo clippy --locked --manifest-path benchmarks/argentum/Cargo.toml --all-targets -- -D warnings
