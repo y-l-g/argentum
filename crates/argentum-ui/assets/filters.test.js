@@ -1,9 +1,8 @@
 // Unit test for the filter transport `filters.js` composes (GH #93, GH #294).
 //
-// There is no JS test runner in this workspace — the assets are plain browser
-// scripts loaded through `asset!` — so this runs on Node's built-in runner and
-// reaches the script through the guarded `module.exports` at the bottom of the
-// script:
+// The assets are plain browser scripts loaded through `asset!`, so this runs on
+// Node's built-in test runner and reaches the script through the guarded
+// `module.exports` at the bottom of the script:
 //
 //     node --test crates/argentum-ui/assets/filters.test.js
 //
@@ -17,8 +16,9 @@
 // The encoder and the parser below are transcriptions of the Rust pair, because
 // Node cannot call the Rust functions. `filters.js`'s `encodeFilterComponent`
 // is the half under test: the first assertion of every case checks it against
-// the transcription, so a change on either side of the boundary fails here
-// instead of silently applying the wrong filter in a browser.
+// the transcription. The server half of the boundary is pinned on the Rust
+// side, by `client_transport_parses_to_the_client_value` in `state.rs`, which
+// parses the literal this script composes.
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -127,9 +127,10 @@ test('the key is escaped like the value', () => {
 });
 
 test('a value with surrounding spaces composes trimmed', () => {
-  // Both halves trim — `composeFilters` before joining, `parse_filters_param`
-  // after splitting — so surrounding whitespace is normalized, and the value
-  // the transport carries is the one the server reads back.
+  // `composeFilters` trims the value before joining, and
+  // `parse_filters_param` trims each half after splitting, so surrounding
+  // whitespace is normalized and the value the transport carries is the one
+  // the server reads back. (The key is an attribute value, never trimmed.)
   const transport = composeFilters(formWith(control('name', '  Smith, John  ')));
   assert.equal(transport, 'name:Smith%2C John');
   const { filters, malformed } = parseFiltersParam(transport);

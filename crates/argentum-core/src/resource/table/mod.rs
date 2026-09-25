@@ -953,10 +953,10 @@ impl<M> Table<M> {
 ///
 /// A token cut from a different ordering decodes but the engine refuses the
 /// statement (`invalid_statement`: its field count no longer matches the
-/// query's `ORDER BY`), and a statement that does not involve the cursor never
-/// carries that error. Such a failure is the cursor's, so it takes the
-/// cursor-stripped retry contract instead of re-requesting the identical URL
-/// forever; every other failure keeps the cursor (GH #98).
+/// query's `ORDER BY`). No other statement this paginated loader builds carries
+/// that error while the request names a cursor. Such a failure is the cursor's,
+/// so it takes the cursor-stripped retry contract instead of re-requesting the
+/// identical URL forever; every other failure keeps the cursor (GH #98).
 fn reject_cursor(error: topcoat::Error, state: &TableState) -> topcoat::Error {
     let cursored = state.after.is_some() || state.before.is_some();
     let rejected = error

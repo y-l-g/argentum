@@ -579,13 +579,13 @@ pub fn find_href_with(html: &str, needle: &str) -> Option<String> {
 }
 
 /// The pager's `after=`/`before=` link: the first href carrying `needle` that
-/// is not a row action.
+/// is not the Delete dialog opener.
 ///
-/// Row action links are built from the list URL, so they also carry the whole
-/// query state — including the cursor — and append their own parameter
-/// (`…&after=<cursor>&delete=<key>`, `…&after=<cursor>/edit`). Following one
-/// reloads the page instead of advancing it, and on a page holding one row
-/// that href comes first.
+/// The Delete confirmation opener is built from the list URL, so it carries the
+/// whole query state — including the cursor — and appends `&delete=<key>`
+/// (`TableState::delete_dialog`). Following it opens a dialog instead of
+/// advancing the page, and on a page holding one row that href comes first.
+/// The View and Edit links are bare `{prefix}/{key}/…` paths with no query.
 pub fn find_pager_href(html: &str, needle: &str) -> Option<String> {
     let mut rest = html;
     loop {
@@ -593,7 +593,7 @@ pub fn find_pager_href(html: &str, needle: &str) -> Option<String> {
         rest = &rest[start + "href=\"".len()..];
         let end = rest.find('"')?;
         let href = &rest[..end];
-        if href.contains(needle) && !href.contains("delete=") && !href.contains("/delete") {
+        if href.contains(needle) && !href.contains("delete=") {
             return Some(unescape_href(href));
         }
         rest = &rest[end..];

@@ -424,9 +424,11 @@ async fn admin_list_pagination_walks_cursor_links() {
 
 /// The pager walks a descending ordering without skipping or repeating rows.
 ///
-/// A cursor carries the sort value *and* the direction it was cut for: a page
-/// boundary that compared the wrong way would drop the rest of the result set
-/// or serve page-1 rows again, and the row order would stop being descending.
+/// The cursor carries the ordering's sort values; the direction lives in
+/// `?dir=desc` and the query the loader builds from it. A page boundary that
+/// compared the cursor against the wrong ordering would drop the rest of the
+/// result set or serve page-1 rows again, and the row order would stop being
+/// descending.
 #[tokio::test]
 async fn admin_list_pagination_walks_descending_cursor_links() {
     use showcase::models::User;
@@ -533,7 +535,7 @@ async fn admin_list_pagination_keeps_tied_sort_values() {
         page_size - seeded,
         "the tied group must start inside page 1: {page1}"
     );
-    let next = find_href_with(&page1, "after=").expect("page 2 link");
+    let next = find_pager_href(&page1, "after=").expect("page 2 link");
     let page2 = body_string(client.get(&next).await).await;
     let page2_titles = row_titles(&page2);
     assert_eq!(

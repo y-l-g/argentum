@@ -212,6 +212,40 @@ mod tests {
 
     use super::{super::Panel, *};
 
+    /// The signal id the live retry link writes (GH #294): read from the
+    /// control's own `increment()` handler, which is the side that re-runs the
+    /// shard. Locating it by offset from the marker instead would read whatever
+    /// payload happened to follow.
+    fn retry_signal_id(html: &str) -> &str {
+        const MARKER: &str = r#"id&quot;:&quot;"#;
+        let at = html
+            .find("data-retry-attempt")
+            .unwrap_or_else(|| panic!("the retry control, got {html}"));
+        let tag_start = html[..at].rfind('<').expect("the control's opening tag");
+        // The tag runs to the next `<`: an attribute value escapes its own
+        // `>` (the handler's `=&gt;`), so the first `>` is not the tag's.
+        let next = html[tag_start + 1..]
+            .find('<')
+            .map(|i| tag_start + 1 + i)
+            .unwrap_or(html.len());
+        let tag = &html[tag_start..next];
+        let write = tag
+            .find("increment()")
+            .unwrap_or_else(|| panic!("the control's write handler, got {tag}"));
+        // The id sits in the handler's `cx.hydrate({"t":"Signal","id":"…"})`,
+        // the last one before the increment.
+        let id_at = tag[..write]
+            .rfind(MARKER)
+            .unwrap_or_else(|| panic!("the handler's signal, got {tag}"))
+            + MARKER.len();
+        let id = &tag[id_at..id_at + 32];
+        assert!(
+            id.chars().all(|c| c.is_ascii_hexdigit()),
+            "the handler must name a signal id, got {tag}"
+        );
+        id
+    }
+
     /// The live-search shard answers the gate before the registry lookup
     /// (GH #146): an unauthenticated probe cannot distinguish a registered
     /// slug from an unregistered one.
@@ -455,9 +489,14 @@ mod tests {
             table_html.contains("increment()"),
             "live retry must increment the token: {table_html}"
         );
+        // GH #294: the shard re-runs on the token only if it *read* the token,
+        // which is what emits the token's own `dep` marker. Assert that marker,
+        // not the presence of any dep — the shard's argument signals emit those
+        // whether or not the error view ever reads the token.
+        let retry = retry_signal_id(&table_html);
         assert!(
-            table_html.contains("::topcoat::dep("),
-            "the retry token must be a shard dependency: {table_html}"
+            table_html.contains(&format!(r#"::topcoat::dep("{retry}")"#)),
+            "the retry token must be a shard dependency, got {table_html}"
         );
 
         // The `before` signal path is symmetric: a tampered backward cursor
@@ -741,6 +780,13 @@ mod tests {
         assert!(
             table_html.contains("data-retry-attempt=") && table_html.contains("increment()"),
             "the retry must re-run through its token: {table_html}"
+        );
+        // The shard re-runs only if it read the token: assert the token's own
+        // dep marker, not the shard arguments' dep markers.
+        let retry = retry_signal_id(&table_html);
+        assert!(
+            table_html.contains(&format!(r#"::topcoat::dep("{retry}")"#)),
+            "the retry token must be a shard dependency, got {table_html}"
         );
         assert!(
             !table_html.contains("set((cx.hydrate"),

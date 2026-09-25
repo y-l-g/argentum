@@ -71,10 +71,9 @@ document.addEventListener('submit', (e) => {
   if (transport) transport.value = composeFilters(form);
 });
 
-// Exposed for the Node unit test (`filters.test.js`). There is no JS test
-// runner in this workspace and this file must stay a plain browser script
-// loaded through `asset!`, so it cannot be an ES module. The guard keeps the
-// browser branch inert.
+// Exposed for the Node unit test (`filters.test.js`, run with `node --test`).
+// This file must stay a plain browser script loaded through `asset!`, so it
+// cannot be an ES module. The guard keeps the browser branch inert.
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { composeFilters, encodeFilterComponent };
 }
