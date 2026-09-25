@@ -334,9 +334,7 @@ pub(crate) fn resource_list_live<R: Resource>(
             // The retry link inside the table writes the same signals the
             // toolbar does (GH #166), so a bad cursor recovers in place.
             let retry_signals = signals.clone();
-            let rendered = table
-                .render_live_invocation(cx, &state, &list_path, signals)
-                .await;
+            let rendered = table.render_live_invocation(cx, &list_path, signals).await;
             match rendered {
                 Ok(view) => Ok(view),
                 Err(error) => Ok(table_error_view::<R>(

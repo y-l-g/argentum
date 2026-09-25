@@ -15,13 +15,12 @@
 // * Bounded sets: typing narrows the list by label substring
 //   (case-insensitive); the placeholder option always stays.
 // * Overflowed relationship sets (GH #150): the wrapper carries
-//   `data-options-server="true"` + `data-options-field="<name>"` (+
-//   `data-options-overflow` on initial render). Typing debounces (200ms,
-//   abort in-flight) a `GET {parent_list_url}/options?field=&q=` fetch that
-//   replaces the `<select>` options with server markup, preserving the
-//   current selection and the placeholder; the list re-renders from the
-//   replaced options. The hint `[data-options-hint]` ("Too many options —
-//   type to search") stays until the server narrows.
+//   `data-options-server="true"` + `data-options-field="<name>"`. Typing
+//   debounces (200ms, abort in-flight) a `GET
+//   {parent_list_url}/options?field=&q=` fetch that replaces the `<select>`
+//   options with server markup, preserving the current selection and the
+//   placeholder; the list re-renders from the replaced options. The hint
+//   ("Too many options — type to search") stays until the server narrows.
 //   Without JS the input is inert and the plain select keeps working (stored
 //   value kept, relation cannot be changed past the cap).
 //
