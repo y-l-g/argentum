@@ -1166,6 +1166,45 @@ mod tests {
     }
 
     #[test]
+    fn client_transport_parses_to_the_client_value() {
+        // The literals are the ones `filters.js` composes: the same fixtures
+        // run in `crates/argentum-ui/assets/filters.test.js`. Pinning them
+        // here joins the two halves — change `encode_filter_component` and the
+        // browser's literal stops decoding to its value, change the browser's
+        // encoder and the literal it emits stops matching this test.
+        let cases = [
+            ("name:Smith%2C John", "name", "Smith, John"),
+            ("name:a%3Ab", "name", "a:b"),
+            ("name:100%25", "name", "100%"),
+            ("name:Ada Lovelace", "name", "Ada Lovelace"),
+            ("name:%253A%252C%2525", "name", "%3A%2C%25"),
+            // The key is escaped with the value.
+            ("a%2Cb%3Ac:x", "a,b:c", "x"),
+        ];
+        for (transport, key, value) in cases {
+            let (filters, malformed) = parse_filters_param(transport);
+            assert!(
+                malformed.is_empty(),
+                "{transport:?} must parse clean, got {malformed:?}"
+            );
+            assert_eq!(
+                filters.get(key).map(String::as_str),
+                Some(value),
+                "{transport:?} must decode to {value:?}"
+            );
+        }
+        // The empty value clears the filter: `filters.js` emits no segment.
+        let (empty, malformed) = parse_filters_param("");
+        assert!(empty.is_empty() && malformed.is_empty());
+        // Several controls join with `,`, and a value's own comma stays inside
+        // its segment.
+        let (pair, malformed) = parse_filters_param("status:published,q:a%2Cb");
+        assert!(malformed.is_empty(), "got {malformed:?}");
+        assert_eq!(pair.get("status").map(String::as_str), Some("published"));
+        assert_eq!(pair.get("q").map(String::as_str), Some("a,b"));
+    }
+
+    #[test]
     fn path_segment_encoding_keeps_uuids_and_escapes_reserved() {
         let uuid = uuid::Uuid::nil().to_string();
         assert_eq!(encode_path_segment(&uuid), uuid);

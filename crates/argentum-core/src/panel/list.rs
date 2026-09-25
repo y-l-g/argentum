@@ -20,20 +20,18 @@ use crate::resource::{
 
 /// Retry link for a failed streamed table load (GH #110).
 ///
-/// A malformed `?after=`/`?before=` cursor — or a conflicting `after` +
-/// `before` pair (GH #155) — is the failure itself: retrying the
-/// identical URL loops forever, so drop pagination from the link and keep the
-/// rest of the state (search/sort/filters/grouping). Every other failure keeps
-/// pagination too (GH #98) so a transient blip retries the same evidence.
+/// A malformed `?after=`/`?before=` cursor, a conflicting `after` + `before`
+/// pair (GH #155), or a cursor the query's ordering refuses (GH #294) is the
+/// failure itself: retrying the identical URL loops forever, so drop
+/// pagination from the link and keep the rest of the state
+/// (search/sort/filters/grouping). Every other failure keeps pagination too
+/// (GH #98) so a transient blip retries the same evidence.
 pub(crate) fn retry_url_for_error(
     state: &TableState,
     error: &topcoat::Error,
     path: &str,
 ) -> String {
-    if error
-        .downcast_ref::<crate::cursor::CursorDecodeError>()
-        .is_some()
-    {
+    if crate::cursor::is_cursor_error(error) {
         state.without_cursor(path)
     } else {
         state.list_url(path)
@@ -120,10 +118,13 @@ pub(crate) fn wire_table_actions<R: Resource>(cx: &Cx, live: bool) -> Table<R::M
 /// copy so the three load sites cannot drift.
 ///
 /// On a live table (`signals`) the retry stays in place (GH #166) instead of
-/// navigating. A cursor failure writes the same reset its `href` spells out —
-/// dropping pagination, keeping the rest of the state. Any other failure
-/// clears the query signals as well: search, filters, sort, and pagination.
-/// `href` stays as the no-JS fallback, so it retries the URL as it stands.
+/// navigating, and re-runs the request that failed with the query it failed
+/// with: the click increments a retry token the shard reads (GH #294), so the
+/// rerun does not depend on the query signals changing — a write of an
+/// unchanged value re-runs nothing. A cursor failure resets only the cursor,
+/// the same reset its `href` spells out; every other failure keeps the whole
+/// query. `href` stays as the no-JS fallback, so it retries the URL as it
+/// stands.
 pub(crate) fn table_error_view<'a, R: Resource>(
     cx: &'a Cx,
     state: &TableState,
@@ -132,45 +133,42 @@ pub(crate) fn table_error_view<'a, R: Resource>(
     signals: Option<&TableSignals>,
 ) -> BoxView<'a> {
     tracing::error!(resource = R::slug(), error = %error, "table load failed");
-    let retry = retry_url_for_error(state, error, path);
+    let retry_url = retry_url_for_error(state, error, path);
     let action: BoxView<'a> = match signals {
         Some(signals) => {
+            // Retry re-runs the shard (GH #294). The token is the rerun's only
+            // cause: the shard reads it (declaring the dependency below), and
+            // every click increments it, so the write always changes even when
+            // the query signals already hold the values that failed.
+            let attempt = topcoat::runtime::signal(cx, || 0u64);
             let cursor = signals.cursor.clone();
             let none = crate::resource::cursor_none();
-            let cursor_error = error
-                .downcast_ref::<crate::cursor::CursorDecodeError>()
-                .is_some();
-            if cursor_error {
-                let attrs = attributes! {
+            let cursor_error = crate::cursor::is_cursor_error(error);
+            let attrs = if cursor_error {
+                attributes! {
                     cx =>
-                    href=(retry)
+                    href=(retry_url)
+                    data-retry-attempt=(attempt.get())
                     @click=$(|e: Event| {
                         e.prevent_default();
                         cursor.set(none.clone());
+                        attempt.increment();
                     })
-                };
-                view! { cx => <a (attrs)>"Retry"</a> }.boxed()
+                }
             } else {
-                let (q, filters, sort) = (
-                    signals.q.clone(),
-                    signals.filters.clone(),
-                    signals.sort.clone(),
-                );
-                let attrs = attributes! {
+                attributes! {
                     cx =>
-                    href=(retry)
+                    href=(retry_url)
+                    data-retry-attempt=(attempt.get())
                     @click=$(|e: Event| {
                         e.prevent_default();
-                        q.set("".to_owned());
-                        filters.set("".to_owned());
-                        sort.set("".to_owned());
-                        cursor.set(none.clone());
+                        attempt.increment();
                     })
-                };
-                view! { cx => <a (attrs)>"Retry"</a> }.boxed()
-            }
+                }
+            };
+            view! { cx => <a (attrs)>"Retry"</a> }.boxed()
         }
-        None => view! { cx => <a href=(retry)>"Retry"</a> }.boxed(),
+        None => view! { cx => <a href=(retry_url)>"Retry"</a> }.boxed(),
     };
     view! {
         cx =>
@@ -1963,6 +1961,44 @@ mod tests {
         assert!(
             !body.contains("after="),
             "a malformed cursor must not travel into the retry link: {body}"
+        );
+
+        // GH #294: a cursor that decodes but was cut from another ordering is
+        // refused by the engine, not the decoder. It is the same retry
+        // contract — drop pagination rather than loop on the identical URL.
+        let stale = crate::cursor::encode(&toasty::stmt::Value::Record(
+            toasty_core::stmt::ValueRecord::from_vec(vec![
+                toasty::stmt::Value::String("a@b.c".to_string()),
+                toasty::stmt::Value::String("x".to_string()),
+                toasty::stmt::Value::I64(1),
+            ]),
+        ))
+        .unwrap();
+        let response = router
+            .handle(
+                http::Request::builder()
+                    .uri(format!("/admin/subscribers?after={stale}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await;
+        assert!(response.status().is_success());
+        let bytes = http_body_util::BodyExt::collect(response.into_body())
+            .await
+            .unwrap()
+            .to_bytes();
+        let body = String::from_utf8(bytes.to_vec()).unwrap();
+        assert!(
+            body.contains("Couldn't load Subscribers"),
+            "a stale cursor must render the error state: {body}"
+        );
+        assert!(
+            body.contains("href=\"/admin/subscribers\""),
+            "the stale-cursor retry must target the bare list: {body}"
+        );
+        assert!(
+            !body.contains("after="),
+            "a stale cursor must not travel into the retry link: {body}"
         );
     }
 

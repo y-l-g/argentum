@@ -578,6 +578,28 @@ pub fn find_href_with(html: &str, needle: &str) -> Option<String> {
     }
 }
 
+/// The pager's `after=`/`before=` link: the first href carrying `needle` that
+/// is not the Delete dialog opener.
+///
+/// The Delete confirmation opener is built from the list URL, so it carries the
+/// whole query state — including the cursor — and appends `&delete=<key>`
+/// (`TableState::delete_dialog`). Following it opens a dialog instead of
+/// advancing the page, and on a page holding one row that href comes first.
+/// The View and Edit links are bare `{prefix}/{key}/…` paths with no query.
+pub fn find_pager_href(html: &str, needle: &str) -> Option<String> {
+    let mut rest = html;
+    loop {
+        let start = rest.find("href=\"")?;
+        rest = &rest[start + "href=\"".len()..];
+        let end = rest.find('"')?;
+        let href = &rest[..end];
+        if href.contains(needle) && !href.contains("delete=") {
+            return Some(unescape_href(href));
+        }
+        rest = &rest[end..];
+    }
+}
+
 /// Decode the entities an HTML attribute encoder emits in a URL attribute.
 fn unescape_href(href: &str) -> String {
     href.replace("&quot;", "\"")
@@ -608,6 +630,50 @@ pub fn row_titles(html: &str) -> Vec<String> {
                     out.push(text.to_string());
                 }
             }
+        }
+        rest = &rest[1..];
+    }
+    out
+}
+
+/// The record key of every rendered row, in document order.
+///
+/// The bulk checkbox carries the record key as its `value` (`Table::pk`), so a
+/// pagination walk can assert the exact rows a page holds: tied display values
+/// cannot be told apart by their first cell. Attributes render in no
+/// guaranteed order (topcoat#122), so this reads each `<input>` tag whole
+/// rather than assuming `value` and the marker sit in a fixed order.
+pub fn row_keys(html: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut rest = html;
+    while let Some(at) = rest.find("<input") {
+        rest = &rest[at..];
+        // The tag ends at the first `>` outside quotes; attribute values carry
+        // `>` when topcoat escapes an expression (`=&gt;`).
+        let mut quoted = false;
+        let mut end = rest.len();
+        for (offset, byte) in rest.bytes().enumerate() {
+            match byte {
+                b'"' => quoted = !quoted,
+                b'>' if !quoted => {
+                    end = offset;
+                    break;
+                }
+                _ => {}
+            }
+        }
+        let tag = &rest[..end];
+        if tag.contains("data-row-select")
+            && let Some(value_at) = tag.find("value=\"")
+        {
+            let after = &tag[value_at + "value=\"".len()..];
+            if let Some(close) = after.find('"') {
+                out.push(after[..close].to_string());
+            }
+        }
+        rest = &rest[end..];
+        if rest.is_empty() {
+            break;
         }
         rest = &rest[1..];
     }

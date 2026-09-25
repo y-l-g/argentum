@@ -1,6 +1,9 @@
 use showcase::app::router_for_tests as router;
 
-use crate::common::{TestClient, body_string, demo_client, find_href_with, seeded_db, user_count};
+use crate::common::{
+    TestClient, body_string, demo_client, find_href_with, find_pager_href, row_keys, row_titles,
+    seeded_db, user_count,
+};
 
 #[tokio::test]
 async fn admin_resource_list_page_serve_seeded_users() {
@@ -416,6 +419,145 @@ async fn admin_list_pagination_walks_cursor_links() {
     assert!(
         page1_again.contains("Ada Lovelace") || page1_again.contains("Alan Turing"),
         "previous page must show page-1 rows: {page1_again}"
+    );
+}
+
+/// The pager walks a descending ordering without skipping or repeating rows.
+///
+/// The cursor carries the ordering's sort values; the direction lives in
+/// `?dir=desc` and the query the loader builds from it. A page boundary that
+/// compared the cursor against the wrong ordering would drop the rest of the
+/// result set or serve page-1 rows again, and the row order would stop being
+/// descending.
+#[tokio::test]
+async fn admin_list_pagination_walks_descending_cursor_links() {
+    use showcase::models::User;
+
+    let db = seeded_db().await;
+    let router = router(db.clone());
+    let client = demo_client(&router, &db).await;
+    let seeded = user_count(&db).await;
+    let page_size = 25usize;
+    // One row past a full page, so the walk spans exactly two pages.
+    let extra = page_size - seeded + 1;
+    {
+        let mut db_q = db.clone();
+        for i in 0..extra {
+            toasty::create!(User {
+                name: format!("User {:02}", i),
+                email: format!("desc{:02}@example.com", i),
+                role: "member",
+                active: true,
+                created_at: "2024-03-01T00:00:00Z".parse::<jiff::Timestamp>().unwrap(),
+            })
+            .exec(&mut db_q)
+            .await
+            .unwrap();
+        }
+    }
+    let total = user_count(&db).await;
+    assert!(total > page_size, "the fixture must span two pages");
+
+    let mut url = "/admin/users?sort=name&dir=desc".to_string();
+    let mut names = Vec::new();
+    let mut keys = Vec::new();
+    for _ in 0..8 {
+        let response = client.get(&url).await;
+        assert!(response.status().is_success(), "GET {url}");
+        let html = body_string(response).await;
+        assert!(
+            html.contains("sort=name") && html.contains("dir=desc"),
+            "the pager must keep the descending state, got {html}"
+        );
+        names.extend(row_titles(&html));
+        keys.extend(row_keys(&html));
+        match find_pager_href(&html, "after=") {
+            Some(next) => {
+                assert!(!next.contains("&amp;"), "the link must be decoded: {next}");
+                url = next;
+            }
+            None => break,
+        }
+    }
+    assert_eq!(names.len(), total, "the walk must cover every row");
+    let mut descending = names.clone();
+    descending.sort();
+    descending.reverse();
+    assert_eq!(names, descending, "the pages must stay in descending order");
+    let unique: std::collections::HashSet<_> = keys.iter().collect();
+    assert_eq!(
+        unique.len(),
+        total,
+        "no row may appear on two pages of a descending walk"
+    );
+}
+
+/// The pager's cursor keeps its tie-breaker when the sort value repeats.
+///
+/// Every tied row has the same sort value, so only the primary key separates
+/// them: a boundary that compared the sort value alone would stop at the first
+/// tied row (dropping the rest) or serve the tie twice. The tied group spans
+/// the page boundary, so the walk must split it and still cover every row.
+#[tokio::test]
+async fn admin_list_pagination_keeps_tied_sort_values() {
+    use showcase::models::User;
+
+    let db = seeded_db().await;
+    let router = router(db.clone());
+    let client = demo_client(&router, &db).await;
+    let seeded = user_count(&db).await;
+    let page_size = 25usize;
+    let tied = 30usize;
+    {
+        let mut db_q = db.clone();
+        for i in 0..tied {
+            toasty::create!(User {
+                name: "Tied".to_string(),
+                email: format!("tied{:02}@example.com", i),
+                role: "member",
+                active: true,
+                created_at: "2024-03-01T00:00:00Z".parse::<jiff::Timestamp>().unwrap(),
+            })
+            .exec(&mut db_q)
+            .await
+            .unwrap();
+        }
+    }
+    let total = user_count(&db).await;
+
+    let page1 = body_string(client.get("/admin/users?sort=name&dir=asc").await).await;
+    let page1_titles = row_titles(&page1);
+    assert_eq!(page1_titles.len(), page_size, "page 1 must be full");
+    // Every seeded name sorts before "Tied", so the tie fills the tail of
+    // page 1 and all of page 2.
+    assert_eq!(
+        page1_titles.iter().filter(|title| *title == "Tied").count(),
+        page_size - seeded,
+        "the tied group must start inside page 1: {page1}"
+    );
+    let next = find_pager_href(&page1, "after=").expect("page 2 link");
+    let page2 = body_string(client.get(&next).await).await;
+    let page2_titles = row_titles(&page2);
+    assert_eq!(
+        page2_titles.len(),
+        total - page_size,
+        "page 2 holds the rest"
+    );
+    assert!(
+        page2_titles.iter().all(|title| title == "Tied"),
+        "page 2 must continue the tied group: {page2}"
+    );
+
+    // The tie-breaker is what makes the split exact: without it the second
+    // page would repeat the tie or drop it, so the keys would not cover `total`
+    // distinct rows.
+    let mut keys = row_keys(&page1);
+    keys.extend(row_keys(&page2));
+    let unique: std::collections::HashSet<_> = keys.iter().collect();
+    assert_eq!(
+        unique.len(),
+        total,
+        "the tie-breaker must not skip or repeat a row"
     );
 }
 

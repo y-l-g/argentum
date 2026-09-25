@@ -53,6 +53,7 @@ jobs:
           crates/argentum-ui/assets/dialog.test.js
           crates/argentum-ui/assets/mutation-submit.test.js
           crates/argentum-ui/assets/notifications.test.js
+          crates/argentum-ui/assets/filters.test.js
           examples/showcase/assets/media.test.js
 
   clippy:

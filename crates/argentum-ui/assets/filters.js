@@ -5,6 +5,11 @@
 // `data-filter-name` (no `name`, so they never submit on their own): on change
 // the control values are composed into the transport.
 //
+// Keys and values are escaped with the server's own rule before they join the
+// transport (GH #93, GH #294): `%`, then `:`, then `,`. The server splits the
+// transport on `,` and the first `:`, so an unescaped `Smith, John` would
+// arrive as two segments and apply the wrong filter.
+//
 // A form marked `data-filters-live` belongs to a live table: the transport is
 // bound to the runtime's `filters` signal, so this script composes the value
 // and dispatches a bubbling `change` into the transport, which the runtime
@@ -25,10 +30,18 @@ function composeFilters(form) {
     // The All option is `value=""`, so the empty skip is the whole rule: a
     // genuine filter value of `"all"` must round-trip (GH #160).
     if (name && value) {
-      parts.push(name + ':' + value);
+      parts.push(encodeFilterComponent(name) + ':' + encodeFilterComponent(value));
     }
   });
   return parts.join(',');
+}
+
+// Escape `%`, `:`, `,` inside a key or value, in that order, mirroring
+// `encode_filter_component` in `crates/argentum-core/src/resource/state.rs`
+// (GH #93): `%` first, so an escaped `%` is never re-escaped by the later
+// passes.
+function encodeFilterComponent(s) {
+  return s.replace(/%/g, '%25').replace(/:/g, '%3A').replace(/,/g, '%2C');
 }
 
 document.addEventListener('change', (e) => {
@@ -57,3 +70,10 @@ document.addEventListener('submit', (e) => {
   const transport = form.querySelector('input[data-filters-transport]');
   if (transport) transport.value = composeFilters(form);
 });
+
+// Exposed for the Node unit test (`filters.test.js`, run with `node --test`).
+// This file must stay a plain browser script loaded through `asset!`, so it
+// cannot be an ES module. The guard keeps the browser branch inert.
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { composeFilters, encodeFilterComponent };
+}
