@@ -86,10 +86,9 @@ pub(crate) fn pluralize(word: &str) -> String {
 /// Convert a CamelCase identifier to kebab-case: `BlogPost` → `blog-post`,
 /// `APIKey` → `api-key`.
 ///
-/// Delegates to `heck::ToKebabCase` (GH #139; the hand-rolled scanner matched
-/// heck on every Rust-identifier shape — digits, acronym runs — so slugs are
-/// unchanged). Underscores now split words too (`Audit_Log` → `audit-log`,
-/// previously `audit_log`): name resources without underscores or override
+/// Delegates to `heck::ToKebabCase` (GH #139): digits split words
+/// (`User2FA` → `user2-fa`) and so do underscores (`Audit_Log` → `audit-log`).
+/// Name resources without underscores or override
 /// [`Resource::slug`](crate::Resource::slug).
 pub(crate) fn kebab_case(name: &str) -> String {
     use heck::ToKebabCase;
@@ -119,9 +118,9 @@ mod tests {
         assert_eq!(kebab_case("Users"), "users");
         assert_eq!(kebab_case("BlogPost"), "blog-post");
         assert_eq!(kebab_case("APIKey"), "api-key");
-        // The heck delegate (GH #139): digit boundaries match the old scanner,
-        // and underscores now split words — pinned so a heck upgrade cannot
-        // silently change slugs.
+        // The heck delegate (GH #139): digit boundaries split (`User2FA` →
+        // `user2-fa`) and underscores split words — pinned so a heck upgrade
+        // cannot silently change slugs.
         assert_eq!(kebab_case("User2FA"), "user2-fa");
         assert_eq!(kebab_case("Blog_Post"), "blog-post");
     }

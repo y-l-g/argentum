@@ -382,14 +382,14 @@ impl<M> std::fmt::Debug for TextColumn<M> {
 
 /// Convert a single column or tuple of columns into `Vec<TextColumn<M>>`.
 ///
-/// Tuple members are `TextColumn<M>` themselves: the `Into` bounds these impls
-/// once carried existed for the removed `Column<M>` enum, and nothing else ever
-/// implemented `From<_> for TextColumn<M>` but the reflexive impl (GH #228).
+/// Tuple members are `TextColumn<M>` themselves, so nothing sits between the
+/// column types (GH #228). A single column converts on its own, with no
+/// one-element tuple.
 ///
 /// 5-tuple limit: without variadic generics this is idiomatic Rust — one arity
 /// past `IntoSchema` in `schema/tree.rs`, which stops at four. Tables wider
-/// than five columns are rare in admin UIs; extend (or macro-ify) when a real
-/// Resource needs it.
+/// than five columns are rare in admin UIs; extend when a real Resource needs
+/// it.
 pub trait IntoColumns<M> {
     fn into_columns(self) -> Vec<TextColumn<M>>;
 }

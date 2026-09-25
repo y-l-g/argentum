@@ -79,9 +79,8 @@ impl Node {
 /// Plain maps, no bindings: `Mode::Form` is the create/edit path, and
 /// `Mode::View` renders the detail page, where a field shows its stored value
 /// instead of a control — `Select` its option label, `FileUpload` its path —
-/// and layout keeps the structure it declares. A struct, not the enum #154
-/// introduced: the live variant went with the `Live` render axis (GH #204), so
-/// there is one source shape and no second case left to name (GH #228).
+/// and layout keeps the structure it declares. A struct with one source shape
+/// (`Mode::Form` or `Mode::View`) and no second case to name (GH #228).
 pub(crate) struct RenderSource<'a> {
     pub(crate) values: &'a HashMap<String, String>,
     pub(crate) errors: &'a HashMap<String, Vec<String>>,
@@ -444,10 +443,9 @@ mod tests {
             .await
             .unwrap()
             .render(&cx);
-        // GH #216: the section's card chrome and the group's container class
-        // were the old assertions; both are paint. What "composes multiple
-        // blocks" means structurally is that each block renders its own child,
-        // exactly once, and the section's title still frames its field.
+        // GH #216: the assertions below check structure, not paint: each block
+        // renders its own child, exactly once, and the section's title still
+        // frames its field.
         assert!(html.contains("A"), "missing section title in {html}");
         assert_eq!(
             html.matches("data-slot=\"field\"").count(),

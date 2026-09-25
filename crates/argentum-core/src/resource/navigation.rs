@@ -123,12 +123,12 @@ impl NavigationItem {
     /// `/admin/users` is active on `/admin/users/create` but not on
     /// `/admin/userships`). Uniform for every item — since resources mount at
     /// `{prefix}/{slug}` (GH #39), no generated item points at the bare panel
-    /// prefix that needed the old root-exact special case.
+    /// prefix.
     ///
     /// This is the whole active-state contract: `Panel::render_shell` takes the
     /// request path as a parameter, so it can judge an item without a `Cx` (and
     /// the shell stays testable without a full `http::request::Parts` in `Cx`).
-    /// The `Cx`-taking wrapper went with its last caller (GH #228).
+    /// It is the only entry point to that judgment (GH #228).
     pub fn is_current_path(&self, current_path: &str) -> bool {
         let Some(url) = self.url() else {
             // Unresolved: no URL to be current for.

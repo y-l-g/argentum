@@ -113,7 +113,7 @@ const HINT: &str = "run `cargo xtask sync-topcoat-ui` to restore the verbatim co
 /// No sibling clone required — the registry comes from the same git source
 /// Cargo compiles against.
 ///
-/// `prune` deletes vendored files the registry no longer owns (the orphan
+/// `prune` deletes vendored files absent from the registry manifest (the orphan
 /// guard in `verify_sync` otherwise leaves `verify` red after an upstream
 /// removal with `sync` alone unable to fix it). Without it, orphans are only
 /// reported — pass `--prune` to converge.
@@ -158,7 +158,7 @@ pub fn sync_topcoat_ui(dry_run: bool, prune: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Delete vendored files the registry manifest no longer owns (GH #175):
+/// Delete vendored files absent from the registry manifest (GH #175):
 /// the same expected-set as the `verify_sync` orphan guard (`mod.rs`
 /// included — it is regenerated, never pruned). Dry runs only report.
 fn prune_orphans(dst_dir: &Path, registry: &Registry, dry_run: bool) -> anyhow::Result<()> {
@@ -592,7 +592,7 @@ pub const ASSET_HOOKS: &[AssetHook] = &[
 /// longer name.
 ///
 /// A plain substring check misses renames by extension (`data-copy-button` →
-/// `data-copy-button-2` still contains the old string), so an occurrence only
+/// `data-copy-button-2` still contains the shorter name), so an occurrence only
 /// counts when neither neighbor continues the name. Still structural: any
 /// spelling (`[data-x]`, `data-x=""`, `dataset.x`) matches.
 ///

@@ -93,7 +93,7 @@ pub(crate) fn cursor_none() -> String {
 /// consumes. At most one side is ever `Some`: a value naming neither direction
 /// (a tampered signal, or one the client never sent) degrades to "no cursor" —
 /// the drop-pagination retry contract of GH #110 — rather than the pair error
-/// of GH #155, which the live path can no longer reach.
+/// of GH #155 that a URL carrying both cursors reaches at load time.
 pub(crate) fn split_cursor(wire: &str) -> (Option<String>, Option<String>) {
     let wire = wire.trim();
     for (prefix, forward) in [(CURSOR_AFTER, true), (CURSOR_BEFORE, false)] {
@@ -252,12 +252,13 @@ impl TableState {
     ///
     /// A blank or unknown query parses as neutral state rather than failing
     /// the request. Duplicate keys (`?filters=a&filters=b`) resolve to the
-    /// first occurrence: the previous serde decode rejected duplicates, and
-    /// swallowing that error as empty state silently dropped every filter —
-    /// including export's fail-closed guard (GH #93). Cursor errors still
-    /// surface later, at decode time, where they are precise — including the
-    /// conflicting `after` + `before` pair, which fails at load time (GH #155).
-    /// Renders without a request context (e.g. unit tests) get neutral state.
+    /// first occurrence, so a repeated filter never vanishes: rejecting the
+    /// duplicate would fail the whole decode, and answering empty state instead
+    /// would drop every filter — including export's fail-closed guard (GH #93).
+    /// Cursor errors still surface later, at decode time, where they are
+    /// precise — including the conflicting `after` + `before` pair, which fails
+    /// at load time (GH #155). Renders without a request context (e.g. unit
+    /// tests) get neutral state.
     pub fn from_cx(cx: &Cx) -> Self {
         let Some(parts) = topcoat::context::try_request_context::<http::request::Parts>(cx) else {
             return Self::default();
@@ -715,10 +716,10 @@ pub(crate) fn bulk_delete_url(list_path: &str) -> String {
 
 /// Query-string pairs with the first occurrence winning.
 ///
-/// Deliberately not serde's derived `duplicate_field` behavior: a duplicate
-/// `?filters=` used to fail the whole decode, and `from_cx` swallowed that
-/// error as empty state — silently dropping filters and export's fail-closed
-/// guard (GH #93). Unknown keys are ignored, like the typed decode was.
+/// A duplicate key keeps its first value rather than failing the decode:
+/// rejecting it would fail the whole parse, and answering empty state instead
+/// would silently drop filters and export's fail-closed guard (GH #93). Unknown
+/// keys are ignored, like the typed decode.
 fn first_wins_query_params(query: &str) -> HashMap<String, String> {
     let mut out = HashMap::new();
     for (key, value) in form_urlencoded::parse(query.as_bytes()) {
@@ -1071,9 +1072,9 @@ mod tests {
 
     #[test]
     fn table_state_duplicate_params_keep_first_and_never_fail_open() {
-        // GH #93: a duplicate param used to fail the serde decode, and
-        // `from_cx` swallowed that as empty state — dropping every filter
-        // (and export's fail-closed guard along with it).
+        // GH #93: a duplicate param keeps its first value and never fails
+        // open — answering empty state would drop every filter (and export's
+        // fail-closed guard along with it).
         let cx = cx_with_query("filters=status:published&filters=status:draft&q=Ada&q=Grace");
         let state = TableState::from_cx(&cx);
         assert_eq!(

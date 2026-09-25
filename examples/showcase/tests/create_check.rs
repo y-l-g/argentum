@@ -115,7 +115,7 @@ async fn create_valid_redirects_with_a_one_time_flash() {
     );
 
     // Follow the redirect, carrying whatever cookies the POST set (the flash
-    // cookie included — the Location query no longer carries it).
+    // cookie included — the Location query carries no notification param).
     let resp2 = client.cookies(&response_cookies(&resp)).get(&loc).await;
     assert!(
         resp2.status().is_success(),

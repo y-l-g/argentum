@@ -57,7 +57,8 @@ pub(crate) use crate::query_term::clamp_query_term;
 ///   type: the table must be renderable ([`table`](Self::table) declares columns and a row key)
 ///   and, where [`can_create`](Self::can_create) allows it, the [`form`](Self::form) must declare
 ///   fields. `table`, `form` and `can_create` are declarations: they must not need request-scoped
-///   context, because the panel calls them once at boot with the app's values and no request.
+///   context, because build checks them with a Db-only context, and each list and form request
+///   calls `table` / `form` again.
 /// - **Loud at request time**: the record fns ([`create_record`](Self::create_record),
 ///   [`update_record`](Self::update_record), [`delete_record`](Self::delete_record),
 ///   [`bulk_delete_records`](Self::bulk_delete_records)) default to an error naming the type, so a
@@ -291,7 +292,7 @@ pub trait Resource: Sized + Send + Sync + 'static {
     /// its 2026-09-22 status note): soft deletes, row-level visibility, and the
     /// relations a page loads.
     ///
-    /// **Tenancy is not this method's job any more (GH #223).** When
+    /// **Tenancy is not this method's job (GH #223).** When
     /// [`requires_tenant`](Self::requires_tenant) is `true` the framework ANDs
     /// the tenant filter — derived from the model's `tenant_id` column — onto
     /// whatever this returns, at every loader, through [`scoped_query`]. Do not
@@ -300,18 +301,18 @@ pub trait Resource: Sized + Send + Sync + 'static {
     /// than widen access. The gate that makes a missing tenant a 403 is
     /// unchanged (GH #87).
     ///
-    /// That also means an override of this method is **not** the tenant seam it
-    /// once was: code outside the framework's loaders must start from
-    /// [`scoped_query`], because on a gated resource this is the
-    /// *tenant-unscoped* base. See [`scoped_query`] for why.
+    /// An override of this method is **not** the tenant seam: code outside the
+    /// framework's loaders must start from [`scoped_query`], because on a gated
+    /// resource this is the *tenant-unscoped* base. See [`scoped_query`] for
+    /// why.
     ///
-    /// Returns the raw typed statement query (the spec's original signature):
+    /// Returns the raw typed statement query:
     /// raw queries compose generically — `filter`, `order_by`, and
     /// `Paginate::new` are available on the raw form for any `M: Model` —
     /// which is what lets [`crate::panel::Panel`] drive every resource's list
     /// page through one handler. Scoping it via `Model::filter(..)` in an
-    /// override stays as ergonomic as before; the wrapper's extra methods are
-    /// only needed by hand-written loaders.
+    /// override is enough; the wrapper's extra methods are only needed by
+    /// hand-written loaders.
     ///
     /// # Keep unique constraints in step with this scope (GH #88)
     ///
@@ -630,8 +631,8 @@ pub trait Resource: Sized + Send + Sync + 'static {
     /// `cx` carries the app schema (GH #191). A scalar projection needs no
     /// request context, but an embedded **value** does: its keys are the
     /// columns the compiled mapping resolves
-    /// ([`write_embedded`](crate::schema::write_embedded)), and re-deriving
-    /// those names here is exactly what GH #185 removed. The context is the
+    /// ([`write_embedded`](crate::schema::write_embedded)), so this override
+    /// does not re-derive them (GH #185). The context is the
     /// request's, the same one `form(cx)` and the record fns receive.
     fn hydrate_form_values(_cx: &Cx, _record: &Self::Model) -> HashMap<String, String> {
         HashMap::new()
@@ -722,7 +723,7 @@ pub(crate) fn apply_tenant_scope<R: Resource>(
 
 /// Every `Resource` is an [`OptionSource`](crate::schema::OptionSource) — the
 /// bridge that lets the relationship option loaders be generic over the source
-/// surface instead of over `Resource`, so `schema` no longer depends on
+/// surface instead of over `Resource`, so `schema` does not depend on
 /// `resource` (GH #208).
 ///
 /// A resource answers the loaders here, so the loaders never name `Resource`:

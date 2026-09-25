@@ -157,8 +157,8 @@ pub trait Authenticator: Send + Sync + 'static {
     /// Resolve the live session user by [`CurrentUser::id`].
     ///
     /// Loading the row each request is what makes deactivation and revocation
-    /// take effect immediately; return `None` for a user that no longer
-    /// authenticates.
+    /// take effect immediately; return `None` when the user does not
+    /// authenticate.
     fn find_by_id<'a>(&'a self, cx: &'a Cx, id: &'a str) -> AuthFuture<'a, Option<CurrentUser>>;
 }
 

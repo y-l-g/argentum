@@ -384,12 +384,12 @@ async fn post_edit_binds_and_saves_embedded_fields() {
 }
 
 /// GH #191: the edit form carries the **stored variant**, and a submit that
-/// names a different one switches the value — even while the old variant's
+/// names a different one switches the value — even while the stored variant's
 /// payload is still filled in.
 ///
-/// That is the case the hand-written reassembly got wrong: it picked the
-/// variant from which payload columns happened to be non-empty, so a stale
-/// `publication_canonical_url` silently outvoted the variant the user meant.
+/// The submitted discriminant decides, never which payload columns happen to be
+/// non-empty: a stale `publication_canonical_url` must not outvote the variant
+/// the user meant.
 #[tokio::test]
 async fn post_edit_switches_the_publication_variant_explicitly() {
     use showcase::models::{Media, Post, Publication};
@@ -585,8 +585,8 @@ async fn post_create_keeps_the_variant_its_payload_names() {
 /// The typed leaves round-trip and refuse a bad number inline (GH #192).
 ///
 /// `post_stats_word_count` / `post_stats_read_minutes` are `i64` columns bound
-/// through `TextInput::typed`. Before this they were unbound and the record fn
-/// parsed them with `unwrap_or(0)`, so `word_count=twelve` stored a zero.
+/// through `TextInput::typed`, so `word_count=twelve` is refused inline rather
+/// than stored as a zero.
 #[tokio::test]
 async fn post_edit_round_trips_typed_leaves_and_refuses_a_bad_number() {
     use showcase::models::Post;

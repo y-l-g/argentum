@@ -727,10 +727,9 @@ mod tests {
 
     #[tokio::test]
     async fn select_renders_through_the_select_primitive() {
-        // The schema select was a hand-rolled `<select>` on the old input
-        // chrome (`rounded-md`, page fill, no focus ring); it now composes the
-        // synced `select` primitive, so it matches the `input` beside it and
-        // `selects.js` keeps finding the control inside the filterable field.
+        // The schema select composes the synced `select` primitive, so it
+        // matches the `input` beside it and `selects.js` keeps finding the
+        // control inside the filterable field.
         let cx = CxTestBuilder::new().build();
         let schema =
             Schema::new(Select::r#for(DummyUser::fields().name()).options(vec!["a".to_string()]));

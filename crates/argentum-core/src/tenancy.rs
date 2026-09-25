@@ -24,8 +24,8 @@
 //! (ADR-0013) injects `Tenant` into the request `Cx` when the logged-in user
 //! carries one. A `Tenant` request extension — server-set only, never a header
 //! — takes precedence, so app middleware and `Router::handle` tests can
-//! override it deliberately. The `x-tenant-id` header fallback was removed in
-//! GH #131: learning another tenant's UUID no longer makes anyone that tenant.
+//! override it deliberately. No request header supplies a tenant: learning
+//! another tenant's UUID does not make anyone that tenant (GH #131).
 
 use toasty::stmt::Expr;
 use topcoat::context::{Cx, try_request_context};

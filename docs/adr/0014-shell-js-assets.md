@@ -1,14 +1,15 @@
 # Shell JS assets: ownership, all-load policy, and the hook contract
 
-Date: 2026-09-18 — Status: accepted — Amended: 2026-09-19, 2026-09-22, 2026-09-23
+Date: 2026-09-18 — Status: accepted — Amended: 2026-09-19, 2026-09-22, 2026-09-23, 2026-09-25
 
 ## Decision
 
 **Ownership.** `crates/argentum-ui/assets/` holds ten hand-written JS assets (`sidebar.js`,
 `theme.js`, `dialog.js`, `bulk.js`, `filters.js`, `live-search.js`, `selects.js`, `variant.js`,
 `notifications.js`, `mutation-submit.js`; `selects.test.js`, `bulk.test.js`, `dialog.test.js` and
-`mutation-submit.test.js` are the Node tests, not shipped — ~58 KB unminified, ~23 KB gzipped
-summed per asset, with no build or minify step). They
+`mutation-submit.test.js` are the Node tests, not shipped, and `examples/showcase/assets/media.test.js`
+tests the showcase's `media.js` — ~59 KB unminified, ~23 KB gzipped summed per asset, with no build or
+minify step). They
 are declared as `Asset` constants in
 `crates/argentum-ui/src/lib.rs` and emitted by `Panel::render_document` in `argentum-core` on every
 document with `ShellAssets`, including the login page, where all but `theme.js`'s backstop apply are
@@ -46,12 +47,13 @@ The list is attribute hooks only — structural selectors (`.relative`, `pre cod
 | `notifications.js` | `data-sonner-toast`, `data-close-button`, `data-mounted` (toaster) | Toasts stay visible until the next navigation |
 | `mutation-submit.js` | `data-mutation-submit` (row + bulk confirms), `data-table-revision` (live table), `data-boundary` (table region), `data-sonner-toaster` (shell) | Both confirms POST and 303; the table updates with a full page load |
 
-**No-build stance.** No `package.json`, no lint/format config, no Node step in CI, no minification:
-the assets are small enough that a toolchain would cost more than it saves. Revisit with the all-load
-policy if they grow.
+**No-build stance.** No `package.json`, no lint/format config, no dependency install, no minification,
+and no bundling step: the assets are small enough that a toolchain would cost more than it saves. CI
+still runs them: the `assets` job names each suite and runs it with `node --test` on the runner's Node,
+with nothing to install first. Revisit with the all-load policy if they grow.
 
 **No-JS posture.** `sidebar.js` (mobile nav persistence) and `bulk.js` (bulk delete) are load-bearing
-for their features; `theme.js` is needed for the toggle; the other six are progressive enhancements
+for their features; `theme.js` is needed for the toggle; the other seven are progressive enhancements
 with fallbacks, as the table records. Delegation is deliberate throughout: Topcoat morphs swapped
 content with no script-lifecycle handling, so document-level listeners (plus `notifications.js`'s
 `MutationObserver` for mounted-state arming) keep behavior alive after post-load shard swaps.

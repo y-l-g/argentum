@@ -552,14 +552,14 @@ fn app_field_at<'a>(
         // An enum nested in the parent path consumes two steps per level: the
         // variant index, then a variant-local field index. `variant_fields`
         // returns the variant's own slice of the enum's global field list
-        // (upstream 7ff180db changed it from an iterator to that slice), so the
-        // second step indexes it directly — the generated accessor's index is
-        // variant-local, which is the same field either way.
+        // (upstream 7ff180db), so the second step indexes it directly — the
+        // generated accessor's index is variant-local, which is the same field
+        // either way.
         //
         // The variant step is bounds-checked here first: `variant_fields`
-        // indexes `variants[i]` and panics out of range where the old iterator
-        // returned `None`, and this walk answers `None` for a path it cannot
-        // resolve (a wrong lens must not abort a request).
+        // indexes `variants[i]` and panics out of range, and this walk answers
+        // `None` for a path it cannot resolve (a wrong lens must not abort a
+        // request).
         toasty::schema::app::Model::EmbeddedEnum(e) => {
             let (variant, tail) = rest.split_first()?;
             e.variants.get(*variant)?;

@@ -1,10 +1,8 @@
 //! A `Resource::query` override scopes the rows the resource sees (GH #52,
 //! #222).
 //!
-//! Both resources are hand-written: the `derive(Resource)` this file used to
-//! exercise was removed as dead surface (GH #222), and the reference app
-//! hand-writes its impls anyway. The coverage is unchanged — the trait's
-//! default returns every row, and the override returns the scoped set.
+//! Both resources are hand-written, as the reference app's are (GH #222). The
+//! trait's default returns every row, and the override returns the scoped set.
 
 use argentum_core::Resource;
 use toasty::Db;
