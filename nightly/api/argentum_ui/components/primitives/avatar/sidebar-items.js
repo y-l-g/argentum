@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"enum":["AvatarSize"],"struct":["AvatarFallbackProps","AvatarFallbackPropsBuilder","AvatarImageProps","AvatarImagePropsBuilder","AvatarProps","AvatarPropsBuilder","avatar","avatar_fallback","avatar_image"]};

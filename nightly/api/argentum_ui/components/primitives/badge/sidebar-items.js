@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"enum":["BadgeVariant"],"fn":["badge_variants"],"struct":["BadgeProps","BadgePropsBuilder","badge"]};

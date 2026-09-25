@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"mod":["accordion","alert","alert_dialog","avatar","badge","breadcrumb","button","card","checkbox","dialog","dropdown_menu","field","hover_card","input","kbd","label","pagination","progress","radio_group","select","separator","sheet","sidebar","skeleton","spinner","switch","table","tabs","textarea","toggle","tooltip"]};
+window.SIDEBAR_ITEMS = {"mod":["alert","alert_dialog","button","card","checkbox","dialog","field","input","label","pagination","select","separator","sheet","sidebar","skeleton","table","textarea"]};

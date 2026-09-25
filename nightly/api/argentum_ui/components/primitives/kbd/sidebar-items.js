@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"struct":["KbdGroupProps","KbdGroupPropsBuilder","KbdProps","KbdPropsBuilder","kbd","kbd_group"]};

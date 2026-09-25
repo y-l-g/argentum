@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"struct":["HoverCardContentProps","HoverCardContentPropsBuilder","HoverCardProps","HoverCardPropsBuilder","hover_card","hover_card_content"]};
