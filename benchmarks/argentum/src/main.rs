@@ -6,7 +6,7 @@ use toasty::{Db, Deferred};
 use topcoat::{
     Result,
     context::{Cx, CxTestBuilder},
-    router::{Router, Slot, layout},
+    router::{Body, Next, Router, Slot, layer, layout, response::Response},
     view::{View, ViewExt},
 };
 
@@ -246,8 +246,7 @@ fn summarize(mut times: Vec<f64>) -> (f64, f64, f64, f64, f64) {
 
 /// The honest list path (GH #171): `TableState::from_cx` → `Table::load`
 /// (the tenant-scoped query + the declared `.paginate(50)`, tenancy set, policy
-/// enforced) → `render_with_state` → HTML. Fresh `Cx` per iteration (cold —
-/// no memoize hits across iterations).
+/// enforced) → `render_with_state` → HTML. Fresh `Cx` per iteration.
 ///
 /// This is the exact body of the shipped `panel::load_table_page`
 /// (`table.load(cx, scoped_query::<R>(cx)?, state)` behind its paginate guard —
@@ -462,6 +461,21 @@ async fn admin_layout(cx: &Cx, slot: Slot<'_>) -> Result<impl View> {
     Panel::layout_shell(cx, slot).await
 }
 
+/// The tenant the HTTP mode seeds and serves. The HTTP mode runs with
+/// `Auth::disabled()`, so no auth gate injects a `Tenant`; the layer below
+/// supplies this value for every `/admin` request.
+const SERVER_TENANT: uuid::Uuid = uuid::Uuid::nil();
+
+/// Supplies the HTTP mode's tenant.
+///
+/// `enforce_tenant` refuses a tenant-scoped resource with 403 when the request
+/// carries no `Tenant` scoped value, so the HTTP mode needs this layer to serve
+/// `/admin`. The bench path scopes its own requests instead, through `bench_cx`.
+#[layer("/admin")]
+async fn inject_server_tenant(cx: &Cx, body: Body, next: Next<'_>) -> Result<Response> {
+    next.run(&cx.with(Tenant(SERVER_TENANT)), body).await
+}
+
 fn router(db: Db) -> Router {
     Panel::new("admin")
         .app_context(db)
@@ -494,7 +508,7 @@ async fn main() {
         .await
         .expect("connect");
     db.push_schema().await.expect("push_schema");
-    seed_50(&mut db, uuid::Uuid::nil()).await;
+    seed_50(&mut db, SERVER_TENANT).await;
     let router = router(db);
     println!("storefront-argentum listening on http://localhost:3000/ (try /admin/posts)");
     topcoat::start(router).await.unwrap();

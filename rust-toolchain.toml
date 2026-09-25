@@ -7,3 +7,9 @@ channel = "stable"
 # Explicit so every checkout (including CI images without the default profile)
 # has the tools the fmt/clippy jobs need.
 components = ["rustfmt", "clippy"]
+# The `fmt` CI job does not use this toolchain: it checks the workspace with
+# `cargo +nightly-2026-08-24 fmt`, because rustfmt.toml's keys are nightly-only
+# (GH #269). The date is pinned so the rustfmt version the gate enforces cannot
+# move without a commit here; this comment records the choice, and `ci.yml` plus
+# the gate lists in AGENTS.md, CONTRIBUTING.md and .agents/skills/check/SKILL.md
+# name the same toolchain.

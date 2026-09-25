@@ -7,7 +7,7 @@
 cargo test --workspace --locked
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test -p argentum-core --no-default-features --locked
-cargo +nightly fmt --all -- --check
+cargo +nightly-2026-08-24 fmt --all -- --check   # pinned nightly (rust-toolchain.toml, GH #269); rustup installs it on demand
 topcoat fmt && git diff --exit-code
 cargo check --locked --manifest-path benchmarks/argentum/Cargo.toml
 cargo clippy --locked --manifest-path benchmarks/argentum/Cargo.toml --all-targets -- -D warnings
@@ -16,6 +16,15 @@ node --test crates/argentum-ui/assets/selects.test.js crates/argentum-ui/assets/
   crates/argentum-ui/assets/dialog.test.js crates/argentum-ui/assets/mutation-submit.test.js \
   examples/showcase/assets/media.test.js
 cargo +nightly udeps --workspace --all-targets --all-features --locked  # GH #271
+
+# CI also runs, outside the ten:
+RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked  # docs job
+mdbook build docs/guide                                             # docs job
+for bench in benchmarks/argentum benchmarks/axum-maud benchmarks/leptos; do
+  (cd "$bench" && cargo fmt -- --check)                             # fmt job, per detached workspace
+done
+# bench-check job: Cargo.lock and benchmarks/argentum/Cargo.lock must pin
+# identical topcoat/toasty revs.
 
 cargo run -p showcase                            # http://localhost:3000/admin/users
 cargo xtask sync-topcoat-ui                      # re-vendor primitives, verbatim
