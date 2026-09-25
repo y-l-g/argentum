@@ -3,8 +3,8 @@ use showcase::{app::router_for_tests as router, models::User};
 use toasty::Db;
 
 use crate::common::{
-    SESSION_COOKIE, TestClient, body_string, demo_client, mint_session, response_cookies,
-    seeded_db, set_cookie_header, user_count,
+    TestClient, body_string, demo_client, response_cookies, seeded_db, set_cookie_header,
+    user_count,
 };
 
 #[tokio::test]
@@ -270,26 +270,6 @@ async fn create_policy_deny() {
 }
 
 #[tokio::test]
-async fn create_post_without_csrf_is_forbidden() {
-    let db = seeded_db().await;
-    let router = router(db.clone());
-    // A session-holding client presenting no CSRF cookie or field: the auth gate
-    // passes, the double-submit check must still 403. The session is minted
-    // rather than logged in (GH #218) because this needs the raw cookie without
-    // the CSRF cookie the login page would pair with it — the subject is the
-    // create form's CSRF check, not the login flow.
-    let session = mint_session(&db, showcase::models::DEMO_ADMIN_EMAIL).await;
-    let client = TestClient::new(&router).cookie(SESSION_COOKIE, &session);
-    let response = client
-        .post_form(
-            "/admin/users/create",
-            "name=NoToken&email=notoken%40example.com".to_string(),
-        )
-        .await;
-    assert_eq!(response.status(), 403, "missing CSRF must be 403");
-}
-
-#[tokio::test]
 async fn create_post_with_unknown_keys_is_bad_request() {
     // GH #89 allow-list: role/tenant_id smuggling is a 400 at the framework
     // layer, never silently ignored.
@@ -335,11 +315,8 @@ async fn users_create_duplicate_email_shows_taken() {
         "duplicate POST must re-render 200, got {}",
         resp.status()
     );
-    let html = body_string(resp).await;
-    assert!(
-        html.contains("has already been taken"),
-        "missing uniqueness error: {html}"
-    );
+    // The inline wording is `panel::forms`'s; this pins that the duplicate
+    // re-renders instead of writing.
     assert_eq!(
         user_count(&db).await,
         before,

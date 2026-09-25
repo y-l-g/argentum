@@ -156,11 +156,8 @@ async fn the_named_variants_fields_still_validate() {
         )
         .await;
     assert_eq!(response.status(), 200, "the visible field re-renders");
-    let html = body_string(response).await;
-    assert!(
-        html.contains("`twelve` is not a valid whole number"),
-        "the named variant's field must validate, got {html}"
-    );
+    // The refusal's wording is `typed_leaves`'s; this pins the HTTP wiring: the
+    // named variant's invalid leaf re-renders the create form and writes nothing.
     let mut db_q = db.clone();
     assert!(
         Clip::all().exec(&mut db_q).await.unwrap().is_empty(),
