@@ -3393,13 +3393,13 @@ mod tests {
         }
     }
 
-    /// GH #205: a table render encodes the filter transport a bounded number of
-    /// times. The counter is per-thread and `#[tokio::test]` drives a
-    /// current-thread runtime, so this measures one render in isolation.
+    /// GH #205: a table render encodes the filter transport once for the page.
+    ///
+    /// Every row's dialog opener is the page's shared base — the one encoded
+    /// transport — plus its own `delete=` key, so the bytes before `delete=`
+    /// are identical across rows and independent of the page size.
     #[tokio::test]
     async fn table_render_encodes_the_filter_transport_once_per_page_not_per_row() {
-        use crate::resource::{filters_param_encodes, reset_filters_param_encodes};
-
         let cx = CxTestBuilder::new().build();
         let state = filters_state(&[("status", "published"), ("featured", "true")]);
         let tbl = Table::<User>::r#for(&cx)
@@ -3419,32 +3419,45 @@ mod tests {
                 })
                 .collect()
         };
-        let encodes_for = async |page: TablePage<User>| {
-            reset_filters_param_encodes();
-            let html = tbl
-                .render_with_state(&cx, page, &state, "/admin/users")
+        let render = async |page: TablePage<User>| {
+            tbl.render_with_state(&cx, page, &state, "/admin/users")
                 .await
                 .unwrap()
                 .single()
                 .await
                 .unwrap()
-                .render(&cx);
-            assert!(
-                html.contains("status%3Apublished"),
-                "each row's delete link must carry the filter transport, got {html}"
-            );
-            filters_param_encodes()
+                .render(&cx)
         };
+        // Each row's opener, keyed off the one attribute only an action link
+        // carries, with the per-row `delete` key stripped: what is left is the
+        // page's shared base.
+        fn delete_bases(html: &str) -> Vec<&str> {
+            html.split("href=\"")
+                .skip(1)
+                .filter_map(|chunk| chunk.split('"').next())
+                .filter(|href| href.contains("delete="))
+                .map(|href| href.split("delete=").next().unwrap())
+                .collect()
+        }
 
-        let one_row = encodes_for(TablePage::from(rows(1))).await;
-        let eight_rows = encodes_for(TablePage::from(rows(8))).await;
-        assert!(one_row > 0, "the state's filters must project at all");
-        assert_eq!(
-            one_row, eight_rows,
-            "the filter transport must be encoded a bounded number of times, \
-             independent of row count: one row encoded it {one_row} times, \
-             eight rows {eight_rows}"
-        );
+        let one_html = render(TablePage::from(rows(1))).await;
+        let eight_html = render(TablePage::from(rows(8))).await;
+        let one_row = delete_bases(&one_html);
+        let eight_rows = delete_bases(&eight_html);
+        assert_eq!(one_row.len(), 1, "one row, one dialog opener");
+        assert_eq!(eight_rows.len(), 8, "eight rows, eight dialog openers");
+        // The sorted, query-encoded transport every row's link must carry.
+        let transport = "filters=featured%3Atrue%2Cstatus%3Apublished";
+        for base in one_row.iter().chain(eight_rows.iter()) {
+            assert!(
+                base.contains(transport),
+                "every opener must carry the page's filter transport, got {base}"
+            );
+            assert_eq!(
+                *base, one_row[0],
+                "rows must reuse the page's one encoded transport, not re-encode per row"
+            );
+        }
     }
 
     #[tokio::test]

@@ -318,8 +318,6 @@ impl TableState {
     /// encode it a bounded number of times — never once per row (GH #205).
     /// `TableState::row_url_base` exists to make that structural.
     pub fn filters_param(&self) -> Option<String> {
-        #[cfg(test)]
-        FILTERS_PARAM_ENCODES.with(|count| count.set(count.get() + 1));
         if self.filters.is_empty() && self.malformed_filters.is_empty() {
             return None;
         }
@@ -871,27 +869,6 @@ pub(crate) fn build_url(path: &str, params: &[(&str, Option<&str>)]) -> String {
     } else {
         format!("{path}?{query}")
     }
-}
-
-#[cfg(test)]
-thread_local! {
-    /// How many times this thread has encoded the `filters` transport (GH
-    /// #205). A table render's encoding work must be bounded by the table's
-    /// declaration, never by the number of rows on the page — the only honest
-    /// way to pin that is to count the encodes.
-    static FILTERS_PARAM_ENCODES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-}
-
-/// Test-only: zero this thread's [`TableState::filters_param`] encode counter.
-#[cfg(test)]
-pub(crate) fn reset_filters_param_encodes() {
-    FILTERS_PARAM_ENCODES.with(|count| count.set(0));
-}
-
-/// Test-only: encodes counted on this thread since the last reset.
-#[cfg(test)]
-pub(crate) fn filters_param_encodes() -> usize {
-    FILTERS_PARAM_ENCODES.with(std::cell::Cell::get)
 }
 
 #[cfg(test)]
