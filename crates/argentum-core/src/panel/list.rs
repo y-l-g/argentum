@@ -805,6 +805,21 @@ mod tests {
             table_html.contains("Bob"),
             "fresh search must match new query, got {table_html}"
         );
+        // GH #293: the shard request carries no `?sort=`, so the sort the
+        // table is rendered with exists only in the signals it was invoked
+        // with; the sorted column must report that direction.
+        let response = call_shard(
+            &router,
+            shard_args("/admin/dummies", "", "", "name", "desc", ""),
+        )
+        .await;
+        assert_eq!(response.status(), http::StatusCode::OK);
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let sorted_html = String::from_utf8_lossy(&bytes);
+        assert!(
+            sorted_html.contains("aria-sort=\"descending\""),
+            "the live shard must report the signal's sort direction, got {sorted_html}"
+        );
     }
 
     #[tokio::test]
