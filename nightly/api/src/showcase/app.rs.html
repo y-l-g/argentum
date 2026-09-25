@@ -1468,194 +1468,222 @@
 <a href=#1468 id=1468 data-nosnippet>1468</a>        // file on disk does not carry.
 <a href=#1469 id=1469 data-nosnippet>1469</a>        </span><span class="prelude-val">Ok</span>(<span class="macro">format!</span>(<span class="string">"{UPLOAD_URL_PREFIX}/{}"</span>, url_segment(<span class="kw-2">&amp;</span>name)))
 <a href=#1470 id=1470 data-nosnippet>1470</a>    }
-<a href=#1471 id=1471 data-nosnippet>1471</a>}
-<a href=#1472 id=1472 data-nosnippet>1472</a>
-<a href=#1473 id=1473 data-nosnippet>1473</a><span class="doccomment">/// The longest client filename the showcase keeps, in bytes.
-<a href=#1474 id=1474 data-nosnippet>1474</a>///
-<a href=#1475 id=1475 data-nosnippet>1475</a>/// 255 bytes is the common per-component limit on Linux filesystems, and the
-<a href=#1476 id=1476 data-nosnippet>1476</a>/// store's `{uuid}-` prefix takes 37 of them, so the basename is capped to what
-<a href=#1477 id=1477 data-nosnippet>1477</a>/// is left. The media library records the name it stores, so the row's
-<a href=#1478 id=1478 data-nosnippet>1478</a>/// `filename` and the file on disk cannot disagree.
-<a href=#1479 id=1479 data-nosnippet>1479</a></span><span class="kw">const </span>MAX_BASENAME_BYTES: usize = <span class="number">218</span>;
-<a href=#1480 id=1480 data-nosnippet>1480</a>
-<a href=#1481 id=1481 data-nosnippet>1481</a><span class="doccomment">/// Reduce a client-supplied filename to the basename this app stores and shows
-<a href=#1482 id=1482 data-nosnippet>1482</a>/// (GH #90).
-<a href=#1483 id=1483 data-nosnippet>1483</a>///
-<a href=#1484 id=1484 data-nosnippet>1484</a>/// Strips directory components (`../../etc/passwd` → `passwd`), drops control
-<a href=#1485 id=1485 data-nosnippet>1485</a>/// characters, trims the ends, and caps the byte length preserving the tail, so
-<a href=#1486 id=1486 data-nosnippet>1486</a>/// the extension survives. The framework sanitizes the names its own form
-<a href=#1487 id=1487 data-nosnippet>1487</a>/// parser hands an [`Uploader`]; the media library's page parses its own
-<a href=#1488 id=1488 data-nosnippet>1488</a>/// multipart body (GH #248), and this is the one rule both callers apply.
-<a href=#1489 id=1489 data-nosnippet>1489</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>basename(raw: <span class="kw-2">&amp;</span>str) -&gt; String {
-<a href=#1490 id=1490 data-nosnippet>1490</a>    <span class="kw">let </span>base = raw.rsplit([<span class="string">'/'</span>, <span class="string">'\\'</span>]).next().unwrap_or(raw);
-<a href=#1491 id=1491 data-nosnippet>1491</a>    <span class="kw">let </span>clean: String = base.chars().filter(|c| !c.is_control()).collect();
-<a href=#1492 id=1492 data-nosnippet>1492</a>    <span class="kw">let </span>trimmed = clean.trim();
-<a href=#1493 id=1493 data-nosnippet>1493</a>    <span class="kw">if </span>trimmed.len() &lt;= MAX_BASENAME_BYTES {
-<a href=#1494 id=1494 data-nosnippet>1494</a>        <span class="kw">return </span>trimmed.to_string();
-<a href=#1495 id=1495 data-nosnippet>1495</a>    }
-<a href=#1496 id=1496 data-nosnippet>1496</a>    <span class="comment">// Walk the cut point forward to a char boundary: slicing a multibyte
-<a href=#1497 id=1497 data-nosnippet>1497</a>    // character would panic on an attacker-controlled filename (GH #90).
-<a href=#1498 id=1498 data-nosnippet>1498</a>    </span><span class="kw">let </span><span class="kw-2">mut </span>start = trimmed.len() - MAX_BASENAME_BYTES;
-<a href=#1499 id=1499 data-nosnippet>1499</a>    <span class="kw">while </span>!trimmed.is_char_boundary(start) {
-<a href=#1500 id=1500 data-nosnippet>1500</a>        start += <span class="number">1</span>;
-<a href=#1501 id=1501 data-nosnippet>1501</a>    }
-<a href=#1502 id=1502 data-nosnippet>1502</a>    trimmed[start..].to_string()
-<a href=#1503 id=1503 data-nosnippet>1503</a>}
-<a href=#1504 id=1504 data-nosnippet>1504</a>
-<a href=#1505 id=1505 data-nosnippet>1505</a><span class="doccomment">/// `name` as one URL path segment: everything outside the unreserved set is
-<a href=#1506 id=1506 data-nosnippet>1506</a>/// percent-encoded (RFC 3986 §2.3).
-<a href=#1507 id=1507 data-nosnippet>1507</a>///
-<a href=#1508 id=1508 data-nosnippet>1508</a>/// The store's contract is that the string it returns is fetchable verbatim
-<a href=#1509 id=1509 data-nosnippet>1509</a>/// (GH #242), and a client filename is arbitrary: a space must not become the
-<a href=#1510 id=1510 data-nosnippet>1510</a>/// end of the URL, a `#` must not start a fragment, and a `%` must not decode
-<a href=#1511 id=1511 data-nosnippet>1511</a>/// to something else.
-<a href=#1512 id=1512 data-nosnippet>1512</a></span><span class="kw">fn </span>url_segment(name: <span class="kw-2">&amp;</span>str) -&gt; String {
-<a href=#1513 id=1513 data-nosnippet>1513</a>    <span class="kw">use </span>std::fmt::Write <span class="kw">as _</span>;
-<a href=#1514 id=1514 data-nosnippet>1514</a>
-<a href=#1515 id=1515 data-nosnippet>1515</a>    <span class="kw">let </span><span class="kw-2">mut </span>out = String::with_capacity(name.len());
-<a href=#1516 id=1516 data-nosnippet>1516</a>    <span class="kw">for </span>byte <span class="kw">in </span>name.bytes() {
-<a href=#1517 id=1517 data-nosnippet>1517</a>        <span class="kw">match </span>byte {
-<a href=#1518 id=1518 data-nosnippet>1518</a>            <span class="string">b'A'</span>..=<span class="string">b'Z' </span>| <span class="string">b'a'</span>..=<span class="string">b'z' </span>| <span class="string">b'0'</span>..=<span class="string">b'9' </span>| <span class="string">b'-' </span>| <span class="string">b'.' </span>| <span class="string">b'_' </span>| <span class="string">b'~' </span>=&gt; {
-<a href=#1519 id=1519 data-nosnippet>1519</a>                out.push(byte <span class="kw">as </span>char);
-<a href=#1520 id=1520 data-nosnippet>1520</a>            }
-<a href=#1521 id=1521 data-nosnippet>1521</a>            <span class="kw">_ </span>=&gt; {
-<a href=#1522 id=1522 data-nosnippet>1522</a>                <span class="kw">let _ </span>= <span class="macro">write!</span>(out, <span class="string">"%{byte:02X}"</span>);
-<a href=#1523 id=1523 data-nosnippet>1523</a>            }
-<a href=#1524 id=1524 data-nosnippet>1524</a>        }
-<a href=#1525 id=1525 data-nosnippet>1525</a>    }
-<a href=#1526 id=1526 data-nosnippet>1526</a>    out
-<a href=#1527 id=1527 data-nosnippet>1527</a>}
-<a href=#1528 id=1528 data-nosnippet>1528</a>
-<a href=#1529 id=1529 data-nosnippet>1529</a><span class="kw">fn </span>build_router(db: Db, bundle: <span class="prelude-ty">Option</span>&lt;AssetBundle&gt;, uploads: <span class="prelude-ty">Option</span>&lt;PathBuf&gt;) -&gt; Router {
-<a href=#1530 id=1530 data-nosnippet>1530</a>    <span class="kw">let </span><span class="kw-2">mut </span>panel = Panel::new(<span class="string">"admin"</span>)
-<a href=#1531 id=1531 data-nosnippet>1531</a>        .app_context(db)
-<a href=#1532 id=1532 data-nosnippet>1532</a>        .brand(
-<a href=#1533 id=1533 data-nosnippet>1533</a>            Brand::new(<span class="string">"Argentum Blog"</span>).logo(
-<a href=#1534 id=1534 data-nosnippet>1534</a>                <span class="string">"data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2024%2024'%3E%3Ccircle%20cx='12'%20cy='12'%20r='10'%20fill='%236366f1'/%3E%3Ctext%20x='12'%20y='16'%20text-anchor='middle'%20font-size='12'%20fill='white'%20font-family='sans-serif'%3EA%3C/text%3E%3C/svg%3E"</span>,
-<a href=#1535 id=1535 data-nosnippet>1535</a>            ),
-<a href=#1536 id=1536 data-nosnippet>1536</a>        )
-<a href=#1537 id=1537 data-nosnippet>1537</a>        <span class="comment">// Light by default (GH #184): the header toggle is the only thing that
-<a href=#1538 id=1538 data-nosnippet>1538</a>        // turns dark on. `Panel::dark_mode` stays available for an app that
-<a href=#1539 id=1539 data-nosnippet>1539</a>        // wants a dark-first panel.
-<a href=#1540 id=1540 data-nosnippet>1540</a>        </span>.resource::&lt;UserResource&gt;()
-<a href=#1541 id=1541 data-nosnippet>1541</a>        .resource::&lt;AuthorResource&gt;()
-<a href=#1542 id=1542 data-nosnippet>1542</a>        .resource::&lt;PostResource&gt;()
-<a href=#1543 id=1543 data-nosnippet>1543</a>        .resource::&lt;CommentResource&gt;();
-<a href=#1544 id=1544 data-nosnippet>1544</a>    <span class="comment">// No "Published" saved-view entry (GH #184): it would point at
-<a href=#1545 id=1545 data-nosnippet>1545</a>    // `/admin/posts?filters=status:published`, i.e. the Blog Posts table with a
-<a href=#1546 id=1546 data-nosnippet>1546</a>    // filter — the same page twice in the sidebar, and the one arrangement the
-<a href=#1547 id=1547 data-nosnippet>1547</a>    // shell's path matching highlights twice at once.
-<a href=#1548 id=1548 data-nosnippet>1548</a>    // Demo credentials stay available for local development via
-<a href=#1549 id=1549 data-nosnippet>1549</a>    // SHOWCASE_LOGIN_HINT, but the default login page is shippable with no
-<a href=#1550 id=1550 data-nosnippet>1550</a>    // hint. Empty values install nothing (no empty hint paragraph).
-<a href=#1551 id=1551 data-nosnippet>1551</a>    </span><span class="kw">if let </span><span class="prelude-val">Ok</span>(hint) = std::env::var(<span class="string">"SHOWCASE_LOGIN_HINT"</span>)
-<a href=#1552 id=1552 data-nosnippet>1552</a>        &amp;&amp; !hint.trim().is_empty()
-<a href=#1553 id=1553 data-nosnippet>1553</a>    {
-<a href=#1554 id=1554 data-nosnippet>1554</a>        panel = panel.login_hint(hint);
-<a href=#1555 id=1555 data-nosnippet>1555</a>    }
-<a href=#1556 id=1556 data-nosnippet>1556</a>    <span class="kw">if let </span><span class="prelude-val">Some</span>(dir) = uploads {
-<a href=#1557 id=1557 data-nosnippet>1557</a>        <span class="comment">// Both ends of the demo (GH #188): the store writes into `dir` and
-<a href=#1558 id=1558 data-nosnippet>1558</a>        // returns `{UPLOAD_URL_PREFIX}/…`, and the panel serves exactly that
-<a href=#1559 id=1559 data-nosnippet>1559</a>        // prefix from the same directory — which is why the stored path is
-<a href=#1560 id=1560 data-nosnippet>1560</a>        // fetchable without the framework inventing a URL convention.
-<a href=#1561 id=1561 data-nosnippet>1561</a>        </span>panel = panel
-<a href=#1562 id=1562 data-nosnippet>1562</a>            .serve_dir(<span class="macro">format!</span>(<span class="string">"{UPLOAD_URL_PREFIX}/{{*file}}"</span>), dir.clone())
-<a href=#1563 id=1563 data-nosnippet>1563</a>            .uploads(DirUploader::new(dir));
-<a href=#1564 id=1564 data-nosnippet>1564</a>    }
-<a href=#1565 id=1565 data-nosnippet>1565</a>    <span class="kw">match </span>bundle {
-<a href=#1566 id=1566 data-nosnippet>1566</a>        <span class="prelude-val">Some</span>(bundle) =&gt; panel
-<a href=#1567 id=1567 data-nosnippet>1567</a>            .assets(bundle)
-<a href=#1568 id=1568 data-nosnippet>1568</a>            .shell_assets(<span class="macro">tailwind::stylesheet!</span>(), GEIST)
-<a href=#1569 id=1569 data-nosnippet>1569</a>            .build()
-<a href=#1570 id=1570 data-nosnippet>1570</a>            .expect(<span class="string">"showcase panel builds"</span>),
-<a href=#1571 id=1571 data-nosnippet>1571</a>        <span class="prelude-val">None </span>=&gt; panel.build().expect(<span class="string">"showcase panel builds"</span>),
-<a href=#1572 id=1572 data-nosnippet>1572</a>    }
-<a href=#1573 id=1573 data-nosnippet>1573</a>}
-<a href=#1574 id=1574 data-nosnippet>1574</a>
-<a href=#1575 id=1575 data-nosnippet>1575</a><span class="kw">fn </span>load_assets() -&gt; AssetBundle {
-<a href=#1576 id=1576 data-nosnippet>1576</a>    <span class="kw">match </span>AssetBundle::load() {
-<a href=#1577 id=1577 data-nosnippet>1577</a>        <span class="prelude-val">Ok</span>(bundle) =&gt; bundle,
-<a href=#1578 id=1578 data-nosnippet>1578</a>        <span class="prelude-val">Err</span>(near_executable) =&gt; {
-<a href=#1579 id=1579 data-nosnippet>1579</a>            <span class="comment">// Cargo places test executables in `target/*/deps`, while the
-<a href=#1580 id=1580 data-nosnippet>1580</a>            // bundle remains beside the package binary in `target/*`.
-<a href=#1581 id=1581 data-nosnippet>1581</a>            </span><span class="kw">let </span>test_bundle = std::env::current_exe()
-<a href=#1582 id=1582 data-nosnippet>1582</a>                .ok()
-<a href=#1583 id=1583 data-nosnippet>1583</a>                .and_then(|exe| {
-<a href=#1584 id=1584 data-nosnippet>1584</a>                    <span class="kw">let </span>dir = exe.parent()<span class="question-mark">?</span>;
-<a href=#1585 id=1585 data-nosnippet>1585</a>                    <span class="kw">if </span>dir.file_name().is_some_and(|name| name == <span class="string">"deps"</span>) {
-<a href=#1586 id=1586 data-nosnippet>1586</a>                        <span class="prelude-val">Some</span>(dir.parent()<span class="question-mark">?</span>.to_path_buf())
-<a href=#1587 id=1587 data-nosnippet>1587</a>                    } <span class="kw">else </span>{
-<a href=#1588 id=1588 data-nosnippet>1588</a>                        <span class="prelude-val">None
-<a href=#1589 id=1589 data-nosnippet>1589</a>                    </span>}
-<a href=#1590 id=1590 data-nosnippet>1590</a>                })
-<a href=#1591 id=1591 data-nosnippet>1591</a>                .map(|dir| dir.join(<span class="string">"assets"</span>));
-<a href=#1592 id=1592 data-nosnippet>1592</a>            <span class="kw">match </span>test_bundle {
-<a href=#1593 id=1593 data-nosnippet>1593</a>                <span class="prelude-val">Some</span>(dir) =&gt; AssetBundle::load_dir(<span class="kw-2">&amp;</span>dir).unwrap_or_else(|test_error| {
-<a href=#1594 id=1594 data-nosnippet>1594</a>                    <span class="macro">panic!</span>(
-<a href=#1595 id=1595 data-nosnippet>1595</a>                        <span class="string">"showcase asset bundle is unavailable: executable lookup failed ({near_executable}); tried {} ({test_error})"</span>,
-<a href=#1596 id=1596 data-nosnippet>1596</a>                        dir.display()
-<a href=#1597 id=1597 data-nosnippet>1597</a>                    )
-<a href=#1598 id=1598 data-nosnippet>1598</a>                }),
-<a href=#1599 id=1599 data-nosnippet>1599</a>                <span class="prelude-val">None </span>=&gt; <span class="macro">panic!</span>(
-<a href=#1600 id=1600 data-nosnippet>1600</a>                    <span class="string">"showcase asset bundle is unavailable: executable lookup failed ({near_executable})"
-<a href=#1601 id=1601 data-nosnippet>1601</a>                </span>),
-<a href=#1602 id=1602 data-nosnippet>1602</a>            }
-<a href=#1603 id=1603 data-nosnippet>1603</a>        }
-<a href=#1604 id=1604 data-nosnippet>1604</a>    }
-<a href=#1605 id=1605 data-nosnippet>1605</a>}
-<a href=#1606 id=1606 data-nosnippet>1606</a>
-<a href=#1607 id=1607 data-nosnippet>1607</a><span class="attr">#[cfg(test)]
-<a href=#1608 id=1608 data-nosnippet>1608</a></span><span class="kw">mod </span>tests {
-<a href=#1609 id=1609 data-nosnippet>1609</a>    <span class="kw">use super</span>::<span class="kw-2">*</span>;
-<a href=#1610 id=1610 data-nosnippet>1610</a>
-<a href=#1611 id=1611 data-nosnippet>1611</a>    <span class="attr">#[test]
-<a href=#1612 id=1612 data-nosnippet>1612</a>    </span><span class="kw">fn </span>a_client_filename_is_reduced_to_a_basename() {
-<a href=#1613 id=1613 data-nosnippet>1613</a>        <span class="macro">assert_eq!</span>(basename(<span class="string">"../../etc/passwd"</span>), <span class="string">"passwd"</span>);
-<a href=#1614 id=1614 data-nosnippet>1614</a>        <span class="macro">assert_eq!</span>(basename(<span class="string">"/abs/path/cover.png"</span>), <span class="string">"cover.png"</span>);
-<a href=#1615 id=1615 data-nosnippet>1615</a>        <span class="macro">assert_eq!</span>(basename(<span class="string">"C:\\fakepath\\cover.png"</span>), <span class="string">"cover.png"</span>);
-<a href=#1616 id=1616 data-nosnippet>1616</a>        <span class="macro">assert_eq!</span>(basename(<span class="string">"  cover.png  "</span>), <span class="string">"cover.png"</span>);
-<a href=#1617 id=1617 data-nosnippet>1617</a>        <span class="macro">assert_eq!</span>(basename(<span class="string">"cover\u{7}.png"</span>), <span class="string">"cover.png"</span>);
-<a href=#1618 id=1618 data-nosnippet>1618</a>        <span class="macro">assert_eq!</span>(basename(<span class="string">"   "</span>), <span class="string">""</span>);
-<a href=#1619 id=1619 data-nosnippet>1619</a>        <span class="comment">// Capped by bytes, keeping the tail so the extension survives.
-<a href=#1620 id=1620 data-nosnippet>1620</a>        </span><span class="kw">let </span>long = <span class="macro">format!</span>(<span class="string">"{}{}"</span>, <span class="string">"a"</span>.repeat(<span class="number">300</span>), <span class="string">".png"</span>);
-<a href=#1621 id=1621 data-nosnippet>1621</a>        <span class="kw">let </span>capped = basename(<span class="kw-2">&amp;</span>long);
-<a href=#1622 id=1622 data-nosnippet>1622</a>        <span class="macro">assert_eq!</span>(capped.len(), MAX_BASENAME_BYTES);
-<a href=#1623 id=1623 data-nosnippet>1623</a>        <span class="macro">assert!</span>(capped.ends_with(<span class="string">".png"</span>), <span class="string">"got {capped}"</span>);
-<a href=#1624 id=1624 data-nosnippet>1624</a>    }
-<a href=#1625 id=1625 data-nosnippet>1625</a>
-<a href=#1626 id=1626 data-nosnippet>1626</a>    <span class="attr">#[test]
-<a href=#1627 id=1627 data-nosnippet>1627</a>    </span><span class="kw">fn </span>a_multibyte_filename_caps_on_a_char_boundary() {
-<a href=#1628 id=1628 data-nosnippet>1628</a>        <span class="kw">let </span>long = <span class="macro">format!</span>(<span class="string">"{}.png"</span>, <span class="string">"é"</span>.repeat(<span class="number">300</span>));
-<a href=#1629 id=1629 data-nosnippet>1629</a>        <span class="kw">let </span>capped = basename(<span class="kw-2">&amp;</span>long);
-<a href=#1630 id=1630 data-nosnippet>1630</a>        <span class="macro">assert!</span>(capped.len() &lt;= MAX_BASENAME_BYTES);
-<a href=#1631 id=1631 data-nosnippet>1631</a>        <span class="macro">assert!</span>(capped.ends_with(<span class="string">".png"</span>), <span class="string">"got {capped}"</span>);
-<a href=#1632 id=1632 data-nosnippet>1632</a>        <span class="macro">assert!</span>(
-<a href=#1633 id=1633 data-nosnippet>1633</a>            capped
-<a href=#1634 id=1634 data-nosnippet>1634</a>                .chars()
-<a href=#1635 id=1635 data-nosnippet>1635</a>                .all(|c| c == <span class="string">'é' </span>|| c == <span class="string">'.' </span>|| c == <span class="string">'p' </span>|| c == <span class="string">'n' </span>|| c == <span class="string">'g'</span>)
-<a href=#1636 id=1636 data-nosnippet>1636</a>        );
-<a href=#1637 id=1637 data-nosnippet>1637</a>    }
+<a href=#1471 id=1471 data-nosnippet>1471</a>
+<a href=#1472 id=1472 data-nosnippet>1472</a>    <span class="doccomment">/// Whether the served directory still holds the file a URL names (GH #297).
+<a href=#1473 id=1473 data-nosnippet>1473</a>    ///
+<a href=#1474 id=1474 data-nosnippet>1474</a>    /// The candidate comes from a form the panel re-rendered, so it is a URL
+<a href=#1475 id=1475 data-nosnippet>1475</a>    /// this store itself produced; the check is a lookup rather than a path
+<a href=#1476 id=1476 data-nosnippet>1476</a>    /// join — every entry in the store's own root is encoded back to its URL
+<a href=#1477 id=1477 data-nosnippet>1477</a>    /// form and compared, so a `%2F`, a `..` or an absolute path a client
+<a href=#1478 id=1478 data-nosnippet>1478</a>    /// submits never reaches the filesystem.
+<a href=#1479 id=1479 data-nosnippet>1479</a>    </span><span class="kw">async fn </span>holds(<span class="kw-2">&amp;</span><span class="self">self</span>, path: <span class="kw-2">&amp;</span>str) -&gt; bool {
+<a href=#1480 id=1480 data-nosnippet>1480</a>        <span class="kw">let </span><span class="prelude-val">Some</span>(segment) = path.strip_prefix(UPLOAD_URL_PREFIX) <span class="kw">else </span>{
+<a href=#1481 id=1481 data-nosnippet>1481</a>            <span class="kw">return </span><span class="bool-val">false</span>;
+<a href=#1482 id=1482 data-nosnippet>1482</a>        };
+<a href=#1483 id=1483 data-nosnippet>1483</a>        <span class="kw">let </span><span class="prelude-val">Some</span>(segment) = segment.strip_prefix(<span class="string">'/'</span>) <span class="kw">else </span>{
+<a href=#1484 id=1484 data-nosnippet>1484</a>            <span class="kw">return </span><span class="bool-val">false</span>;
+<a href=#1485 id=1485 data-nosnippet>1485</a>        };
+<a href=#1486 id=1486 data-nosnippet>1486</a>        <span class="kw">if </span>segment.is_empty() {
+<a href=#1487 id=1487 data-nosnippet>1487</a>            <span class="kw">return </span><span class="bool-val">false</span>;
+<a href=#1488 id=1488 data-nosnippet>1488</a>        }
+<a href=#1489 id=1489 data-nosnippet>1489</a>        <span class="kw">let </span><span class="prelude-val">Ok</span>(<span class="kw-2">mut </span>entries) = tokio::fs::read_dir(<span class="kw-2">&amp;</span><span class="self">self</span>.dir).<span class="kw">await else </span>{
+<a href=#1490 id=1490 data-nosnippet>1490</a>            <span class="kw">return </span><span class="bool-val">false</span>;
+<a href=#1491 id=1491 data-nosnippet>1491</a>        };
+<a href=#1492 id=1492 data-nosnippet>1492</a>        <span class="kw">while let </span><span class="prelude-val">Ok</span>(<span class="prelude-val">Some</span>(entry)) = entries.next_entry().<span class="kw">await </span>{
+<a href=#1493 id=1493 data-nosnippet>1493</a>            <span class="kw">if </span>url_segment(<span class="kw-2">&amp;</span>entry.file_name().to_string_lossy()) == segment {
+<a href=#1494 id=1494 data-nosnippet>1494</a>                <span class="kw">return </span><span class="bool-val">true</span>;
+<a href=#1495 id=1495 data-nosnippet>1495</a>            }
+<a href=#1496 id=1496 data-nosnippet>1496</a>        }
+<a href=#1497 id=1497 data-nosnippet>1497</a>        <span class="bool-val">false
+<a href=#1498 id=1498 data-nosnippet>1498</a>    </span>}
+<a href=#1499 id=1499 data-nosnippet>1499</a>}
+<a href=#1500 id=1500 data-nosnippet>1500</a>
+<a href=#1501 id=1501 data-nosnippet>1501</a><span class="doccomment">/// The longest client filename the showcase keeps, in bytes.
+<a href=#1502 id=1502 data-nosnippet>1502</a>///
+<a href=#1503 id=1503 data-nosnippet>1503</a>/// 255 bytes is the common per-component limit on Linux filesystems, and the
+<a href=#1504 id=1504 data-nosnippet>1504</a>/// store's `{uuid}-` prefix takes 37 of them, so the basename is capped to what
+<a href=#1505 id=1505 data-nosnippet>1505</a>/// is left. The media library records the name it stores, so the row's
+<a href=#1506 id=1506 data-nosnippet>1506</a>/// `filename` and the file on disk cannot disagree.
+<a href=#1507 id=1507 data-nosnippet>1507</a></span><span class="kw">const </span>MAX_BASENAME_BYTES: usize = <span class="number">218</span>;
+<a href=#1508 id=1508 data-nosnippet>1508</a>
+<a href=#1509 id=1509 data-nosnippet>1509</a><span class="doccomment">/// Reduce a client-supplied filename to the basename this app stores and shows
+<a href=#1510 id=1510 data-nosnippet>1510</a>/// (GH #90).
+<a href=#1511 id=1511 data-nosnippet>1511</a>///
+<a href=#1512 id=1512 data-nosnippet>1512</a>/// Strips directory components (`../../etc/passwd` → `passwd`), drops control
+<a href=#1513 id=1513 data-nosnippet>1513</a>/// characters, trims the ends, and caps the byte length preserving the tail, so
+<a href=#1514 id=1514 data-nosnippet>1514</a>/// the extension survives. The framework sanitizes the names its own form
+<a href=#1515 id=1515 data-nosnippet>1515</a>/// parser hands an [`Uploader`]; the media library's page parses its own
+<a href=#1516 id=1516 data-nosnippet>1516</a>/// multipart body (GH #248), and this is the one rule both callers apply.
+<a href=#1517 id=1517 data-nosnippet>1517</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>basename(raw: <span class="kw-2">&amp;</span>str) -&gt; String {
+<a href=#1518 id=1518 data-nosnippet>1518</a>    <span class="kw">let </span>base = raw.rsplit([<span class="string">'/'</span>, <span class="string">'\\'</span>]).next().unwrap_or(raw);
+<a href=#1519 id=1519 data-nosnippet>1519</a>    <span class="kw">let </span>clean: String = base.chars().filter(|c| !c.is_control()).collect();
+<a href=#1520 id=1520 data-nosnippet>1520</a>    <span class="kw">let </span>trimmed = clean.trim();
+<a href=#1521 id=1521 data-nosnippet>1521</a>    <span class="kw">if </span>trimmed.len() &lt;= MAX_BASENAME_BYTES {
+<a href=#1522 id=1522 data-nosnippet>1522</a>        <span class="kw">return </span>trimmed.to_string();
+<a href=#1523 id=1523 data-nosnippet>1523</a>    }
+<a href=#1524 id=1524 data-nosnippet>1524</a>    <span class="comment">// Walk the cut point forward to a char boundary: slicing a multibyte
+<a href=#1525 id=1525 data-nosnippet>1525</a>    // character would panic on an attacker-controlled filename (GH #90).
+<a href=#1526 id=1526 data-nosnippet>1526</a>    </span><span class="kw">let </span><span class="kw-2">mut </span>start = trimmed.len() - MAX_BASENAME_BYTES;
+<a href=#1527 id=1527 data-nosnippet>1527</a>    <span class="kw">while </span>!trimmed.is_char_boundary(start) {
+<a href=#1528 id=1528 data-nosnippet>1528</a>        start += <span class="number">1</span>;
+<a href=#1529 id=1529 data-nosnippet>1529</a>    }
+<a href=#1530 id=1530 data-nosnippet>1530</a>    trimmed[start..].to_string()
+<a href=#1531 id=1531 data-nosnippet>1531</a>}
+<a href=#1532 id=1532 data-nosnippet>1532</a>
+<a href=#1533 id=1533 data-nosnippet>1533</a><span class="doccomment">/// `name` as one URL path segment: everything outside the unreserved set is
+<a href=#1534 id=1534 data-nosnippet>1534</a>/// percent-encoded (RFC 3986 §2.3).
+<a href=#1535 id=1535 data-nosnippet>1535</a>///
+<a href=#1536 id=1536 data-nosnippet>1536</a>/// The store's contract is that the string it returns is fetchable verbatim
+<a href=#1537 id=1537 data-nosnippet>1537</a>/// (GH #242), and a client filename is arbitrary: a space must not become the
+<a href=#1538 id=1538 data-nosnippet>1538</a>/// end of the URL, a `#` must not start a fragment, and a `%` must not decode
+<a href=#1539 id=1539 data-nosnippet>1539</a>/// to something else.
+<a href=#1540 id=1540 data-nosnippet>1540</a></span><span class="kw">fn </span>url_segment(name: <span class="kw-2">&amp;</span>str) -&gt; String {
+<a href=#1541 id=1541 data-nosnippet>1541</a>    <span class="kw">use </span>std::fmt::Write <span class="kw">as _</span>;
+<a href=#1542 id=1542 data-nosnippet>1542</a>
+<a href=#1543 id=1543 data-nosnippet>1543</a>    <span class="kw">let </span><span class="kw-2">mut </span>out = String::with_capacity(name.len());
+<a href=#1544 id=1544 data-nosnippet>1544</a>    <span class="kw">for </span>byte <span class="kw">in </span>name.bytes() {
+<a href=#1545 id=1545 data-nosnippet>1545</a>        <span class="kw">match </span>byte {
+<a href=#1546 id=1546 data-nosnippet>1546</a>            <span class="string">b'A'</span>..=<span class="string">b'Z' </span>| <span class="string">b'a'</span>..=<span class="string">b'z' </span>| <span class="string">b'0'</span>..=<span class="string">b'9' </span>| <span class="string">b'-' </span>| <span class="string">b'.' </span>| <span class="string">b'_' </span>| <span class="string">b'~' </span>=&gt; {
+<a href=#1547 id=1547 data-nosnippet>1547</a>                out.push(byte <span class="kw">as </span>char);
+<a href=#1548 id=1548 data-nosnippet>1548</a>            }
+<a href=#1549 id=1549 data-nosnippet>1549</a>            <span class="kw">_ </span>=&gt; {
+<a href=#1550 id=1550 data-nosnippet>1550</a>                <span class="kw">let _ </span>= <span class="macro">write!</span>(out, <span class="string">"%{byte:02X}"</span>);
+<a href=#1551 id=1551 data-nosnippet>1551</a>            }
+<a href=#1552 id=1552 data-nosnippet>1552</a>        }
+<a href=#1553 id=1553 data-nosnippet>1553</a>    }
+<a href=#1554 id=1554 data-nosnippet>1554</a>    out
+<a href=#1555 id=1555 data-nosnippet>1555</a>}
+<a href=#1556 id=1556 data-nosnippet>1556</a>
+<a href=#1557 id=1557 data-nosnippet>1557</a><span class="kw">fn </span>build_router(db: Db, bundle: <span class="prelude-ty">Option</span>&lt;AssetBundle&gt;, uploads: <span class="prelude-ty">Option</span>&lt;PathBuf&gt;) -&gt; Router {
+<a href=#1558 id=1558 data-nosnippet>1558</a>    <span class="kw">let </span><span class="kw-2">mut </span>panel = Panel::new(<span class="string">"admin"</span>)
+<a href=#1559 id=1559 data-nosnippet>1559</a>        .app_context(db)
+<a href=#1560 id=1560 data-nosnippet>1560</a>        .brand(
+<a href=#1561 id=1561 data-nosnippet>1561</a>            Brand::new(<span class="string">"Argentum Blog"</span>).logo(
+<a href=#1562 id=1562 data-nosnippet>1562</a>                <span class="string">"data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2024%2024'%3E%3Ccircle%20cx='12'%20cy='12'%20r='10'%20fill='%236366f1'/%3E%3Ctext%20x='12'%20y='16'%20text-anchor='middle'%20font-size='12'%20fill='white'%20font-family='sans-serif'%3EA%3C/text%3E%3C/svg%3E"</span>,
+<a href=#1563 id=1563 data-nosnippet>1563</a>            ),
+<a href=#1564 id=1564 data-nosnippet>1564</a>        )
+<a href=#1565 id=1565 data-nosnippet>1565</a>        <span class="comment">// Light by default (GH #184): the header toggle is the only thing that
+<a href=#1566 id=1566 data-nosnippet>1566</a>        // turns dark on. `Panel::dark_mode` stays available for an app that
+<a href=#1567 id=1567 data-nosnippet>1567</a>        // wants a dark-first panel.
+<a href=#1568 id=1568 data-nosnippet>1568</a>        </span>.resource::&lt;UserResource&gt;()
+<a href=#1569 id=1569 data-nosnippet>1569</a>        .resource::&lt;AuthorResource&gt;()
+<a href=#1570 id=1570 data-nosnippet>1570</a>        .resource::&lt;PostResource&gt;()
+<a href=#1571 id=1571 data-nosnippet>1571</a>        .resource::&lt;CommentResource&gt;();
+<a href=#1572 id=1572 data-nosnippet>1572</a>    <span class="comment">// No "Published" saved-view entry (GH #184): it would point at
+<a href=#1573 id=1573 data-nosnippet>1573</a>    // `/admin/posts?filters=status:published`, i.e. the Blog Posts table with a
+<a href=#1574 id=1574 data-nosnippet>1574</a>    // filter — the same page twice in the sidebar, and the one arrangement the
+<a href=#1575 id=1575 data-nosnippet>1575</a>    // shell's path matching highlights twice at once.
+<a href=#1576 id=1576 data-nosnippet>1576</a>    // Demo credentials stay available for local development via
+<a href=#1577 id=1577 data-nosnippet>1577</a>    // SHOWCASE_LOGIN_HINT, but the default login page is shippable with no
+<a href=#1578 id=1578 data-nosnippet>1578</a>    // hint. Empty values install nothing (no empty hint paragraph).
+<a href=#1579 id=1579 data-nosnippet>1579</a>    </span><span class="kw">if let </span><span class="prelude-val">Ok</span>(hint) = std::env::var(<span class="string">"SHOWCASE_LOGIN_HINT"</span>)
+<a href=#1580 id=1580 data-nosnippet>1580</a>        &amp;&amp; !hint.trim().is_empty()
+<a href=#1581 id=1581 data-nosnippet>1581</a>    {
+<a href=#1582 id=1582 data-nosnippet>1582</a>        panel = panel.login_hint(hint);
+<a href=#1583 id=1583 data-nosnippet>1583</a>    }
+<a href=#1584 id=1584 data-nosnippet>1584</a>    <span class="kw">if let </span><span class="prelude-val">Some</span>(dir) = uploads {
+<a href=#1585 id=1585 data-nosnippet>1585</a>        <span class="comment">// Both ends of the demo (GH #188): the store writes into `dir` and
+<a href=#1586 id=1586 data-nosnippet>1586</a>        // returns `{UPLOAD_URL_PREFIX}/…`, and the panel serves exactly that
+<a href=#1587 id=1587 data-nosnippet>1587</a>        // prefix from the same directory — which is why the stored path is
+<a href=#1588 id=1588 data-nosnippet>1588</a>        // fetchable without the framework inventing a URL convention.
+<a href=#1589 id=1589 data-nosnippet>1589</a>        </span>panel = panel
+<a href=#1590 id=1590 data-nosnippet>1590</a>            .serve_dir(<span class="macro">format!</span>(<span class="string">"{UPLOAD_URL_PREFIX}/{{*file}}"</span>), dir.clone())
+<a href=#1591 id=1591 data-nosnippet>1591</a>            .uploads(DirUploader::new(dir));
+<a href=#1592 id=1592 data-nosnippet>1592</a>    }
+<a href=#1593 id=1593 data-nosnippet>1593</a>    <span class="kw">match </span>bundle {
+<a href=#1594 id=1594 data-nosnippet>1594</a>        <span class="prelude-val">Some</span>(bundle) =&gt; panel
+<a href=#1595 id=1595 data-nosnippet>1595</a>            .assets(bundle)
+<a href=#1596 id=1596 data-nosnippet>1596</a>            .shell_assets(<span class="macro">tailwind::stylesheet!</span>(), GEIST)
+<a href=#1597 id=1597 data-nosnippet>1597</a>            .build()
+<a href=#1598 id=1598 data-nosnippet>1598</a>            .expect(<span class="string">"showcase panel builds"</span>),
+<a href=#1599 id=1599 data-nosnippet>1599</a>        <span class="prelude-val">None </span>=&gt; panel.build().expect(<span class="string">"showcase panel builds"</span>),
+<a href=#1600 id=1600 data-nosnippet>1600</a>    }
+<a href=#1601 id=1601 data-nosnippet>1601</a>}
+<a href=#1602 id=1602 data-nosnippet>1602</a>
+<a href=#1603 id=1603 data-nosnippet>1603</a><span class="kw">fn </span>load_assets() -&gt; AssetBundle {
+<a href=#1604 id=1604 data-nosnippet>1604</a>    <span class="kw">match </span>AssetBundle::load() {
+<a href=#1605 id=1605 data-nosnippet>1605</a>        <span class="prelude-val">Ok</span>(bundle) =&gt; bundle,
+<a href=#1606 id=1606 data-nosnippet>1606</a>        <span class="prelude-val">Err</span>(near_executable) =&gt; {
+<a href=#1607 id=1607 data-nosnippet>1607</a>            <span class="comment">// Cargo places test executables in `target/*/deps`, while the
+<a href=#1608 id=1608 data-nosnippet>1608</a>            // bundle remains beside the package binary in `target/*`.
+<a href=#1609 id=1609 data-nosnippet>1609</a>            </span><span class="kw">let </span>test_bundle = std::env::current_exe()
+<a href=#1610 id=1610 data-nosnippet>1610</a>                .ok()
+<a href=#1611 id=1611 data-nosnippet>1611</a>                .and_then(|exe| {
+<a href=#1612 id=1612 data-nosnippet>1612</a>                    <span class="kw">let </span>dir = exe.parent()<span class="question-mark">?</span>;
+<a href=#1613 id=1613 data-nosnippet>1613</a>                    <span class="kw">if </span>dir.file_name().is_some_and(|name| name == <span class="string">"deps"</span>) {
+<a href=#1614 id=1614 data-nosnippet>1614</a>                        <span class="prelude-val">Some</span>(dir.parent()<span class="question-mark">?</span>.to_path_buf())
+<a href=#1615 id=1615 data-nosnippet>1615</a>                    } <span class="kw">else </span>{
+<a href=#1616 id=1616 data-nosnippet>1616</a>                        <span class="prelude-val">None
+<a href=#1617 id=1617 data-nosnippet>1617</a>                    </span>}
+<a href=#1618 id=1618 data-nosnippet>1618</a>                })
+<a href=#1619 id=1619 data-nosnippet>1619</a>                .map(|dir| dir.join(<span class="string">"assets"</span>));
+<a href=#1620 id=1620 data-nosnippet>1620</a>            <span class="kw">match </span>test_bundle {
+<a href=#1621 id=1621 data-nosnippet>1621</a>                <span class="prelude-val">Some</span>(dir) =&gt; AssetBundle::load_dir(<span class="kw-2">&amp;</span>dir).unwrap_or_else(|test_error| {
+<a href=#1622 id=1622 data-nosnippet>1622</a>                    <span class="macro">panic!</span>(
+<a href=#1623 id=1623 data-nosnippet>1623</a>                        <span class="string">"showcase asset bundle is unavailable: executable lookup failed ({near_executable}); tried {} ({test_error})"</span>,
+<a href=#1624 id=1624 data-nosnippet>1624</a>                        dir.display()
+<a href=#1625 id=1625 data-nosnippet>1625</a>                    )
+<a href=#1626 id=1626 data-nosnippet>1626</a>                }),
+<a href=#1627 id=1627 data-nosnippet>1627</a>                <span class="prelude-val">None </span>=&gt; <span class="macro">panic!</span>(
+<a href=#1628 id=1628 data-nosnippet>1628</a>                    <span class="string">"showcase asset bundle is unavailable: executable lookup failed ({near_executable})"
+<a href=#1629 id=1629 data-nosnippet>1629</a>                </span>),
+<a href=#1630 id=1630 data-nosnippet>1630</a>            }
+<a href=#1631 id=1631 data-nosnippet>1631</a>        }
+<a href=#1632 id=1632 data-nosnippet>1632</a>    }
+<a href=#1633 id=1633 data-nosnippet>1633</a>}
+<a href=#1634 id=1634 data-nosnippet>1634</a>
+<a href=#1635 id=1635 data-nosnippet>1635</a><span class="attr">#[cfg(test)]
+<a href=#1636 id=1636 data-nosnippet>1636</a></span><span class="kw">mod </span>tests {
+<a href=#1637 id=1637 data-nosnippet>1637</a>    <span class="kw">use super</span>::<span class="kw-2">*</span>;
 <a href=#1638 id=1638 data-nosnippet>1638</a>
 <a href=#1639 id=1639 data-nosnippet>1639</a>    <span class="attr">#[test]
-<a href=#1640 id=1640 data-nosnippet>1640</a>    </span><span class="kw">fn </span>a_stored_name_becomes_a_url_path_segment() {
-<a href=#1641 id=1641 data-nosnippet>1641</a>        <span class="macro">assert_eq!</span>(url_segment(<span class="string">"cover.png"</span>), <span class="string">"cover.png"</span>);
-<a href=#1642 id=1642 data-nosnippet>1642</a>        <span class="macro">assert_eq!</span>(url_segment(<span class="string">"cover #1.png"</span>), <span class="string">"cover%20%231.png"</span>);
-<a href=#1643 id=1643 data-nosnippet>1643</a>        <span class="macro">assert_eq!</span>(
-<a href=#1644 id=1644 data-nosnippet>1644</a>            url_segment(<span class="string">"quote%22 onerror=%22boom.png"</span>),
-<a href=#1645 id=1645 data-nosnippet>1645</a>            <span class="string">"quote%2522%20onerror%3D%2522boom.png"
-<a href=#1646 id=1646 data-nosnippet>1646</a>        </span>);
-<a href=#1647 id=1647 data-nosnippet>1647</a>        <span class="macro">assert_eq!</span>(url_segment(<span class="string">"100%.png"</span>), <span class="string">"100%25.png"</span>);
-<a href=#1648 id=1648 data-nosnippet>1648</a>        <span class="macro">assert_eq!</span>(url_segment(<span class="string">"a+b&amp;c.png"</span>), <span class="string">"a%2Bb%26c.png"</span>);
-<a href=#1649 id=1649 data-nosnippet>1649</a>        <span class="comment">// Nothing a browser sends reaches the URL as a delimiter.
-<a href=#1650 id=1650 data-nosnippet>1650</a>        </span><span class="kw">for </span>name <span class="kw">in </span>[<span class="string">"#"</span>, <span class="string">"?"</span>, <span class="string">"\""</span>, <span class="string">" "</span>, <span class="string">"%"</span>, <span class="string">"&amp;"</span>, <span class="string">"+"</span>, <span class="string">"/"</span>, <span class="string">"\\"</span>] {
-<a href=#1651 id=1651 data-nosnippet>1651</a>            <span class="kw">let </span>encoded = url_segment(name);
-<a href=#1652 id=1652 data-nosnippet>1652</a>            <span class="macro">assert!</span>(
-<a href=#1653 id=1653 data-nosnippet>1653</a>                encoded
-<a href=#1654 id=1654 data-nosnippet>1654</a>                    .bytes()
-<a href=#1655 id=1655 data-nosnippet>1655</a>                    .all(|b| b.is_ascii_alphanumeric() || <span class="string">b"%.-_~"</span>.contains(<span class="kw-2">&amp;</span>b)),
-<a href=#1656 id=1656 data-nosnippet>1656</a>                <span class="string">"{name:?} encoded to {encoded}"
-<a href=#1657 id=1657 data-nosnippet>1657</a>            </span>);
-<a href=#1658 id=1658 data-nosnippet>1658</a>        }
-<a href=#1659 id=1659 data-nosnippet>1659</a>    }
-<a href=#1660 id=1660 data-nosnippet>1660</a>}
+<a href=#1640 id=1640 data-nosnippet>1640</a>    </span><span class="kw">fn </span>a_client_filename_is_reduced_to_a_basename() {
+<a href=#1641 id=1641 data-nosnippet>1641</a>        <span class="macro">assert_eq!</span>(basename(<span class="string">"../../etc/passwd"</span>), <span class="string">"passwd"</span>);
+<a href=#1642 id=1642 data-nosnippet>1642</a>        <span class="macro">assert_eq!</span>(basename(<span class="string">"/abs/path/cover.png"</span>), <span class="string">"cover.png"</span>);
+<a href=#1643 id=1643 data-nosnippet>1643</a>        <span class="macro">assert_eq!</span>(basename(<span class="string">"C:\\fakepath\\cover.png"</span>), <span class="string">"cover.png"</span>);
+<a href=#1644 id=1644 data-nosnippet>1644</a>        <span class="macro">assert_eq!</span>(basename(<span class="string">"  cover.png  "</span>), <span class="string">"cover.png"</span>);
+<a href=#1645 id=1645 data-nosnippet>1645</a>        <span class="macro">assert_eq!</span>(basename(<span class="string">"cover\u{7}.png"</span>), <span class="string">"cover.png"</span>);
+<a href=#1646 id=1646 data-nosnippet>1646</a>        <span class="macro">assert_eq!</span>(basename(<span class="string">"   "</span>), <span class="string">""</span>);
+<a href=#1647 id=1647 data-nosnippet>1647</a>        <span class="comment">// Capped by bytes, keeping the tail so the extension survives.
+<a href=#1648 id=1648 data-nosnippet>1648</a>        </span><span class="kw">let </span>long = <span class="macro">format!</span>(<span class="string">"{}{}"</span>, <span class="string">"a"</span>.repeat(<span class="number">300</span>), <span class="string">".png"</span>);
+<a href=#1649 id=1649 data-nosnippet>1649</a>        <span class="kw">let </span>capped = basename(<span class="kw-2">&amp;</span>long);
+<a href=#1650 id=1650 data-nosnippet>1650</a>        <span class="macro">assert_eq!</span>(capped.len(), MAX_BASENAME_BYTES);
+<a href=#1651 id=1651 data-nosnippet>1651</a>        <span class="macro">assert!</span>(capped.ends_with(<span class="string">".png"</span>), <span class="string">"got {capped}"</span>);
+<a href=#1652 id=1652 data-nosnippet>1652</a>    }
+<a href=#1653 id=1653 data-nosnippet>1653</a>
+<a href=#1654 id=1654 data-nosnippet>1654</a>    <span class="attr">#[test]
+<a href=#1655 id=1655 data-nosnippet>1655</a>    </span><span class="kw">fn </span>a_multibyte_filename_caps_on_a_char_boundary() {
+<a href=#1656 id=1656 data-nosnippet>1656</a>        <span class="kw">let </span>long = <span class="macro">format!</span>(<span class="string">"{}.png"</span>, <span class="string">"é"</span>.repeat(<span class="number">300</span>));
+<a href=#1657 id=1657 data-nosnippet>1657</a>        <span class="kw">let </span>capped = basename(<span class="kw-2">&amp;</span>long);
+<a href=#1658 id=1658 data-nosnippet>1658</a>        <span class="macro">assert!</span>(capped.len() &lt;= MAX_BASENAME_BYTES);
+<a href=#1659 id=1659 data-nosnippet>1659</a>        <span class="macro">assert!</span>(capped.ends_with(<span class="string">".png"</span>), <span class="string">"got {capped}"</span>);
+<a href=#1660 id=1660 data-nosnippet>1660</a>        <span class="macro">assert!</span>(
+<a href=#1661 id=1661 data-nosnippet>1661</a>            capped
+<a href=#1662 id=1662 data-nosnippet>1662</a>                .chars()
+<a href=#1663 id=1663 data-nosnippet>1663</a>                .all(|c| c == <span class="string">'é' </span>|| c == <span class="string">'.' </span>|| c == <span class="string">'p' </span>|| c == <span class="string">'n' </span>|| c == <span class="string">'g'</span>)
+<a href=#1664 id=1664 data-nosnippet>1664</a>        );
+<a href=#1665 id=1665 data-nosnippet>1665</a>    }
+<a href=#1666 id=1666 data-nosnippet>1666</a>
+<a href=#1667 id=1667 data-nosnippet>1667</a>    <span class="attr">#[test]
+<a href=#1668 id=1668 data-nosnippet>1668</a>    </span><span class="kw">fn </span>a_stored_name_becomes_a_url_path_segment() {
+<a href=#1669 id=1669 data-nosnippet>1669</a>        <span class="macro">assert_eq!</span>(url_segment(<span class="string">"cover.png"</span>), <span class="string">"cover.png"</span>);
+<a href=#1670 id=1670 data-nosnippet>1670</a>        <span class="macro">assert_eq!</span>(url_segment(<span class="string">"cover #1.png"</span>), <span class="string">"cover%20%231.png"</span>);
+<a href=#1671 id=1671 data-nosnippet>1671</a>        <span class="macro">assert_eq!</span>(
+<a href=#1672 id=1672 data-nosnippet>1672</a>            url_segment(<span class="string">"quote%22 onerror=%22boom.png"</span>),
+<a href=#1673 id=1673 data-nosnippet>1673</a>            <span class="string">"quote%2522%20onerror%3D%2522boom.png"
+<a href=#1674 id=1674 data-nosnippet>1674</a>        </span>);
+<a href=#1675 id=1675 data-nosnippet>1675</a>        <span class="macro">assert_eq!</span>(url_segment(<span class="string">"100%.png"</span>), <span class="string">"100%25.png"</span>);
+<a href=#1676 id=1676 data-nosnippet>1676</a>        <span class="macro">assert_eq!</span>(url_segment(<span class="string">"a+b&amp;c.png"</span>), <span class="string">"a%2Bb%26c.png"</span>);
+<a href=#1677 id=1677 data-nosnippet>1677</a>        <span class="comment">// Nothing a browser sends reaches the URL as a delimiter.
+<a href=#1678 id=1678 data-nosnippet>1678</a>        </span><span class="kw">for </span>name <span class="kw">in </span>[<span class="string">"#"</span>, <span class="string">"?"</span>, <span class="string">"\""</span>, <span class="string">" "</span>, <span class="string">"%"</span>, <span class="string">"&amp;"</span>, <span class="string">"+"</span>, <span class="string">"/"</span>, <span class="string">"\\"</span>] {
+<a href=#1679 id=1679 data-nosnippet>1679</a>            <span class="kw">let </span>encoded = url_segment(name);
+<a href=#1680 id=1680 data-nosnippet>1680</a>            <span class="macro">assert!</span>(
+<a href=#1681 id=1681 data-nosnippet>1681</a>                encoded
+<a href=#1682 id=1682 data-nosnippet>1682</a>                    .bytes()
+<a href=#1683 id=1683 data-nosnippet>1683</a>                    .all(|b| b.is_ascii_alphanumeric() || <span class="string">b"%.-_~"</span>.contains(<span class="kw-2">&amp;</span>b)),
+<a href=#1684 id=1684 data-nosnippet>1684</a>                <span class="string">"{name:?} encoded to {encoded}"
+<a href=#1685 id=1685 data-nosnippet>1685</a>            </span>);
+<a href=#1686 id=1686 data-nosnippet>1686</a>        }
+<a href=#1687 id=1687 data-nosnippet>1687</a>    }
+<a href=#1688 id=1688 data-nosnippet>1688</a>}
 </code></pre></div></section></main></body></html>

@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-533f1657.js";
+            window.path_to_searchindex_js = "searchindex-b1a89d79.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-da1679ae.js"></script>
@@ -693,15 +693,23 @@ changed past the cap).</p>
 without a boundary, and sanitized basenames (<code>.</code> / <code>..</code> / Windows reserved names surface as inline
 errors). On an edit the control drops native <code>required</code> (GH #184) — a <code>required</code> file input cannot
 be pre-filled, so it blocked every untouched save; <code>required</code> still holds on create. A value reaches
-the field only from a file part, from the record on an untouched edit, or as empty on
-<code>clear_&lt;field&gt;</code>; text typed under the field’s name is dropped (GH #277).</p>
+the field only from a file part (the uploader’s own answer, a re-rendered form’s carried upload
+included), from the record on an untouched edit, or as empty on <code>clear_&lt;field&gt;</code>; text typed under
+the field’s name is dropped (GH #277).</p>
 </li>
 <li>
 <p><strong>Where the bytes go is the app’s</strong> (GH #188, ADR-0017): install an <code>Uploader</code> once with
 <code>Panel::uploads(store)</code>. <code>store(filename, bytes) -&gt; Result&lt;String, String&gt;</code> receives the sanitized
 name and the content (bounded by the cap) and returns the value the record stores; a refusal is an
 inline error (<code>"&lt;Label&gt; could not be uploaded: &lt;reason&gt;"</code>), not a 500. With no uploader installed
-the sanitized basename is stored — the default — and the bytes are drained rather than buffered.</p>
+the sanitized basename is stored — the default — and the bytes are drained rather than buffered.
+A form that re-renders with errors carries the path that store just returned in a hidden
+<code>keep_&lt;field&gt;</code> control, because the browser’s file input is empty on the next attempt: implement
+<code>Uploader::holds(path)</code> to make that carry survive the submit (GH #297). The framework re-uses a
+carried path only when <code>holds</code> confirms the store still has it — <code>holds</code> must answer <code>true</code> only
+for a path the store itself produced and resolves inside its own root — and it defaults to <code>false</code>,
+which keeps the behaviour of a store that does not implement it: no carry, so the next submit
+fails <code>required</code> (create) or an edit keeps the record’s stored file.</p>
 </li>
 <li>
 <p>The stored path renders as a link to the file, on the edit form and on the detail page (GH #242),
@@ -719,13 +727,16 @@ whose records may lose their file declares <code>.optional()</code>.</p>
 <li>
 <p><code>Repeater</code> is a single-entry group. An all-empty group is skipped, so its inner required fields do
 not fail the submit. A <code>required</code> repeater yields one label-keyed error; a partially filled group
-still enforces inner <code>required</code>.</p>
+still enforces inner <code>required</code>. An embedded enum’s variant groups follow the discriminant a
+submission names (GH #191): only the named variant’s fields validate, so a stale value in a group
+the user cannot see never blocks the submit (GH #297). A submission that names no variant hides
+nothing, because the value codec’s payload fallback may still read any group.</p>
 </li>
 </ul>
 <p>Validation errors render inline per field. Absent keys validate as <code>""</code> and updates write only
 present keys; handlers reject unknown form keys with 400 (<code>role</code> / <code>tenant_id</code> smuggling fails
-closed; only <code>csrf_token</code> and <code>clear_&lt;field&gt;</code> are exempt), so extra posted keys never reach record
-fns.</p>
+closed; only <code>csrf_token</code>, <code>clear_&lt;field&gt;</code> and <code>keep_&lt;field&gt;</code> are exempt), so extra posted keys never
+reach record fns.</p>
 <p>Embedded values declare one form node and flatten their fields; see
 <a href="#embedded-values">Data access</a>.</p>
 <div style="break-before: page; page-break-before: always;"></div>
@@ -966,7 +977,9 @@ authorize themselves (<code>requires_tenant</code> + <code>can_view_any</code> +
 boundary.</li>
 <li>A <code>FileUpload</code> value comes only from a file part (the uploader’s answer, or the sanitized basename
 with no uploader), the record’s stored value on an untouched edit, or empty on <code>clear_&lt;field&gt;</code>. A
-stored value renders as a link only when it is rooted (<code>/…</code>, not <code>//host</code>) or an absolute
+re-rendered form’s <code>keep_&lt;field&gt;</code> candidate is re-used only when the installed uploader’s
+<code>holds(path)</code> confirms the store still has it, so a client-typed path is never stored. A stored
+value renders as a link only when it is rooted (<code>/…</code>, not <code>//host</code>) or an absolute
 <code>http(s)://…</code> URL; anything else renders as text (GH #277).</li>
 <li>Passwords use Argon2id. Unknown emails take the same code path, and login failures share one
 generic message.</li>
