@@ -908,18 +908,21 @@ pub(crate) fn enforce_tenant<R: Resource>(cx: &Cx) -> Result<(), topcoat::Error>
     Ok(())
 }
 
-/// The list URL for a resource: `{panel prefix}/{slug}`.
+/// The gate every resource handler runs first: the authenticated user, then
+/// the resource's tenant. A no-op when auth is compiled out and the resource
+/// declares no tenant.
+pub(crate) fn gate<R: Resource>(cx: &Cx) -> Result<(), topcoat::Error> {
+    enforce_auth(cx)?;
+    enforce_tenant::<R>(cx)
+}
+
+/// The panel's URL prefix: the [`PanelPrefix`] app context installed by
+/// [`Panel::build`], else the request path's first segment, else `/admin`.
 ///
-/// The prefix comes from the [`PanelPrefix`] app context installed by
-/// [`Panel::build`] — the panel's own declaration, not the request path. The
-/// old `list_url_for_current` sniffed the current path (stripping
-/// `/create`, `/{id}/edit`, `/{id}/delete`, … suffixes), which only worked
-/// because every handler happened to sit under the list route and hardcoded
-/// `/admin` as its fallback (GH #75 item 6). When no prefix is installed
-/// (bare `CxTestBuilder` tests), fall back to the request path's first
-/// segment, then `/admin`.
-pub(crate) fn list_url(cx: &Cx, slug: &str) -> String {
-    let prefix = topcoat::context::try_app_context::<PanelPrefix>(cx)
+/// A bare `CxTestBuilder` installs no prefix, so a test rendering under
+/// `/admin/...` still derives `/admin`.
+pub(crate) fn panel_prefix(cx: &Cx) -> String {
+    topcoat::context::try_app_context::<PanelPrefix>(cx)
         .map(|p| p.0.clone())
         .unwrap_or_else(|| {
             let path = topcoat::router::request::uri(cx).path().to_string();
@@ -928,8 +931,12 @@ pub(crate) fn list_url(cx: &Cx, slug: &str) -> String {
                 .filter(|s| !s.is_empty())
                 .map(|s| format!("/{s}"))
                 .unwrap_or_else(|| "/admin".to_string())
-        });
-    format!("{prefix}/{slug}")
+        })
+}
+
+/// The list URL for a resource: `{panel prefix}/{slug}`.
+pub(crate) fn list_url(cx: &Cx, slug: &str) -> String {
+    format!("{}/{slug}", panel_prefix(cx))
 }
 
 /// The panel root: a temporary redirect to the first declared resource's

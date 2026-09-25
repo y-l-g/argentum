@@ -286,8 +286,36 @@ where
     R: OptionSource,
 {
     ensure_option_access::<R>(cx)?;
+    bounded_options::<R>(
+        cx,
+        option_query::<R>(cx)?,
+        "relationship option load failed",
+        "relationship option table overflows the cap",
+    )
+    .await
+}
+
+/// The bounded option load shared by [`related_records`] and
+/// [`related_records_search`]: fetch one row past the cap, map a query failure
+/// to `LoadFailed`, refuse a set over the cap with `Overflow`, then drop the
+/// rows the caller cannot view.
+///
+/// The cap is checked on the **raw** bounded fetch, before `can_view`
+/// filtering (GH #91): counting filtered rows would let one hidden record
+/// defeat the cap and silently truncate a larger table, misreporting
+/// legitimate FKs as "invalid". `failed` and `overflow` are the warning
+/// messages the caller's load reports.
+async fn bounded_options<R>(
+    cx: &Cx,
+    query: Query<List<R::Model>>,
+    failed: &str,
+    overflow: &str,
+) -> Result<Vec<R::Model>, OptionLoadError>
+where
+    R: OptionSource,
+{
     let mut db = crate::db::db(cx);
-    let mut records = option_query::<R>(cx)?
+    let mut records = query
         .limit(MAX_RELATIONSHIP_OPTIONS + 1)
         .exec(&mut db)
         .await
@@ -295,7 +323,7 @@ where
             tracing::warn!(
                 resource = R::slug(),
                 error = %e,
-                "relationship option load failed"
+                "{failed}"
             );
             OptionLoadError::LoadFailed
         })?;
@@ -308,7 +336,7 @@ where
         tracing::warn!(
             resource = R::slug(),
             max = MAX_RELATIONSHIP_OPTIONS,
-            "relationship option table overflows the cap"
+            "{overflow}"
         );
         return Err(OptionLoadError::Overflow);
     }
@@ -362,29 +390,13 @@ where
     if let Some(ord) = R::order_by(cx) {
         query = query.order_by(ord);
     }
-    let mut db = crate::db::db(cx);
-    let mut records = query
-        .limit(MAX_RELATIONSHIP_OPTIONS + 1)
-        .exec(&mut db)
-        .await
-        .map_err(|e| {
-            tracing::warn!(
-                resource = R::slug(),
-                error = %e,
-                "relationship option search failed"
-            );
-            OptionLoadError::LoadFailed
-        })?;
-    if records.len() > MAX_RELATIONSHIP_OPTIONS {
-        tracing::warn!(
-            resource = R::slug(),
-            max = MAX_RELATIONSHIP_OPTIONS,
-            "relationship option search overflows the cap"
-        );
-        return Err(OptionLoadError::Overflow);
-    }
-    records.retain(|record| R::can_view(cx, record));
-    Ok(records)
+    bounded_options::<R>(
+        cx,
+        query,
+        "relationship option search failed",
+        "relationship option search overflows the cap",
+    )
+    .await
 }
 
 /// Outcome of the targeted existence check for overflowed selects (GH #150 D4).

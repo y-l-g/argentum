@@ -13,7 +13,7 @@ use topcoat::{
     view::{BoxView, HoistView, ViewExt, attributes, internal::ThenView, suspense, view},
 };
 
-use super::{enforce_auth, enforce_tenant, list_url};
+use super::{gate, list_url};
 use crate::resource::{
     Resource, RowActions, Table, TableChrome, TablePage, TableSignals, TableState, create_page_url,
 };
@@ -182,6 +182,35 @@ pub(crate) fn table_error_view<'a, R: Resource>(
     .boxed()
 }
 
+/// The list page header: the resource's title and the Create entry point
+/// (GH #162, Filament's List page `CreateAction`), a real link so no-JS keeps
+/// working, gated on `can_create`. The POST handler enforces the same policy.
+fn list_header<'a, R: Resource>(cx: &'a Cx, title: &str, list_path: &str) -> BoxView<'a> {
+    let title = title.to_string();
+    let create_url = R::can_create(cx).then(|| create_page_url(list_path));
+    let create_label = format!("Create {}", R::navigation_label());
+    view! {
+        cx =>
+        argentum_ui::page_header(
+            <div class="flex items-center justify-between gap-4">
+                argentum_ui::page_title((title))
+                if let Some(url) = create_url {
+                    <a
+                        href=(url)
+                        class=(argentum_ui::button_variants(
+                            argentum_ui::ButtonVariant::Primary,
+                            argentum_ui::ButtonSize::Md,
+                        ))
+                    >
+                        (create_label)
+                    </a>
+                }
+            </div>
+        )
+    }
+    .boxed()
+}
+
 /// The list page every declared [`Resource`] gets at `{prefix}/{slug}`.
 ///
 /// One generic handler drives all resources: resolve the [`TableState`] from
@@ -196,8 +225,7 @@ pub(crate) fn table_error_view<'a, R: Resource>(
 /// the swap by design).
 pub(crate) fn resource_list<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
     Box::pin(HoistView::new(ThenView::new(async move {
-        enforce_auth(cx)?;
-        enforce_tenant::<R>(cx)?;
+        gate::<R>(cx)?;
         if !R::can_view_any(cx) {
             return Err(forbidden().into());
         }
@@ -208,11 +236,6 @@ pub(crate) fn resource_list<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
         let table = wire_table_actions::<R>(cx, false);
         let title = R::navigation_label();
         let list_path = list_url(cx, &R::slug());
-        // Create entry point (GH #162, Filament's List page `CreateAction` in
-        // the page header): a real link so no-JS keeps working. Gated on
-        // `can_create`; the POST handler enforces it again.
-        let create_url = R::can_create(cx).then(|| create_page_url(&list_path));
-        let create_label = format!("Create {}", R::navigation_label());
         if table.is_live_search() {
             return Ok(resource_list_live::<R>(cx, table, state, title, list_path));
         }
@@ -233,6 +256,7 @@ pub(crate) fn resource_list<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
         // #153: the retry link must not echo an unknown `?group_by=`).
         let state = table.normalize_state(&state);
         let skeleton = table.render_skeleton_normalized(cx, &state).await?;
+        let header = list_header::<R>(cx, &title, &list_path);
         let lazy_rows = ThenView::new(async move {
             let rendered = async {
                 let page = load_table_page::<R>(cx, &table, &state).await?;
@@ -247,22 +271,7 @@ pub(crate) fn resource_list<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
         Ok(view! {
             cx =>
             argentum_ui::page(
-                argentum_ui::page_header(
-                    <div class="flex items-center justify-between gap-4">
-                        argentum_ui::page_title((title.clone()))
-                        if let Some(url) = create_url {
-                            <a
-                                href=(url)
-                                class=(argentum_ui::button_variants(
-                                    argentum_ui::ButtonVariant::Primary,
-                                    argentum_ui::ButtonSize::Md,
-                                ))
-                            >
-                                (create_label)
-                            </a>
-                        }
-                    </div>
-                )
+                (header)
                 argentum_ui::page_content(
                     <div class="flex flex-col gap-4">
                         suspense(fallback: skeleton, (lazy_rows.boxed()))
@@ -326,10 +335,7 @@ pub(crate) fn resource_list_live<R: Resource>(
         // (or re-open) a dialog, so the live page renders it eagerly once
         // (GH #151).
         let delete_dialog = table.render_delete_dialog_normalized(cx, &state).await?;
-        // Create entry point (GH #162): same header button as the streamed
-        // list — a real link above the swapped region, gated on `can_create`.
-        let create_url = R::can_create(cx).then(|| create_page_url(&list_path));
-        let create_label = format!("Create {}", R::navigation_label());
+        let header = list_header::<R>(cx, &title, &list_path);
         let lazy_rows = ThenView::new(async move {
             // The retry link inside the table writes the same signals the
             // toolbar does (GH #166), so a bad cursor recovers in place.
@@ -350,22 +356,7 @@ pub(crate) fn resource_list_live<R: Resource>(
         Ok(view! {
             cx =>
             argentum_ui::page(
-                argentum_ui::page_header(
-                    <div class="flex items-center justify-between gap-4">
-                        argentum_ui::page_title((title.clone()))
-                        if let Some(url) = create_url {
-                            <a
-                                href=(url)
-                                class=(argentum_ui::button_variants(
-                                    argentum_ui::ButtonVariant::Primary,
-                                    argentum_ui::ButtonSize::Md,
-                                ))
-                            >
-                                (create_label)
-                            </a>
-                        }
-                    </div>
-                )
+                (header)
                 argentum_ui::page_content(
                     <div class="flex flex-col gap-4">
                         if let Some(host) = host {

@@ -9,7 +9,8 @@ mod text_input;
 mod textarea;
 
 use argentum_ui::{
-    field as ui_field, field_content as ui_field_content, field_title as ui_field_title,
+    field as ui_field, field_content as ui_field_content, field_error as ui_field_error,
+    field_label as ui_field_label, field_title as ui_field_title,
 };
 pub use file_upload::FileUpload;
 pub use select::Select;
@@ -75,6 +76,100 @@ fn render_value_view<'a>(cx: &'a Cx, label: &str, value: BoxView<'a>) -> Result<
                 ui_field_title((label))
                 (value)
             )
+        )
+    }
+    .boxed())
+}
+
+/// The validation state a form control renders: the error id its
+/// `aria-describedby` points at, the message its error slot shows, and whether
+/// the field is invalid.
+///
+/// A field is invalid when it carries an error or when it has a `fallback`
+/// message of its own — the relationship denial a `Select` surfaces on GET
+/// (GH #108), which has no `errors` entry yet.
+pub(crate) struct FieldChrome {
+    name: String,
+    error_id: String,
+    error_text: String,
+    has_error: bool,
+}
+
+impl FieldChrome {
+    pub(crate) fn new(name: &str, errors: &[String], fallback: Option<String>) -> Self {
+        let incoming = errors.first().cloned().unwrap_or_default();
+        let has_error = !errors.is_empty() || fallback.is_some();
+        let error_text = if incoming.is_empty() {
+            fallback.unwrap_or_default()
+        } else {
+            incoming
+        };
+        Self {
+            name: name.to_string(),
+            error_id: format!("{name}-error"),
+            error_text,
+            has_error,
+        }
+    }
+
+    /// The control's `aria-invalid`: `"true"` also colors the field's label.
+    pub(crate) fn aria_invalid(&self) -> &'static str {
+        if self.has_error { "true" } else { "false" }
+    }
+
+    /// The control's `aria-describedby`, pointing at the error slot while the
+    /// field is invalid. Owned because a rendered view outlives this value.
+    pub(crate) fn described_by(&self) -> Option<String> {
+        self.has_error.then(|| self.error_id.clone())
+    }
+}
+
+/// The chrome every form control renders: the `field` wrapper carrying
+/// `ac-field` / `ac-field--error`, the label with the required marker, the
+/// control, and the error slot (GH #12, GH #189).
+///
+/// `attributes` carries the extra wrapper attributes a control needs — the
+/// `Select` option and filter hooks.
+pub(crate) fn render_field<'a>(
+    cx: &'a Cx,
+    chrome: &FieldChrome,
+    label: &str,
+    required: bool,
+    attributes: Attributes,
+    control: BoxView<'a>,
+) -> Result<BoxView<'a>> {
+    let name = chrome.name.clone();
+    let label_text = label.to_string();
+    let has_error = chrome.has_error;
+    let error_id = chrome.error_id.clone();
+    let error_text = chrome.error_text.clone();
+    let field_class = if has_error {
+        "ac-field ac-field--error"
+    } else {
+        "ac-field"
+    };
+    Ok(view! {
+        cx =>
+        ui_field(
+            attrs: attributes! {
+                class=(field_class)
+                data-invalid=(has_error.then_some("true"))
+                (attributes)
+            },
+            ui_field_label(
+                attrs: attributes! { for=(name) },
+                (label_text)
+                if required {
+                    <span class="text-destructive" aria-hidden="true">"*"</span>
+                }
+            )
+            (control)
+            if has_error {
+                ui_field_error(
+                    attrs: attributes! { id=(error_id) class="ac-error" aria-live="polite" },
+                    (error_text)
+                )
+            }
         )
     }
     .boxed())

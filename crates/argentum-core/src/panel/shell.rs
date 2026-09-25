@@ -16,7 +16,7 @@ use topcoat::{
     view::{BoxView, Child, HoistView, View, ViewExt, attributes, internal::ThenView, view},
 };
 
-use super::{Panel, PanelPrefix};
+use super::Panel;
 use crate::{
     notification::{LiveToast, live_toast, live_toaster, take_notification},
     resource::NavigationItem,
@@ -430,19 +430,7 @@ impl Panel {
         // Prefer declarative nav_items from Panel::resource, fallback to Home.
         let nav_items = try_app_context::<Vec<NavigationItem>>(cx)
             .cloned()
-            .unwrap_or_else(|| {
-                let prefix = try_app_context::<PanelPrefix>(cx)
-                    .map(|p| p.0.clone())
-                    .unwrap_or_else(|| {
-                        current
-                            .split('/')
-                            .nth(1)
-                            .filter(|s| !s.is_empty())
-                            .map(|s| format!("/{s}"))
-                            .unwrap_or_else(|| "/admin".to_string())
-                    });
-                vec![NavigationItem::at("Home", prefix)]
-            });
+            .unwrap_or_else(|| vec![NavigationItem::at("Home", super::panel_prefix(cx))]);
         let shell = Self::render_shell(cx, &nav_items, &current, slot, None).await?;
         let brand_title = try_app_context::<Brand>(cx)
             .map(|b| b.name.clone())

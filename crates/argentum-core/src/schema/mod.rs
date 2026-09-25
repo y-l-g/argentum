@@ -271,6 +271,16 @@ impl Schema {
         map
     }
 
+    /// Whether any leaf satisfies `pick` — the allocation-free counterpart of
+    /// [`Self::leaves`] for a yes/no question (GH #209).
+    fn any_leaf(&self, pick: impl Fn(&Node) -> bool) -> bool {
+        let mut found = false;
+        for node in &self.nodes {
+            for_each_field(node, &mut |n| found |= pick(n));
+        }
+        found
+    }
+
     /// Every [`TextInput`] this schema declares, keyed by field name.
     pub fn text_inputs(&self) -> HashMap<String, TextInput> {
         self.leaves(|n| match n {
@@ -299,15 +309,7 @@ impl Schema {
     /// contains a [`FileUpload`]. `Panel` uses it to emit
     /// `enctype="multipart/form-data"` only on forms that need it (GH #73).
     pub fn has_file_upload(&self) -> bool {
-        let mut found = false;
-        for node in &self.nodes {
-            for_each_field(node, &mut |n| {
-                if matches!(n, Node::FileUpload(_)) {
-                    found = true;
-                }
-            });
-        }
-        found
+        self.any_leaf(|n| matches!(n, Node::FileUpload(_)))
     }
 
     /// Validate submitted values against declared inputs (GH #89).
@@ -384,13 +386,9 @@ impl Schema {
             if sel.relationship.is_some() || !sel.options_static.is_empty() {
                 let val = values.get(&name).map(|s| s.as_str()).unwrap_or("");
                 if !val.trim().is_empty() {
-                    let async_errs = sel.validate_async(cx, val).await;
-                    // validate_async returns required errs plus existence; we already did required,
-                    // so filter.
-                    let existence_errs: Vec<String> = async_errs
-                        .into_iter()
-                        .filter(|e| !e.contains("is required"))
-                        .collect();
+                    // `validate` above already ran the required rule, so the
+                    // existence-only check is what is left to ask.
+                    let existence_errs = sel.validate_exists(cx, val).await;
                     if !existence_errs.is_empty() {
                         errors.insert(name, existence_errs);
                     }

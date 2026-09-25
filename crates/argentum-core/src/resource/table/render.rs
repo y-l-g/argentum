@@ -69,6 +69,70 @@ fn default_width_style(percent: u8) -> Cow<'static, str> {
     Cow::Owned(format!("width: {percent}%"))
 }
 
+/// One filter control: a labelled `<select data-filter-name=…>` carrying the
+/// `value`/`label` pairs, with the leading empty "All" option that clears the
+/// filter (GH #74).
+///
+/// The empty value is reserved for that clear-filter option. Every pair in
+/// `options` renders verbatim, so a caller whose declared options can include
+/// `""` supplies the label that option shows: [`Filter::Select`] passes
+/// `"All"`, the label the empty value already carries, while
+/// [`Filter::Variant`] passes the key itself.
+///
+/// The control has no `name`, so it never submits on its own; `filters.js`
+/// composes it into the hidden `filters` transport.
+fn filter_select<'a>(
+    cx: &'a Cx,
+    label: &str,
+    name: &str,
+    options: Vec<(String, String)>,
+    current: &str,
+) -> BoxView<'a> {
+    let label = label.to_string();
+    let name = name.to_string();
+    let aria = label.clone();
+    let current = current.to_string();
+    view! {
+        cx =>
+        <label class="flex items-center gap-2 text-sm text-muted-foreground">
+            (label)
+            <select
+                data-filter-name=(name)
+                aria-label=(aria)
+                class="flex h-9 rounded-md border border-border bg-background px-3 py-1 text-sm shadow-xs"
+            >
+                <option value="" selected=(current.is_empty())>"All"</option>
+                for (value, text) in options {
+                    <option value=(value.clone()) selected=(current == value)>
+                        (text)
+                    </option>
+                }
+            </select>
+        </label>
+    }
+    .boxed()
+}
+
+/// The hidden inputs a table toolbar carries across its submit, in the order
+/// given; an input whose state holds no value renders nothing.
+fn hidden_state_inputs<'a>(cx: &'a Cx, inputs: Vec<(&'static str, Option<String>)>) -> BoxView<'a> {
+    let fields: Vec<BoxView<'a>> = inputs
+        .into_iter()
+        .filter_map(|(name, value)| {
+            value.map(|value| {
+                view! { cx => <input type="hidden" name=(name) value=(value)> }.boxed()
+            })
+        })
+        .collect();
+    view! {
+        cx =>
+        for field in fields {
+            (field)
+        }
+    }
+    .boxed()
+}
+
 /// The width every column of one render declares (GH #240): one `style` value
 /// per declared column, in column order, plus the two chrome columns.
 /// `None` is a column that declares no width — a wide column, which takes a
@@ -1056,10 +1120,13 @@ impl<M> Table<M> {
         let action = path.to_string();
         let q_display = state.search.clone().unwrap_or_default();
         let sort_hidden = state.sort.as_ref().map(|s| s.column.clone());
-        let dir_hidden = state
-            .sort
-            .as_ref()
-            .map(|s| if s.descending { "desc" } else { "asc" });
+        let dir_hidden = state.sort.as_ref().map(|s| {
+            if s.descending {
+                "desc".to_string()
+            } else {
+                "asc".to_string()
+            }
+        });
         let filters_hidden = state.filters_param();
         // Pre-normalized by the render seams (GH #153): `state.group_by` is
         // the declared name or `None`, never an unknown value (GH #92).
@@ -1069,6 +1136,15 @@ impl<M> Table<M> {
         let clear_url =
             (state.sort.is_some() || filters_hidden.is_some() || group_hidden.is_some())
                 .then(|| state.without_search(path));
+        let hidden = hidden_state_inputs(
+            cx,
+            vec![
+                ("sort", sort_hidden),
+                ("dir", dir_hidden),
+                ("filters", filters_hidden),
+                ("group_by", group_hidden),
+            ],
+        );
         Ok(view! {
             cx =>
             <form
@@ -1076,18 +1152,7 @@ impl<M> Table<M> {
                 action=(action)
                 class="flex flex-wrap items-center gap-2 border-b border-border p-3"
             >
-                if let Some(sort) = sort_hidden {
-                    <input type="hidden" name="sort" value=(sort)>
-                }
-                if let Some(dir) = dir_hidden {
-                    <input type="hidden" name="dir" value=(dir)>
-                }
-                if let Some(filters) = filters_hidden.clone() {
-                    <input type="hidden" name="filters" value=(filters)>
-                }
-                if let Some(group_by) = group_hidden {
-                    <input type="hidden" name="group_by" value=(group_by)>
-                }
+                (hidden)
                 ui_input(
                     attrs: attributes! {
                         type="search"
@@ -1292,12 +1357,24 @@ impl<M> Table<M> {
         let action = path.to_string();
         let filters_display = state.filters_param().unwrap_or_default();
         let sort_hidden = state.sort.as_ref().map(|s| s.column.clone());
-        let dir_hidden = state
-            .sort
-            .as_ref()
-            .map(|s| if s.descending { "desc" } else { "asc" });
+        let dir_hidden = state.sort.as_ref().map(|s| {
+            if s.descending {
+                "desc".to_string()
+            } else {
+                "asc".to_string()
+            }
+        });
         let q_hidden = state.search.clone();
         let group_hidden = state.group_by.clone();
+        let hidden = hidden_state_inputs(
+            cx,
+            vec![
+                ("q", q_hidden),
+                ("sort", sort_hidden),
+                ("dir", dir_hidden),
+                ("group_by", group_hidden),
+            ],
+        );
         let clear_url = if !state.filters.is_empty() {
             Some(state.without_filters(path))
         } else {
@@ -1315,72 +1392,36 @@ impl<M> Table<M> {
             let current = state.filters.get(f.name()).cloned().unwrap_or_default();
             match f {
                 Filter::Select(s) => {
-                    let name = s.name().to_string();
-                    let label = s.label_str().to_string();
-                    let aria = label.clone();
-                    let mut opts = vec![String::new()];
-                    opts.extend(s.options().iter().cloned());
-                    let current_c = current.clone();
-                    controls.push(
-                        view! {
-                            cx =>
-                            <label
-                                class="flex items-center gap-2 text-sm text-muted-foreground"
-                            >
-                                (label)
-                                <select
-                                    data-filter-name=(name)
-                                    aria-label=(aria)
-                                    class="flex h-9 rounded-md border border-border bg-background px-3 py-1 text-sm shadow-xs"
-                                >
-                                    for opt in opts {
-                                        if opt.is_empty() {
-                                            <option value="" selected=(current_c.is_empty())>
-                                                "All"
-                                            </option>
-                                        } else {
-                                            <option value=(opt.clone()) selected=(current_c == opt)>
-                                                (opt)
-                                            </option>
-                                        }
-                                    }
-                                </select>
-                            </label>
-                        }
-                        .boxed(),
-                    );
+                    // A declared empty option is the clear-filter value, so it
+                    // renders as the "All" option: value `""`, label "All".
+                    let options = s
+                        .options()
+                        .iter()
+                        .map(|opt| {
+                            let label = if opt.is_empty() { "All" } else { opt.as_str() };
+                            (opt.clone(), label.to_string())
+                        })
+                        .collect();
+                    controls.push(filter_select(
+                        cx,
+                        s.label_str(),
+                        s.name(),
+                        options,
+                        &current,
+                    ));
                 }
                 Filter::Ternary(t) => {
-                    let name = t.name().to_string();
-                    let label = t.label_str().to_string();
-                    let aria = label.clone();
-                    let current_c = current.clone();
-                    controls.push(
-                        view! {
-                            cx =>
-                            <label
-                                class="flex items-center gap-2 text-sm text-muted-foreground"
-                            >
-                                (label)
-                                <select
-                                    data-filter-name=(name)
-                                    aria-label=(aria)
-                                    class="flex h-9 rounded-md border border-border bg-background px-3 py-1 text-sm shadow-xs"
-                                >
-                                    <option value="" selected=(current_c.is_empty())>
-                                        "All"
-                                    </option>
-                                    <option value="true" selected=(current_c == "true")>
-                                        "True"
-                                    </option>
-                                    <option value="false" selected=(current_c == "false")>
-                                        "False"
-                                    </option>
-                                </select>
-                            </label>
-                        }
-                        .boxed(),
-                    );
+                    let options = vec![
+                        ("true".to_string(), "True".to_string()),
+                        ("false".to_string(), "False".to_string()),
+                    ];
+                    controls.push(filter_select(
+                        cx,
+                        t.label_str(),
+                        t.name(),
+                        options,
+                        &current,
+                    ));
                 }
                 Filter::Date(d) => {
                     let name = d.name().to_string();
@@ -1408,36 +1449,18 @@ impl<M> Table<M> {
                     );
                 }
                 Filter::Variant(v) => {
-                    let name = v.name().to_string();
-                    let label = v.label_str().to_string();
-                    let aria = label.clone();
-                    let keys: Vec<String> = v.options().iter().map(|(k, _)| k.clone()).collect();
-                    let current_c = current.clone();
-                    controls.push(
-                        view! {
-                            cx =>
-                            <label
-                                class="flex items-center gap-2 text-sm text-muted-foreground"
-                            >
-                                (label)
-                                <select
-                                    data-filter-name=(name)
-                                    aria-label=(aria)
-                                    class="flex h-9 rounded-md border border-border bg-background px-3 py-1 text-sm shadow-xs"
-                                >
-                                    <option value="" selected=(current_c.is_empty())>
-                                        "All"
-                                    </option>
-                                    for opt in keys {
-                                        <option value=(opt.clone()) selected=(current_c == opt)>
-                                            (opt)
-                                        </option>
-                                    }
-                                </select>
-                            </label>
-                        }
-                        .boxed(),
-                    );
+                    let options = v
+                        .options()
+                        .iter()
+                        .map(|(key, _)| (key.clone(), key.clone()))
+                        .collect();
+                    controls.push(filter_select(
+                        cx,
+                        v.label_str(),
+                        v.name(),
+                        options,
+                        &current,
+                    ));
                 }
             }
         }
@@ -1503,18 +1526,7 @@ impl<M> Table<M> {
         Ok(view! {
             cx =>
             <form (form_attrs)>
-                if let Some(q) = q_hidden {
-                    <input type="hidden" name="q" value=(q)>
-                }
-                if let Some(sort) = sort_hidden {
-                    <input type="hidden" name="sort" value=(sort)>
-                }
-                if let Some(dir) = dir_hidden {
-                    <input type="hidden" name="dir" value=(dir)>
-                }
-                if let Some(group_by) = group_hidden {
-                    <input type="hidden" name="group_by" value=(group_by)>
-                }
+                (hidden)
                 for ctl in controls {
                     (ctl)
                 }

@@ -225,6 +225,29 @@ pub struct TableState {
     pub open: Option<bool>,
 }
 
+/// The URL parameters one table link projects, named so a call site reads
+/// which intent drops what (GH #93, GH #153).
+///
+/// `Default` is the projection that drops everything: a caller names only the
+/// parameters it keeps.
+#[derive(Default)]
+struct UrlProjection<'a> {
+    /// `?q=` search term.
+    search: Option<&'a str>,
+    /// `?sort=` column and `?dir=` value.
+    sort: Option<(&'a str, &'a str)>,
+    /// `?filters=` transport.
+    filters: Option<&'a str>,
+    /// `?group_by=` column.
+    group_by: Option<&'a str>,
+    /// `?after=` forward cursor.
+    after: Option<&'a str>,
+    /// `?before=` backward cursor.
+    before: Option<&'a str>,
+    /// `?delete=` row key for the confirmation dialog.
+    delete: Option<&'a str>,
+}
+
 /// Longest `?filters=` transport parsed (GH #205): the live shard hands this
 /// the client-owned `filters` signal, and the router buffers shard bodies up
 /// to megabytes — so the same bounded-echoed-state posture as
@@ -362,13 +385,15 @@ impl TableState {
         let filters = self.filters_param();
         self.project_url(
             path,
-            self.search.as_deref(),
-            self.sort_pair(),
-            filters.as_deref(),
-            self.group_by.as_deref(),
-            self.after.as_deref(),
-            self.before.as_deref(),
-            None,
+            UrlProjection {
+                search: self.search.as_deref(),
+                sort: self.sort_pair(),
+                filters: filters.as_deref(),
+                group_by: self.group_by.as_deref(),
+                after: self.after.as_deref(),
+                before: self.before.as_deref(),
+                ..Default::default()
+            },
         )
     }
 
@@ -378,13 +403,12 @@ impl TableState {
         let filters = self.filters_param();
         self.project_url(
             path,
-            None,
-            self.sort_pair(),
-            filters.as_deref(),
-            self.group_by.as_deref(),
-            None,
-            None,
-            None,
+            UrlProjection {
+                sort: self.sort_pair(),
+                filters: filters.as_deref(),
+                group_by: self.group_by.as_deref(),
+                ..Default::default()
+            },
         )
     }
 
@@ -393,13 +417,12 @@ impl TableState {
     pub(crate) fn without_filters(&self, path: &str) -> String {
         self.project_url(
             path,
-            self.search.as_deref(),
-            self.sort_pair(),
-            None,
-            self.group_by.as_deref(),
-            None,
-            None,
-            None,
+            UrlProjection {
+                search: self.search.as_deref(),
+                sort: self.sort_pair(),
+                group_by: self.group_by.as_deref(),
+                ..Default::default()
+            },
         )
     }
 
@@ -409,13 +432,13 @@ impl TableState {
         let filters = self.filters_param();
         self.project_url(
             path,
-            self.search.as_deref(),
-            self.sort_pair(),
-            filters.as_deref(),
-            self.group_by.as_deref(),
-            None,
-            None,
-            None,
+            UrlProjection {
+                search: self.search.as_deref(),
+                sort: self.sort_pair(),
+                filters: filters.as_deref(),
+                group_by: self.group_by.as_deref(),
+                ..Default::default()
+            },
         )
     }
 
@@ -424,13 +447,14 @@ impl TableState {
         let filters = self.filters_param();
         self.project_url(
             path,
-            self.search.as_deref(),
-            self.sort_pair(),
-            filters.as_deref(),
-            self.group_by.as_deref(),
-            Some(token),
-            None,
-            None,
+            UrlProjection {
+                search: self.search.as_deref(),
+                sort: self.sort_pair(),
+                filters: filters.as_deref(),
+                group_by: self.group_by.as_deref(),
+                after: Some(token),
+                ..Default::default()
+            },
         )
     }
 
@@ -439,13 +463,14 @@ impl TableState {
         let filters = self.filters_param();
         self.project_url(
             path,
-            self.search.as_deref(),
-            self.sort_pair(),
-            filters.as_deref(),
-            self.group_by.as_deref(),
-            None,
-            Some(token),
-            None,
+            UrlProjection {
+                search: self.search.as_deref(),
+                sort: self.sort_pair(),
+                filters: filters.as_deref(),
+                group_by: self.group_by.as_deref(),
+                before: Some(token),
+                ..Default::default()
+            },
         )
     }
 
@@ -455,13 +480,13 @@ impl TableState {
         let filters = self.filters_param();
         self.project_url(
             path,
-            self.search.as_deref(),
-            Some((column, if descending { "desc" } else { "asc" })),
-            filters.as_deref(),
-            self.group_by.as_deref(),
-            None,
-            None,
-            None,
+            UrlProjection {
+                search: self.search.as_deref(),
+                sort: Some((column, if descending { "desc" } else { "asc" })),
+                filters: filters.as_deref(),
+                group_by: self.group_by.as_deref(),
+                ..Default::default()
+            },
         )
     }
 
@@ -489,18 +514,7 @@ impl TableState {
     ///
     /// The exhaustive destructure fails compilation when a field is added to
     /// `TableState`, forcing the author to decide where it projects.
-    #[allow(clippy::too_many_arguments)]
-    fn project_url(
-        &self,
-        path: &str,
-        search: Option<&str>,
-        sort: Option<(&str, &str)>,
-        filters: Option<&str>,
-        group_by: Option<&str>,
-        after: Option<&str>,
-        before: Option<&str>,
-        delete: Option<&str>,
-    ) -> String {
+    fn project_url(&self, path: &str, projection: UrlProjection<'_>) -> String {
         let TableState {
             search: _,
             sort: _,
@@ -515,14 +529,14 @@ impl TableState {
         build_url(
             path,
             &[
-                ("q", search),
-                ("sort", sort.map(|(column, _)| column)),
-                ("dir", sort.map(|(_, dir)| dir)),
-                ("filters", filters),
-                ("group_by", group_by),
-                ("after", after),
-                ("before", before),
-                ("delete", delete),
+                ("q", projection.search),
+                ("sort", projection.sort.map(|(column, _)| column)),
+                ("dir", projection.sort.map(|(_, dir)| dir)),
+                ("filters", projection.filters),
+                ("group_by", projection.group_by),
+                ("after", projection.after),
+                ("before", projection.before),
+                ("delete", projection.delete),
             ],
         )
     }
