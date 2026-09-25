@@ -14,7 +14,7 @@ use topcoat::{
 /// after first paint. Render this in the `<head>` — before any body content —
 /// so the class is right before the first pixel.
 ///
-/// The stored preference is **authoritative in both directions** (GH #184): a
+/// The stored preference is **authoritative in both directions**: a
 /// stored `light` *removes* the server-rendered `dark` class rather than
 /// leaving it in place.
 ///

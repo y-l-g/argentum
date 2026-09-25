@@ -1,4 +1,4 @@
-//! Toast — the shadcn/Sonner surface, owned by Argentum (GH #151).
+//! Toast — the shadcn/Sonner surface, owned by Argentum.
 //!
 //! The parts mirror shadcn's Sonner composition: a [`toaster`] stack, the
 //! [`toast`] surface, [`toast_icon`], [`toast_content`] with [`toast_title`] /
@@ -71,27 +71,23 @@ const CLOSE: StaticClass = class!(
 /// the `<noscript>` rule re-reveals toasts whose enter transition never got its
 /// `data-mounted` flip.
 ///
-/// Behavior asset: the enter transition, auto-dismissal, and the close button
-/// need `assets/notifications.js` (`crate::NOTIFICATION_JS`, hooks
+/// Needs `assets/notifications.js` (`crate::NOTIFICATION_JS`, hooks
 /// `data-sonner-toast` / `data-close-button`), emitted by
-/// `Panel::render_document` on every document with shell assets (see
-/// ADR-0014). Without the script the toast keeps `data-mounted="false"` and
-/// stays hidden; with scripting disabled the `<noscript>` rule keeps it visible
-/// until the next navigation.
+/// `Panel::render_document` on every document with shell assets (ADR-0014).
+/// Without the script the toast stays hidden at `data-mounted="false"`; with
+/// scripting disabled the `<noscript>` rule keeps it visible.
 ///
 /// ```ignore
-/// view! {
-///     toaster(
-///         toast(attrs: attributes! { data-type="success" },
-///             toast_icon(icon(data: icons::CIRCLE_CHECK))
-///             toast_content(
-///                 toast_title("Created")
-///                 toast_description("The record is live.")
-///             )
-///             toast_close()
+/// toaster(
+///     toast(attrs: attributes! { data-type="success" },
+///         toast_icon(icon(data: icons::CIRCLE_CHECK))
+///         toast_content(
+///             toast_title("Created")
+///             toast_description("The record is live.")
 ///         )
+///         toast_close()
 ///     )
-/// }
+/// )
 /// ```
 #[component]
 pub async fn toaster(
