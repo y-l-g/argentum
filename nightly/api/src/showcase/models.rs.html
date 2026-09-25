@@ -53,7 +53,7 @@
 <a href=#53 id=53 data-nosnippet>53</a>///
 <a href=#54 id=54 data-nosnippet>54</a>/// Flattens into the parent table as `seo_title` / `seo_description`: the same
 <a href=#55 id=55 data-nosnippet>55</a>/// row, no join, but two more columns the form binds like any other.
-<a href=#56 id=56 data-nosnippet>56</a></span><span class="attr">#[derive(Debug, Clone, toasty::Embed, argentum_core::EmbeddedForm)]
+<a href=#56 id=56 data-nosnippet>56</a></span><span class="attr">#[derive(Debug, Clone, toasty::Embed, tablo_core::EmbeddedForm)]
 <a href=#57 id=57 data-nosnippet>57</a></span><span class="kw">pub struct </span>Seo {
 <a href=#58 id=58 data-nosnippet>58</a>    <span class="kw">pub </span>title: String,
 <a href=#59 id=59 data-nosnippet>59</a>    <span class="doccomment">/// A multi-line control: the derive renders one `TextInput` per leaf, and
@@ -74,7 +74,7 @@
 <a href=#74 id=74 data-nosnippet>74</a>/// field is a `String` lens: the Schema's text fields accept `Path&lt;M, String&gt;`,
 <a href=#75 id=75 data-nosnippet>75</a>/// and a typed leaf (a timestamp, an integer) cannot bind as text yet. The
 <a href=#76 id=76 data-nosnippet>76</a>/// shared column's *coalescing* is what this demonstrates.
-<a href=#77 id=77 data-nosnippet>77</a></span><span class="attr">#[derive(Debug, Clone, PartialEq, toasty::Embed, argentum_core::EmbeddedForm)]
+<a href=#77 id=77 data-nosnippet>77</a></span><span class="attr">#[derive(Debug, Clone, PartialEq, toasty::Embed, tablo_core::EmbeddedForm)]
 <a href=#78 id=78 data-nosnippet>78</a></span><span class="kw">pub enum </span>Publication {
 <a href=#79 id=79 data-nosnippet>79</a>    <span class="attr">#[column(variant = <span class="number">1</span>)]
 <a href=#80 id=80 data-nosnippet>80</a>    </span>Scheduled {
@@ -106,21 +106,21 @@
 <a href=#106 id=106 data-nosnippet>106</a>///
 <a href=#107 id=107 data-nosnippet>107</a>/// `Video` carries a `Poster`, which itself embeds a `Credit`, so the column is
 <a href=#108 id=108 data-nosnippet>108</a>/// `media_poster_credit_author` — three levels deep, one flat column.
-<a href=#109 id=109 data-nosnippet>109</a></span><span class="attr">#[derive(Debug, Clone, toasty::Embed, argentum_core::EmbeddedForm)]
+<a href=#109 id=109 data-nosnippet>109</a></span><span class="attr">#[derive(Debug, Clone, toasty::Embed, tablo_core::EmbeddedForm)]
 <a href=#110 id=110 data-nosnippet>110</a></span><span class="kw">pub struct </span>Credit {
 <a href=#111 id=111 data-nosnippet>111</a>    <span class="attr">#[form(label = <span class="string">"Poster credit"</span>)]
 <a href=#112 id=112 data-nosnippet>112</a>    </span><span class="kw">pub </span>author: String,
 <a href=#113 id=113 data-nosnippet>113</a>    <span class="kw">pub </span>licence: String,
 <a href=#114 id=114 data-nosnippet>114</a>}
 <a href=#115 id=115 data-nosnippet>115</a>
-<a href=#116 id=116 data-nosnippet>116</a><span class="attr">#[derive(Debug, Clone, toasty::Embed, argentum_core::EmbeddedForm)]
+<a href=#116 id=116 data-nosnippet>116</a><span class="attr">#[derive(Debug, Clone, toasty::Embed, tablo_core::EmbeddedForm)]
 <a href=#117 id=117 data-nosnippet>117</a></span><span class="kw">pub struct </span>Poster {
 <a href=#118 id=118 data-nosnippet>118</a>    <span class="attr">#[form(label = <span class="string">"Poster URL"</span>)]
 <a href=#119 id=119 data-nosnippet>119</a>    </span><span class="kw">pub </span>url: String,
 <a href=#120 id=120 data-nosnippet>120</a>    <span class="kw">pub </span>credit: Credit,
 <a href=#121 id=121 data-nosnippet>121</a>}
 <a href=#122 id=122 data-nosnippet>122</a>
-<a href=#123 id=123 data-nosnippet>123</a><span class="attr">#[derive(Debug, Clone, toasty::Embed, argentum_core::EmbeddedForm)]
+<a href=#123 id=123 data-nosnippet>123</a><span class="attr">#[derive(Debug, Clone, toasty::Embed, tablo_core::EmbeddedForm)]
 <a href=#124 id=124 data-nosnippet>124</a></span><span class="kw">pub enum </span>Media {
 <a href=#125 id=125 data-nosnippet>125</a>    <span class="attr">#[column(variant = <span class="number">1</span>)]
 <a href=#126 id=126 data-nosnippet>126</a>    </span>Image {
@@ -145,7 +145,7 @@
 <a href=#145 id=145 data-nosnippet>145</a>/// Embedding flattens it into `post_stats_word_count` /
 <a href=#146 id=146 data-nosnippet>146</a>/// `post_stats_read_minutes`, and those are integers the form binds through
 <a href=#147 id=147 data-nosnippet>147</a>/// `TextInput::typed`.
-<a href=#148 id=148 data-nosnippet>148</a></span><span class="attr">#[derive(Debug, Clone, toasty::Embed, argentum_core::EmbeddedForm)]
+<a href=#148 id=148 data-nosnippet>148</a></span><span class="attr">#[derive(Debug, Clone, toasty::Embed, tablo_core::EmbeddedForm)]
 <a href=#149 id=149 data-nosnippet>149</a></span><span class="kw">pub struct </span>PostStats {
 <a href=#150 id=150 data-nosnippet>150</a>    <span class="attr">#[form(label = <span class="string">"Word count"</span>)]
 <a href=#151 id=151 data-nosnippet>151</a>    </span><span class="kw">pub </span>word_count: i64,
@@ -227,7 +227,7 @@
 <a href=#227 id=227 data-nosnippet>227</a>    /// [`crate::media::OWNER_USER`].
 <a href=#228 id=228 data-nosnippet>228</a>    </span><span class="kw">pub </span>owner_type: String,
 <a href=#229 id=229 data-nosnippet>229</a>    <span class="kw">pub </span>owner_id: uuid::Uuid,
-<a href=#230 id=230 data-nosnippet>230</a>    <span class="doccomment">/// What the app's [`Uploader`](argentum_core::Uploader) returned, stored
+<a href=#230 id=230 data-nosnippet>230</a>    <span class="doccomment">/// What the app's [`Uploader`](tablo_core::Uploader) returned, stored
 <a href=#231 id=231 data-nosnippet>231</a>    /// verbatim and rendered as the URL the file is served at.
 <a href=#232 id=232 data-nosnippet>232</a>    </span><span class="kw">pub </span>path: String,
 <a href=#233 id=233 data-nosnippet>233</a>    <span class="doccomment">/// The client's filename, a basename, for display.

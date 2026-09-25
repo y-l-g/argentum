@@ -14,7 +14,7 @@
 <a href=#14 id=14 data-nosnippet>14</a>
 <a href=#15 id=15 data-nosnippet>15</a></span><span class="kw">use </span>std::collections::HashMap;
 <a href=#16 id=16 data-nosnippet>16</a>
-<a href=#17 id=17 data-nosnippet>17</a><span class="kw">use </span>argentum_core::{
+<a href=#17 id=17 data-nosnippet>17</a><span class="kw">use </span>tablo_core::{
 <a href=#18 id=18 data-nosnippet>18</a>    Notification, Resource, Uploader, csrf, db::db, notification::set_notification, require_tenant,
 <a href=#19 id=19 data-nosnippet>19</a>    scoped_query,
 <a href=#20 id=20 data-nosnippet>20</a>};
@@ -213,17 +213,17 @@
 <a href=#213 id=213 data-nosnippet>213</a>
 <a href=#214 id=214 data-nosnippet>214</a>    <span class="prelude-val">Ok</span>(<span class="macro">view!</span> {
 <a href=#215 id=215 data-nosnippet>215</a>        cx =&gt;
-<a href=#216 id=216 data-nosnippet>216</a>        argentum_ui::page(
-<a href=#217 id=217 data-nosnippet>217</a>            argentum_ui::page_header(
-<a href=#218 id=218 data-nosnippet>218</a>                argentum_ui::page_title(<span class="string">"Media library"</span>)
-<a href=#219 id=219 data-nosnippet>219</a>                argentum_ui::page_description(
+<a href=#216 id=216 data-nosnippet>216</a>        tablo_ui::page(
+<a href=#217 id=217 data-nosnippet>217</a>            tablo_ui::page_header(
+<a href=#218 id=218 data-nosnippet>218</a>                tablo_ui::page_title(<span class="string">"Media library"</span>)
+<a href=#219 id=219 data-nosnippet>219</a>                tablo_ui::page_description(
 <a href=#220 id=220 data-nosnippet>220</a>                    <span class="string">"Files stored through the app's uploader, attached to a post or a user."
 <a href=#221 id=221 data-nosnippet>221</a>                </span>)
 <a href=#222 id=222 data-nosnippet>222</a>            )
-<a href=#223 id=223 data-nosnippet>223</a>            argentum_ui::page_content(
-<a href=#224 id=224 data-nosnippet>224</a>                argentum_ui::card(
-<a href=#225 id=225 data-nosnippet>225</a>                    argentum_ui::card_header(argentum_ui::card_title(<span class="string">"Upload"</span>))
-<a href=#226 id=226 data-nosnippet>226</a>                    argentum_ui::card_content(
+<a href=#223 id=223 data-nosnippet>223</a>            tablo_ui::page_content(
+<a href=#224 id=224 data-nosnippet>224</a>                tablo_ui::card(
+<a href=#225 id=225 data-nosnippet>225</a>                    tablo_ui::card_header(tablo_ui::card_title(<span class="string">"Upload"</span>))
+<a href=#226 id=226 data-nosnippet>226</a>                    tablo_ui::card_content(
 <a href=#227 id=227 data-nosnippet>227</a>                        &lt;form
 <a href=#228 id=228 data-nosnippet>228</a>                            method=<span class="string">"post"
 <a href=#229 id=229 data-nosnippet>229</a>                            </span>action=(MEDIA_PATH)
@@ -235,7 +235,7 @@
 <a href=#235 id=235 data-nosnippet>235</a>                                &lt;label class=<span class="string">"text-sm font-medium" </span><span class="kw">for</span>=<span class="string">"media-owner"</span>&gt;
 <a href=#236 id=236 data-nosnippet>236</a>                                    <span class="string">"Owner"
 <a href=#237 id=237 data-nosnippet>237</a>                                </span>&lt;/label&gt;
-<a href=#238 id=238 data-nosnippet>238</a>                                argentum_ui::select(
+<a href=#238 id=238 data-nosnippet>238</a>                                tablo_ui::select(
 <a href=#239 id=239 data-nosnippet>239</a>                                    attrs: <span class="macro">attributes!</span> { id=<span class="string">"media-owner" </span>name=(OWNER_FIELD) required=<span class="string">"" </span>},
 <a href=#240 id=240 data-nosnippet>240</a>                                    &lt;option value=<span class="string">"" </span>selected=<span class="string">""</span>&gt;<span class="string">"Choose an owner…"</span>&lt;/option&gt;
 <a href=#241 id=241 data-nosnippet>241</a>                                    &lt;optgroup label=<span class="string">"Posts"</span>&gt;
@@ -259,7 +259,7 @@
 <a href=#259 id=259 data-nosnippet>259</a>                                    <span class="string">"File"
 <a href=#260 id=260 data-nosnippet>260</a>                                </span>&lt;/label&gt;
 <a href=#261 id=261 data-nosnippet>261</a>                                &lt;div class=<span class="string">"flex items-center gap-2"</span>&gt;
-<a href=#262 id=262 data-nosnippet>262</a>                                    argentum_ui::input(
+<a href=#262 id=262 data-nosnippet>262</a>                                    tablo_ui::input(
 <a href=#263 id=263 data-nosnippet>263</a>                                        attrs: <span class="macro">attributes!</span> {
 <a href=#264 id=264 data-nosnippet>264</a>                                            id=<span class="string">"media-file"
 <a href=#265 id=265 data-nosnippet>265</a>                                            </span><span class="kw">type</span>=<span class="string">"file"
@@ -274,9 +274,9 @@
 <a href=#274 id=274 data-nosnippet>274</a>                                    // and the preview itself and cancels that
 <a href=#275 id=275 data-nosnippet>275</a>                                    // reset, so a file clear keeps the owner the
 <a href=#276 id=276 data-nosnippet>276</a>                                    // user picked (ADR-0021).
-<a href=#277 id=277 data-nosnippet>277</a>                                    </span>argentum_ui::button(
-<a href=#278 id=278 data-nosnippet>278</a>                                        variant: argentum_ui::ButtonVariant::Outline,
-<a href=#279 id=279 data-nosnippet>279</a>                                        size: argentum_ui::ButtonSize::Sm,
+<a href=#277 id=277 data-nosnippet>277</a>                                    </span>tablo_ui::button(
+<a href=#278 id=278 data-nosnippet>278</a>                                        variant: tablo_ui::ButtonVariant::Outline,
+<a href=#279 id=279 data-nosnippet>279</a>                                        size: tablo_ui::ButtonSize::Sm,
 <a href=#280 id=280 data-nosnippet>280</a>                                        attrs: <span class="macro">attributes!</span> {
 <a href=#281 id=281 data-nosnippet>281</a>                                            <span class="kw">type</span>=<span class="string">"reset"
 <a href=#282 id=282 data-nosnippet>282</a>                                            </span>data-media-clear=<span class="string">""
@@ -291,17 +291,17 @@
 <a href=#291 id=291 data-nosnippet>291</a>                                    </span>class=<span class="string">"flex items-center gap-3 text-xs text-muted-foreground"
 <a href=#292 id=292 data-nosnippet>292</a>                                </span>&gt;&lt;/div&gt;
 <a href=#293 id=293 data-nosnippet>293</a>                            &lt;/div&gt;
-<a href=#294 id=294 data-nosnippet>294</a>                            argentum_ui::button(
-<a href=#295 id=295 data-nosnippet>295</a>                                variant: argentum_ui::ButtonVariant::Primary,
+<a href=#294 id=294 data-nosnippet>294</a>                            tablo_ui::button(
+<a href=#295 id=295 data-nosnippet>295</a>                                variant: tablo_ui::ButtonVariant::Primary,
 <a href=#296 id=296 data-nosnippet>296</a>                                attrs: <span class="macro">attributes!</span> { <span class="kw">type</span>=<span class="string">"submit" </span>},
 <a href=#297 id=297 data-nosnippet>297</a>                                <span class="string">"Upload"
 <a href=#298 id=298 data-nosnippet>298</a>                            </span>)
 <a href=#299 id=299 data-nosnippet>299</a>                        &lt;/form&gt;
 <a href=#300 id=300 data-nosnippet>300</a>                    )
 <a href=#301 id=301 data-nosnippet>301</a>                )
-<a href=#302 id=302 data-nosnippet>302</a>                argentum_ui::card(
-<a href=#303 id=303 data-nosnippet>303</a>                    argentum_ui::card_header(argentum_ui::card_title(<span class="string">"Stored media"</span>))
-<a href=#304 id=304 data-nosnippet>304</a>                    argentum_ui::card_content(
+<a href=#302 id=302 data-nosnippet>302</a>                tablo_ui::card(
+<a href=#303 id=303 data-nosnippet>303</a>                    tablo_ui::card_header(tablo_ui::card_title(<span class="string">"Stored media"</span>))
+<a href=#304 id=304 data-nosnippet>304</a>                    tablo_ui::card_content(
 <a href=#305 id=305 data-nosnippet>305</a>                        &lt;div class=<span class="string">"flex flex-col gap-3"</span>&gt;
 <a href=#306 id=306 data-nosnippet>306</a>                            <span class="kw">if </span>media.is_empty() {
 <a href=#307 id=307 data-nosnippet>307</a>                                &lt;p

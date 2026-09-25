@@ -2,7 +2,7 @@
 and the widget that previews a file before it is stored.</p>
 <p>A media row is a stored file plus a <strong>polymorphic owner</strong>: <code>owner_type</code> and
 <code>owner_id</code> name a <code>Post</code> or a <code>User</code>, and no foreign key can hold that pair
-together (ADR-0021). The page uploads through the app’s own <a href="../../argentum_core/upload/trait.Uploader.html" title="trait argentum_core::upload::Uploader"><code>Uploader</code></a> —
+together (ADR-0021). The page uploads through the app’s own <a href="../../tablo_core/upload/trait.Uploader.html" title="trait tablo_core::upload::Uploader"><code>Uploader</code></a> —
 the <code>DirUploader</code> the panel installs for <code>FileUpload</code> — writes the
 row, and lists what the library holds: a thumbnail for an image, a link for
 anything else.</p>

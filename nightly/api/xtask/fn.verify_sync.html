@@ -2,7 +2,7 @@
 every SYNC header records the current version <em>and</em> the current content
 hash, <code>mod.rs</code> still lists exactly <a href="constant.VENDORED_PRIMITIVES.html" title="constant xtask::VENDORED_PRIMITIVES"><code>VENDORED_PRIMITIVES</code></a>, and the set is
 closed under the registry’s same-registry dependencies.</p>
-<p>This is Argentum’s counterpart of topcoat’s own
+<p>This is Tablo’s counterpart of topcoat’s own
 <code>examples/ui/tests/registry_sync.rs</code>: because the sync is byte-for-byte
 (no injected headers <em>inside</em> the source, no string patches), a hash
 comparison is meaningful and drift cannot hide.</p>

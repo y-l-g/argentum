@@ -11,7 +11,7 @@
 <a href=#11 id=11 data-nosnippet>11</a>//! loaders are panel-scoped (auth, tenancy, chrome) and would drag the admin
 <a href=#12 id=12 data-nosnippet>12</a>//! shell's assumptions into a page that has no session to resolve them from.
 <a href=#13 id=13 data-nosnippet>13</a>
-<a href=#14 id=14 data-nosnippet>14</a></span><span class="kw">use </span>argentum_core::db::db;
+<a href=#14 id=14 data-nosnippet>14</a></span><span class="kw">use </span>tablo_core::db::db;
 <a href=#15 id=15 data-nosnippet>15</a><span class="kw">use </span>toasty::stmt::Include;
 <a href=#16 id=16 data-nosnippet>16</a><span class="kw">use </span>topcoat::{
 <a href=#17 id=17 data-nosnippet>17</a>    <span class="prelude-ty">Result</span>,
@@ -62,7 +62,7 @@
 <a href=#62 id=62 data-nosnippet>62</a>            &lt;head&gt;
 <a href=#63 id=63 data-nosnippet>63</a>                &lt;meta charset=<span class="string">"utf-8"</span>&gt;
 <a href=#64 id=64 data-nosnippet>64</a>                &lt;meta name=<span class="string">"viewport" </span>content=<span class="string">"width=device-width, initial-scale=1"</span>&gt;
-<a href=#65 id=65 data-nosnippet>65</a>                &lt;title&gt;<span class="string">"Argentum Blog"</span>&lt;/title&gt;
+<a href=#65 id=65 data-nosnippet>65</a>                &lt;title&gt;<span class="string">"Tablo Blog"</span>&lt;/title&gt;
 <a href=#66 id=66 data-nosnippet>66</a>                topcoat::dev::script()
 <a href=#67 id=67 data-nosnippet>67</a>                <span class="kw">if </span>assets {
 <a href=#68 id=68 data-nosnippet>68</a>                    topcoat::runtime::script()
@@ -86,7 +86,7 @@
 <a href=#86 id=86 data-nosnippet>86</a>                                <span class="string">"text-muted-foreground hover:text-foreground" </span><span class="kw">if </span>!current,
 <a href=#87 id=87 data-nosnippet>87</a>                            ))
 <a href=#88 id=88 data-nosnippet>88</a>                        &gt;
-<a href=#89 id=89 data-nosnippet>89</a>                            <span class="string">"Argentum Blog"
+<a href=#89 id=89 data-nosnippet>89</a>                            <span class="string">"Tablo Blog"
 <a href=#90 id=90 data-nosnippet>90</a>                        </span>&lt;/a&gt;
 <a href=#91 id=91 data-nosnippet>91</a>                        &lt;a
 <a href=#92 id=92 data-nosnippet>92</a>                            href=<span class="string">"/admin"
@@ -103,7 +103,7 @@
 <a href=#103 id=103 data-nosnippet>103</a>                    &lt;p
 <a href=#104 id=104 data-nosnippet>104</a>                        class=<span class="string">"mx-auto w-full max-w-3xl px-6 py-4 text-sm text-muted-foreground"
 <a href=#105 id=105 data-nosnippet>105</a>                    </span>&gt;
-<a href=#106 id=106 data-nosnippet>106</a>                        <span class="string">"Published with Argentum."
+<a href=#106 id=106 data-nosnippet>106</a>                        <span class="string">"Published with Tablo."
 <a href=#107 id=107 data-nosnippet>107</a>                    </span>&lt;/p&gt;
 <a href=#108 id=108 data-nosnippet>108</a>                &lt;/footer&gt;
 <a href=#109 id=109 data-nosnippet>109</a>            &lt;/body&gt;

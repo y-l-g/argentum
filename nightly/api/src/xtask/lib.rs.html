@@ -2,7 +2,7 @@
 <a href=#2 id=2 data-nosnippet>2</a>//!
 <a href=#3 id=3 data-nosnippet>3</a>//! `sync-topcoat-ui` mirrors the [`VENDORED_PRIMITIVES`] subset of the
 <a href=#4 id=4 data-nosnippet>4</a>//! `topcoat-ui-registry` sources into
-<a href=#5 id=5 data-nosnippet>5</a>//! `crates/argentum-ui/src/components/primitives/` **verbatim**: every file is
+<a href=#5 id=5 data-nosnippet>5</a>//! `crates/tablo-ui/src/components/primitives/` **verbatim**: every file is
 <a href=#6 id=6 data-nosnippet>6</a>//! the registry's byte-for-byte source under a one-line SYNC header that
 <a href=#7 id=7 data-nosnippet>7</a>//! records the registry version *and* the sha256 content hash of the source
 <a href=#8 id=8 data-nosnippet>8</a>//! (the same hash scheme topcoat's own registry and `topcoat ui` use). Because
@@ -17,9 +17,9 @@
 <a href=#17 id=17 data-nosnippet>17</a>
 <a href=#18 id=18 data-nosnippet>18</a><span class="kw">use </span>topcoat_ui::{Component, Dependency, Registry};
 <a href=#19 id=19 data-nosnippet>19</a>
-<a href=#20 id=20 data-nosnippet>20</a><span class="doccomment">/// The registry components Argentum vendors into `primitives/` (ADR-0007).
+<a href=#20 id=20 data-nosnippet>20</a><span class="doccomment">/// The registry components Tablo vendors into `primitives/` (ADR-0007).
 <a href=#21 id=21 data-nosnippet>21</a>///
-<a href=#22 id=22 data-nosnippet>22</a>/// The set is the transitive closure of what `crates/argentum-ui/src/lib.rs`
+<a href=#22 id=22 data-nosnippet>22</a>/// The set is the transitive closure of what `crates/tablo-ui/src/lib.rs`
 <a href=#23 id=23 data-nosnippet>23</a>/// re-exports: the re-exported components plus the components they depend on.
 <a href=#24 id=24 data-nosnippet>24</a>/// `vendored_components` resolves the set and checks that closure against
 <a href=#25 id=25 data-nosnippet>25</a>/// `Component::dependencies`, so the sync and the guards fail with the missing
@@ -116,7 +116,7 @@
 <a href=#116 id=116 data-nosnippet>116</a>    </span>manifest_dir
 <a href=#117 id=117 data-nosnippet>117</a>        .parent()
 <a href=#118 id=118 data-nosnippet>118</a>        .unwrap_or(Path::new(<span class="string">"."</span>))
-<a href=#119 id=119 data-nosnippet>119</a>        .join(<span class="string">"crates/argentum-ui/src/components/primitives"</span>)
+<a href=#119 id=119 data-nosnippet>119</a>        .join(<span class="string">"crates/tablo-ui/src/components/primitives"</span>)
 <a href=#120 id=120 data-nosnippet>120</a>}
 <a href=#121 id=121 data-nosnippet>121</a>
 <a href=#122 id=122 data-nosnippet>122</a><span class="doccomment">/// The registry Cargo resolved for this workspace, plus its crate version.
@@ -129,7 +129,7 @@
 <a href=#129 id=129 data-nosnippet>129</a></span><span class="kw">fn </span>locate_registry() -&gt; anyhow::Result&lt;(Registry, String)&gt; {
 <a href=#130 id=130 data-nosnippet>130</a>    <span class="comment">// Anchored at xtask's own manifest: a bare `cargo metadata`
 <a href=#131 id=131 data-nosnippet>131</a>    // resolves the caller's CWD, so invoking from a detached workspace
-<a href=#132 id=132 data-nosnippet>132</a>    // (e.g. benchmarks/argentum, which has no topcoat-ui-registry in its
+<a href=#132 id=132 data-nosnippet>132</a>    // (e.g. benchmarks/tablo, which has no topcoat-ui-registry in its
 <a href=#133 id=133 data-nosnippet>133</a>    // graph) failed with a misleading "must be a dependency of xtask".
 <a href=#134 id=134 data-nosnippet>134</a>    </span><span class="kw">let </span>manifest = PathBuf::from(<span class="macro">env!</span>(<span class="string">"CARGO_MANIFEST_DIR"</span>)).join(<span class="string">"Cargo.toml"</span>);
 <a href=#135 id=135 data-nosnippet>135</a>    <span class="kw">let </span>output = std::process::Command::new(<span class="string">"cargo"</span>)
@@ -289,7 +289,7 @@
 <a href=#289 id=289 data-nosnippet>289</a>/// hash, `mod.rs` still lists exactly [`VENDORED_PRIMITIVES`], and the set is
 <a href=#290 id=290 data-nosnippet>290</a>/// closed under the registry's same-registry dependencies.
 <a href=#291 id=291 data-nosnippet>291</a>///
-<a href=#292 id=292 data-nosnippet>292</a>/// This is Argentum's counterpart of topcoat's own
+<a href=#292 id=292 data-nosnippet>292</a>/// This is Tablo's counterpart of topcoat's own
 <a href=#293 id=293 data-nosnippet>293</a>/// `examples/ui/tests/registry_sync.rs`: because the sync is byte-for-byte
 <a href=#294 id=294 data-nosnippet>294</a>/// (no injected headers *inside* the source, no string patches), a hash
 <a href=#295 id=295 data-nosnippet>295</a>/// comparison is meaningful and drift cannot hide.
@@ -414,11 +414,11 @@
 <a href=#414 id=414 data-nosnippet>414</a>    </span>manifest_dir
 <a href=#415 id=415 data-nosnippet>415</a>        .parent()
 <a href=#416 id=416 data-nosnippet>416</a>        .unwrap_or(Path::new(<span class="string">"."</span>))
-<a href=#417 id=417 data-nosnippet>417</a>        .join(<span class="string">"crates/argentum-ui/assets"</span>)
+<a href=#417 id=417 data-nosnippet>417</a>        .join(<span class="string">"crates/tablo-ui/assets"</span>)
 <a href=#418 id=418 data-nosnippet>418</a>}
 <a href=#419 id=419 data-nosnippet>419</a>
 <a href=#420 id=420 data-nosnippet>420</a><span class="doccomment">/// Shell JS assets (ADR-0014): the file under `assets/` plus the
-<a href=#421 id=421 data-nosnippet>421</a>/// `argentum-ui` constant that wires it into the document head.
+<a href=#421 id=421 data-nosnippet>421</a>/// `tablo-ui` constant that wires it into the document head.
 <a href=#422 id=422 data-nosnippet>422</a></span><span class="kw">pub const </span>ASSET_FILES: <span class="kw-2">&amp;</span>[(<span class="kw-2">&amp;</span>str, <span class="kw-2">&amp;</span>str)] = <span class="kw-2">&amp;</span>[
 <a href=#423 id=423 data-nosnippet>423</a>    (<span class="string">"sidebar.js"</span>, <span class="string">"SIDEBAR_JS"</span>),
 <a href=#424 id=424 data-nosnippet>424</a>    (<span class="string">"theme.js"</span>, <span class="string">"THEME_JS"</span>),
@@ -434,7 +434,7 @@
 <a href=#434 id=434 data-nosnippet>434</a>
 <a href=#435 id=435 data-nosnippet>435</a><span class="doccomment">/// One hook-contract entry (ADR-0014): `js` must appear in the
 <a href=#436 id=436 data-nosnippet>436</a>/// asset's source and `rust` must appear somewhere in the Rust render sources
-<a href=#437 id=437 data-nosnippet>437</a>/// (`argentum-ui/src` + `argentum-core/src`; test modules and comment-only
+<a href=#437 id=437 data-nosnippet>437</a>/// (`tablo-ui/src` + `tablo-core/src`; test modules and comment-only
 <a href=#438 id=438 data-nosnippet>438</a>/// lines are stripped). Usually both are the same attribute hook;
 <a href=#439 id=439 data-nosnippet>439</a>/// dataset-mapped hooks name each side's spelling (`dialogOpenParam` reads
 <a href=#440 id=440 data-nosnippet>440</a>/// `data-dialog-open-param`).
@@ -767,7 +767,7 @@
 <a href=#767 id=767 data-nosnippet>767</a>/// removed, for the hook contract's Rust half.
 <a href=#768 id=768 data-nosnippet>768</a></span><span class="kw">fn </span>rust_sources(root: <span class="kw-2">&amp;</span>Path) -&gt; anyhow::Result&lt;String&gt; {
 <a href=#769 id=769 data-nosnippet>769</a>    <span class="kw">let </span><span class="kw-2">mut </span>out = String::new();
-<a href=#770 id=770 data-nosnippet>770</a>    <span class="kw">for </span>dir <span class="kw">in </span>[<span class="string">"crates/argentum-ui/src"</span>, <span class="string">"crates/argentum-core/src"</span>] {
+<a href=#770 id=770 data-nosnippet>770</a>    <span class="kw">for </span>dir <span class="kw">in </span>[<span class="string">"crates/tablo-ui/src"</span>, <span class="string">"crates/tablo-core/src"</span>] {
 <a href=#771 id=771 data-nosnippet>771</a>        <span class="kw">let </span><span class="kw-2">mut </span>files = Vec::new();
 <a href=#772 id=772 data-nosnippet>772</a>        collect_rs(<span class="kw-2">&amp;</span>root.join(dir), <span class="kw-2">&amp;mut </span>files)<span class="question-mark">?</span>;
 <a href=#773 id=773 data-nosnippet>773</a>        <span class="kw">for </span>path <span class="kw">in </span>files {
@@ -817,8 +817,8 @@
 <a href=#817 id=817 data-nosnippet>817</a>    <span class="kw">let </span>assets = assets_dir();
 <a href=#818 id=818 data-nosnippet>818</a>    <span class="kw">let </span><span class="kw-2">mut </span>failures = Vec::new();
 <a href=#819 id=819 data-nosnippet>819</a>
-<a href=#820 id=820 data-nosnippet>820</a>    <span class="kw">let </span>lib_rs = std::fs::read_to_string(root.join(<span class="string">"crates/argentum-ui/src/lib.rs"</span>))
-<a href=#821 id=821 data-nosnippet>821</a>        .map_err(|error| <span class="macro">anyhow::anyhow!</span>(<span class="string">"cannot read argentum-ui/src/lib.rs: {error}"</span>))<span class="question-mark">?</span>;
+<a href=#820 id=820 data-nosnippet>820</a>    <span class="kw">let </span>lib_rs = std::fs::read_to_string(root.join(<span class="string">"crates/tablo-ui/src/lib.rs"</span>))
+<a href=#821 id=821 data-nosnippet>821</a>        .map_err(|error| <span class="macro">anyhow::anyhow!</span>(<span class="string">"cannot read tablo-ui/src/lib.rs: {error}"</span>))<span class="question-mark">?</span>;
 <a href=#822 id=822 data-nosnippet>822</a>
 <a href=#823 id=823 data-nosnippet>823</a>    <span class="comment">// Every asset file exists and stays wired to its constant.
 <a href=#824 id=824 data-nosnippet>824</a>    </span><span class="kw">let </span><span class="kw-2">mut </span>sources: std::collections::HashMap&lt;<span class="kw-2">&amp;</span>str, String&gt; = std::collections::HashMap::new();
@@ -836,7 +836,7 @@
 <a href=#836 id=836 data-nosnippet>836</a>        }
 <a href=#837 id=837 data-nosnippet>837</a>        <span class="kw">if </span>!contains_hook(<span class="kw-2">&amp;</span>lib_rs, constant) {
 <a href=#838 id=838 data-nosnippet>838</a>            failures.push(<span class="macro">format!</span>(
-<a href=#839 id=839 data-nosnippet>839</a>                <span class="string">"{constant} is gone from argentum-ui/src/lib.rs, so {file} is no longer wired into the document; {HOOK_HINT}"
+<a href=#839 id=839 data-nosnippet>839</a>                <span class="string">"{constant} is gone from tablo-ui/src/lib.rs, so {file} is no longer wired into the document; {HOOK_HINT}"
 <a href=#840 id=840 data-nosnippet>840</a>            </span>));
 <a href=#841 id=841 data-nosnippet>841</a>        }
 <a href=#842 id=842 data-nosnippet>842</a>    }
