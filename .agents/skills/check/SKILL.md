@@ -19,8 +19,8 @@ sets cannot move under the gate (GH #269).
 Rules that catch the recurring failures:
 
 - `topcoat fmt` only agrees with the CLI built from the rev `Cargo.lock` pins.
-  Another CLI's diff is not a fix: install the locked rev (see `CONTRIBUTING.md`)
-  and run that.
+  Another CLI's diff is not a fix: install the locked rev (see
+  [`CONTRIBUTING.md`](../../../CONTRIBUTING.md#the-topcoat-fmt-trap)) and run that.
 - `cargo fmt` covers workspace members only; the detached `benchmarks/*`
   workspaces are formatted and linted by manifest path.
 - Any lockfile change syncs `benchmarks/argentum/Cargo.lock` in the same commit,
@@ -32,8 +32,8 @@ Rules that catch the recurring failures:
 - Never hand-edit `crates/argentum-ui/src/components/primitives/`; sync it with
   `cargo xtask sync-topcoat-ui`.
 - `cargo udeps` needs `cargo-udeps` on nightly for `-Z binary-dep-depinfo`:
-  `cargo +nightly install cargo-udeps --locked`, then the udeps gate in `CONTRIBUTING.md`.
+  `cargo +nightly install cargo-udeps --locked`, then the udeps gate in
+  [`CONTRIBUTING.md`](../../../CONTRIBUTING.md#the-gate-set).
 - A gate whose command names a toolchain installs it on demand; gate 4's dated
-  nightly up front is
-  `rustup toolchain install nightly-2026-08-24 --profile minimal --component rustfmt`
-  (gate 8 and gate 10 name `1.98` and `nightly`).
+  nightly install is the `rustup toolchain install` step of the `fmt` job in
+  `.github/workflows/ci.yml`.

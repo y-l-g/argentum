@@ -96,8 +96,8 @@ contributor specs in [`docs/dev/`](docs/dev/), domain vocabulary in
 ## Contributing
 
 Small fixes can go straight to a PR; larger changes are worth an issue first.
-[`CONTRIBUTING.md`](CONTRIBUTING.md) covers the build, the CI gate set, and the commit rules;
-[`AGENTS.md`](AGENTS.md) is the short version for agents.
+[`CONTRIBUTING.md`](CONTRIBUTING.md) covers the build, the [CI gate set](CONTRIBUTING.md#the-gate-set),
+and the commit rules; [`AGENTS.md`](AGENTS.md) is the short version for agents.
 
 ## License
 

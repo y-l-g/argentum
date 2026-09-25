@@ -9,14 +9,15 @@ Workload: **list with 50 rows, 2 includes (`author` + `comments`), tenancy set,
 `can_view_any` enforced**, measured on the real list path (`TableState::from_cx` →
 `Table::load` over the tenant-scoped `scoped_query` with the declared `.paginate(50)` →
 `render_with_state` → HTML). The raw query-only figure is kept as a labeled diagnostic
-alongside it. Budget: **< 40 ms p50** on local SQLite/Postgres. The numbers are UNGATED
+alongside it. Budget: **< 40 ms p50** on local SQLite, with an opt-in Postgres leg
+(see below). The numbers are UNGATED
 (GH #171): the harness prints the budget for reference and never PASS/FAILs on it.
 
 Layout:
 
 ```
 benchmarks/
-  argentum/    Argentum/Topcoat app under test (Phase-2 workload, --bench flag)
+  argentum/    Argentum/Topcoat app under test (50-row workload, --bench flag)
   axum-maud/   Axum + Maud smoke stub (compiles; renders no 50-row workload)
   leptos/      Leptos SSR smoke stub (compiles; renders no 50-row workload)
   scripts/     bench.sh (argentum oha + in-process bench; baselines smoke-only), verify_parity.sh
@@ -32,8 +33,6 @@ so the harness never interferes with `cargo test` / `clippy`.
 # Bench the Argentum list (50 rows, 2 includes) without starting a server:
 cargo run --manifest-path benchmarks/argentum/Cargo.toml -- --bench --iterations 100
 # The process exits nonzero only on harness errors (connect/load/render failure).
-# CI's bench-check job compiles the harness with --locked and enforces the
-# lockstep pins; it does not run the benchmark itself.
 
 # Postgres leg (opt-in — no local Postgres assumed):
 # ARGENTUM_BENCH_POSTGRES_URL=postgresql://toasty:toasty@localhost:5432/toasty \

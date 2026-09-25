@@ -4,7 +4,7 @@
 
 The gate set lives in [`CONTRIBUTING.md`](CONTRIBUTING.md#the-gate-set): ten commands
 mirroring `.github/workflows/ci.yml`. Run the ones covering your change, all ten before
-merging. CI also runs the docs, fmt-detached, and bench-check jobs listed there.
+merging. CI also runs the extra checks listed there (docs, detached-bench fmt, bench-check).
 
 ```sh
 cargo run -p showcase                            # http://localhost:3000/admin/users

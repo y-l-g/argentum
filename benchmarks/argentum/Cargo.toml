@@ -8,12 +8,10 @@ publish = false
 # toolkit plus a full topcoat runtime, so it is a standalone crate with its
 # own dependency tree (mirrors topcoat/benchmarks).
 #
-# Pin policy (GH #103): topcoat/toasty resolve `main` independently here —
-# always bump in lockstep with the workspace lock
-# (`cargo update --manifest-path benchmarks/argentum/Cargo.toml -p topcoat
-# -p toasty` in the same commit), keeping identical revs. Drift means the
-# bench measures different upstream code than the workspace ships. The
-# workspace `Cargo.toml` comment carries the full procedure.
+# Pin policy (GH #103): topcoat/toasty resolve `main` independently here — bump in
+# lockstep with the workspace lock per CONTRIBUTING.md "Dependency pins" (same commit,
+# identical revs). The `--manifest-path` form of the bump is
+# `cargo update --manifest-path benchmarks/argentum/Cargo.toml -p topcoat -p toasty`.
 [workspace]
 
 [dependencies]
