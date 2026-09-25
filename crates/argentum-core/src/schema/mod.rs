@@ -158,7 +158,7 @@ impl Schema {
     /// Append another schema's nodes after this one's (GH #191).
     ///
     /// [`Schema::new`] composes through `IntoSchema`, whose tuple form stops at
-    /// four nodes; a derived embedded form has one control per leaf column and
+    /// eight nodes; a derived embedded form has one control per leaf column and
     /// composes nested values, so it builds its schema by appending instead. The
     /// nodes keep their order, so a form reads in declaration order either way.
     pub fn extend(mut self, other: Schema) -> Schema {
