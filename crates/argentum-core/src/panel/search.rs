@@ -14,7 +14,7 @@ use topcoat::{
 };
 
 use super::{
-    enforce_auth, enforce_tenant,
+    enforce_auth, gate,
     list::{load_table_page, table_error_view, wire_table_actions},
 };
 use crate::resource::{Resource, TableSignals};
@@ -68,8 +68,7 @@ pub(crate) fn search_handler_for<R: Resource>() -> SearchFn {
          args: TableSearchArgs|
          -> Pin<Box<dyn Future<Output = Result<BoxView<'_>>> + Send + '_>> {
             Box::pin(async move {
-                enforce_auth(cx)?;
-                enforce_tenant::<R>(cx)?;
+                gate::<R>(cx)?;
                 if !R::can_view_any(cx) {
                     return Err(forbidden().into());
                 }

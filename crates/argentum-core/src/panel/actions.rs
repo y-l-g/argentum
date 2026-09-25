@@ -14,9 +14,8 @@ use topcoat::{
 };
 
 use super::{
-    enforce_auth, enforce_tenant,
     forms::{parse_form_body, truthy},
-    list_url,
+    gate, list_url,
 };
 use crate::{
     db::db,
@@ -71,13 +70,29 @@ pub(crate) async fn find_by_key_narrowed<R: Resource>(
     .await
 }
 
+/// The error a resource with a composite primary key reports when the URL or
+/// batch carries no single-key representation (GH #95). `None` means the model
+/// has a single-column key.
+fn composite_pk_error<R: Resource>() -> Option<topcoat::Error> {
+    if !crate::schema::pk_is_composite::<R::Model>() {
+        return None;
+    }
+    tracing::error!(
+        resource = R::slug(),
+        "composite primary key has no URL representation"
+    );
+    Some(topcoat::Error::from(std::io::Error::other(format!(
+        "resource '{}' has a composite primary key, which has no URL representation (GH #95)",
+        R::slug()
+    ))))
+}
+
 /// The shared body of [`find_by_key`] and [`find_by_key_narrowed`]: parse the
 /// URL id against the model's primary key, then fetch the one row through
 /// `seed`.
 ///
 /// `seed` is a closure so the composite-PK misdeclaration is reported before
-/// the scoped query is built, the order [`find_by_key`] had before the two
-/// seeds split.
+/// the scoped query is built.
 async fn find_by_key_in<R: Resource>(
     id: &str,
     ex: &mut dyn toasty::Executor,
@@ -86,15 +101,8 @@ async fn find_by_key_in<R: Resource>(
     let Some(expr) = crate::schema::pk_eq_expr::<R::Model>(id) else {
         // Composite PKs have no URL representation (GH #95): fail loudly so
         // the misconfiguration surfaces instead of 404ing every id.
-        if crate::schema::pk_is_composite::<R::Model>() {
-            tracing::error!(
-                resource = R::slug(),
-                "composite primary key has no URL representation"
-            );
-            return Err(topcoat::Error::from(std::io::Error::other(format!(
-                "resource '{}' has a composite primary key, which has no URL representation (GH #95)",
-                R::slug()
-            ))));
+        if let Some(error) = composite_pk_error::<R>() {
+            return Err(error);
         }
         return Err(topcoat::router::error::not_found().into());
     };
@@ -110,35 +118,47 @@ async fn find_by_key_in<R: Resource>(
 
 /// Load the record the request names, scoped and policy-checked (GH #187).
 ///
-/// Reads the `{id}` path param, loads through the tenant-scoped query
-/// (`find_by_key`, which turns an unknown *or* out-of-scope id into one 404),
-/// and returns 403 unless `can_view` accepts the loaded snapshot.
+/// Reads the `{id}` path param, loads through the tenant-scoped query (which
+/// turns an unknown *or* out-of-scope id into one 404), and returns 403 unless
+/// `can_view` accepts the loaded snapshot.
 ///
-/// Callers run `enforce_auth` and `enforce_tenant::<R>` first, add their own
-/// policy on top (`can_update` for the edit page), and 404 a page the resource
-/// does not declare (`R::viewed` for the view page).
+/// Callers run [`gate`](super::gate) first, add their own policy on top
+/// (`can_update` for the edit page), and 404 a page the resource does not
+/// declare (`R::viewed` for the view page).
 pub(crate) async fn load_viewable<R: Resource>(
     cx: &Cx,
     ex: &mut dyn toasty::Executor,
 ) -> Result<R::Model> {
-    let id = topcoat::router::path_param_segment(cx, "id").to_string();
-    let record = find_by_key::<R>(cx, &id, ex).await?;
-    if !R::can_view(cx, &record) {
-        return Err(topcoat::router::error::forbidden().into());
-    }
-    Ok(record)
+    load_viewable_in::<R>(cx, ex, false).await
 }
 
 /// [`load_viewable`] for a loader that reads only the record's own columns
-/// (GH #298): the edit page hydrates its fields from the record, so it uses
-/// [`find_by_key_narrowed`] and does not load the relations the record's list
-/// or detail page reads.
+/// (GH #298): the edit page hydrates its fields from the record, so it does
+/// not load the relations the record's list or detail page reads.
 pub(crate) async fn load_viewable_narrowed<R: Resource>(
     cx: &Cx,
     ex: &mut dyn toasty::Executor,
 ) -> Result<R::Model> {
+    load_viewable_in::<R>(cx, ex, true).await
+}
+
+/// The shared body of [`load_viewable`] and [`load_viewable_narrowed`]: read
+/// the `{id}` path param, load through the tenant-scoped query, then 403
+/// unless `can_view` accepts the snapshot.
+///
+/// `narrowed` selects the loader that reads only the record's own columns
+/// (GH #298).
+async fn load_viewable_in<R: Resource>(
+    cx: &Cx,
+    ex: &mut dyn toasty::Executor,
+    narrowed: bool,
+) -> Result<R::Model> {
     let id = topcoat::router::path_param_segment(cx, "id").to_string();
-    let record = find_by_key_narrowed::<R>(cx, &id, ex).await?;
+    let record = if narrowed {
+        find_by_key_narrowed::<R>(cx, &id, ex).await?
+    } else {
+        find_by_key::<R>(cx, &id, ex).await?
+    };
     if !R::can_view(cx, &record) {
         return Err(topcoat::router::error::forbidden().into());
     }
@@ -160,8 +180,7 @@ pub(crate) async fn load_viewable_narrowed<R: Resource>(
 pub(crate) fn resource_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
     Box::pin(HoistView::new(ThenView::<_, BoxView<'_>>::new(
         async move {
-            enforce_auth(cx)?;
-            enforce_tenant::<R>(cx)?;
+            gate::<R>(cx)?;
             // Delete/bulk-delete carry no file parts: only the values half is read.
             let values = parse_form_body(cx, body).await?.values;
             crate::csrf::verify(cx, &values)?;
@@ -230,8 +249,7 @@ pub(crate) fn resource_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
 pub(crate) fn resource_bulk_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
     Box::pin(HoistView::new(ThenView::<_, BoxView<'_>>::new(
         async move {
-            enforce_auth(cx)?;
-            enforce_tenant::<R>(cx)?;
+            gate::<R>(cx)?;
             // Delete/bulk-delete carry no file parts: only the values half is read.
             let values = parse_form_body(cx, body).await?.values;
             crate::csrf::verify(cx, &values)?;
@@ -269,15 +287,8 @@ pub(crate) fn resource_bulk_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<
             // short and 404s as well.
             let keys: Vec<&str> = ids.iter().map(String::as_str).collect();
             let Some(pk_filter) = crate::schema::pk_in_expr::<R::Model>(&keys) else {
-                if crate::schema::pk_is_composite::<R::Model>() {
-                    tracing::error!(
-                        resource = R::slug(),
-                        "composite primary key has no URL representation"
-                    );
-                    return Err(topcoat::Error::from(std::io::Error::other(format!(
-                        "resource '{}' has a composite primary key, which has no URL representation (GH #95)",
-                        R::slug()
-                    ))));
+                if let Some(error) = composite_pk_error::<R>() {
+                    return Err(error);
                 }
                 return Err(topcoat::router::error::not_found().into());
             };
@@ -445,8 +456,7 @@ fn parse_bulk_ids(raw: &str, max: usize) -> Vec<String> {
 /// prepends a UTF-8 BOM for Excel interop (GH #94).
 pub(crate) fn resource_export<R: Resource>(cx: &Cx, _body: Body) -> RouteFuture<'_> {
     Box::pin(async move {
-        enforce_auth(cx)?;
-        enforce_tenant::<R>(cx)?;
+        gate::<R>(cx)?;
         if !R::can_view_any(cx) {
             return Err(forbidden().into());
         }
@@ -721,8 +731,7 @@ where
 /// `MAX_RELATIONSHIP_OPTIONS`, values are typed PK strings, labels escaped.
 pub(crate) fn resource_options<R: Resource>(cx: &Cx, _body: Body) -> RouteFuture<'_> {
     Box::pin(async move {
-        enforce_auth(cx)?;
-        enforce_tenant::<R>(cx)?;
+        gate::<R>(cx)?;
         let (field, q) = options_query(cx);
         let field = field.trim();
         if field.is_empty() {

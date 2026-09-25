@@ -13,7 +13,7 @@ use topcoat::{
     view::{BoxView, HoistView, ViewExt, internal::ThenView, view},
 };
 
-use super::{actions::load_viewable, enforce_auth, enforce_tenant, list_url};
+use super::{actions::load_viewable, gate, list_url};
 use crate::{db::db, resource::Resource};
 
 /// Detail page GET (GH #187).
@@ -31,8 +31,7 @@ use crate::{db::db, resource::Resource};
 /// caller may not see it.
 pub(crate) fn resource_view<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
     Box::pin(HoistView::new(ThenView::new(async move {
-        enforce_auth(cx)?;
-        enforce_tenant::<R>(cx)?;
+        gate::<R>(cx)?;
         if !R::viewed(cx) {
             return Err(not_found().into());
         }

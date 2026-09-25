@@ -19,7 +19,7 @@ use topcoat::{
 
 use super::{
     actions::{find_by_key_narrowed, load_viewable_narrowed},
-    enforce_auth, enforce_tenant, list_url,
+    gate, list_url,
 };
 use crate::{
     db::db,
@@ -487,8 +487,7 @@ async fn render_form_page<'a, R: Resource>(
 /// Create page GET.
 pub(crate) fn resource_create<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
     Box::pin(HoistView::new(ThenView::new(async move {
-        enforce_auth(cx)?;
-        enforce_tenant::<R>(cx)?;
+        gate::<R>(cx)?;
         if !R::can_create(cx) {
             return Err(forbidden().into());
         }
@@ -754,48 +753,154 @@ fn redirect_after_write<R: Resource>(cx: &Cx, note: &'static str) -> topcoat::Er
     see_other(list_url(cx, &R::slug())).into()
 }
 
+/// The staged submission both write handlers carry into their transaction: the
+/// declared schema, the upload-staged and transport-stripped values, the
+/// validation errors so far, the upload paths a re-render keeps (GH #297), and
+/// the stored values the edit path compares against.
+struct Submission {
+    schema: crate::schema::Schema,
+    values: HashMap<String, String>,
+    errors: HashMap<String, Vec<String>>,
+    carried: HashSet<String>,
+    current: HashMap<String, String>,
+}
+
+/// Stage a create/edit submission: reject undeclared keys, take file values
+/// only from file parts (GH #277), store the uploads outside the transaction
+/// (GH #188), restore the paths a re-rendered form carried (GH #297), backfill
+/// an untouched file input from `advisory` (GH #90), strip the transport keys
+/// (GH #148), and validate — required and unique-free checks first, then the
+/// async relationship existence check.
+///
+/// `advisory` is the edit path's pre-transaction snapshot: it seeds the stored
+/// values and the untouched-file backfill. A create passes `None`, so both are
+/// empty and the backfill never fires.
+async fn prepare_submission<R: Resource>(
+    cx: &Cx,
+    parts: FormParts,
+    advisory: Option<R::Model>,
+) -> Result<Submission, topcoat::Error> {
+    let schema = R::form(cx);
+    reject_unknown_form_keys(&schema, &parts.values)?;
+    let FormParts {
+        mut values,
+        files,
+        file_part_names,
+    } = parts;
+    let current = advisory
+        .map(|advisory| R::hydrate_form_values(cx, &advisory))
+        .unwrap_or_default();
+    // A declared `FileUpload` takes its value only from a file part (GH #277):
+    // a text part or a url-encoded pair under the same name is client-typed,
+    // not an upload, and would otherwise reach the record and render as the
+    // file's link.
+    drop_client_typed_uploads(&schema, &file_part_names, &mut values);
+    // Uploaded bytes become stored paths before validation, and outside the
+    // transaction: an upload is a side effect in another system, so a
+    // rolled-back transaction must not have to undo it, and a store that
+    // rejects the file must be able to answer inline.
+    let (upload_errors, mut carried) =
+        crate::upload::store_uploads(cx, &schema, &files, &mut values).await;
+    // A form re-rendered after a failed submit carries the path its store just
+    // answered; the uploader must still hold it, and it wins over the record's
+    // stored value below (GH #297). Run before the backfill: a restored field
+    // is non-empty, so the backfill leaves it alone.
+    carried.extend(restore_pending_uploads(cx, &schema, &mut values).await);
+    // Untouched file inputs preserve the stored path (GH #90): the edit form
+    // renders an empty file input (browsers never pre-fill it), so an empty
+    // submit means "keep", not "clear" — without this the required check
+    // rejects untouched edits and optional uploads get blanked. An explicit
+    // `clear_<field>=1` opts back into clearing; a chosen file still wins over
+    // it, because a replacement is not a removal.
+    for name in schema.file_uploads().keys() {
+        let cleared = values
+            .get(&format!("clear_{name}"))
+            .is_some_and(|v| truthy(v));
+        let empty = values
+            .get(name)
+            .map(|v| v.trim().is_empty())
+            .unwrap_or(true);
+        if !cleared && empty && current.get(name).is_some_and(|v| !v.trim().is_empty()) {
+            values.insert(name.clone(), current[name].clone());
+        }
+    }
+    // Transport keys never reach the record fn (GH #148): a generic impl
+    // iterating `values` must not see `csrf_token`/`clear_*`/`keep_*` as
+    // writable fields — the framework strips them once, not per-app
+    // convention.
+    strip_transport_keys(&schema, &mut values);
+    let mut errors = schema.validate_async(cx, &values).await;
+    // A rejected upload owns its field's error slot: "required" would restate
+    // the symptom (nothing was stored) and hide the reason.
+    errors.extend(upload_errors);
+    Ok(Submission {
+        schema,
+        values,
+        errors,
+        carried,
+        current,
+    })
+}
+
+/// The shared write tail (GH #84, GH #112, GH #229): commit the transaction,
+/// run the after-commit hook on the row the record fn wrote, and redirect with
+/// the success flash; a failed write or commit maps to the caller's operation
+/// toast and the opaque error.
+///
+/// `committed` names the mutation, `note` the success flash, and `failure` the
+/// toast.
+async fn commit_write<'a, R: Resource>(
+    cx: &'a Cx,
+    tx: toasty::Transaction<'_>,
+    written: Result<R::Model, topcoat::Error>,
+    committed: impl FnOnce(R::Model) -> Committed<R::Model>,
+    note: &'static str,
+    failure: &'static str,
+) -> Result<BoxView<'a>, topcoat::Error> {
+    match written {
+        Ok(record) => match tx.commit().await {
+            Ok(()) => {
+                // Post-commit, so the effect cannot survive a rollback
+                // (GH #112); the tx is gone, so the hook may open its own
+                // handle.
+                crate::resource::run_after_commit::<R>(cx, committed(record)).await;
+                Err(redirect_after_write::<R>(cx, note))
+            }
+            Err(error) => {
+                notify_write_failure(cx, failure);
+                Err(crate::db::unavailable(error))
+            }
+        },
+        // A unique violation that slipped past the app-side check (a
+        // concurrent write) surfaces as an error, not a string-matched inline
+        // message: Toasty exposes no unique-violation predicate (upstream gap
+        // #117), so the failure cannot be classified here. It is still not
+        // echoed raw (GH #229): the driver's text goes to the log through the
+        // opaque mapping, and an app-authored hook error keeps its own.
+        Err(error) => {
+            notify_write_failure(cx, failure);
+            Err(crate::db::hook_failure(error))
+        }
+    }
+}
+
 pub(crate) fn resource_create_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
     Box::pin(HoistView::new(ThenView::new(async move {
-        enforce_auth(cx)?;
-        enforce_tenant::<R>(cx)?;
+        gate::<R>(cx)?;
         if !R::can_create(cx) {
             return Err(forbidden().into());
         }
         let parts = parse_form_body(cx, body).await?;
         crate::csrf::verify(cx, &parts.values)?;
-        let schema = R::form(cx);
-        reject_unknown_form_keys(&schema, &parts.values)?;
-        let FormParts {
+        // A create has no stored value to keep, so it stages no advisory
+        // snapshot: a rejected file leaves its field empty beside the reason.
+        let Submission {
+            schema,
             mut values,
-            files,
-            file_part_names,
-        } = parts;
-        // A declared `FileUpload` takes its value only from a file part
-        // (GH #277): a text part or a url-encoded pair under the same name is
-        // client-typed, not an upload, and would otherwise reach the record and
-        // render as the file's link.
-        drop_client_typed_uploads(&schema, &file_part_names, &mut values);
-        // Uploaded bytes become stored paths before validation, and outside the
-        // transaction below (GH #188): an upload is a side effect in another
-        // system, so a rolled-back transaction must not have to undo it, and a
-        // store that rejects the file must be able to answer inline.
-        //
-        // Nothing backfills an upload here: a create has no stored value to
-        // keep, so a rejected file leaves its field empty beside the reason.
-        // A file that *was* stored is carried instead, so a re-rendered create
-        // can keep it across the next submit (GH #297).
-        let (upload_errors, mut carried) =
-            crate::upload::store_uploads(cx, &schema, &files, &mut values).await;
-        carried.extend(restore_pending_uploads(cx, &schema, &mut values).await);
-        // Transport keys never reach the record fn (GH #148): a generic impl
-        // iterating `values` must not see `csrf_token`/`clear_*`/`keep_*` as
-        // writable fields — the framework strips them once, not per-app
-        // convention.
-        strip_transport_keys(&schema, &mut values);
-        let mut errors = schema.validate_async(cx, &values).await;
-        // A rejected upload owns its field's error slot: "required" would
-        // restate the symptom (nothing was stored) and hide the reason.
-        errors.extend(upload_errors);
+            mut errors,
+            carried,
+            ..
+        } = prepare_submission::<R>(cx, parts, None).await?;
         // Framework-owned transaction (GH #84): opened only after
         // validation — `validate_async` relationship loaders run on their
         // own handle, which would block on the pool while the tx holds it
@@ -830,32 +935,8 @@ pub(crate) fn resource_create_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<
         // returns is what `after_commit` names for this write (GH #112) — the
         // key is the database's to generate, so the row is the only place the
         // framework can learn it.
-        match R::create_record(cx, values.clone(), &mut tx).await {
-            Ok(record) => match tx.commit().await {
-                Ok(()) => {
-                    // Post-commit, so the effect cannot survive a rollback
-                    // (GH #112); the tx is gone, so the hook may open its own
-                    // handle.
-                    crate::resource::run_after_commit::<R>(cx, Committed::created(record)).await;
-                    Err(redirect_after_write::<R>(cx, "Created"))
-                }
-                Err(error) => {
-                    notify_write_failure(cx, WRITE_CREATE);
-                    Err(crate::db::unavailable(error))
-                }
-            },
-            // A unique violation that slipped past the app-side check (a
-            // concurrent insert) surfaces as an error, not a string-matched
-            // inline message: Toasty exposes no unique-violation predicate
-            // (upstream gap #117), so the failure cannot be classified here.
-            // It is still not echoed raw (GH #229): the driver's text goes to
-            // the log through the opaque mapping, and an app-authored hook
-            // error keeps its own. The toast names the operation either way.
-            Err(error) => {
-                notify_write_failure(cx, WRITE_CREATE);
-                Err(crate::db::hook_failure(error))
-            }
-        }
+        let written = R::create_record(cx, values.clone(), &mut tx).await;
+        commit_write::<R>(cx, tx, written, Committed::created, "Created", WRITE_CREATE).await
     })))
 }
 
@@ -863,8 +944,7 @@ pub(crate) fn resource_create_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<
 /// load returned (GH #223).
 pub(crate) fn resource_edit<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
     Box::pin(HoistView::new(ThenView::new(async move {
-        enforce_auth(cx)?;
-        enforce_tenant::<R>(cx)?;
+        gate::<R>(cx)?;
         let mut db = db(cx);
         let record = load_viewable_narrowed::<R>(cx, &mut db).await?;
         if !R::can_update(cx, &record) {
@@ -891,8 +971,7 @@ pub(crate) fn resource_edit<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
 /// a view-denied but writable record must not be mutable by direct POST.
 pub(crate) fn resource_edit_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
     Box::pin(HoistView::new(ThenView::new(async move {
-        enforce_auth(cx)?;
-        enforce_tenant::<R>(cx)?;
+        gate::<R>(cx)?;
         let parts = parse_form_body(cx, body).await?;
         crate::csrf::verify(cx, &parts.values)?;
         let id = topcoat::router::path_param_segment(cx, "id").to_string();
@@ -911,56 +990,13 @@ pub(crate) fn resource_edit_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_
         if !R::can_update(cx, &advisory) {
             return Err(forbidden().into());
         }
-        let schema = R::form(cx);
-        reject_unknown_form_keys(&schema, &parts.values)?;
-        let FormParts {
+        let Submission {
+            schema,
             mut values,
-            files,
-            file_part_names,
-        } = parts;
-        // Unique check excludes this record's own unchanged values.
-        let current = R::hydrate_form_values(cx, &advisory);
-        // A declared `FileUpload` takes its value only from a file part
-        // (GH #277): a text part or a url-encoded pair under the same name is
-        // client-typed, not an upload. The backfill below then restores the
-        // stored value, so a forged edit keeps the file it names.
-        drop_client_typed_uploads(&schema, &file_part_names, &mut values);
-        // Store the chosen files first (GH #188): a stored path is the submit's
-        // answer for that field, and a *rejected* store drops the submitted
-        // name so the backfill below restores what is actually on disk —
-        // rendering the client's filename as a stored file would be a lie.
-        let (upload_errors, mut carried) =
-            crate::upload::store_uploads(cx, &schema, &files, &mut values).await;
-        // A form re-rendered after a failed submit carries the path its store
-        // just answered; the uploader must still hold it, and it wins over the
-        // record's stored value below (GH #297). Run before the backfill: a
-        // restored field is non-empty, so the backfill leaves it alone.
-        carried.extend(restore_pending_uploads(cx, &schema, &mut values).await);
-        // Untouched file inputs preserve the stored path (GH #90): the edit
-        // form renders an empty file input (browsers never pre-fill it), so
-        // an empty submit means "keep", not "clear" — without this the
-        // required check rejects untouched edits and optional uploads get
-        // blanked. An explicit `clear_<field>=1` opts back into clearing; the
-        // framework renders that control itself now (GH #188), and a chosen
-        // file still wins over it, because a replacement is not a removal.
-        for name in schema.file_uploads().keys() {
-            let cleared = values
-                .get(&format!("clear_{name}"))
-                .is_some_and(|v| truthy(v));
-            let empty = values
-                .get(name)
-                .map(|v| v.trim().is_empty())
-                .unwrap_or(true);
-            if !cleared && empty && current.get(name).is_some_and(|v| !v.trim().is_empty()) {
-                values.insert(name.clone(), current[name].clone());
-            }
-        }
-        // Transport keys never reach the record fn (GH #148) — see create.
-        strip_transport_keys(&schema, &mut values);
-        let mut errors = schema.validate_async(cx, &values).await;
-        // See create: a rejected upload owns its field's error slot, and a
-        // cleared `required` upload answers "<Label> is required" instead.
-        errors.extend(upload_errors);
+            mut errors,
+            carried,
+            current,
+        } = prepare_submission::<R>(cx, parts, Some(advisory)).await?;
         // Authoritative load inside the framework transaction (GH #84, #86):
         // policy is checked on this snapshot and the same record flows into
         // the write — never a silent re-load outside the checked snapshot.
@@ -990,29 +1026,8 @@ pub(crate) fn resource_edit_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_
         }
         // Typed fields write their own spelling, not the browser's (GH #192).
         schema.normalize_values(&mut values);
-        match R::update_record(cx, record, values.clone(), &mut tx).await {
-            // The row the record fn returns is the committed state the hook
-            // names (GH #112) — no clone, and no re-read for a watcher.
-            Ok(updated) => match tx.commit().await {
-                Ok(()) => {
-                    crate::resource::run_after_commit::<R>(cx, Committed::updated(updated)).await;
-                    Err(redirect_after_write::<R>(cx, "Updated"))
-                }
-                Err(error) => {
-                    notify_write_failure(cx, WRITE_UPDATE);
-                    Err(crate::db::unavailable(error))
-                }
-            },
-            // A unique violation that slipped past the app-side check (a
-            // concurrent update) surfaces as an error, not a string-matched
-            // inline message: Toasty exposes no unique-violation predicate
-            // (upstream gap #117), so the failure cannot be classified here.
-            // It is still not echoed raw (GH #229) — see create.
-            Err(error) => {
-                notify_write_failure(cx, WRITE_UPDATE);
-                Err(crate::db::hook_failure(error))
-            }
-        }
+        let written = R::update_record(cx, record, values.clone(), &mut tx).await;
+        commit_write::<R>(cx, tx, written, Committed::updated, "Updated", WRITE_UPDATE).await
     })))
 }
 
