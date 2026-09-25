@@ -1,4 +1,4 @@
-//! The public blog (GH #247): `/blog` and `/blog/{id}` answer with no session,
+//! The public blog: `/blog` and `/blog/{id}` answer with no session,
 //! a draft is invisible on both, and the pages query the model directly.
 //!
 //! Every anonymous request here goes through [`TestClient::new`], which attaches
@@ -207,7 +207,7 @@ async fn a_servable_cover_renders_as_an_image() {
     let post = published_post(&db).await;
 
     // The demo uploader stores the URL it returned, a rooted path the panel
-    // serves (GH #188) — the shape a cover has once it is a real upload.
+    // serves — the shape a cover has once it is a real upload.
     let stored = "/uploads/cover.png".to_string();
     let mut db_q = db.clone();
     Post::filter(Post::fields().id().eq(post.id))

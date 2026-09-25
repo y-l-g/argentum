@@ -1,4 +1,4 @@
-// Unit tests for `selects.js` (GH #184, GH #236, GH #237, GH #293).
+// Unit tests for `selects.js`.
 //
 // There is no JS test runner in this workspace — the assets are plain browser
 // scripts loaded through `asset!` — so this runs on Node's built-in runner and
@@ -374,7 +374,7 @@ test('a field with no current option leaves the box empty', () => {
 test('a swap keeps the current option under its own label', () => {
   // The server answers the needle, not the selection; the label exists only in
   // the option the swap drops, so re-attach it by label rather than showing the
-  // primary key as its own (GH #293).
+  // primary key as its own.
   assert.equal(
     preservedOption('pk-ada', 'Ada Author', '<option value="pk-ken">Ken</option>'),
     '<option value="pk-ada" selected>Ada Author</option>',
@@ -463,7 +463,7 @@ test('Enter while the combobox has focus never submits the form', () => {
 
 test('Enter while the server is searching does not submit', () => {
   // The status row ("Searching…") offers no option to pick, and the keystroke
-  // must not submit the record the reader is editing (GH #293).
+  // must not submit the record the reader is editing.
   const world = searchableField({ server: 'author_id' });
   const document = standInDocument([world.filter]);
   const realSetTimeout = global.setTimeout;

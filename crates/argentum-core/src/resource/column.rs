@@ -6,8 +6,7 @@ use toasty::stmt::{Expr, OrderByExpr};
 
 use crate::schema::{FieldLens, lens_field, lens_label};
 
-/// The relations a query must `include`, named in the resource's vocabulary
-/// (GH #177).
+/// The relations a query must `include`, named in the resource's vocabulary.
 ///
 /// A column's projection closure reads relations off the row (`|p| p.author
 /// .get().name.clone()`), and Toasty has no instance→field reflection
@@ -63,10 +62,10 @@ impl<const N: usize> From<[&'static str; N]> for IncludeNeeds {
 }
 
 /// The share of the table a [`ColumnWidth::Narrow`] column claims, in whole
-/// percent (GH #240).
+/// percent.
 pub(crate) const NARROW_DEFAULT_PERCENT: u8 = 10;
 
-/// The width a [`TextColumn`] claims in the table's fixed layout (GH #240).
+/// The width a [`TextColumn`] claims in the table's fixed layout.
 ///
 /// Widths are **shares of the table**, so what a table declares is a fraction
 /// of its container rather than a length that can outgrow it: the columns that
@@ -115,7 +114,7 @@ impl ColumnWidth {
     ///
     /// A nominal: the renderer scales the kind defaults down together when
     /// their total would leave the wide columns less than their share of the
-    /// table (GH #240).
+    /// table.
     pub(crate) fn default_percent(self) -> Option<u8> {
         match self {
             Self::Narrow => Some(NARROW_DEFAULT_PERCENT),
@@ -151,7 +150,7 @@ impl ColumnWidth {
 ///
 /// A projection that reads a **relation** declares it with [`Self::needs`],
 /// because the closure is opaque to the framework and the export builds its
-/// query from those declarations (GH #177). The `(unloaded)` guard in the
+/// query from those declarations. The `(unloaded)` guard in the
 /// closure is what catches a missed declaration, in test builds, at render.
 #[derive(Clone)]
 pub struct TextColumn<M> {
@@ -163,20 +162,18 @@ pub struct TextColumn<M> {
     project: Arc<dyn Fn(&M) -> String + Send + Sync>,
     searchable: bool,
     sortable: bool,
-    /// The width this column claims in the table's fixed layout (GH #240).
+    /// The width this column claims in the table's fixed layout.
     width: ColumnWidth,
-    /// Relations this column's projection reads, in the resource's vocabulary
-    /// (GH #177).
+    /// Relations this column's projection reads, in the resource's vocabulary.
     needs: Vec<&'static str>,
 }
 
-/// The escape character the search pattern declares to `LIKE` (GH #116):
+/// The escape character the search pattern declares to `LIKE`:
 /// backslash, escaped in the pattern by [`escape_like_pattern`].
 pub(crate) const LIKE_ESCAPE: char = '\\';
 
 /// Wrap `term` as a `LIKE` pattern matching it anywhere in the column, with
-/// `%`, `_` and the escape character itself escaped so the term stays literal
-/// (GH #116).
+/// `%`, `_` and the escape character itself escaped so the term stays literal.
 ///
 /// Toasty ships the SQL half (`like_with_escape`) but not this one: escaping is
 /// app-side because only the app knows whether it is building a literal or a
@@ -226,7 +223,7 @@ where
     /// No field lens — so it cannot be searchable or sortable (it maps to no
     /// query predicate) — but any cell projection compiles: booleans,
     /// timestamps, joined values. Calling `.searchable()` / `.sortable()` on
-    /// a computed column panics (GH #101): a lying sort link / search promise
+    /// a computed column panics: a lying sort link / search promise
     /// is worse than a loud build error.
     pub fn computed(
         label: impl Into<String>,
@@ -246,7 +243,7 @@ where
         }
     }
 
-    /// Declare the relations this column's projection reads (GH #177), under
+    /// Declare the relations this column's projection reads, under
     /// the names the resource's
     /// [`export_query`](super::Resource::export_query) matches on:
     /// `.needs(["author"])` for `|p| p.author.get().name.clone()`.
@@ -299,7 +296,7 @@ where
         self.sortable
     }
 
-    /// Declare this column's width in the table's fixed layout (GH #240):
+    /// Declare this column's width in the table's fixed layout:
     /// `.width(ColumnWidth::Percent(20))` for a column that knows its own
     /// measure.
     ///
@@ -313,7 +310,7 @@ where
     }
 
     /// The width this column declares, which the renderer emits on its `th`
-    /// and on every `td` of its column (GH #240).
+    /// and on every `td` of its column.
     pub fn column_width(&self) -> ColumnWidth {
         self.width
     }
@@ -333,7 +330,7 @@ where
         (self.project)(row)
     }
 
-    /// The search predicate for this column (GH #116): a portable, escaped
+    /// The search predicate for this column: a portable, escaped
     /// **substring** match.
     ///
     /// `like_with_escape` keeps the pattern parameterised and lowers to the
@@ -358,7 +355,7 @@ where
         if self.sortable {
             // Cursor determinism is the engine's job: toasty's
             // `normalize_cursor_order` appends the physical PK columns to
-            // ambiguous cursor orderings internally (GH #76).
+            // ambiguous cursor orderings internally.
             let path = self.path.clone()?;
             Some(if descending { path.desc() } else { path.asc() })
         } else {
@@ -383,7 +380,7 @@ impl<M> std::fmt::Debug for TextColumn<M> {
 /// Convert a single column or tuple of columns into `Vec<TextColumn<M>>`.
 ///
 /// Tuple members are `TextColumn<M>` themselves, so nothing sits between the
-/// column types (GH #228). A single column converts on its own, with no
+/// column types. A single column converts on its own, with no
 /// one-element tuple.
 ///
 /// Tuple arities stop at eight, the ceiling every tuple-collection trait

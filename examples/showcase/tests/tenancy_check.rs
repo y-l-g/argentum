@@ -232,7 +232,7 @@ async fn create_assigns_the_logged_in_tenant() {
     let mut db_q = db.clone();
     let authors = Author::all().exec(&mut db_q).await.unwrap();
     // `image_path` is a required `FileUpload`, so the create carries a file
-    // part (GH #277); this router installs no uploader, so the sanitized
+    // part; this router installs no uploader, so the sanitized
     // basename is what the record stores.
     let author_id = authors[0].id.to_string();
     let boundary = "----TenancyBoundary";
@@ -274,7 +274,7 @@ async fn x_tenant_id_header_no_longer_grants_a_tenant() {
     // tenant, so a raw `x-tenant-id` header grants nothing.
     let db = full_db().await;
     let router = router(db.clone());
-    // Minted, not logged in (GH #218): this replays a raw session cookie, and
+    // Minted, not logged in: this replays a raw session cookie, and
     // the login flow is not its subject.
     let session = mint_session(&db, TENANTLESS_ADMIN_EMAIL).await;
     let response = router
@@ -404,7 +404,7 @@ async fn comments_search_is_scoped_through_parent_post() {
 
 #[tokio::test]
 async fn comments_export_is_scoped_through_parent_post() {
-    // GH #169, GH #223: the export runs the tenant-scoped query — `Comment`'s
+    // GH #169,: the export runs the tenant-scoped query — `Comment`'s
     // own relation filter here — so each tenant's CSV carries only comments on
     // its own posts.
     let (db, t1, t2) = tenanted_db().await;
@@ -456,7 +456,7 @@ async fn comments_edit_with_wrong_tenant_yields_404_via_resource_query() {
 
 #[tokio::test]
 async fn comments_query_scopes_directly_through_parent_post() {
-    // GH #169, Cx-level proof alongside the HTTP tests above. GH #223: the
+    // GH #169, Cx-level proof alongside the HTTP tests above.: the
     // scope is declared in `CommentResource::tenant_scope` and applied by
     // `scoped_query` — `CommentResource::query` is the tenant-unscoped base.
     use argentum_core::{Tenant, scoped_query};
@@ -489,7 +489,7 @@ async fn comments_query_scopes_directly_through_parent_post() {
 
 #[tokio::test]
 async fn export_is_scoped_by_tenant() {
-    // GH #136 extension, GH #223: `group_export_check.rs` had zero `tenant`
+    // GH #136 extension,: `group_export_check.rs` had zero `tenant`
     // references — the export runs the tenant-scoped query, so each tenant
     // sees only its own rows. `PostResource` states no tenant filter of its
     // own, so this passes on the framework's derived one.
@@ -517,7 +517,7 @@ async fn export_is_scoped_by_tenant() {
 
 /// GH #88 failure 2: the app-side unique check scopes through
 /// `scoped_query::<AuthorResource>` — the tenant filter the framework derives
-/// (GH #223) — so the constraint has to be scoped the same way. `Author.email`
+/// So the constraint has to be scoped the same way. `Author.email`
 /// is `#[unique(tenant_id, email)]`, which makes two tenants sharing an email a
 /// legitimate pair rather than a constraint violation the probe could not see.
 #[tokio::test]

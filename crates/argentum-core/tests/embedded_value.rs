@@ -1,4 +1,4 @@
-//! First-class embedded values (GH #191).
+//! First-class embedded values.
 //!
 //! A value codec derived from the type's shape, with every key resolved from the
 //! compiled app schema: the flat form map ↔ a typed embedded value, and a form
@@ -95,7 +95,7 @@ enum Casing {
     Draft,
 }
 
-/// The leaf types the panel can spell (GH #192 + GH #191's widening): `bool`
+/// The leaf types the panel can spell (+ 's widening): `bool`
 /// and the whole integer family, not only the three the showcase happened to
 /// use.
 #[derive(Debug, Clone, Default, PartialEq, toasty::Embed, EmbeddedForm)]
@@ -247,7 +247,7 @@ async fn an_enum_round_trips_with_an_explicit_discriminant() {
 
     // The discriminating case: a submission whose *payloads* say Published but
     // whose discriminant says Archived is read as Archived. Emptiness is never
-    // consulted (GH #191) — this is what the hand-written reassembly got wrong.
+    // consulted — this is what the hand-written reassembly got wrong.
     let contradictory = map(&[
         ("publication", "3"),
         ("publication_timestamp", "2026-09-22T00:00:00Z"),
@@ -274,8 +274,7 @@ async fn an_enum_round_trips_with_an_explicit_discriminant() {
 async fn a_missing_discriminant_infers_the_variant_from_its_payload() {
     let cx = post_cx().await;
 
-    // The pre-#191 showcase behaviour, preserved: filling the Published payload
-    // creates a Published value.
+    // Filling the Published payload creates a Published value.
     let published = map(&[
         ("publication_timestamp", "2026-09-22T00:00:00Z"),
         ("publication_canonical_url", "/hello"),
@@ -404,7 +403,7 @@ async fn a_unit_variant_round_trips_on_its_discriminant_alone() {
     );
 }
 
-/// A typed leaf keeps its own spelling rule (GH #192): `Display` out, `FromStr`
+/// A typed leaf keeps its own spelling rule: `Display` out, `FromStr`
 /// back, and an empty submit is the type's default rather than a panic.
 #[tokio::test]
 async fn typed_leaves_round_trip_and_default_when_empty() {
@@ -446,7 +445,7 @@ async fn an_unparseable_typed_leaf_panics() {
 }
 
 /// Presence: whether a submission mentions this value at all, which is the
-/// update path's "absent means unchanged" rule (GH #89) with no app-side column
+/// update path's "absent means unchanged" rule with no app-side column
 /// names.
 #[tokio::test]
 async fn submitted_reports_whether_a_value_was_mentioned() {
@@ -649,7 +648,7 @@ async fn the_derived_form_renders_the_variant_select_and_every_payload() {
     );
 
     // A record with no stored variant has no name to show: the row is absent
-    // rather than blank — the pre-#191 hidden control rendered nothing either.
+    // rather than blank.
     let unnamed = render_view(&cx, &schema, &HashMap::new()).await;
     assert!(
         !unnamed.contains(">Publication<"),

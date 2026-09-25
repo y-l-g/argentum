@@ -1,4 +1,4 @@
-//! Typed leaves at the form edge (GH #192): a lens whose leaf is not a
+//! Typed leaves at the form edge: a lens whose leaf is not a
 //! `String`, read and written through the type's own spelling.
 
 use std::collections::HashMap;
@@ -59,7 +59,7 @@ async fn a_typed_field_renders_the_values_display() {
         html.contains("value=\"1240\""),
         "an integer field renders its value: {html}"
     );
-    // Not a `datetime-local`: the field type declares the control (GH #192).
+    // Not a `datetime-local`: the field type declares the control.
     assert!(
         html.contains("type=\"text\"") && !html.contains("datetime-local"),
         "a typed timestamp is still a text input: {html}"
@@ -150,7 +150,7 @@ async fn a_text_field_is_untouched_by_the_typed_path() {
     );
 }
 
-/// The whole point of the typed seam (GH #192): a bad value typed into a typed
+/// The whole point of the typed seam: a bad value typed into a typed
 /// column is a **field error on the page**, not a 500 and not a silent default.
 ///
 /// Pinned through the real panel rather than `Schema::validate`, because the
@@ -202,7 +202,7 @@ async fn a_bad_typed_submission_re_renders_inline_and_writes_nothing() {
             ex: &mut dyn toasty::Executor,
         ) -> topcoat::Result<Reading> {
             // A create returns the row it wrote: that is what the framework
-            // hands to `after_commit` (GH #112).
+            // hands to `after_commit`.
             toasty::create!(Reading {
                 word_count: values
                     .get("word_count")
@@ -275,7 +275,7 @@ async fn a_bad_typed_submission_re_renders_inline_and_writes_nothing() {
     );
 }
 
-/// Empty is the presence rule's business, not the typed rule's (GH #192).
+/// Empty is the presence rule's business, not the typed rule's.
 ///
 /// A typed column has no spelling for "no value" — `""` is not an `i64` and not
 /// a `Timestamp` — so the panel answers empty where it answers it everywhere:
@@ -301,7 +301,7 @@ async fn an_empty_submission_is_left_for_the_record_fn_to_default() {
     );
 }
 
-/// Timezone and precision survive a round-trip (GH #192 gotcha).
+/// Timezone and precision survive a round-trip (gotcha).
 ///
 /// A `Display`/`FromStr` pair that drops the offset or truncates sub-second
 /// precision corrupts data on an edit the user never touched.

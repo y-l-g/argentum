@@ -6,10 +6,10 @@ Date: 2026-09-18 — Status: accepted — Amended: 2026-09-19, 2026-09-22, 2026-
 
 **Ownership.** `crates/argentum-ui/assets/` holds ten hand-written JS assets (`sidebar.js`,
 `theme.js`, `dialog.js`, `bulk.js`, `filters.js`, `live-search.js`, `selects.js`, `variant.js`,
-`notifications.js`, `mutation-submit.js`; `selects.test.js`, `bulk.test.js`, `dialog.test.js` and
-`mutation-submit.test.js` are the Node tests, not shipped, and `examples/showcase/assets/media.test.js`
-tests the showcase's `media.js` — ~59 KB unminified, ~23 KB gzipped summed per asset, with no build or
-minify step). They
+`notifications.js`, `mutation-submit.js`; `selects.test.js`, `bulk.test.js`, `dialog.test.js`,
+`mutation-submit.test.js`, `notifications.test.js` and `filters.test.js` are the Node tests, not
+shipped, and `examples/showcase/assets/media.test.js` tests the showcase's `media.js` — ~67.0 KB
+unminified, ~25.4 KB gzipped summed per asset (`gzip -9 -n`), with no build or minify step). They
 are declared as `Asset` constants in
 `crates/argentum-ui/src/lib.rs` and emitted by `Panel::render_document` in `argentum-core` on every
 document with `ShellAssets`, including the login page, where all but `theme.js`'s backstop apply are

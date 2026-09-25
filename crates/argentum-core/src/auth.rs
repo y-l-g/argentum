@@ -36,7 +36,7 @@ use crate::panel::{LoginHint, Panel, PanelPrefix, route_path};
 /// How long a session stays valid: seven days, fixed (ADR-0013).
 pub const SESSION_LIFETIME: Duration = Duration::from_hours(24 * 7);
 
-/// Max body the login route accepts (GH #295): 64 KiB.
+/// Max body the login route accepts: 64 KiB.
 ///
 /// A credential form submits an email, a password, a `next` and a CSRF token,
 /// all short strings; the panel's 10 MiB form cap is for multipart uploads,
@@ -58,7 +58,7 @@ pub const NEXT_FIELD: &str = "next";
 const GENERIC_ERROR: &str = "Invalid email or password.";
 
 /// What a failed login attempt renders when the database behind it could not
-/// answer (GH #230).
+/// answer.
 ///
 /// [`GENERIC_ERROR`] is deliberately non-specific about *why* credentials were
 /// refused, so reusing it for an outage would tell a user their password was
@@ -147,7 +147,7 @@ pub type AuthFuture<'a, T> = Pin<Box<dyn Future<Output = topcoat::Result<T>> + S
 /// error: the login response is one generic message for all of them. An
 /// infrastructure failure is not a credential verdict, so an implementation
 /// that cannot reach its store may return the driver's error instead — the
-/// login handler maps it to the opaque outage page (GH #230), which is what
+/// login handler maps it to the opaque outage page, which is what
 /// keeps a database outage from rendering as a rejected password. An
 /// implementation's own error keeps its own mapping.
 pub trait Authenticator: Send + Sync + 'static {
@@ -172,7 +172,7 @@ pub trait Authenticator: Send + Sync + 'static {
 }
 
 /// The opaque error an infrastructure failure on an auth or session path
-/// carries (GH #230).
+/// carries.
 ///
 /// Its `Display` is [`UNAVAILABLE_ERROR`], so nothing driver-shaped can travel
 /// inside it, and its concrete type is what lets the login handler recognise
@@ -189,7 +189,7 @@ impl std::fmt::Display for Unavailable {
 impl std::error::Error for Unavailable {}
 
 /// Map a failed auth or session operation to the error the response carries
-/// (GH #230) — the counterpart of [`crate::db::hook_failure`] for this module.
+/// The counterpart of [`crate::db::hook_failure`] for this module.
 ///
 /// An error that is the driver's is an infrastructure failure: it becomes
 /// [`Unavailable`], and the driver's own text goes to the log under this
@@ -511,7 +511,7 @@ pub async fn revoke_sessions_for_user(cx: &Cx, user_id: &str) -> topcoat::Result
     Ok(())
 }
 
-/// Drop the expired session rows of `user_id` (GH #295).
+/// Drop the expired session rows of `user_id`.
 ///
 /// [`resolve`] purges a session row when its token is looked up expired, so
 /// without this a row whose token is never presented again would stay in the
@@ -606,7 +606,7 @@ impl Layer for AuthGate {
                 return next.run(cx, body).await;
             };
             // The logout route must answer for any resolved user, even one
-            // whose panel access was revoked after login (GH #146) — clearing
+            // whose panel access was revoked after login — clearing
             // the session row + cookie must not require panel permission, or
             // the session lingers to expiry. The bypass is POST-only at the
             // exact logout path: the route table registers nothing else
@@ -627,7 +627,7 @@ impl Layer for AuthGate {
                 }
                 // Authenticated but not permitted: 403, indistinguishable
                 // from bad credentials at login (ADR-0013). The logout route
-                // is answered above (GH #146).
+                // is answered above.
                 Some(_) => Err(forbidden().into()),
                 // Pages redirect to the login route with a validated `next`;
                 // runtime endpoints, non-GET requests, and page re-runs
@@ -650,7 +650,7 @@ pub(crate) fn install(
 }
 
 /// What a failed login attempt renders: the generic credential rejection, or
-/// the sign-in outage (GH #230).
+/// the sign-in outage.
 ///
 /// Two variants and no more, each with its own copy and status, so a failed
 /// attempt is always a deliberate answer: a driver failure is never rendered
@@ -729,7 +729,7 @@ pub(crate) fn login_post(cx: &Cx, body: Body) -> RouteFuture<'_> {
                     Ok(user) => user,
                     // A driver failure is not a credential verdict: the page
                     // says sign-in is unavailable instead of rendering a
-                    // rejection (GH #230). The seam logs the driver's text and
+                    // rejection. The seam logs the driver's text and
                     // hands back an app-authored error untouched.
                     Err(error) => {
                         let error = infrastructure_failure(error);
@@ -751,7 +751,7 @@ pub(crate) fn login_post(cx: &Cx, body: Body) -> RouteFuture<'_> {
         if let Some(hash) = session::token_hash(cx).await? {
             delete_session(cx, &hash).await?;
         }
-        // Bounded housekeeping (GH #295): the expired rows of the user signing
+        // Bounded housekeeping: the expired rows of the user signing
         // in go with the rotation. A failure is logged rather than fatal — a
         // credential that verified must not become a 503 because cleanup could
         // not run.
@@ -771,7 +771,7 @@ pub(crate) fn login_post(cx: &Cx, body: Body) -> RouteFuture<'_> {
         if let Err(error) = recorded {
             // The credentials were right; the session row could not be
             // recorded. Same outage page as a failed verification — never the
-            // driver's text (GH #230).
+            // driver's text.
             let error = infrastructure_failure(error);
             if error.is::<Unavailable>() {
                 return login_response(cx, Some(LoginError::Unavailable), next).await;
@@ -795,7 +795,7 @@ pub(crate) fn logout_post(cx: &Cx, body: Body) -> RouteFuture<'_> {
         // Defense in depth: the route only exists on gated panels, but it
         // re-checks so a missing layer cannot leave logout ungated. Any
         // resolved identity may log out — the gate answers this route for a
-        // `can_access_panel=false` user too (GH #146), so demanding panel
+        // `can_access_panel=false` user too, so demanding panel
         // access here would strand their session row + cookie to expiry.
         if current_user(cx).is_none() {
             return Err(unauthenticated_error(cx));

@@ -1,4 +1,4 @@
-//! The read-only relation table (GH #187 item 6, GH #296).
+//! The read-only relation table (item 6).
 
 use argentum_core::{
     MAX_RELATION_ROWS, RelationColumn, RelationColumns, Resource, render_relation,
@@ -71,7 +71,7 @@ async fn a_relation_table_renders_every_row_and_column() {
     }
 }
 
-/// A cell is text, not markup (GH #187).
+/// A cell is text, not markup.
 #[tokio::test]
 async fn a_relation_cell_is_escaped() {
     let cx = CxTestBuilder::new().build();
@@ -106,7 +106,7 @@ async fn an_empty_relation_says_none() {
     );
 }
 
-/// The related resource's `can_view` decides which rows render (GH #296).
+/// The related resource's `can_view` decides which rows render.
 ///
 /// The table is the surface that reads a fixed set of loaded rows, so the
 /// predicate runs here rather than in the caller's projection: a row it refuses
@@ -129,13 +129,12 @@ async fn a_relation_omits_rows_the_related_resource_refuses() {
     }
 }
 
-/// A relation caps its rows and names the truncation (GH #296).
+/// A relation caps its rows and names the truncation.
 ///
 /// The related rows are already loaded, so the cap bounds the page rather than
 /// a query; a table that stopped at the cap without a line saying so would read
 /// as the whole relation.
-/// The policy runs before the cap, so a refused row never spends a slot
-/// (GH #296).
+/// The policy runs before the cap, so a refused row never spends a slot.
 ///
 /// The refused rows come first: a cap applied before the filter would spend
 /// every slot on rows the reader may not see and render an empty table.

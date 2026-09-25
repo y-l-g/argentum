@@ -1,31 +1,26 @@
 //! Tenancy via the `Cx` scoped value `Tenant(id)`.
 //!
-//! Since GH #223 the framework owns the tenant *filter*, not only the tenant
-//! gate. For a resource whose `requires_tenant()` is `true`, every loader runs
+//! The framework owns the tenant *filter*, not only the tenant gate. For a
+//! resource whose `requires_tenant()` is `true`, every loader runs
 //! [`scoped_query`](crate::resource::scoped_query) — the resource's own
 //! [`query`](crate::resource::Resource::query) with `tenant_id = <tenant>`
 //! ANDed onto it — and the column is discovered from the model's schema here
-//! (`derived_tenant_filter`, the default body of `Resource::tenant_scope`),
-//! not named by hand in each resource. A gated resource
-//! therefore cannot serve unscoped rows by forgetting an override, and
-//! `Resource::query` is left as the app's *non-tenant* scoping seam (soft
-//! deletes, includes, row-level visibility). ADR-0002's 2026-09-22 note records
-//! the change.
+//! (`derived_tenant_filter`, the default body of `Resource::tenant_scope`). A
+//! gated resource therefore cannot serve unscoped rows by forgetting an
+//! override, and `Resource::query` stays the app's *non-tenant* scoping seam.
 //!
-//! Discovery is deliberately narrow and fails closed: the model must declare a
-//! field whose application name is `tenant_id` and whose type is a UUID.
-//! Anything else — no such field, or a same-named field of another type — reads
-//! as "no tenant column", and a gated resource that hits that is refused by
-//! `Panel::build` at boot (GH #231), because the declaration is checkable
-//! without a request. A predicate that is only `None` for some tenants still
-//! answers an error naming the resource rather than querying unscoped.
+//! Discovery is narrow and fails closed: the model must declare a field whose
+//! application name is `tenant_id` and whose type is a UUID. Anything else
+//! reads as "no tenant column", and a gated resource that hits that is refused
+//! by `Panel::build` at boot. A predicate that is only `None` for some tenants
+//! still answers an error naming the resource rather than querying unscoped.
 //!
 //! The authenticated user's tenant is the production source: the auth layer
-//! (ADR-0013) injects `Tenant` into the request `Cx` when the logged-in user
-//! carries one. A `Tenant` request extension — server-set only, never a header
-//! — takes precedence, so app middleware and `Router::handle` tests can
-//! override it deliberately. No request header supplies a tenant: learning
-//! another tenant's UUID does not make anyone that tenant (GH #131).
+//! injects `Tenant` into the request `Cx` when the logged-in user carries one.
+//! A server-set `Tenant` request extension takes precedence, so app middleware
+//! and `Router::handle` tests can override it deliberately. No request header
+//! supplies a tenant: learning another tenant's UUID does not make anyone that
+//! tenant.
 
 use toasty::stmt::Expr;
 use topcoat::context::{Cx, try_request_context};
@@ -42,7 +37,7 @@ pub struct Tenant(pub uuid::Uuid);
 /// Checks a `Tenant` request extension first (a server-set override — the
 /// deliberate seam app middleware and `Router::handle` tests use), then the
 /// `Tenant` scoped value the auth layer injects from the authenticated user.
-/// No request header is consulted (GH #131).
+/// No request header is consulted.
 pub fn tenant_id(cx: &Cx) -> Option<uuid::Uuid> {
     if let Some(parts) = try_request_context::<http::request::Parts>(cx)
         && let Some(t) = parts.extensions.get::<Tenant>()
@@ -57,8 +52,7 @@ pub fn require_tenant(cx: &Cx) -> Result<uuid::Uuid, topcoat::Error> {
     tenant_id(cx).ok_or_else(|| topcoat::router::error::forbidden().into())
 }
 
-/// The application name of the column the framework scopes a gated resource by
-/// (GH #223).
+/// The application name of the column the framework scopes a gated resource by.
 ///
 /// The convention is public — it is the contract a model signs up to when its
 /// resource declares
@@ -67,7 +61,7 @@ pub fn require_tenant(cx: &Cx) -> Result<uuid::Uuid, topcoat::Error> {
 const TENANT_FIELD: &str = "tenant_id";
 
 /// Position of `M`'s tenant column in its own schema, or `None` when `M`
-/// declares none the framework can recognize (GH #223).
+/// declares none the framework can recognize.
 ///
 /// Found by **name and type** over [`Model::schema`]'s field list: a primitive
 /// field whose application name is `tenant_id` and whose type is
@@ -97,7 +91,7 @@ pub(crate) fn tenant_field_index<M: toasty::schema::Model>() -> Option<usize> {
 }
 
 /// The **derived** `tenant_id = tenant` over `M`, or `None` when
-/// [`tenant_field_index`] finds no tenant column (GH #223).
+/// [`tenant_field_index`] finds no tenant column.
 ///
 /// This is the default body of
 /// [`Resource::tenant_scope`](crate::resource::Resource::tenant_scope) — the
@@ -174,7 +168,7 @@ mod tests {
     }
 
     /// A model with the conventional column, one without any, and one whose
-    /// same-named column is the wrong type (GH #223).
+    /// same-named column is the wrong type.
     #[derive(Debug, Clone, toasty::Model)]
     struct Scoped {
         #[key]
@@ -205,13 +199,13 @@ mod tests {
         // `id` is index 0, `tenant_id` index 1, `name` index 2.
         assert_eq!(tenant_field_index::<Scoped>(), Some(1));
         // No column at all, and a `tenant_id` that is not a UUID: both are
-        // "cannot scope", never "scope by something else" (GH #223).
+        // "cannot scope", never "scope by something else".
         assert_eq!(tenant_field_index::<Unscoped>(), None);
         assert_eq!(tenant_field_index::<WronglyTyped>(), None);
     }
 
     /// The derived filter is only real if it reaches SQL: the discovered index
-    /// and the UUID comparison must narrow a live query (GH #223).
+    /// and the UUID comparison must narrow a live query.
     #[tokio::test]
     async fn derived_tenant_filter_scopes_a_live_query() {
         let mut db = toasty::Db::builder()
@@ -247,7 +241,7 @@ mod tests {
         assert_eq!(rows[0].name, "Mine");
 
         // No discoverable column → no filter → the caller must fail rather than
-        // run the query (GH #223).
+        // run the query.
         assert!(derived_tenant_filter::<Unscoped>(mine).is_none());
     }
 }

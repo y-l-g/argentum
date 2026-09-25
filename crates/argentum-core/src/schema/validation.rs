@@ -1,5 +1,4 @@
-//! The rules a field applies to a submitted string, and their messages
-//! (GH #243).
+//! The rules a field applies to a submitted string, and their messages.
 //!
 //! Presence, email and the typed parse are the rules a form applies without a
 //! `Cx`. `TextInput`, `Select`, `Textarea` and `FileUpload` each read their
@@ -10,7 +9,7 @@
 
 use email_address::{EmailAddress, Options};
 
-/// A typed column's own spelling rules, for the typed constructors (GH #192).
+/// A typed column's own spelling rules, for the typed constructors.
 ///
 /// The form edge is text: a control submits a `String`, so a column that is not
 /// a `String` needs a `Display` to render and a `FromStr` to read back. `NOUN`
@@ -24,7 +23,7 @@ pub trait TypedValue: std::fmt::Display + std::str::FromStr {
     /// What this type is called in a validation error.
     const NOUN: &'static str;
 
-    /// Whether a successful `FromStr` is a value the form accepts (GH #297).
+    /// Whether a successful `FromStr` is a value the form accepts.
     ///
     /// `FromStr` is the first word, not the last: `f32`/`f64` parse `NaN`,
     /// `inf` and `-inf` (and a literal that overflows, like `1e400`), none of
@@ -83,7 +82,7 @@ impl TypedValue for jiff::Timestamp {
     const NOUN: &'static str = "timestamp";
 }
 
-/// How a typed field reads a submitted string back (GH #192).
+/// How a typed field reads a submitted string back.
 ///
 /// A `String` field keeps the identity parser — store what was typed — so the
 /// untyped path stays byte-for-byte what it was. A typed field gets a parser
@@ -91,8 +90,8 @@ impl TypedValue for jiff::Timestamp {
 type ValueParser = std::sync::Arc<dyn Fn(&str) -> Result<String, String> + Send + Sync>;
 
 /// The parser a typed field binds: reject what `T` cannot parse — or parses
-/// into a value it does not accept (GH #297) — and store what `T`'s own
-/// `Display` produces for it (GH #192).
+/// into a value it does not accept — and store what `T`'s own
+/// `Display` produces for it.
 ///
 /// Normalising through `Display` is the point, not a side effect: it is what
 /// makes an edit that never touched the field write back a value of the same
@@ -106,11 +105,11 @@ fn typed_parser<T: TypedValue>() -> ValueParser {
 }
 
 /// The rules a field declares on top of presence, and the wording of every
-/// message they produce (GH #243).
+/// message they produce.
 ///
 /// Presence is not one of them: whether an empty submit is refused is a
 /// declaration on the field — a non-nullable column is required, a unique one
-/// is never empty (GH #189) — so [`Rules::validate`] takes the caller's
+/// is never empty — so [`Rules::validate`] takes the caller's
 /// resolved flag and a field with no other rule holds nothing at all.
 #[derive(Clone, Default)]
 pub(crate) struct Rules {
@@ -124,7 +123,7 @@ impl Rules {
         Self::default()
     }
 
-    /// Add the typed parse rule for `T` (GH #192).
+    /// Add the typed parse rule for `T`.
     pub(crate) fn typed<T: TypedValue>(mut self) -> Self {
         self.parser = Some(typed_parser::<T>());
         self
@@ -159,7 +158,7 @@ impl Rules {
         if self.email && !v.is_empty() && !is_email(v) {
             errs.push(format!("{label} must be a valid email"));
         }
-        // The typed rule (GH #192) runs last and only on a value the rules
+        // The typed rule runs last and only on a value the rules
         // above accepted.
         if !v.is_empty()
             && errs.is_empty()
@@ -171,8 +170,7 @@ impl Rules {
         errs
     }
 
-    /// The stored spelling of a submission the caller has already validated
-    /// (GH #192).
+    /// The stored spelling of a submission the caller has already validated.
     ///
     /// The typed parse's `Display` for a typed field, the trimmed submission
     /// for an untyped one — so a value the user left alone is written back in
@@ -236,7 +234,7 @@ mod tests {
     use super::Rules;
 
     /// The typed rule words one message for a value the type cannot parse and
-    /// for one it parses into a value it does not accept (GH #297).
+    /// for one it parses into a value it does not accept.
     fn rejected(input: &str) -> String {
         format!("`{input}` is not a valid number")
     }

@@ -1,4 +1,4 @@
-//! Detail page (GH #187): `GET /admin/{slug}/{id}`, read-only.
+//! Detail page: `GET /admin/{slug}/{id}`, read-only.
 //!
 //! The page's own rendering is pinned in `argentum-core`'s unit tests (the
 //! schema walk and the read-only field shapes); this module pins the HTTP
@@ -92,7 +92,7 @@ async fn post_detail_renders_the_record_read_only() {
         html.contains(&post.status),
         "detail page must show the status: {html}"
     );
-    // Each value carries the label the form and the table use (GH #246): the
+    // Each value carries the label the form and the table use: the
     // flag reads "Featured" and the stored image reads "Cover image".
     assert!(
         html.contains("Featured</div>"),
@@ -203,7 +203,7 @@ async fn resources_without_a_view_declaration_have_no_detail_page() {
         posts.contains(">View<"),
         "a declared view means a View link per row: {posts}"
     );
-    // The link carries a *record* key (GH #168), so the href is the seeded
+    // The link carries a *record* key, so the href is the seeded
     // post's own id and not a display key.
     let mut db_q = db;
     let post_id = a_post_id(&mut db_q).await;
@@ -251,7 +251,7 @@ async fn the_detail_route_does_not_shadow_create_or_edit() {
 
 #[tokio::test]
 async fn post_detail_enforces_requires_tenant() {
-    // `PostResource::requires_tenant` is true (GH #87/#131): a signed-in user
+    // `PostResource::requires_tenant` is true (#131): a signed-in user
     // with no tenant must be refused here too, not shown an unscoped record —
     // even for an id that exists.
     let db = full_db().await;

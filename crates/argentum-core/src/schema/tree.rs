@@ -75,20 +75,20 @@ impl Node {
 }
 
 /// Where a schema render reads field values and errors from (GH #154 §4), and
-/// which side of the record the render is for (GH #187).
+/// which side of the record the render is for.
 ///
 /// Plain maps, no bindings: `Mode::Form` is the create/edit path, and
 /// `Mode::View` renders the detail page, where a field shows its stored value
 /// instead of a control — `Select` its option label, `FileUpload` its path —
 /// and layout keeps the structure it declares. A struct with one source shape
-/// (`Mode::Form` or `Mode::View`) and no second case to name (GH #228).
+/// (`Mode::Form` or `Mode::View`) and no second case to name.
 pub(crate) struct RenderSource<'a> {
     pub(crate) values: &'a HashMap<String, String>,
     pub(crate) errors: &'a HashMap<String, Vec<String>>,
     pub(crate) mode: Mode,
 }
 
-/// Which reading of a record a render is for (GH #187).
+/// Which reading of a record a render is for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Mode {
     /// Create/edit: fields render as controls, validation applies.
@@ -105,7 +105,7 @@ impl RenderSource<'_> {
 
     /// The errors for `name`, if this render has any.
     ///
-    /// View mode never has any (GH #187): the detail page renders a stored
+    /// View mode never has any: the detail page renders a stored
     /// record, so a validation slot would describe a submit that cannot happen.
     /// The one place that rule lives, so a layout reading errors cannot forget
     /// it.
@@ -117,12 +117,12 @@ impl RenderSource<'_> {
     }
 }
 
-/// The submitted value for `name`; an absent key validates as `""` (GH #89).
+/// The submitted value for `name`; an absent key validates as `""`.
 fn value_of<'a>(values: &'a HashMap<String, String>, name: &str) -> &'a str {
     values.get(name).map(String::as_str).unwrap_or("")
 }
 
-/// Validate the field leaf in `node` (GH #209): the field name and the errors
+/// Validate the field leaf in `node`: the field name and the errors
 /// for its submitted value, or `None` when `node` is a container or repeater.
 ///
 /// The one match over field kinds in the validation path — a new kind is one
@@ -170,7 +170,7 @@ pub(crate) fn for_each_field(node: &Node, f: &mut impl FnMut(&Node)) {
     }
 }
 
-/// Classify the schema's groups against `values` (GH #147, GH #297): the
+/// Classify the schema's groups against `values`: the
 /// repeaters that are absent and the variant groups the submission hides.
 ///
 /// For every Repeater, all its inner field names (as `field_names()` of the
@@ -188,7 +188,7 @@ pub(crate) fn for_each_field(node: &Node, f: &mut impl FnMut(&Node)) {
 /// group whose stored file path is non-empty counts as present there even if
 /// the browser submitted it empty — a kept file is real group data.
 ///
-/// A `Group` marked as one embedded enum variant's payload (GH #191) is
+/// A `Group` marked as one embedded enum variant's payload is
 /// **hidden** when the submission names a different variant
 /// ([`Group::hidden`](super::layouts::Group::hidden)): `variant.js` keeps only
 /// the named variant's group visible, so a value the user cannot see must not
@@ -341,7 +341,7 @@ mod tests {
         let schema =
             Schema::new((
                 // The discriminant carrier: the marker's owner names it, exactly as
-                // a derived enum's variant `Select` does (GH #191).
+                // a derived enum's variant `Select` does.
                 TextInput::r#for(DummyUser::fields().name()).label("Kind"),
                 Group::new()
                     .variant("name", "1")

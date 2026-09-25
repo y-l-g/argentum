@@ -9,7 +9,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.cookie = `theme=${t};path=/;max-age=31536000`;
     requestAnimationFrame(() => requestAnimationFrame(() => freeze.remove()));
   }));
-  // Reconcile, don't just add (GH #184): the inline head script normally lands
+  // Reconcile, don't just add: the inline head script normally lands
   // this before first paint, so this is the backstop for a document that
   // reached the client some other way. A stored `light` must remove a
   // server-rendered `dark` class, or the choice is lost on the next page.

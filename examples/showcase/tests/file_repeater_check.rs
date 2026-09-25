@@ -46,7 +46,7 @@ async fn posts_create_shows_fileupload_and_repeater() {
         "missing lifecycle selects {}",
         html
     );
-    // The form's own labels (GH #246): the flag select reads "Featured" and
+    // The form's own labels: the flag select reads "Featured" and
     // the embedded media value reads "Attachment".
     assert!(
         html.contains("Featured</label>"),
@@ -81,7 +81,7 @@ async fn posts_create_invalid_fileupload_repeater_shows_errors() {
     let authors = Author::all().exec(&mut db2).await.unwrap();
     let first = &authors[0];
     // Missing image_path (a required FileUpload). The optional Tags group is
-    // empty, which is absent — not an error — since GH #147.
+    // empty, which is absent — not an error.
     let resp = client
         .csrf(&csrf)
         .post_form(
@@ -153,14 +153,14 @@ async fn posts_create_valid_fileupload_repeater_creates() {
     assert!(created.is_some());
     let post = created.unwrap();
     // No uploader is installed on this router, so the file part stores the
-    // parser's sanitized basename (GH #188) — never text the client typed
-    // (GH #277).
+    // parser's sanitized basename — never text the client typed.
+    //
     assert_eq!(post.image_path, "valid.jpg");
     assert_eq!(post.tags, "valid,tags");
 }
 
 /// An optional Repeater with a `required` inner input must not fail an empty
-/// submit (GH #147): group-empty means "absent". The shipped `/admin/posts`
+/// submit: group-empty means "absent". The shipped `/admin/posts`
 /// form is exactly that shape (optional `Tags` over a required inner input),
 /// so an empty Tags group submits cleanly. A partially filled group still
 /// enforces inner `required` — pinned at the schema level, where the shape is
@@ -319,7 +319,7 @@ fn opening_tag_at(html: &str, start: usize) -> &str {
 
 /// The edit form surfaces the stored image path, drops the native `required`
 /// from the file control, and preserves the stored value when the submit leaves
-/// the control untouched (GH #184).
+/// the control untouched.
 #[tokio::test]
 async fn posts_edit_without_reupload_keeps_the_stored_image() {
     let db = full_db().await;

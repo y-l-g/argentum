@@ -1,4 +1,4 @@
-// Toast lifecycle for Argentum shells (GH #97, GH #151).
+// Toast lifecycle for Argentum shells.
 //
 // The shell renders shadcn/Sonner toast surfaces as `[data-sonner-toast]`
 // inside a polite live region. Each toast ships `data-mounted="false"` (slid
@@ -30,7 +30,7 @@ function armToast(el) {
 
   // Sonner pauses the lifetime on hover/focus and resumes with the remaining
   // time, so a toast the reader is looking at does not vanish under them.
-  // Hover and focus are independent pause sources (GH #293): the countdown
+  // Hover and focus are independent pause sources: the countdown
   // runs only while *none* of them is active, and a resume from one leaves
   // the countdown stopped while another still holds it. One timer, always
   // cleared before the next is armed.
@@ -100,10 +100,8 @@ function install() {
 
 if (typeof document !== 'undefined') install();
 
-// Exposed for the Node unit test (`notifications.test.js`). There is no JS test
-// runner in this workspace and this file must stay a plain browser script
-// loaded through `asset!`, so it cannot be an ES module. The guard keeps the
-// browser branch inert.
+// Exposed for the Node unit test (`notifications.test.js`); see `bulk.js` for
+// the guard.
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { TOAST_EXIT_MS, TOAST_LIFETIME, armToast, dismissToast };
 }

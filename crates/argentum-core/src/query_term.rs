@@ -2,12 +2,12 @@
 //!
 //! A leaf: `resource` (the list state's transport parse and the live-search
 //! shard) and `schema` (relationship option search) both clamp through here,
-//! and neither depends on the other for it (GH #208).
+//! and neither depends on the other for it.
 
-/// Longest search term accepted (`?q=` and the shard's `q`, GH #148): bounded
+/// Longest search term accepted (`?q=` and the shard's `q`): bounded
 /// echoed state. Applied by [`TableState::from_parts`], so the GET path, the
 /// shard, and the public [`TableState::from_live_args`] all clamp alike
-/// (GH #206), and by the relationship option search so a keystroke burst cannot
+/// and by the relationship option search so a keystroke burst cannot
 /// grow the pattern past the same bound.
 ///
 /// [`TableState::from_parts`]: crate::resource::TableState

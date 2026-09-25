@@ -1,4 +1,4 @@
-//! Relations on the detail page (GH #187 item 6).
+//! Relations on the detail page (item 6).
 //!
 //! The seed puts every comment on "Hello Toasty" and none on "Second Post",
 //! which is the fixture the property needs: the page must show *this* record's
@@ -58,7 +58,7 @@ async fn detail_page_shows_the_records_own_related_rows() {
 
     // The commented post's page shows its comments' *rows*. The heading is not
     // asserted: "Comments" is the sidebar nav label present on every panel page
-    // (GH #216), and `render_relation`'s own heading is pinned in core
+    // and `render_relation`'s own heading is pinned in core
     // (`a_relation_table_renders_every_row_and_column`). The removed
     // placeholder is a related row the policy refuses; its denial has its own
     // test below, so this one stays on the viewable set.
@@ -91,7 +91,7 @@ async fn detail_page_shows_the_records_own_related_rows() {
     );
 }
 
-/// The relation applies the related resource's `can_view` (GH #296).
+/// The relation applies the related resource's `can_view`.
 ///
 /// The reader sees the parent post and the comments that policy admits; the
 /// removed placeholder `CommentResource::can_view` refuses does not render. A
@@ -169,7 +169,7 @@ async fn detail_relation_renders_no_list_chrome() {
     );
 }
 
-/// Count the SQL statements one detail page issues (GH #187).
+/// Count the SQL statements one detail page issues.
 ///
 /// The issue asked for the no-N+1 property as either a query count or a fixture
 /// where a per-row load would be visible. This is the count: toasty's sqlite
@@ -263,7 +263,7 @@ async fn the_relation_issues_no_query_of_its_own() {
     // would show up as a difference between the two pages.
     //
     // The driver runs a statement on whichever thread its connection hands it
-    // to, so one measurement can see a subset of a page's statements (GH #314);
+    // to, so one measurement can see a subset of a page's statements;
     // a subset is unstable, so the two pages agree only once each measurement
     // has seen its whole page. A per-row load disagrees on every attempt, which
     // is what the assertions below fail on.
@@ -297,7 +297,7 @@ async fn the_relation_issues_no_query_of_its_own() {
     );
 }
 
-/// A record whose `query` did not include the relation says so (GH #187).
+/// A record whose `query` did not include the relation says so.
 ///
 /// The guard the showcase's hook carries, tested by reaching it: load a post
 /// through a query that omits the include, then render the hook's view. Without

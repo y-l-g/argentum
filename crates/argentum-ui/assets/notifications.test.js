@@ -1,4 +1,4 @@
-// Unit tests for the toast lifetime in `notifications.js` (GH #293).
+// Unit tests for the toast lifetime in `notifications.js`.
 //
 // There is no JS test runner in this workspace — the assets are plain browser
 // scripts loaded through `asset!` — so this runs on Node's built-in runner and

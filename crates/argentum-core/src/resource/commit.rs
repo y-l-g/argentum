@@ -1,7 +1,6 @@
-//! What a mutation committed, and the one place the framework says so
-//! (GH #112).
+//! What a mutation committed, and the one place the framework says so.
 //!
-//! The write handlers own the transaction (GH #84): a `Resource` record fn
+//! The write handlers own the transaction: a `Resource` record fn
 //! writes through `&mut dyn toasty::Executor` and the framework commits. That
 //! leaves nowhere correct for a side effect that must *not* happen on a
 //! rollback — an email, a webhook, an audit row, cache invalidation: doing it
@@ -81,7 +80,7 @@ impl<M> Committed<M> {
     }
 }
 
-/// Deliver a committed mutation to the app (GH #112).
+/// Deliver a committed mutation to the app.
 ///
 /// The framework's single call site, so the failure policy cannot drift
 /// between the four write handlers: a hook that returns `Err` is **logged and

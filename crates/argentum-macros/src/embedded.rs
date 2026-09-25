@@ -1,4 +1,4 @@
-//! `#[derive(EmbeddedForm)]` — the typed half of an embedded value (GH #191).
+//! `#[derive(EmbeddedForm)]` — the typed half of an embedded value.
 //!
 //! The derive knows the Rust shape (which fields exist, their types, which
 //! variants there are); the framework knows the storage (which column each leaf
@@ -131,7 +131,7 @@ fn chained(
     match variant {
         // A variant payload is addressed from the variant root: the enum's own
         // payload index is variant-local, so the variant step comes first and
-        // `chain` rebases it onto the parent path (GH #191).
+        // `chain` rebases it onto the parent path.
         Some(variant) => quote! {
             #parent.chain(
                 <#owner as #krate::__macro::Embed>::path_root()
@@ -200,7 +200,7 @@ struct FormAttrs {
 /// no-op: a typo'd `#[form(text_area)]` that quietly rendered a one-line input
 /// is the quiet failure this repo refuses elsewhere. A key whose type the
 /// expansion cannot honour — `textarea` on a non-`String` leaf — is refused
-/// here too, at the attribute, rather than inside the generated code (GH #297).
+/// here too, at the attribute, rather than inside the generated code.
 fn validate_form_attrs(input: &DeriveInput) -> syn::Result<()> {
     let fields: Vec<&syn::Field> = match &input.data {
         Data::Struct(data) => data.fields.iter().collect(),
@@ -238,8 +238,7 @@ fn validate_form_attrs(input: &DeriveInput) -> syn::Result<()> {
         {
             // The control `leaf_control` renders for `textarea` is a
             // `Textarea`, which binds a `String` leaf; on any other type the
-            // failure belongs here, at the attribute, not inside the expansion
-            // (GH #297).
+            // failure belongs here, at the attribute, not inside the expansion.
             return Err(syn::Error::new_spanned(
                 attr,
                 "`#[form(textarea)]` renders a multi-line control for a `String` field: a \
@@ -257,7 +256,7 @@ fn validate_form_attrs(input: &DeriveInput) -> syn::Result<()> {
 }
 
 /// The `#[form(textarea)]` attribute of a field, for the span its misuse is
-/// reported at (GH #297).
+/// reported at.
 fn textarea_attr(attrs: &[syn::Attribute]) -> Option<&syn::Attribute> {
     attrs.iter().find(|attr| {
         if !attr.path().is_ident("form") {
@@ -462,7 +461,7 @@ fn expand_struct(
         }
 
         impl #impl_generics #ident #ty_generics #where_clause {
-            /// The form controls for this embedded value (GH #191), derived
+            /// The form controls for this embedded value, derived
             /// from the app schema: one per leaf column, under this value's
             /// parent path.
             ///
@@ -508,9 +507,8 @@ fn expand_enum(krate: &TokenStream2, input: &DeriveInput, data: &syn::DataEnum) 
     // column: its control renders once, from the first variant that declares
     // it. The codec still writes and reads each variant's own spelling.
     let mut seen_shared: Vec<String> = Vec::new();
-    // `(variant index, any of its own payloads submitted)` — the pre-#191
-    // variant rule, reimplemented through resolved keys. Only reached when a
-    // submission carries no discriminant at all.
+    // `(variant index, any of its own payloads submitted)`, through resolved
+    // keys. Only reached when a submission carries no discriminant at all.
     let mut inferred: Vec<(usize, TokenStream2)> = Vec::new();
     // `any_present`: any variant's payload, shared columns included.
     let mut variant_presence: Vec<TokenStream2> = Vec::new();
@@ -643,7 +641,7 @@ fn expand_enum(krate: &TokenStream2, input: &DeriveInput, data: &syn::DataEnum) 
 
     // The fallback chain, in declaration order: the first variant with a
     // submitted payload of its own, else the first variant. This is what the
-    // panel did before the discriminant existed (GH #191), now driven by the
+    // panel did before the discriminant existed, now driven by the
     // keys the schema resolves instead of remembered column names.
     let mut fallback = quote! { 0usize };
     for (index, check) in inferred.iter().rev() {
@@ -728,7 +726,7 @@ fn expand_enum(krate: &TokenStream2, input: &DeriveInput, data: &syn::DataEnum) 
         }
 
         impl #impl_generics #ident #ty_generics #where_clause {
-            /// The form controls for this embedded value (GH #191): the variant
+            /// The form controls for this embedded value: the variant
             /// `Select`, then the controls a `#[shared(..)]` column declares,
             /// then one marked group per variant.
             ///
@@ -759,7 +757,7 @@ fn expand_enum(krate: &TokenStream2, input: &DeriveInput, data: &syn::DataEnum) 
 }
 
 /// One variant's group: its own controls, marked with the discriminant value
-/// the variant stores (GH #191).
+/// the variant stores.
 ///
 /// The marker is the same value [`discriminant_select`](argentum_core) offers
 /// as that variant's option, and both come from the app schema's variant list,
@@ -858,7 +856,7 @@ mod tests {
 
     /// `textarea` renders a `Textarea`, which binds a `String` leaf: on any
     /// other type the derive refuses it at the attribute rather than failing
-    /// inside the generated code (GH #297).
+    /// inside the generated code.
     #[test]
     fn textarea_on_a_non_string_leaf_is_refused_at_the_attribute() {
         let error = expansion("struct Seo { #[form(textarea)] rank: i64 }");

@@ -1,4 +1,4 @@
-//! The public blog (GH #247): `/blog` and `/blog/{id}`, served with no session.
+//! The public blog: `/blog` and `/blog/{id}`, served with no session.
 //!
 //! The pages are app-level `#[page]`s under a `#[layout("/blog")]`, so they are
 //! public by construction. The auth gate installs exactly two layers — the
@@ -188,7 +188,7 @@ async fn post_page(cx: &Cx) -> Result<impl View> {
     .await?
     .ok_or_not_found()?;
 
-    // The post's media library rows (GH #248): the polymorphic pair has no
+    // The post's media library rows: the polymorphic pair has no
     // relation to include, so the page asks for them by owner — the same
     // query the media library's own page could run.
     let media = media_for_owner(&mut db, MediaOwner::Post(post.id)).await?;

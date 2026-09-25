@@ -28,7 +28,7 @@ async fn posts_export_bom_opt_in_prepends_bom() {
 async fn posts_group_by_status_shows_counts() {
     let db = full_db().await;
     let mut db_q = db.clone();
-    // Derived, not literal (GH #217): the page-local count is the number of
+    // Derived, not literal: the page-local count is the number of
     // published rows in the fixture, so one more seeded post cannot break it.
     let published = showcase::models::Post::filter(
         showcase::models::Post::fields()
@@ -50,7 +50,7 @@ async fn posts_group_by_status_shows_counts() {
     let html = body_string(resp).await;
     // The header label *and* its page-local count. The bare label is not
     // asserted separately: the status SelectFilter renders "published" and
-    // "draft" as options on every list page (GH #216), so a label-only check
+    // "draft" as options on every list page, so a label-only check
     // passes with grouping off. `on this page` is emitted only by a group
     // header (`render.rs`), and core pins the ordering and exact
     // "draft (2 on this page)" labels in
@@ -104,7 +104,7 @@ async fn posts_export_streams_csv_with_content_disposition() {
         "filename should be posts.csv, got {}",
         disposition
     );
-    // Hardening headers (GH #176): bodies must never be sniffed as HTML.
+    // Hardening headers: bodies must never be sniffed as HTML.
     assert_eq!(
         resp.headers()
             .get("x-content-type-options")
@@ -128,7 +128,7 @@ async fn posts_export_streams_csv_with_content_disposition() {
         csv
     );
     // Every relation-reading column declares the include its projection reads
-    // (GH #177), so the export's narrowed query loads them all and no cell
+    // so the export's narrowed query loads them all and no cell
     // falls back to the unloaded marker (the columns' `debug_assert` is the
     // other half of that contract — it panics first).
     assert!(
@@ -201,7 +201,7 @@ async fn export_over_cap_413s_at_route_level() {
         .await
         .unwrap();
     db.push_schema().await.unwrap();
-    // One row past the 10_000 cap, in one batched insert (GH #218): a
+    // One row past the 10_000 cap, in one batched insert: a
     // `toasty::create!` per row spent ~2s going through the engine pipeline
     // 10,001 times, which was more than the route under test.
     let mut create = Dummy::create_many();

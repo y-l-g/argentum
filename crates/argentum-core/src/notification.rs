@@ -4,11 +4,11 @@
 //! top-level boundary so it survives `Table` swaps. Status + title (plus an
 //! optional description), auto-dismissed after ~4s by
 //! `argentum-ui/assets/notifications.js` and dismissible through the toast's
-//! close button — the shadcn/Sonner toast surface (GH #151).
+//! close button — the shadcn/Sonner toast surface.
 //!
-//! The flash cookie is Topcoat's `CookieStore` (serde JSON, GH #139); the jar
+//! The flash cookie is Topcoat's `CookieStore` (serde JSON); the jar
 //! defaults carry the hardened attributes (HttpOnly, Secure, SameSite=Lax,
-//! Path=/ — the `__Host-` name requires them, GH #149) on writes and removals
+//! Path=/ — the `__Host-` name requires them) on writes and removals
 //! alike, so set and clear cannot drift. One-time semantics ride the cookie
 //! alone: Topcoat flushes `Set-Cookie` on error responses too (topcoat#408), so
 //! the mutation `Err` redirects carry the flash in the cookie alone.
@@ -27,7 +27,7 @@ use topcoat::{
 
 /// The kind of notification (status).
 ///
-/// The serde tokens are lowercase so the JSON cookie reads naturally (GH #139).
+/// The serde tokens are lowercase so the JSON cookie reads naturally.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum NotificationStatus {
@@ -95,10 +95,10 @@ impl Notification {
 
 pub(crate) const COOKIE_NAME: &str = "__Host-argentum_notification";
 
-/// The jar defaults the flash cookie relies on (GH #139): `CookieStore`
+/// The jar defaults the flash cookie relies on: `CookieStore`
 /// commits a bare cookie, so the hardened attributes live here and apply to
 /// writes *and* removals alike — the `Map` adapter transforms both. The
-/// `__Host-` name requires Secure + Path=/ + no Domain (GH #149); the
+/// `__Host-` name requires Secure + Path=/ + no Domain; the
 /// session and CSRF cookies set their own attributes and are unaffected
 /// (`default_*` only fills what is unset).
 fn hardened(jar: &CookieJar) -> impl Cookies + '_ {
@@ -114,9 +114,9 @@ pub fn set_notification(cx: &Cx, notification: Notification) {
         return;
     }
     // `commit` serializes to JSON and queues the Set-Cookie — one hand-rolled
-    // wire format less (GH #139). A failed commit must not fail the mutation
+    // wire format less. A failed commit must not fail the mutation
     // it rides on, but swallowing it retries a completed write with no toast
-    // (GH #174) — log it for operators instead.
+    // Log it for operators instead.
     if let Err(error) = cookie_store::<Notification, _>(hardened(cookies(cx)), COOKIE_NAME)
         .set(notification)
         .commit()
@@ -125,8 +125,7 @@ pub fn set_notification(cx: &Cx, notification: Notification) {
     }
 }
 
-/// Flash the failure of a write that passed validation but did not land
-/// (GH #174).
+/// Flash the failure of a write that passed validation but did not land.
 ///
 /// Every mutation handler (create, update, delete, bulk delete) routes its
 /// write and commit failures through this before returning the error, so the
@@ -172,7 +171,7 @@ pub fn take_notification(cx: &Cx) -> Option<Notification> {
     }
 }
 
-/// Render one notification as the shadcn/Sonner toast (GH #151).
+/// Render one notification as the shadcn/Sonner toast.
 ///
 /// The status picks Sonner's icon under shadcn's theming (`circle-check`,
 /// `info`, `triangle-alert`, `octagon-x`); the error icon reads
@@ -308,7 +307,7 @@ async fn render_live_toaster<'a>(
     let status = status.get();
     let mount = serial.get();
     if status.is_empty() {
-        // No `<span>` placeholder (GH #160): the shell mounts this slot inside
+        // No `<span>` placeholder: the shell mounts this slot inside
         // the toaster `<ol>`, which permits only `li`/`script`/`template`
         // children — the empty view renders nothing.
         return Ok(().boxed());
@@ -380,8 +379,7 @@ mod tests {
     }
 
     /// Unreadable cookie garbage is expired, not toasted, so a malformed cookie
-    /// yields no toast; the removal still satisfies the `__Host-` contract
-    /// (GH #139).
+    /// yields no toast; the removal still satisfies the `__Host-` contract.
     #[test]
     fn unreadable_flash_cookie_is_expired_silently() {
         let cx = cx_with_cookie(COOKIE_NAME, Some("not-json"));
@@ -405,7 +403,7 @@ mod tests {
     #[test]
     fn notification_description_round_trips() {
         // The description is optional and absent from the wire format when
-        // unset (GH #139 compatibility); old cookies still decode.
+        // unset (compatibility); old cookies still decode.
         assert_eq!(
             serde_json::to_string(&Notification::success("hello")).unwrap(),
             r#"{"status":"success","title":"hello"}"#
@@ -431,7 +429,7 @@ mod tests {
         assert_eq!(NotificationStatus::Warning.as_str(), "warning");
     }
 
-    /// The flash cookie carries the hardened `__Host-` contract (GH #149):
+    /// The flash cookie carries the hardened `__Host-` contract:
     /// `Secure`, `HttpOnly`, `SameSite=Lax`, `Path=/`, no `Domain`.
     #[test]
     fn notification_cookie_is_host_prefixed_and_secure() {
@@ -442,7 +440,7 @@ mod tests {
             .expect("set_notification set the cookie");
         assert_eq!(cookie.name(), COOKIE_NAME);
         // The committed value is the JSON wire format (lowercase status
-        // tokens, GH #139).
+        // tokens).
         assert_eq!(cookie.value(), r#"{"status":"success","title":"hello"}"#);
         assert!(cookie.secure().unwrap_or(false), "{cookie:?}");
         assert!(cookie.http_only().unwrap_or(false), "{cookie:?}");
@@ -451,7 +449,7 @@ mod tests {
     }
 
     /// The consumed flash cookie must be cleared with a `__Host-`-conformant
-    /// removal (GH #149): a `__Host-`-named `Set-Cookie` without `Secure` is
+    /// removal: a `__Host-`-named `Set-Cookie` without `Secure` is
     /// ignored by browsers — `Max-Age=0` deletions included — so the flash
     /// would survive every navigation. Pinned here through topcoat's own
     /// response finalization; the create/edit flow end-to-end is covered by

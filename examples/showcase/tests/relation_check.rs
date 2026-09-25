@@ -115,7 +115,7 @@ async fn posts_create_valid_redirects_and_creates() {
     let first = &authors[0];
     let before = Post::all().exec(&mut db2).await.unwrap().len();
     // `image_path` is a required `FileUpload`, so it arrives as a file part
-    // (GH #277); `router_for_tests` installs no uploader, so the parser's
+    // `router_for_tests` installs no uploader, so the parser's
     // sanitized basename is what the record stores.
     let author_id = first.id.to_string();
     let boundary = "----RelationBoundary";
@@ -214,7 +214,7 @@ async fn posts_list_shows_comments_count_via_include() {
     // written as literals, so the assertion names which post gets which count
     // instead of hard-coding the seed's two numbers. The column's *cells* are
     // the observable here; "Comments" alone is the sidebar nav label present on
-    // every panel page (GH #216).
+    // every panel page.
     let mut db_q = db.clone();
     let comments_of = async |db: &mut toasty::Db, title: &str| {
         let post = Post::filter(Post::fields().title().eq(title.to_string()))
@@ -259,7 +259,7 @@ async fn posts_update_rechecks_author_existence() {
     let posts = Post::all().exec(&mut db_q).await.unwrap();
     let post = &posts[0];
     let edit_url = format!("/admin/posts/{}/edit", post.id);
-    // Valid same-author update still redirects (symmetric double-check, GH #91).
+    // Valid same-author update still redirects (symmetric double-check).
     let resp = client
         .csrf(&csrf)
         .post_form(

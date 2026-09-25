@@ -58,11 +58,11 @@ pub fn encode(value: &Value) -> Result<String> {
 }
 
 /// A malformed cursor token — the `?after=`/`?before=` value itself is bad —
-/// or a conflicting cursor pair (`?after=` + `?before=` together, GH #155).
+/// or a conflicting cursor pair (`?after=` + `?before=` together).
 ///
 /// One of the two markers [`is_cursor_error`] reads to drop the cursor from
-/// the retry link (GH #110): retrying the identical URL can never succeed,
-/// while a transient failure must retry the same evidence (GH #98). The
+/// the retry link: retrying the identical URL can never succeed,
+/// while a transient failure must retry the same evidence. The
 /// message is the decode error's own `cursor: …` text, or the conflict
 /// message's.
 #[derive(Debug)]
@@ -87,7 +87,7 @@ impl std::fmt::Display for CursorDecodeError {
 
 impl std::error::Error for CursorDecodeError {}
 
-/// A cursor the query's ordering refuses (GH #294): the token decodes, but it
+/// A cursor the query's ordering refuses: the token decodes, but it
 /// was cut from a different `ORDER BY` — the sort changed since the link was
 /// built — so the engine rejects the statement. Distinct from
 /// [`CursorDecodeError`] because the token itself is well formed; the two share
@@ -111,7 +111,7 @@ impl std::fmt::Display for CursorRejectedError {
 
 impl std::error::Error for CursorRejectedError {}
 
-/// Whether `error` is the request's cursor's fault (GH #110, GH #294): a
+/// Whether `error` is the request's cursor's fault: a
 /// malformed token, a conflicting cursor pair, or a token the ordering
 /// rejects. Retrying the identical request can never succeed for any of them,
 /// so the list page drops the cursor from its retry link and the live retry
@@ -127,7 +127,7 @@ pub(crate) fn is_cursor_error(error: &topcoat::Error) -> bool {
 ///
 /// Errors on malformed input (wrong length, unknown tag or version) so a
 /// tampered or truncated `?after=`/`?before=` parameter fails loudly instead
-/// of silently restarting pagination. Record nesting is depth-capped (GH #95)
+/// of silently restarting pagination. Record nesting is depth-capped
 /// so attacker-controlled tokens cannot drive unbounded recursion. Every
 /// failure carries the crate-private `CursorDecodeError` marker, letting the
 /// list page's retry link tell a tampered cursor (drop it) from a transient
@@ -150,7 +150,7 @@ fn decode_inner(token: &str) -> Result<Value> {
     Ok(value)
 }
 
-/// Max nested-record depth accepted on decode (GH #95).
+/// Max nested-record depth accepted on decode.
 const MAX_CURSOR_DEPTH: usize = 16;
 
 /// Generate the codec for the variants with a uniform payload from one table.
@@ -328,7 +328,7 @@ fn read_value_with_depth(buf: &[u8], depth: usize) -> Result<(Value, &[u8])> {
 ///
 /// The length is the frame's own count, so a value longer than `u32::MAX`
 /// cannot be represented: it errors instead of writing a truncated prefix that
-/// would decode as a different, shorter frame (GH #212).
+/// would decode as a different, shorter frame.
 fn write_len_prefixed(bytes: &[u8], out: &mut Vec<u8>) -> Result<()> {
     let len = u32::try_from(bytes.len())
         .map_err(|e| std::io::Error::other(format!("cursor: value too long: {e}")))?;
@@ -347,8 +347,7 @@ fn read_len_prefixed(buf: &mut &[u8]) -> Result<Vec<u8>> {
 /// `N` is a const parameter so a fixed-width decode's length is settled by the
 /// type rather than by a reader checking that the preceding `take` asked for
 /// the right count: `split_first_chunk` hands back the array, and the
-/// `from_le_bytes` conversions at the call sites need no fallible step
-/// (GH #212).
+/// `from_le_bytes` conversions at the call sites need no fallible step.
 fn take<const N: usize>(buf: &mut &[u8]) -> Result<[u8; N]> {
     let Some((head, rest)) = buf.split_first_chunk::<N>() else {
         return Err(std::io::Error::other("cursor: unexpected end of payload").into());

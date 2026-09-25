@@ -2,7 +2,7 @@
 
 use super::Resource;
 
-/// Where a sidebar entry points (GH #165).
+/// Where a sidebar entry points.
 ///
 /// A [`Resource`] cannot name its own URL: [`Resource::navigation`] takes no
 /// `Cx` and no prefix, so the entry it declares by default carries no URL at
@@ -52,7 +52,7 @@ pub struct NavigationItem {
     /// [`NavigationItem::for_resource`] or [`NavigationItem::at`] rather than
     /// spelling the variant out.
     pub target: NavTarget,
-    /// Sort key for the sidebar (GH #102): items render in stable `order`
+    /// Sort key for the sidebar: items render in stable `order`
     /// order, so declaration order breaks ties. Resources declare in
     /// `Panel::resource` order (all default `0`); a
     /// [`Resource::navigation`] override interleaves by setting a lower value,
@@ -71,7 +71,7 @@ impl NavigationItem {
     /// The resource cannot know where it is mounted, so the URL stays
     /// [`NavTarget::Derived`] until the owning [`Panel`](crate::panel::Panel)
     /// resolves it; an entry declared here can therefore never link at a mount
-    /// the resource guessed (GH #165).
+    /// the resource guessed.
     pub fn for_resource<R: Resource>() -> Self {
         Self {
             label: R::navigation_label(),
@@ -93,13 +93,13 @@ impl NavigationItem {
     }
 
     /// Resolve a [`NavTarget::Derived`] entry against the Panel that owns it
-    /// (GH #165), leaving an explicit target untouched.
+    /// leaving an explicit target untouched.
     ///
     /// [`Resource::navigation`] cannot know its panel — it takes no `Cx` and no
     /// prefix — so the entry it declares carries no URL. The Panel consumes it
     /// through `Panel::resource`, which passes its own prefix and the
     /// resource's mount slug; there is no panel-root case, since nothing
-    /// generates an entry without a resource behind it (GH #228).
+    /// generates an entry without a resource behind it.
     ///
     /// There is no guessing here: a URL an author wrote out — including one
     /// that happens to look like `/admin/{slug}` — is a different
@@ -122,13 +122,13 @@ impl NavigationItem {
     /// an exact match, or a prefix match on a slash boundary (so
     /// `/admin/users` is active on `/admin/users/create` but not on
     /// `/admin/userships`). Uniform for every item — since resources mount at
-    /// `{prefix}/{slug}` (GH #39), no generated item points at the bare panel
+    /// `{prefix}/{slug}`, no generated item points at the bare panel
     /// prefix.
     ///
     /// This is the whole active-state contract: `Panel::render_shell` takes the
     /// request path as a parameter, so it can judge an item without a `Cx` (and
     /// the shell stays testable without a full `http::request::Parts` in `Cx`).
-    /// It is the only entry point to that judgment (GH #228).
+    /// It is the only entry point to that judgment.
     pub fn is_current_path(&self, current_path: &str) -> bool {
         let Some(url) = self.url() else {
             // Unresolved: no URL to be current for.
@@ -177,7 +177,7 @@ mod tests {
     fn for_resource_derives_label_only() {
         // The default `Resource::navigation` entry: label from the pluralized
         // model name, and no URL at all — the owning Panel supplies it, so a
-        // resource can never link at a mount it guessed (GH #165).
+        // resource can never link at a mount it guessed.
         let item = NavigationItem::for_resource::<UserResource>();
         assert_eq!(item.label, "Users");
         assert!(matches!(item.target, NavTarget::Derived));

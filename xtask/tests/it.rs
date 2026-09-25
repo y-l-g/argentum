@@ -1,6 +1,6 @@
 //! xtask's repo guards, in one test target so a single link covers all of them.
 
-/// Guards the shell-JS hook contract (GH #152, ADR-0014): every hand-written
+/// Guards the shell-JS hook contract (ADR-0014): every hand-written
 /// asset under `crates/argentum-ui/assets/` still exists and stays wired to
 /// its `argentum-ui` constant, and every hook in the checked-in
 /// [`xtask::ASSET_HOOKS`] list still appears in both its JS asset and a Rust

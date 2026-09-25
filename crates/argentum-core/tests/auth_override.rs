@@ -156,7 +156,7 @@ async fn login_session(router: &Router) -> String {
 }
 
 /// A member whose panel access is revoked mid-session must still be able to
-/// log out (GH #146): the gate answers the logout route for any resolved
+/// log out: the gate answers the logout route for any resolved
 /// user, so the session row + cookie are cleared instead of lingering to
 /// expiry behind a 403.
 #[tokio::test]

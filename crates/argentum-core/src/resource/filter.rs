@@ -130,7 +130,7 @@ where
         }
     }
 
-    /// The documented no-op value (GH #170): `all` selects no predicate, and
+    /// The documented no-op value: `all` selects no predicate, and
     /// — unlike any other rejected value — it is neutral, never `"invalid
     /// value"`. `to_expr` still returns `None` for it (there is no predicate
     /// to build); `Table::unapplied_filters` consults this so the no-op is
@@ -167,7 +167,7 @@ where
         Self { name, label, lens }
     }
 
-    /// Build the predicate for a submitted value (GH #93).
+    /// Build the predicate for a submitted value.
     ///
     /// Full RFC3339 timestamps match the exact instant (documented); a
     /// date-only `YYYY-MM-DD` matches the whole UTC day
@@ -187,7 +187,7 @@ where
         // Query decoding turns `+` into space, destroying numeric offsets
         // (`?filters=created_at:2024-01-15T09:30:00+02:00` arrives with a
         // space). A timestamp never legitimately contains a space, so retry
-        // with `+` restored before giving up (GH #93).
+        // with `+` restored before giving up.
         if v.contains(' ')
             && let Ok(ts) = v.replace(' ', "+").parse::<jiff::Timestamp>()
         {
@@ -221,7 +221,7 @@ filter_impls! {
 /// lens: Toasty stores it as one discriminant column plus one nullable column
 /// per variant field. The caller therefore supplies prebuilt expressions —
 /// typically `User::fields().vehicule().is_moto()` — one per option. Display
-/// stays `TextColumn::computed` (see GH #77).
+/// stays `TextColumn::computed` (see).
 pub struct VariantFilter<M> {
     name: String,
     label: String,
@@ -323,7 +323,7 @@ where
             Filter::Variant(f) => f.to_expr(value),
         }
     }
-    /// Whether this value is a documented no-op for this filter (GH #170):
+    /// Whether this value is a documented no-op for this filter:
     /// only `TernaryFilter`'s `all` qualifies — every other rejected value
     /// is genuinely invalid.
     pub fn is_noop_value(&self, value: &str) -> bool {
@@ -489,7 +489,7 @@ mod tests {
     #[test]
     fn date_filter_recovers_plus_offsets_mangled_by_query_decode() {
         let f = DateFilter::r#for(Task::fields().created_at());
-        // `+02:00` arrives as ` 02:00` after `+`-as-space decoding (GH #93).
+        // `+02:00` arrives as ` 02:00` after `+`-as-space decoding.
         assert!(f.to_expr("2024-01-15T09:30:00 02:00").is_some());
         assert!(f.to_expr("2024-01-15T09:30:00+02:00").is_some());
         assert!(f.to_expr("not-a-date").is_none());
@@ -595,7 +595,7 @@ mod tests {
             .unwrap();
         db.push_schema().await.unwrap();
         // Same shared `puissance` value in both variants — the variant gate
-        // must exclude the other variant (GH #77 acceptance).
+        // must exclude the other variant (acceptance).
         toasty::create!(Driver {
             name: "Alice",
             vehicule: Vehicule::Auto {

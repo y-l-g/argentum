@@ -79,20 +79,19 @@ pub struct Panel {
     slugs: Vec<String>,
     search_handlers: HashMap<String, SearchFn>,
     /// `Content-Security-Policy: frame-ancestors …` for every response
-    /// (GH #176); `None` opts out. Defaults to `'self'`.
+    /// `None` opts out. Defaults to `'self'`.
     frame_ancestors: Option<String>,
-    /// Per-resource declaration checks (GH #138), monomorphized at
+    /// Per-resource declaration checks, monomorphized at
     /// `resource::<R>()` and run by `build` before anything is served.
     resource_checks: Vec<ResourceCheck>,
     /// Registration failures collected by the declarative builders
-    /// (GH #174): `Panel::resource` cannot return `Result`, so a bad `slug()`
+    /// `Panel::resource` cannot return `Result`, so a bad `slug`
     /// or a duplicate is recorded here and reported by `build`.
     registration_errors: Vec<String>,
-    /// Where `FileUpload` bytes go (GH #188); `None` keeps the pre-#188
-    /// contract (the sanitized basename is the stored value).
+    /// Where `FileUpload` bytes go; `None` stores the sanitized basename.
     uploads: Option<crate::upload::InstalledUploader>,
     /// App-owned filesystem directories served from this panel's router
-    /// (GH #188): `(route pattern, directory)`.
+    /// `(route pattern, directory)`.
     served_dirs: Vec<(String, PathBuf)>,
     #[cfg(feature = "auth")]
     login_hint: Option<String>,
@@ -112,7 +111,7 @@ struct RootRedirect(String);
 /// Installed by [`Panel::build`] so generic handlers can derive every
 /// resource URL as `{prefix}/{slug}` — correct by construction even when a
 /// table renders away from its own list route — instead of sniffing the
-/// request path (GH #75 item 6).
+/// request path (item 6).
 #[derive(Debug, Clone)]
 pub(crate) struct PanelPrefix(pub(crate) String);
 /// Demo/deployment hint rendered under the login form (auth feature).
@@ -130,7 +129,7 @@ impl Panel {
             format!("/{trimmed}")
         };
         // The prefix is free-form too, and every route path is built from it
-        // (GH #174): validate it once here rather than panicking at the first
+        // validate it once here rather than panicking at the first
         // `route_path` call.
         let registration_errors: Vec<String> = prefix
             .trim_matches('/')
@@ -176,19 +175,18 @@ impl Panel {
     }
 
     /// Install the [`Uploader`](crate::Uploader) every `FileUpload` stores
-    /// through (GH #188).
+    /// through.
     ///
     /// One per panel, on the app context the way `Db` is, because where bytes
     /// live is an app-level dependency: an object store, a directory on disk, a
-    /// CDN. Without it a `FileUpload` keeps the pre-#188 contract — the
-    /// sanitized client filename is the stored value — so an app that never
-    /// installs one is unaffected.
+    /// CDN. Without it a `FileUpload` stores the sanitized client filename, so
+    /// an app that never installs one is unaffected.
     pub fn uploads(mut self, uploader: impl crate::Uploader) -> Self {
         self.uploads = Some(crate::upload::InstalledUploader::new(uploader));
         self
     }
 
-    /// Serve a directory of files from this panel's router (GH #188).
+    /// Serve a directory of files from this panel's router.
     ///
     /// `path` is a route pattern ending in a catch-all (e.g.
     /// `"/uploads/{*file}"`), and `dir` the directory those URLs read from —
@@ -199,12 +197,12 @@ impl Panel {
     /// the auth gate covers only the panel prefix and `/_topcoat/runtime`
     /// (ADR-0013), so a served directory sits outside it and its URLs answer
     /// whoever asks, with no session — an app that needs protected files owns
-    /// that route itself (ADR-0017, GH #225).
+    /// that route itself (ADR-0017).
     ///
     /// Every file the directory route serves carries `nosniff`, a sandboxing
     /// `Content-Security-Policy`, and `Content-Disposition: attachment` for
     /// anything but common raster images, audio/video and plain text, so an
-    /// uploaded document cannot run script on the panel's origin (GH #278). A
+    /// uploaded document cannot run script on the panel's origin. A
     /// 404 keeps Topcoat's `text/plain` error page; a 405 carries only `Allow`
     /// and an empty body. Neither carries user content.
     ///
@@ -248,10 +246,10 @@ impl Panel {
     /// and the router can never disagree. The panel root redirects to the
     /// first declared resource's list. Multiple calls compose. Sidebar order
     /// comes from the resource's [`Resource::navigation`] override, defaulting
-    /// to declaration order (GH #102/#165).
+    /// to declaration order (#165).
     ///
-    /// A duplicate slug (GH #102) or a slug that is not one URL segment
-    /// (GH #174) is recorded here and reported by [`Panel::build`], which
+    /// A duplicate slug or a slug that is not one URL segment
+    /// is recorded here and reported by [`Panel::build`], which
     /// returns `Err` instead of panicking: two resources over one slug would
     /// shadow each other's routes, and a hostile `slug()` must not reach a
     /// route path or a response header.
@@ -287,7 +285,7 @@ impl Panel {
             route_path(&create_url),
             resource_create_post::<R>,
         ));
-        // Detail page — GET renders the record read-only (GH #187). Registered
+        // Detail page — GET renders the record read-only. Registered
         // unconditionally, unlike the row link: `Panel::resource` runs before a
         // request exists, so `R::view(cx)` is not declarable here. The handler
         // 404s a resource that declares no view, which is the same answer as an
@@ -330,7 +328,7 @@ impl Panel {
             resource_bulk_delete::<R>,
         ));
         // CSV export — GET over the tenant-scoped export query + Table
-        // filters/sort (ADR-0012, GH #223).
+        // filters/sort (ADR-0012).
         let export_url = format!("{}/export", url);
         self.routes.push(RouteFn::new(
             http::Method::GET,
@@ -338,7 +336,7 @@ impl Panel {
             resource_export::<R>,
         ));
         // Relationship option search — GET for searchable selects past the cap
-        // (GH #150): `{list_url}/options?field=&q=` reusing the related
+        // `{list_url}/options?field=&q=` reusing the related
         // table's searchable columns, bounded, policy-checked.
         let options_url = format!("{}/options", url);
         self.routes.push(RouteFn::new(
@@ -346,7 +344,7 @@ impl Panel {
             route_path(&options_url),
             resource_options::<R>,
         ));
-        // Live-search handler (GH #104): the slug-dispatched `#[shard]` below
+        // Live-search handler: the slug-dispatched `#[shard]` below
         // cannot be generic (inventory only discovers concrete fns), so each
         // resource monomorphizes its table loader here, keyed by list path.
         self.search_handlers
@@ -365,7 +363,7 @@ impl Panel {
         self
     }
 
-    /// Set the `frame-ancestors` directive the panel sends (GH #176).
+    /// Set the `frame-ancestors` directive the panel sends.
     ///
     /// Defaults to `'self'`: the admin only frames itself, so a hostile page
     /// cannot clickjack it. Pass what your deployment needs — `"'self'
@@ -381,7 +379,7 @@ impl Panel {
         self
     }
 
-    /// Send no `frame-ancestors` directive (GH #176): the escape hatch for
+    /// Send no `frame-ancestors` directive: the escape hatch for
     /// deployments whose proxy owns the whole CSP.
     ///
     /// Off by default in the sense that nothing is *added* — the panel's
@@ -435,7 +433,7 @@ impl Panel {
     ///
     /// # Errors
     ///
-    /// Reports what the declarative builders could only record (GH #174):
+    /// Reports what the declarative builders could only record:
     /// a missing [`Db`], a duplicate or malformed resource slug, a malformed
     /// panel prefix, or `shell_assets` declared without `assets`. Configuring
     /// a panel wrong is a boot failure, not a request-time panic, so it comes
@@ -489,7 +487,7 @@ impl Panel {
                 "Panel::build requires a Db via app_context",
             ))
         })?;
-        // Declaration checks (GH #138): a resource whose table or form could
+        // Declaration checks: a resource whose table or form could
         // never render is a configuration error, and the declaration is
         // knowable here — waiting for the first request only moves the failure
         // somewhere less useful. `table`, `form` and `can_create` are pure
@@ -526,11 +524,11 @@ impl Panel {
             .discover()
             .cookies()
             // Form bodies (urlencoded buffered, multipart streamed) share one
-            // cap (GH #90): without this layer Topcoat's 2 MiB default would
+            // cap: without this layer Topcoat's 2 MiB default would
             // 413 uploads the framework otherwise accepts.
             .layer(topcoat::router::BodyLimit::max(MAX_FORM_BYTES))
             .app_context(db);
-        // Clickjacking hardening (GH #176): a response anyone can frame is a
+        // Clickjacking hardening: a response anyone can frame is a
         // threat on every deployment, so the panel ships the directive itself
         // and apps that need framing opt out (or supply their own policy,
         // which wins — the layer only fills the gap).
@@ -546,7 +544,7 @@ impl Panel {
                 builder = crate::auth::install(builder, &prefix);
                 let login_path = route_path(&format!("{prefix}/login"));
                 let logout_path = route_path(&format!("{prefix}/logout"));
-                // A credential POST carries no upload (GH #295): the login route
+                // A credential POST carries no upload: the login route
                 // gets its own cap, scoped by path so it wins over the panel's
                 // 10 MiB form cap.
                 builder = builder.layer(
@@ -576,7 +574,7 @@ impl Panel {
         }
         // The mount prefix travels with the Router so generic handlers derive
         // resource URLs from the declaration instead of sniffing the request
-        // path (GH #75 item 6 / B4).
+        // path (item 6 / B4).
         builder = builder.app_context(PanelPrefix(prefix.clone()));
         if !nav_items.is_empty() {
             builder = builder.app_context(nav_items);
@@ -593,7 +591,7 @@ impl Panel {
         if let Some(enabled) = dark_mode {
             builder = builder.app_context(DarkMode(enabled));
         }
-        // Where uploaded bytes go (GH #188): installed once, found by the form
+        // Where uploaded bytes go: installed once, found by the form
         // handlers and the multipart parser through the app context.
         if let Some(uploads) = uploads {
             builder = builder.app_context(uploads);
@@ -601,7 +599,7 @@ impl Panel {
         for (path, dir) in served_dirs {
             // Files the panel serves share its origin, so each directory route
             // is wrapped in the hardening layer that makes them inert
-            // (GH #278) — the same path scopes the layer to that route only.
+            // The same path scopes the layer to that route only.
             builder = builder
                 .layer(headers::ServedFileHeaders::new(&path))
                 .serve_dir(route_path(&path), dir);
@@ -645,7 +643,7 @@ impl Panel {
     /// The one panel-aware navigation seam for a [`Resource`]:
     /// [`Panel::resource`](Self::resource) calls it, so a resource's
     /// [`Resource::navigation`] override reaches the sidebar instead of being
-    /// dead API (GH #165). The override owns the **label, ordering and
+    /// dead API. The override owns the **label, ordering and
     /// grouping**; the panel owns the **URL**, because it is the only party
     /// that knows where the resource is mounted. Concretely: an explicit
     /// [`NavTarget::Url`] in `R::navigation()` is taken as returned, and only
@@ -656,18 +654,18 @@ impl Panel {
     /// So `Panel::new("backoffice")` yields `"/backoffice/{slug}"` — never a
     /// hard-coded `"/admin"` — for default and overridden items alike, a URL an
     /// override spelled out stays exactly as written, and an override's `order`
-    /// decides sidebar order (GH #102).
+    /// decides sidebar order.
     pub(crate) fn nav_item<R: Resource>(&self) -> NavigationItem {
         R::navigation().resolved(&self.prefix, &R::slug())
     }
 }
 
 /// Whether a path is a route pattern ending in a catch-all, which is the only
-/// shape [`DirectoryRoute`](topcoat::router::DirectoryRoute) accepts (GH #188).
+/// shape [`DirectoryRoute`](topcoat::router::DirectoryRoute) accepts.
 ///
 /// Checked where the path is declared rather than where it is used: upstream
 /// `serve_dir` panics on anything else, and `Panel::build` reports instead of
-/// panicking (GH #174) — but the path comes from the app, and it would panic
+/// panicking — but the path comes from the app, and it would panic
 /// first in [`route_path`] (which refuses to spell a route it cannot parse) and
 /// then inside `DirectoryRoute::new` (which needs the catch-all last). Asking
 /// both conditions here turns a typo into a build error instead of a panic
@@ -679,7 +677,7 @@ fn is_directory_pattern(path: &str) -> bool {
         .is_some_and(|segment| segment.as_catch_all().is_some())
 }
 
-/// Validate one path segment a panel derives routes from (GH #174): a
+/// Validate one path segment a panel derives routes from: a
 /// `Resource::slug()` override, or a segment of the panel prefix.
 ///
 /// Both reach a route path and, through the panel, a response body. A hostile
@@ -690,7 +688,7 @@ fn is_directory_pattern(path: &str) -> bool {
 /// still produce a download, while a route has no meaningful fallback.
 ///
 /// The route pattern characters that a literal segment cannot carry (`{`, `}`,
-/// `(`, `)`) are rejected rather than escaped (GH #295): `Path::from_str` treats
+/// `(`, `)`) are rejected rather than escaped: `Path::from_str` treats
 /// `{`/`(` as the start of a parameter or group segment, so a balanced pair
 /// silently becomes a pattern and an unbalanced one panics [`route_path`]. `*`
 /// stays accepted — it is a literal in a static segment — and the catch-all
@@ -719,36 +717,28 @@ fn validate_route_segment(kind: &str, segment: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// A resource's build-time declaration check (GH #138): monomorphized once per
+/// A resource's build-time declaration check: monomorphized once per
 /// declared resource by [`Panel::resource`], run by [`Panel::build`] with the
 /// app's values and no request.
 type ResourceCheck = fn(&Cx) -> Result<(), String>;
 
-/// What a declared resource must be able to promise before the panel serves
-/// it (GH #138).
+/// What a declared resource must be able to promise before the panel serves it.
 ///
 /// The trait ships every method with a default, so a resource that overrides
 /// nothing compiles and only fails when a user reaches a page. The essentials
 /// that are *declarations* — a tenant predicate for a gated resource, a
 /// renderable table, a form for the create page, a backed `unique()` marker —
 /// are checked here, at build, and reported with the resource's type name.
-/// Runtime essentials (the record fns) keep their existing loud failure: a
-/// default stub answers "not implemented for <type>", never silently.
+/// Runtime essentials (the record fns) keep their loud failure.
 ///
-/// A declaration that panics is a boot failure too (GH #207): `Resource::table`
-/// and `Resource::form` run code that panics on a mis-declaration (a duplicate
-/// column name, a traversal lens), and this check's contract is a registration
-/// error the caller can log or exit on. The whole body is caught — not just
-/// those two calls — because `R::Model::schema()` and the policy predicates are
-/// part of the same declaration, and a panic from any of them would otherwise
-/// escape `build`; the check reports "declaring itself" rather than naming a
-/// call it cannot attribute the panic to. The panic's own message is carried
-/// into the error, so the cause survives a harness that installs its own hook.
-///
-/// `AssertUnwindSafe` is sound here because nothing observes the captured state
-/// after an unwind: `cx` is the build-time [`validation_cx`] — an app context
-/// holding the `Db` handle, owned by this call — and the panic fails the whole
-/// `build`, so no request is ever served from it.
+/// A declaration that panics is a boot failure too: `Resource::table` and
+/// `Resource::form` run code that panics on a mis-declaration, and this check's
+/// contract is a registration error the caller can log or exit on. The whole
+/// body is caught, because `R::Model::schema()` and the policy predicates are
+/// part of the same declaration, and the panic's own message is carried into
+/// the error. `AssertUnwindSafe` is sound because nothing observes the captured
+/// state after an unwind: `cx` is the build-time `validation_cx`, and the panic
+/// fails the whole `build`.
 fn check_resource<R: Resource>(cx: &Cx) -> Result<(), String> {
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         check_resource_inner::<R>(cx)
@@ -762,7 +752,7 @@ fn check_resource<R: Resource>(cx: &Cx) -> Result<(), String> {
     }
 }
 
-/// The message out of a caught panic payload (GH #207).
+/// The message out of a caught panic payload.
 ///
 /// The declaration panics this catches are `assert!`/`panic!("…")` with a
 /// formatted string, so `&str` and `String` cover every one of them; anything
@@ -781,7 +771,7 @@ fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
 /// mis-declared resource is a registration error rather than a boot panic.
 fn check_resource_inner<R: Resource>(cx: &Cx) -> Result<(), String> {
     // A gated resource that supplies no tenant predicate is misdeclared, and
-    // the declaration is checkable without a request (GH #231):
+    // the declaration is checkable without a request:
     // `R::tenant_scope` is pure, and the default derivation answers by the
     // model's *shape* — a `tenant_id` UUID field, found by name and type — not
     // by the tenant value, so the nil UUID is enough to ask whether a predicate
@@ -804,7 +794,7 @@ fn check_resource_inner<R: Resource>(cx: &Cx) -> Result<(), String> {
         ));
     }
     // Chrome is attached by `wire_table_actions`, not by `R::table(cx)`
-    // (GH #207): the record-key requirement is only knowable from the same
+    // the record-key requirement is only knowable from the same
     // derivation the wiring reads.
     let chrome = declared_chrome::<R>(cx);
     if let Some(missing) = R::table(cx).missing_essentials(chrome) {
@@ -824,7 +814,7 @@ fn check_resource_inner<R: Resource>(cx: &Cx) -> Result<(), String> {
         ));
     }
     // `.unique()` is a promise the panel makes and the database has to keep
-    // (GH #189 item 3): the marker turns the app-side pre-check on, so a field
+    // (item 3): the marker turns the app-side pre-check on, so a field
     // whose column carries no unique index makes the panel enforce a rule
     // nothing else does — a duplicate the check lets through, or a rule the
     // database never asked for. The declaration checks are the only place both
@@ -878,7 +868,7 @@ pub(crate) fn route_path(path: &str) -> topcoat::router::PathBuf {
         .to_owned()
 }
 
-/// Defense-in-depth companion to the auth gate (GH #130, ADR-0013): every
+/// Defense-in-depth companion to the auth gate (ADR-0013): every
 /// panel handler and the live-search shard re-check the resolved user, so a
 /// missing or mis-mounted gate cannot silently open a handler. A no-op when
 /// the panel explicitly disabled auth.
@@ -896,7 +886,7 @@ pub(crate) fn enforce_auth(_cx: &Cx) -> Result<(), topcoat::Error> {
     Ok(())
 }
 
-/// Enforce tenancy gating for resources that require it (GH #87).
+/// Enforce tenancy gating for resources that require it.
 ///
 /// Wired into every resource handler; a no-op unless the resource overrides
 /// `Resource::requires_tenant`. Fails closed (403) when no tenant is present
@@ -945,7 +935,7 @@ pub(crate) fn list_url(cx: &Cx, slug: &str) -> String {
 /// home page here.
 pub(crate) fn panel_root_redirect(cx: &Cx, _body: Body) -> RouteFuture<'_> {
     Box::pin(async move {
-        // Defense in depth (GH #146): every panel handler re-checks the
+        // Defense in depth: every panel handler re-checks the
         // resolved user, so a missing or mis-mounted gate cannot leak the
         // first resource's slug via the redirect target.
         enforce_auth(cx)?;
@@ -1109,7 +1099,7 @@ mod tests {
     }
 
     /// The panel root answers the gate before reading `RootRedirect`
-    /// (GH #146 defense in depth): a mis-mounted gate must not leak the
+    /// (defense in depth): a mis-mounted gate must not leak the
     /// first resource's slug via the redirect target.
     #[cfg(feature = "auth")]
     #[tokio::test]
@@ -1181,7 +1171,7 @@ mod tests {
         assert_eq!(location, "/admin/users");
     }
 
-    /// The named runtime endpoints answer the gate (GH #146): a request
+    /// The named runtime endpoints answer the gate: a request
     /// without a session to a shard's fixed path is refused with 401, not a
     /// login redirect and not the shard's content. The path is stable, so the
     /// refusal is the only thing that keeps it from being probed.
@@ -1293,7 +1283,7 @@ mod tests {
             .expect("the explicit opt-out builds the panel");
     }
 
-    /// CSRF does not depend on the `auth` feature (GH #99): with the gate
+    /// CSRF does not depend on the `auth` feature: with the gate
     /// compiled out, a create POST without a matching `csrf_token` is still
     /// 403, so dropping sessions does not drop the double-submit check.
     #[cfg(not(feature = "auth"))]
@@ -1774,7 +1764,7 @@ mod tests {
     }
 
     /// A slug made of ordinary URL-segment characters still builds, and its
-    /// list route resolves (GH #295): rejecting the pattern characters must not
+    /// list route resolves: rejecting the pattern characters must not
     /// reject the accepted ones.
     #[tokio::test]
     async fn a_plain_slug_builds_and_resolves() {
@@ -1834,7 +1824,7 @@ mod tests {
         );
     }
 
-    /// A slug containing `*` builds and resolves (GH #295): `*` is a literal
+    /// A slug containing `*` builds and resolves: `*` is a literal
     /// static segment in the router, so rejecting it would break a slug that
     /// worked; only the `{*name}` catch-all spelling carries meaning, and the
     /// `{` it needs is already refused.
@@ -1958,7 +1948,7 @@ mod tests {
     }
 
     /// The marker is a property of the declaration, not of the policy serving
-    /// it (GH #189): a read-only resource — `can_create` denied, the default —
+    /// it: a read-only resource — `can_create` denied, the default —
     /// still fails the build on an unbacked `unique()`, so fixing the policy
     /// later cannot silently re-arm a check the database does not keep.
     #[tokio::test]
@@ -2098,7 +2088,7 @@ mod tests {
                 ))
         }
 
-        /// Chrome opted into explicitly (GH #226): the default opts out of
+        /// Chrome opted into explicitly: the default opts out of
         /// both links, so a resource that wants them names them — and that is
         /// what makes the record key required.
         struct ChromeResource;
@@ -2131,7 +2121,7 @@ mod tests {
         }
 
         /// Delete and edit left at the opt-in default, but the detail page is
-        /// declared (GH #187), so the View link is action chrome all the same.
+        /// declared, so the View link is action chrome all the same.
         struct ViewedResource;
         impl Resource for ViewedResource {
             type Model = Subscriber;
@@ -2202,7 +2192,7 @@ mod tests {
         }
 
         /// Two columns over one field: `Table::columns` asserts on the
-        /// duplicate name (GH #156).
+        /// duplicate name.
         struct DuplicateColumnResource;
         impl Resource for DuplicateColumnResource {
             type Model = Doc;
@@ -2218,7 +2208,7 @@ mod tests {
         }
 
         /// An embedded step is not a single-field lens: `lens_field` refuses
-        /// the traversal loudly (GH #100), which without the boundary catch is
+        /// the traversal loudly, which without the boundary catch is
         /// a boot panic.
         struct TraversalLensResource;
         impl Resource for TraversalLensResource {

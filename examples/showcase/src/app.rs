@@ -27,7 +27,7 @@ use crate::models::{
 /// asset.
 ///
 /// `pub(crate)` so the public blog's layout links the same font as the admin
-/// shell (GH #247): one document contract, one typeface.
+/// shell: one document contract, one typeface.
 pub(crate) const GEIST: Font = fontsource_font!(GEIST, host: Asset);
 
 /// The submitted value for `key`, trimmed; an absent key is empty.
@@ -53,7 +53,7 @@ where
 }
 
 /// The submitted value for `key`, trimmed; an absent key keeps `current`
-/// (GH #89), so an omitted optional field never blanks the record.
+/// so an omitted optional field never blanks the record.
 fn kept(values: &HashMap<String, String>, key: &str, current: &str) -> String {
     match values.get(key) {
         Some(v) => v.trim().to_string(),
@@ -105,7 +105,7 @@ where
 }
 
 /// The submitted embedded value for `field`; an absent group keeps `current`
-/// (GH #89, GH #191) — the submit may omit a section the form did not render.
+/// The submit may omit a section the form did not render.
 fn kept_embedded<M, T, L>(
     cx: &Cx,
     field: impl Fn() -> L,
@@ -126,7 +126,7 @@ where
 
 /// Generate `delete_record` and `bulk_delete_records` for a resource whose
 /// record fns delete through the resource's own tenant-scoped query, one row
-/// at a time, inside the handler's transaction (GH #84, GH #86, GH #223).
+/// at a time, inside the handler's transaction.
 macro_rules! delete_through_query {
     ($model:ident) => {
         fn delete_record(
@@ -159,7 +159,7 @@ macro_rules! delete_through_query {
         {
             let cx = cx.clone();
             async move {
-                // Framework-checked records (GH #84, GH #86): delete each
+                // Framework-checked records: delete each
                 // inside the handler's tx — any error rolls the batch back.
                 for rec in &records {
                     Self::query(&cx)
@@ -207,7 +207,7 @@ impl Resource for UserResource {
         record.name != "Ken Thompson"
     }
 
-    // GH #226: chrome is opt-in. The flags are declared next to the predicates
+    // chrome is opt-in. The flags are declared next to the predicates
     // above that honour them — `can_view` + `can_update` for the Edit link,
     // `can_delete` for the row and bulk Delete.
     fn editable() -> bool {
@@ -240,7 +240,7 @@ impl Resource for UserResource {
 
     fn form(_cx: &Cx) -> Schema {
         // One section, one card: a single-child `Tabs` wrapper would be a
-        // layout container with nothing to lay out (GH #239). `Tabs` earns its
+        // layout container with nothing to lay out. `Tabs` earns its
         // place on `posts/create`, where it groups the upload and tags blocks.
         Schema::new(
             Section::new("Profile").schema((
@@ -305,7 +305,7 @@ impl Resource for UserResource {
             Some(a) if a == "false"
         );
         // The created row goes back to the framework: it is what
-        // `after_commit` names for this write (GH #112).
+        // `after_commit` names for this write.
         toasty::create!(User {
             name: name,
             email: email,
@@ -324,13 +324,13 @@ impl Resource for UserResource {
         values: HashMap<String, String>,
         ex: &mut dyn toasty::Executor,
     ) -> Result<User> {
-        // The handler's checked snapshot (GH #86): `record` was loaded
+        // The handler's checked snapshot: `record` was loaded
         // inside the framework tx and policy-checked — no re-query.
         let name = kept(&values, "name", &record.name);
         let email = kept(&values, "email", &record.email);
         let role = kept_one_of(&values, "role", &["admin", "member"], &record.role);
         let active = kept_bool(&values, "active", record.active);
-        // The updated row goes back to the framework (GH #112): it is what
+        // The updated row goes back to the framework: it is what
         // `after_commit` names, and it is already the committed state.
         toasty::update!(record {
             name: name,
@@ -342,8 +342,7 @@ impl Resource for UserResource {
         .await
         .map_err(|e| -> topcoat::Error { e.into() })?;
         // The instance update reloads `record` from the database's returned
-        // values, so this is the committed row — what `after_commit` names
-        // (GH #112).
+        // values, so this is the committed row — what `after_commit` names.
         Ok(record)
     }
 
@@ -359,7 +358,7 @@ impl Resource for AuthorResource {
         "Writers".to_string()
     }
 
-    // No `query` override (GH #223): the framework ANDs `tenant_id = <tenant>`
+    // No `query` override: the framework ANDs `tenant_id = <tenant>`
     // onto the default query for a `requires_tenant` resource, derived from
     // `Author`'s own schema, so the filter cannot be forgotten here.
     fn can_view_any(cx: &Cx) -> bool {
@@ -381,7 +380,7 @@ impl Resource for AuthorResource {
         Self::can_view_any(cx)
     }
 
-    // GH #226: chrome is opt-in, declared beside the predicates above.
+    // chrome is opt-in, declared beside the predicates above.
     fn editable() -> bool {
         true
     }
@@ -389,7 +388,7 @@ impl Resource for AuthorResource {
         true
     }
 
-    // Tenant-scoped model (GH #87): every handler fails closed without a
+    // Tenant-scoped model: every handler fails closed without a
     // tenant instead of leaking unscoped rows or minting nil-tenant orphans.
     fn requires_tenant() -> bool {
         true
@@ -437,10 +436,10 @@ impl Resource for AuthorResource {
             let name = submitted_trimmed(&values, "name");
             let email = submitted_trimmed(&values, "email");
             // `requires_tenant` makes the handler answer 403 before this runs
-            // (GH #87), so `require_tenant` never panics on a tenantless submit
-            // and a nil-tenant orphan stays impossible (GH #223).
+            // so `require_tenant` never panics on a tenantless submit
+            // and a nil-tenant orphan stays impossible.
             let tid = require_tenant(&cx)?;
-            // The created row goes back to the framework (GH #112).
+            // The created row goes back to the framework.
             toasty::create!(Author {
                 tenant_id: tid,
                 name: name,
@@ -458,10 +457,10 @@ impl Resource for AuthorResource {
         values: HashMap<String, String>,
         ex: &mut dyn toasty::Executor,
     ) -> Result<Author> {
-        // The handler's checked snapshot (GH #86) — no re-query.
+        // The handler's checked snapshot — no re-query.
         let name = kept(&values, "name", &rec.name);
         let email = kept(&values, "email", &rec.email);
-        // The updated row goes back to the framework (GH #112).
+        // The updated row goes back to the framework.
         toasty::update!(rec {
             name: name,
             email: email
@@ -469,7 +468,7 @@ impl Resource for AuthorResource {
         .exec(&mut *ex)
         .await
         .map_err(|e| -> topcoat::Error { e.into() })?;
-        // The committed row, reloaded by the instance update (GH #112).
+        // The committed row, reloaded by the instance update.
         Ok(rec)
     }
 
@@ -480,9 +479,9 @@ pub struct PostResource;
 
 impl PostResource {
     /// The posts base query with the two relations the table can render loaded
-    /// only when `needs` asks (GH #177).
+    /// only when `needs` asks.
     ///
-    /// No tenant filter (GH #223): `requires_tenant` is `true`, so the
+    /// No tenant filter: `requires_tenant` is `true`, so the
     /// framework scopes every loader — list, edit, delete, bulk, export — by
     /// ANDing the filter it derives from `Post`'s own `tenant_id` column onto
     /// whatever this returns. Writing it by hand here was the GH #87 hole: one
@@ -491,7 +490,7 @@ impl PostResource {
     /// `query` is the list/detail half and loads both — the Comments column
     /// renders the count and the detail page reads `view_relations` — while
     /// [`query_with`](Resource::query_with) narrows to the includes a loader
-    /// declared (GH #298), which is what the list and the export pass. Both go
+    /// declared, which is what the list and the export pass. Both go
     /// through this one function so the includes cannot drift apart.
     /// It takes no `Cx` because there is nothing left to resolve from the
     /// request: the scope belongs to the framework now.
@@ -522,7 +521,7 @@ impl Resource for PostResource {
     }
 
     /// The list and export load the includes their columns declared
-    /// (GH #177, GH #298); the edit, delete, bulk and option loaders ask for
+    /// the edit, delete, bulk and option loaders ask for
     /// none, so a Comment form's post options carry the posts' own columns and
     /// not every post's comments. The export inherits this branch through its
     /// default [`export_query`](Resource::export_query).
@@ -531,12 +530,12 @@ impl Resource for PostResource {
     }
 
     /// The post's title, so the detail heading names the post rather than its
-    /// record key (GH #241).
+    /// record key.
     fn record_label(_cx: &Cx, record: &Post) -> Option<String> {
         Some(record.title.clone())
     }
 
-    /// One post, read-only (GH #187). Each entry binds the same storage name
+    /// One post, read-only. Each entry binds the same storage name
     /// the form posts — flattened embedded columns included — so a field means
     /// the same thing on both pages. The *list* of fields is still written
     /// twice: the schema seam has no way to derive one declaration from the
@@ -546,7 +545,7 @@ impl Resource for PostResource {
     /// non-`String` lens is the GH #192 seam; and the **comments**, which are a
     /// relation and so render through [`Self::view_relations`] below rather
     /// than as a field here. The shared publication timestamp *is* bound, which
-    /// is why `models.rs` declares it `String` (GH #185).
+    /// is why `models.rs` declares it `String`.
     fn view(cx: &Cx) -> Schema {
         Schema::new((
             Section::new("Post").schema((
@@ -585,7 +584,7 @@ impl Resource for PostResource {
         ))
     }
 
-    /// The post's comments, from the rows `query` already included (GH #187).
+    /// The post's comments, from the rows `query` already included.
     ///
     /// `record.comments.get()` reads the included relation — no query, no
     /// per-row load — which is the point #66's criterion made. `is_unloaded` is
@@ -594,7 +593,7 @@ impl Resource for PostResource {
     /// `detail_relation_check` fails on a message rather than a stack trace.
     ///
     /// The table names `CommentResource`, so the related resource's `can_view`
-    /// decides which loaded comments render (GH #296).
+    /// decides which loaded comments render.
     fn view_relations<'a>(cx: &'a Cx, record: &Post) -> Option<topcoat::view::BoxView<'a>> {
         if record.comments.is_unloaded() {
             return Some(
@@ -613,7 +612,7 @@ impl Resource for PostResource {
         ));
         // `CommentResource` is named at the relation, so the table applies the
         // related resource's `can_view` and the policy cannot drift from the
-        // comments queue's (GH #296).
+        // comments queue's.
         Some(render_relation::<CommentResource>(
             cx,
             "Comments",
@@ -641,7 +640,7 @@ impl Resource for PostResource {
         Self::can_view_any(cx)
     }
 
-    // GH #226: chrome is opt-in, declared beside the predicates above.
+    // chrome is opt-in, declared beside the predicates above.
     fn editable() -> bool {
         true
     }
@@ -649,7 +648,7 @@ impl Resource for PostResource {
         true
     }
 
-    // Tenant-scoped model (GH #87): every handler fails closed without a
+    // Tenant-scoped model: every handler fails closed without a
     // tenant instead of leaking unscoped rows or minting nil-tenant orphans.
     fn requires_tenant() -> bool {
         true
@@ -663,7 +662,7 @@ impl Resource for PostResource {
                 TextColumn::r#for(Post::fields().title(), |p: &Post| p.title.clone())
                     .searchable()
                     .sortable(),
-                // GH #240: a status is narrow by content, not by kind — `r#for`
+                // a status is narrow by content, not by kind — `r#for`
                 // binds a `String` field, which the framework cannot tell from
                 // a title. Featured and Comments below keep the `computed`
                 // default (narrow).
@@ -675,9 +674,9 @@ impl Resource for PostResource {
                 // The other override direction: a computed column that holds a
                 // name is body text, so it takes a share of the free width.
                 TextColumn::computed("Author", |p: &Post| {
-                    // Loud on missing includes (GH #101): a silent "-" reads
+                    // Loud on missing includes: a silent "-" reads
                     // as data. The list/export loaders include author when
-                    // this column declares it (GH #177), so this only fires
+                    // this column declares it, so this only fires
                     // if the declaration and the query disagree.
                     debug_assert!(
                         !p.author.is_unloaded(),
@@ -745,7 +744,7 @@ impl Resource for PostResource {
         Schema::new((
             Section::new("Content").schema((
                 TextInput::r#for(Post::fields().title()).placeholder("A title editors click"),
-                // Prose, so a textarea rather than a one-line input (GH #184).
+                // Prose, so a textarea rather than a one-line input.
                 // Optional so quick draft stubs submit; full stories fill it.
                 Textarea::r#for(Post::fields().body())
                     .placeholder("The full story…")
@@ -781,7 +780,7 @@ impl Resource for PostResource {
                 FileUpload::r#for(Post::fields().image_path()).label("Cover image"),
                 Repeater::new("Tags").schema(TextInput::r#for(Post::fields().tags()).label("Tag")),
             )),
-            // Embedded **values** (GH #191). One declaration per value: the
+            // Embedded **values**. One declaration per value: the
             // controls, their flattened names, and the enum's discriminant all
             // come from the app schema and the type's own shape — nothing here
             // spells `seo_title`, and no variant is recovered from which
@@ -810,7 +809,7 @@ impl Resource for PostResource {
         m.insert("author_id".to_string(), record.author_id.to_string());
         m.insert("image_path".to_string(), record.image_path.clone());
         m.insert("tags".to_string(), record.tags.clone());
-        // Embedded values (GH #191): each writes the columns the app schema
+        // Embedded values: each writes the columns the app schema
         // resolves for it — the flattened leaves, the enum's discriminant, and
         // the active variant's payload. No column name is spelled here, and no
         // "which payload is non-empty" decision is made: the stored variant is
@@ -839,7 +838,7 @@ impl Resource for PostResource {
             let title = submitted_trimmed(&values, "title");
             let author_id = submitted_parsed::<uuid::Uuid>(&values, "author_id")?;
             // Verify the author exists *in this tenant*: `scoped_query` is the
-            // framework's tenancy-scoped entry point (GH #223) — plain
+            // framework's tenancy-scoped entry point — plain
             // `AuthorResource::query` is the tenant-unscoped base now that the
             // framework applies the tenant filter at every loader.
             let author_exists = scoped_query::<AuthorResource>(&cx)?
@@ -868,17 +867,16 @@ impl Resource for PostResource {
                 Some(s) if s == "true"
             );
             // The same fail-closed check as the author create above: the 403 is
-            // already answered (GH #87), so a nil-tenant post cannot be minted
-            // (GH #223).
+            // already answered, so a nil-tenant post cannot be minted.
             let tid = require_tenant(&cx)?;
-            // Embedded values (GH #191): the codec reads each one back from the
+            // Embedded values: the codec reads each one back from the
             // submission, choosing an enum's variant from the discriminant the
             // form posted rather than from which payloads are non-empty.
             let seo = read_embedded(&cx, Post::fields().seo(), &values);
             let publication = read_embedded(&cx, Post::fields().publication(), &values);
             let media = read_embedded(&cx, Post::fields().media(), &values);
             let post_stats = read_embedded(&cx, Post::fields().post_stats(), &values);
-            // The created row goes back to the framework (GH #112).
+            // The created row goes back to the framework.
             toasty::create!(Post {
                 tenant_id: tid,
                 title: title,
@@ -911,13 +909,13 @@ impl Resource for PostResource {
     {
         let cx = cx.clone();
         async move {
-            // The handler's checked snapshot (GH #86) — no re-query.
+            // The handler's checked snapshot — no re-query.
             let title = kept(&values, "title", &rec.title);
             let author_id = kept_parsed(&values, "author_id", rec.author_id)?;
-            // Symmetric FK double-check (GH #91, mirrors create): validate_async
+            // Symmetric FK double-check (mirrors create): validate_async
             // already checked, but the author may be cross-tenant or deleted
             // since — so the check runs through the tenant-scoped query
-            // (GH #223), exactly as the create above does.
+            // exactly as the create above does.
             let author_exists = scoped_query::<AuthorResource>(&cx)?
                 .filter(Author::fields().id().eq(author_id))
                 .first()
@@ -935,8 +933,8 @@ impl Resource for PostResource {
             let body = kept(&values, "body", &rec.body);
             let status = kept_one_of(&values, "status", &["draft", "published"], &rec.status);
             let featured = kept_bool(&values, "featured", rec.featured);
-            // Embedded values (GH #191): an absent value keeps the stored one,
-            // exactly like the scalar fields above (GH #89) — the submit may
+            // Embedded values: an absent value keeps the stored one,
+            // exactly like the scalar fields above — the submit may
             // omit a section the form did not render. "Absent" is decided by
             // the keys the app schema resolves, not by a name spelled here.
             let seo = kept_embedded(&cx, || Post::fields().seo(), &values, &rec.seo);
@@ -969,8 +967,7 @@ impl Resource for PostResource {
             .exec(&mut *ex)
             .await
             .map_err(|e| -> topcoat::Error { e.into() })?;
-            // The instance update reloads `rec`, so this is the committed row
-            // (GH #112).
+            // The instance update reloads `rec`, so this is the committed row.
             Ok(rec)
         }
     }
@@ -981,9 +978,9 @@ impl Resource for PostResource {
 /// Comments resource over `Comment`: the moderation queue.
 ///
 /// Comments carry no tenant of their own — they inherit visibility from their
-/// post (GH #169) — so the request tenant is required like any other gated
+/// post — so the request tenant is required like any other gated
 /// resource, and the scope is the parent post's tenant, declared in
-/// [`tenant_scope`](Resource::tenant_scope) (GH #223).
+/// [`tenant_scope`](Resource::tenant_scope).
 ///
 /// That declaration is what the framework's default cannot supply: the default
 /// derives the filter from a `tenant_id` column on the model, and `Comment` has
@@ -994,16 +991,14 @@ impl Resource for PostResource {
 /// the shape that fails closed: no tenant is a 403 everywhere, and the
 /// predicate is the framework's to apply.
 ///
-/// The queue moderates: row and bulk delete are enabled (GH #184), which is
+/// The queue moderates: row and bulk delete are enabled, which is
 /// what `can_delete`, `delete_record` and `bulk_delete_records` were already
 /// written for. A resource that wants a read-only queue overrides
-/// [`Resource::deletable`] to `false` instead (GH #96).
+/// [`Resource::deletable`] to `false` instead.
 pub struct CommentResource;
 
 /// Re-resolve a comment's parent post through the tenant-scoped
-/// [`scoped_query::<PostResource>`] inside the caller's open transaction
-/// (GH #178, GH #223).
-///
+/// [`scoped_query::<PostResource>`] inside the caller's open transaction.
 /// `Schema::validate_async` / `Select::validate_async` already reject a
 /// `post_id` outside the tenant-scoped option set before the tx opens, but that
 /// is a pre-write check in a different window: a policy or tenant change between
@@ -1014,7 +1009,7 @@ pub struct CommentResource;
 /// The miss is a 404, not the 500 `PostResource` uses for a missing author: a
 /// parent in another tenant is an authorization boundary, and "wrong tenant
 /// looks exactly like unknown id" is this panel's contract everywhere else
-/// (GH #86/#169).
+/// (#169).
 async fn ensure_post_in_tenant(
     cx: &Cx,
     post_id: uuid::Uuid,
@@ -1034,10 +1029,8 @@ async fn ensure_post_in_tenant(
 }
 
 impl CommentResource {
-    /// The comments base query with the post loaded only when `needs` asks
-    /// (GH #177, GH #298).
-    ///
-    /// No tenant filter (GH #223): the scope is declared once, in
+    /// The comments base query with the post loaded only when `needs` asks.
+    /// No tenant filter: the scope is declared once, in
     /// [`tenant_scope`](Resource::tenant_scope), and the framework ANDs it onto
     /// whatever this returns — for the list, the edit load, the bulk fetch, the
     /// export and the relationship option loads alike.
@@ -1061,7 +1054,7 @@ impl Resource for CommentResource {
     type Model = Comment;
 
     fn navigation_label() -> String {
-        // "Comments", not "Discussion" (GH #184): the entity is a comment, the
+        // "Comments", not "Discussion": the entity is a comment, the
         // route and model say so, and a discussion — if it means anything here
         // — would be the set of comments on one post, which is not a record the
         // panel can list or moderate.
@@ -1069,7 +1062,7 @@ impl Resource for CommentResource {
     }
 
     /// Tenant-scoped from the parent post, and gated like every other
-    /// tenant-owned resource (GH #169, GH #223).
+    /// tenant-owned resource.
     ///
     /// `true` is what makes a tenantless request a 403 here instead of a read
     /// that quietly dropped the filter; the predicate below replaces the
@@ -1079,7 +1072,7 @@ impl Resource for CommentResource {
         true
     }
 
-    /// Inherit-through-the-relation (GH #169): scope through the parent post's
+    /// Inherit-through-the-relation: scope through the parent post's
     /// tenant. Toasty rewrites the relation-path comparison into a foreign-key
     /// subquery, and the framework ANDs the result onto `query`/`export_query`
     /// exactly as it ANDs the derived `tenant_id` filter elsewhere.
@@ -1090,10 +1083,10 @@ impl Resource for CommentResource {
     fn can_view_any(_cx: &Cx) -> bool {
         true
     }
-    /// A removed comment keeps its row as a placeholder (GH #296): there is no
+    /// A removed comment keeps its row as a placeholder: there is no
     /// content to read, so this refuses it and the post's relation omits it.
     /// The framework withholds the queue's row actions from a record this
-    /// refuses (GH #235), which is the same answer — a placeholder has nothing
+    /// refuses, which is the same answer — a placeholder has nothing
     /// to edit or delete.
     fn can_view(_cx: &Cx, record: &Comment) -> bool {
         record.body != REMOVED_COMMENT_BODY
@@ -1108,8 +1101,8 @@ impl Resource for CommentResource {
         true
     }
 
-    // GH #226: chrome is opt-in. The moderation queue wants both, and the
-    // predicates above answer for every row (GH #184).
+    // chrome is opt-in. The moderation queue wants both, and the
+    // predicates above answer for every row.
     fn editable() -> bool {
         true
     }
@@ -1122,7 +1115,7 @@ impl Resource for CommentResource {
     }
 
     /// The list and export load the includes their columns declared
-    /// (GH #177, GH #298) — here the Post column's `post` — while the edit,
+    /// Here the Post column's `post` — while the edit,
     /// delete, bulk and option loaders ask for none.
     fn query_with(
         _cx: &Cx,
@@ -1150,7 +1143,7 @@ impl Resource for CommentResource {
                         c.post.get().title.clone()
                     }
                 })
-                // GH #240: a post title is body text, not the narrow badge a
+                // a post title is body text, not the narrow badge a
                 // computed column defaults to.
                 .width(ColumnWidth::Wide)
                 .needs(["post"]),
@@ -1187,10 +1180,10 @@ impl Resource for CommentResource {
     ) -> Result<Comment> {
         let body = submitted_trimmed(&values, "body");
         let post_id = submitted_parsed::<uuid::Uuid>(&values, "post_id")?;
-        // Tenancy double-check inside the tx (GH #178): the pre-tx option-set
+        // Tenancy double-check inside the tx: the pre-tx option-set
         // validation is not a write-time guarantee.
         ensure_post_in_tenant(cx, post_id, ex).await?;
-        // The created row goes back to the framework (GH #112).
+        // The created row goes back to the framework.
         toasty::create!(Comment {
             body: body,
             post_id: post_id,
@@ -1208,7 +1201,7 @@ impl Resource for CommentResource {
     ) -> Result<Comment> {
         let body = kept(&values, "body", &record.body);
         let post_id = kept_parsed(&values, "post_id", record.post_id)?;
-        // An update can re-point the comment at another post (GH #178), which
+        // An update can re-point the comment at another post, which
         // is exactly the move the pre-tx check cannot be trusted to catch.
         ensure_post_in_tenant(cx, post_id, ex).await?;
         toasty::update!(record {
@@ -1218,7 +1211,7 @@ impl Resource for CommentResource {
         .exec(&mut *ex)
         .await
         .map_err(|e| -> topcoat::Error { e.into() })?;
-        // The committed row, reloaded by the instance update (GH #112).
+        // The committed row, reloaded by the instance update.
         Ok(record)
     }
 
@@ -1241,13 +1234,13 @@ pub fn router(db: Db) -> Router {
 /// server-rendered markup without pretending an asset bundle exists.
 ///
 /// It installs **no uploader** either, which pins the framework's default: a
-/// `FileUpload` with no store keeps the sanitized client filename (GH #188).
+/// `FileUpload` with no store keeps the sanitized client filename.
 /// A test that wants the demo store uses [`router_with_uploads`].
 pub fn router_for_tests(db: Db) -> Router {
     build_router(db, None, None)
 }
 
-/// Build the showcase router with uploads enabled against `dir` (GH #188).
+/// Build the showcase router with uploads enabled against `dir`.
 ///
 /// Assets are left out, like [`router_for_tests`]: the upload tests assert on
 /// markup and on the served bytes, not on the stylesheet. Used by the upload
@@ -1258,7 +1251,7 @@ pub fn router_with_uploads(db: Db, dir: impl Into<PathBuf>) -> Router {
 }
 
 /// Build the showcase router with uploads at the directory the application
-/// itself uses (GH #248).
+/// itself uses.
 ///
 /// [`router_with_uploads`] takes a directory so the framework's upload tests
 /// can own theirs; this one is the configuration the app runs with, which is
@@ -1280,19 +1273,19 @@ pub(crate) fn upload_dir() -> PathBuf {
 ///
 /// It matches the `serve_dir` route below, and the app owns both ends: the
 /// store decides the path it returns, so the framework never has to guess a
-/// URL convention (GH #188).
+/// URL convention.
 pub const UPLOAD_URL_PREFIX: &str = "/uploads";
 
 /// The showcase's own uploader: write the bytes into the served directory and
-/// return the URL they are served at (GH #188).
+/// return the URL they are served at.
 ///
 /// A demo, not a framework default — the trait is the seam and drivers are the
 /// app's business. The UUID prefix keeps two uploads of `cover.png` apart, and
-/// the framework hands this store a name already sanitized to a basename
-/// (GH #90). Writing the file is this app's job; swapping in an object store
+/// the framework hands this store a name already sanitized to a basename.
+/// Writing the file is this app's job; swapping in an object store
 /// means replacing this type and nothing else.
 ///
-/// The media library's page builds this store too (GH #248): it parses its own
+/// The media library's page builds this store too: it parses its own
 /// multipart body, so the sanitized name is not the framework's to guarantee
 /// there — the store applies [`basename`] itself rather than trusting every
 /// caller to have done it.
@@ -1318,14 +1311,14 @@ impl Uploader for DirUploader {
             .await
             .map_err(|_| "the upload could not be written".to_string())?;
         // The caller stores this string and renders it verbatim as the file's
-        // URL (GH #242), so it has to be one: the segment is percent-encoded,
+        // URL, so it has to be one: the segment is percent-encoded,
         // or `cover #1.png` would be served as `cover ` plus a fragment, and a
         // `%22` the browser sent in the filename would decode to a quote the
         // file on disk does not carry.
         Ok(format!("{UPLOAD_URL_PREFIX}/{}", url_segment(&name)))
     }
 
-    /// Whether the served directory still holds the file a URL names (GH #297).
+    /// Whether the served directory still holds the file a URL names.
     ///
     /// The candidate comes from a form the panel re-rendered, so it is a URL
     /// this store itself produced; the check is a lookup rather than a path
@@ -1362,14 +1355,12 @@ impl Uploader for DirUploader {
 /// `filename` and the file on disk cannot disagree.
 const MAX_BASENAME_BYTES: usize = 218;
 
-/// Reduce a client-supplied filename to the basename this app stores and shows
-/// (GH #90).
-///
+/// Reduce a client-supplied filename to the basename this app stores and shows.
 /// Strips directory components (`../../etc/passwd` → `passwd`), drops control
 /// characters, trims the ends, and caps the byte length preserving the tail, so
 /// the extension survives. The framework sanitizes the names its own form
 /// parser hands an [`Uploader`]; the media library's page parses its own
-/// multipart body (GH #248), and this is the one rule both callers apply.
+/// multipart body, and this is the one rule both callers apply.
 pub(crate) fn basename(raw: &str) -> String {
     let base = raw.rsplit(['/', '\\']).next().unwrap_or(raw);
     let clean: String = base.chars().filter(|c| !c.is_control()).collect();
@@ -1378,7 +1369,7 @@ pub(crate) fn basename(raw: &str) -> String {
         return trimmed.to_string();
     }
     // Walk the cut point forward to a char boundary: slicing a multibyte
-    // character would panic on an attacker-controlled filename (GH #90).
+    // character would panic on an attacker-controlled filename.
     let mut start = trimmed.len() - MAX_BASENAME_BYTES;
     while !trimmed.is_char_boundary(start) {
         start += 1;
@@ -1390,7 +1381,7 @@ pub(crate) fn basename(raw: &str) -> String {
 /// percent-encoded (RFC 3986 §2.3).
 ///
 /// The store's contract is that the string it returns is fetchable verbatim
-/// (GH #242), and a client filename is arbitrary: a space must not become the
+/// and a client filename is arbitrary: a space must not become the
 /// end of the URL, a `#` must not start a fragment, and a `%` must not decode
 /// to something else.
 fn url_segment(name: &str) -> String {
@@ -1418,14 +1409,14 @@ fn build_router(db: Db, bundle: Option<AssetBundle>, uploads: Option<PathBuf>) -
                 "data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2024%2024'%3E%3Ccircle%20cx='12'%20cy='12'%20r='10'%20fill='%236366f1'/%3E%3Ctext%20x='12'%20y='16'%20text-anchor='middle'%20font-size='12'%20fill='white'%20font-family='sans-serif'%3EA%3C/text%3E%3C/svg%3E",
             ),
         )
-        // Light by default (GH #184): the header toggle is the only thing that
+        // Light by default: the header toggle is the only thing that
         // turns dark on. `Panel::dark_mode` stays available for an app that
         // wants a dark-first panel.
         .resource::<UserResource>()
         .resource::<AuthorResource>()
         .resource::<PostResource>()
         .resource::<CommentResource>();
-    // No "Published" saved-view entry (GH #184): it would point at
+    // No "Published" saved-view entry: it would point at
     // `/admin/posts?filters=status:published`, i.e. the Blog Posts table with a
     // filter — the same page twice in the sidebar, and the one arrangement the
     // shell's path matching highlights twice at once.
@@ -1438,7 +1429,7 @@ fn build_router(db: Db, bundle: Option<AssetBundle>, uploads: Option<PathBuf>) -
         panel = panel.login_hint(hint);
     }
     if let Some(dir) = uploads {
-        // Both ends of the demo (GH #188): the store writes into `dir` and
+        // Both ends of the demo: the store writes into `dir` and
         // returns `{UPLOAD_URL_PREFIX}/…`, and the panel serves exactly that
         // prefix from the same directory — which is why the stored path is
         // fetchable without the framework inventing a URL convention.

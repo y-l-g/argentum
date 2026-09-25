@@ -1,4 +1,4 @@
-// Keystroke-live search debounce for Argentum tables (GH #172).
+// Keystroke-live search debounce for Argentum tables.
 //
 // The live search input (`data-live-search-input`) is deliberately unbound:
 // typing stays local until it pauses, so a burst like "published" triggers

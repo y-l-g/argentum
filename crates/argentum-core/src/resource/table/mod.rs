@@ -1,8 +1,8 @@
 //! The [`Table`] builder plus query planning (`filter_expr`/`search_expr`/`order_bys_for`).
 //!
 //! Rendering lives in [`render`](self::render), CSV export in [`export`](self::export).
-//! One routine applies the declaration for both loaders (GH #210) and the
-//! essentials check covers the action chrome the panel wires (GH #207).
+//! One routine applies the declaration for both loaders and the
+//! essentials check covers the action chrome the panel wires.
 
 use std::{marker::PhantomData, sync::Arc};
 
@@ -28,11 +28,11 @@ pub type RowKey<M> = Arc<dyn Fn(&M) -> String + Send + Sync>;
 /// (typically `|u| u.status.clone()`).
 pub type GroupKey<M> = Arc<dyn Fn(&M) -> String + Send + Sync>;
 
-/// Per-record action policy: reads which row actions one model instance allows
-/// (GH #235). See [`Table::row_actions`].
+/// Per-record action policy: reads which row actions one model instance allows.
+/// See [`Table::row_actions`].
 pub type RowPolicy<M> = Arc<dyn Fn(&M) -> RowActions + Send + Sync>;
 
-/// Which row actions one record may use (GH #235).
+/// Which row actions one record may use.
 ///
 /// The per-record half of `TableChrome`: the chrome flags say which
 /// affordances a resource declares, this says which of them the caller may use
@@ -53,10 +53,10 @@ pub struct RowActions {
     /// `can_view`.
     pub view: bool,
     /// Whether the row renders its `Edit` link — the edit route's `can_view`
-    /// **and** `can_update` (GH #86).
+    /// **and** `can_update`.
     pub edit: bool,
     /// Whether the row renders its `Delete` link and an enabled bulk checkbox —
-    /// the delete route's `can_view` **and** `can_delete` (GH #168).
+    /// the delete route's `can_view` **and** `can_delete`.
     pub delete: bool,
 }
 
@@ -72,14 +72,14 @@ impl RowActions {
 }
 
 /// A named grouping a `Table` can render: `name` is the `?group_by=` value
-/// the table accepts, `key` projects a row to its group label (GH #92).
+/// the table accepts, `key` projects a row to its group label.
 pub struct GroupDef<M> {
     name: String,
     key: GroupKey<M>,
 }
 
 /// The action chrome a caller attaches to a [`Table`] after
-/// [`Resource::table`](crate::resource::Resource::table) returned (GH #207).
+/// [`Resource::table`](crate::resource::Resource::table) returned.
 ///
 /// `R::table(cx)` declares columns, filters, grouping and the row keys, but the
 /// row actions are wired later — [`Table`] carries no delete/edit/view prefix
@@ -108,11 +108,11 @@ impl TableChrome {
 }
 
 /// A [`TableState`] whose `group_by` has already been checked against the
-/// table's declared grouping (GH #92, GH #153).
+/// table's declared grouping.
 ///
 /// [`Table::normalize_state`] is the only constructor, so a seam that takes
 /// one reads the pre-normalized `group_by` directly and cannot normalize a
-/// second time — or forget to normalize at all (GH #224). The request entry
+/// second time — or forget to normalize at all. The request entry
 /// builds it once (the panel's list page, the `table_search` shard) and every
 /// seam below takes this proof; the public render seams keep accepting a raw
 /// `&TableState` and normalize it themselves, so an external page calling them
@@ -131,14 +131,14 @@ impl std::ops::Deref for NormalizedState {
 }
 
 /// How [`Table::order_bys_for`] falls back when `?sort=` names no sortable
-/// column (GH #210): the one axis the list loader and the CSV export
+/// column: the one axis the list loader and the CSV export
 /// legitimately disagree on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OrderMode {
-    /// List loading (GH #96): the PK fallback applies only to a paginated
+    /// List loading: the PK fallback applies only to a paginated
     /// table, where toasty's cursor pagination needs a deterministic order.
     List,
-    /// CSV export (GH #172): the chunked cursor walk needs a deterministic
+    /// CSV export: the chunked cursor walk needs a deterministic
     /// order whether or not the table paginates, so the PK fallback applies
     /// whenever no sortable column is declared.
     Export,
@@ -237,10 +237,10 @@ impl<M> Table<M> {
     /// Required before [`Self::render`]: row identity is not optional
     /// (`CONTEXT.md` Table) — renders without it return an error rather than
     /// falling back to loop indices. The projection must be injective within
-    /// a page (GH #96): duplicate keys corrupt keyed diffs and bulk selection,
+    /// a page: duplicate keys corrupt keyed diffs and bulk selection,
     /// and are debug-asserted at render time.
     ///
-    /// Display key only (GH #168): this drives keyed diffs and DOM ids —
+    /// Display key only: this drives keyed diffs and DOM ids —
     /// never record fetches. Action URLs and bulk values
     /// come from [`Self::pk`], which handlers resolve as the model's typed
     /// PK. The two agree in the common case (`|u| u.id.to_string()`) and
@@ -251,7 +251,7 @@ impl<M> Table<M> {
     }
 
     /// Declare the record-key projection for action URLs and bulk checkbox
-    /// values (typically `|u| u.id.to_string()`), GH #168.
+    /// values (typically `|u| u.id.to_string()`).
     ///
     /// Required before [`Self::render`] whenever action chrome is on
     /// ([`Self::with_delete`], [`Self::with_edit`], [`Self::with_view`],
@@ -266,7 +266,7 @@ impl<M> Table<M> {
         self
     }
 
-    /// Declare the per-record action policy (GH #235): which of the wired row
+    /// Declare the per-record action policy: which of the wired row
     /// actions each record may use.
     ///
     /// The `with_*` methods say which affordances the table declares; this says
@@ -296,7 +296,7 @@ impl<M> Table<M> {
 
     /// Declare columns. Accepts a single column or tuple of columns.
     ///
-    /// Panics on duplicate [`TextColumn::name`] (GH #156): sort resolution is
+    /// Panics on duplicate [`TextColumn::name`]: sort resolution is
     /// first-sortable-`name()`-match, so duplicate sortable names would
     /// silently misresolve `?sort=`. The guard covers computed names too
     /// (`TextColumn::computed("Status", ..)` derives `name = "status"`) for
@@ -321,7 +321,7 @@ impl<M> Table<M> {
 
     /// Declare filters. Accepts a single filter or tuple of filters.
     ///
-    /// Panics on duplicate [`Filter::name`] (GH #294), the same fail-loud
+    /// Panics on duplicate [`Filter::name`], the same fail-loud
     /// policy as [`Self::columns`]: the `filters` transport is one
     /// `name:value` pair per declared filter, and `parse_filters_param` keeps
     /// the first value for a duplicated key, so two filters sharing a name
@@ -344,7 +344,7 @@ impl<M> Table<M> {
     }
 
     /// The relations this table's columns declared their projections read,
-    /// merged into one set (GH #177).
+    /// merged into one set.
     ///
     /// The export hands this to
     /// [`Resource::export_query`](super::Resource::export_query), which is
@@ -387,15 +387,15 @@ impl<M> Table<M> {
         }
     }
 
-    /// Requested filters that produced no predicate (GH #93): `(key:value, reason)`
+    /// Requested filters that produced no predicate: `(key:value, reason)`
     /// where reason is `"unknown filter"` (no declared filter owns the key)
     /// or `"invalid value"` (the declared filter rejected the value).
     ///
-    /// Documented no-op values are exempt (GH #170): `TernaryFilter`'s `all`
+    /// Documented no-op values are exempt: `TernaryFilter`'s `all`
     /// selects no predicate by contract, so it is never flagged.
     ///
     /// An oversized `?filters=` transport arrives here as
-    /// `FILTERS_OVERFLOW_SEGMENT` (GH #205), reported with its own reason so
+    /// `FILTERS_OVERFLOW_SEGMENT`, reported with its own reason so
     /// the warning says the transport was refused rather than misdescribing it
     /// as malformed.
     ///
@@ -432,11 +432,11 @@ impl<M> Table<M> {
     ///
     /// `name` declares the `?group_by=` value this table accepts
     /// (e.g. `"status"`); any other value renders no group headers and is
-    /// dropped from pager/sort/filter links (GH #92) instead of silently
+    /// dropped from pager/sort/filter links instead of silently
     /// grouping by the single declared key. Counts are page-local.
     ///
     /// In live tables the page-load value seeds the `group_by` interaction
-    /// signal (GH #157) and persists across in-place reruns; changing it is
+    /// signal and persists across in-place reruns; changing it is
     /// still a navigation (`?group_by=` links) until a live control ships.
     pub fn group_by(
         mut self,
@@ -450,7 +450,7 @@ impl<M> Table<M> {
         self
     }
 
-    /// The declared grouping iff `state.group_by` names it (GH #92).
+    /// The declared grouping iff `state.group_by` names it.
     fn effective_group_key(&self, state: &TableState) -> Option<GroupKey<M>> {
         match (&self.group_by, &state.group_by) {
             (Some(def), Some(want)) if def.name == *want => Some(def.key.clone()),
@@ -466,7 +466,7 @@ impl<M> Table<M> {
     /// the proof ([`NormalizedState`]): the panel's list page and the
     /// `table_search` shard normalize at the point they parse the state, and
     /// pass the result down, so a live list request normalizes once instead of
-    /// once per seam (GH #224). The public seams still normalize their own
+    /// once per seam. The public seams still normalize their own
     /// `&TableState` argument, so a page calling them directly keeps the GH
     /// #153 guarantee without knowing about this type.
     pub(crate) fn normalize_state(&self, state: &TableState) -> NormalizedState {
@@ -486,7 +486,7 @@ impl<M> Table<M> {
     /// declares no sortable column (see [`Self::order_bys_for`]).
     ///
     /// A zero page size is a programmer error: it fails loudly at render/load
-    /// time with a descriptive error (GH #96), never a bare panic.
+    /// time with a descriptive error, never a bare panic.
     pub fn paginate(mut self, per_page: usize) -> Self {
         self.page_size = Some(per_page);
         self
@@ -497,7 +497,7 @@ impl<M> Table<M> {
         self.page_size
     }
 
-    /// Which row actions `record` allows (GH #235): the declared
+    /// Which row actions `record` allows: the declared
     /// [`Self::row_actions`] policy, or [`RowActions::ALL`] when the table
     /// declares none.
     ///
@@ -522,7 +522,7 @@ impl<M> Table<M> {
     ///
     /// Defaults to showing the bar whenever the table declares filters. The
     /// live list hoists the bar out of the swapped table and turns it off here
-    /// (GH #166), mirroring how `search(false)` hands the search toolbar to the
+    /// mirroring how `search(false)` hands the search toolbar to the
     /// page: a `<select>` that is rebuilt by its own rerun loses focus and
     /// collapses its native popup.
     pub fn filter_bar(mut self, enabled: bool) -> Self {
@@ -530,7 +530,7 @@ impl<M> Table<M> {
         self
     }
 
-    /// Keystroke-live search via the `table_search` shard (GH #104).
+    /// Keystroke-live search via the `table_search` shard.
     ///
     /// When enabled, the toolbar renders a signal-backed input that
     /// re-renders the table after a short keystroke-quiet delay (GH #172,
@@ -541,7 +541,7 @@ impl<M> Table<M> {
     /// GH #223) and every arg is validated like the GET path.
     /// Per-row `can_view` is not applied here, matching the list page:
     /// page-local row filtering would mislabel pagination, so row scoping
-    /// belongs in `Resource::query`, inside that scope (GH #86).
+    /// belongs in `Resource::query`, inside that scope.
     /// Note: Topcoat coalesces same-tick keystrokes and aborts in-flight
     /// reruns (latest wins); the time-based debounce above composes with
     /// that (delayed writes rerun normally).
@@ -554,9 +554,9 @@ impl<M> Table<M> {
     /// `Delete` button that POSTs to `{prefix}/{id}/delete` with
     /// `requires_confirmation` semantics. `{id}` is the [`Self::pk`]
     /// record key (handlers resolve it as the typed PK) — rendering with
-    /// delete chrome but no `pk` is a render error (GH #168).
+    /// delete chrome but no `pk` is a render error.
     ///
-    /// The action is gated per record by [`Self::row_actions`] (GH #235): a row
+    /// The action is gated per record by [`Self::row_actions`]: a row
     /// the policy denies renders no `Delete` link and a disabled bulk checkbox,
     /// matching the handler's `can_view` + `can_delete` check.
     pub fn with_delete(mut self, prefix: String) -> Self {
@@ -564,23 +564,22 @@ impl<M> Table<M> {
         self
     }
 
-    /// Enable row-level `Edit` action (GH #162). When set, each row renders
+    /// Enable row-level `Edit` action. When set, each row renders
     /// an `Edit` link to `{prefix}/{id}/edit` (Filament's `recordActions`
     /// `EditAction`, same last-column slot as `Delete`). `{id}` is the
     /// [`Self::pk`] record key — rendering with edit chrome but no `pk` is a
-    /// render error (GH #168).
+    /// render error.
     ///
-    /// The action is gated per record by [`Self::row_actions`] (GH #235): a row
+    /// The action is gated per record by [`Self::row_actions`]: a row
     /// the policy denies renders no `Edit` link, matching the edit route's
     /// `can_view` + `can_update` check. The list still renders every row —
-    /// `can_view` stays out of the query, so pagination is not mislabelled
-    /// (GH #86).
+    /// `can_view` stays out of the query, so pagination is not mislabelled.
     pub fn with_edit(mut self, prefix: String) -> Self {
         self.edit_prefix = Some(prefix);
         self
     }
 
-    /// Enable the row-level `View` action (GH #187). When set, each row renders
+    /// Enable the row-level `View` action. When set, each row renders
     /// a `View` link to `{prefix}/{id}` — the detail page — in the same
     /// last-column slot as `Edit` and `Delete`. `{id}` is the [`Self::pk`]
     /// record key, like the edit URL.
@@ -588,7 +587,7 @@ impl<M> Table<M> {
     /// The caller sets this only for a resource that declares a detail page
     /// ([`Resource::viewed`](crate::resource::Resource::viewed)), so a resource
     /// with no view renders no link instead of one that 404s. The action is
-    /// gated per record by [`Self::row_actions`] (GH #235): a row the policy
+    /// gated per record by [`Self::row_actions`]: a row the policy
     /// denies renders no `View` link, matching the detail route's `can_view`.
     pub fn with_view(mut self, prefix: String) -> Self {
         self.view_prefix = Some(prefix);
@@ -597,10 +596,10 @@ impl<M> Table<M> {
 
     /// Enable bulk selection with `BulkDelete` action. Checkbox values are
     /// the [`Self::pk`] record keys (handlers resolve them as typed PKs) —
-    /// rendering with bulk chrome but no `pk` is a render error (GH #168).
+    /// rendering with bulk chrome but no `pk` is a render error.
     ///
     /// A row the [`Self::row_actions`] policy denies `delete` renders its
-    /// checkbox `disabled` with the reason as its accessible label (GH #235),
+    /// checkbox `disabled` with the reason as its accessible label,
     /// so select-all never submits a batch the handler's all-or-nothing check
     /// refuses.
     pub fn with_bulk_delete(mut self, enabled: bool) -> Self {
@@ -609,7 +608,7 @@ impl<M> Table<M> {
     }
 
     /// Whether the bulk checkbox column renders: bulk selection plus a delete
-    /// prefix to post to (GH #74).
+    /// prefix to post to.
     fn bulk_enabled(&self) -> bool {
         self.bulk_delete && self.delete_prefix.is_some()
     }
@@ -617,7 +616,7 @@ impl<M> Table<M> {
     /// Global search predicate — OR across searchable columns.
     ///
     /// Substring match (`?q=` anywhere in the value), escaped so a term
-    /// containing `%` or `_` stays literal (GH #116); see
+    /// containing `%` or `_` stays literal; see
     /// [`TextColumn::to_search_expr`](crate::resource::TextColumn::to_search_expr)
     /// for the driver case-sensitivity caveat.
     pub fn search_expr(&self, term: &str) -> Option<Expr<bool>>
@@ -637,7 +636,7 @@ impl<M> Table<M> {
     /// app-level tie-breaker: toasty's engine appends the physical PK columns
     /// to ambiguous cursor orderings internally (`normalize_cursor_order`,
     /// tokio-rs/toasty#1142), so page contents are deterministic on SQL
-    /// backends without Argentum's help (GH #76).
+    /// backends without Argentum's help.
     pub fn order_by(&self, descending: bool) -> Option<OrderByExpr>
     where
         M: toasty::schema::Model,
@@ -657,7 +656,7 @@ impl<M> Table<M> {
     /// # Panics
     ///
     /// Never panics: a non-root model has no primary key, so this returns
-    /// empty (and debug-asserts) instead of panicking per request (GH #96) —
+    /// empty (and debug-asserts) instead of panicking per request —
     /// the engine then reports its descriptive "requires an ORDER BY" error
     /// at load.
     fn pk_order_bys() -> Vec<OrderByExpr>
@@ -680,7 +679,7 @@ impl<M> Table<M> {
             .collect()
     }
 
-    /// Resolve the full query ordering for a request (GH #210).
+    /// Resolve the full query ordering for a request.
     ///
     /// Single source of truth for loaders, render and the export:
     /// 1. `?sort=<column>&dir=asc|desc` when `<column>` names a declared sortable column — that
@@ -716,14 +715,14 @@ impl<M> Table<M> {
     }
 
     /// Apply this table's declaration to `query` — the one routine that turns
-    /// the search term, the filters and the ordering into a query (GH #210).
+    /// the search term, the filters and the ordering into a query.
     ///
     /// `query` is the caller's seed, which is the one thing the two loaders
     /// legitimately differ on: the list loads the tenant-scoped
     /// [`Resource::query`](crate::resource::Resource::query) (the row-scoping
     /// seam, ADR-0002) while the export loads the tenant-scoped
     /// [`Resource::export_query`](crate::resource::Resource::export_query),
-    /// narrowed to the relations the rendered columns declared (GH #177).
+    /// narrowed to the relations the rendered columns declared.
     /// `mode` picks the ordering fallback each caller needs.
     ///
     /// Everything else is shared, so a new search or filter dimension cannot
@@ -757,7 +756,7 @@ impl<M> Table<M> {
     /// The loader half of the live-table seam (GH #154 §2): a page that owns
     /// its own table (the showcase demos) can hand its shard a query and this
     /// hook applies the same declaration pipeline `panel::load_table_page`
-    /// applies to the tenant-scoped `Resource::query` (GH #223), so a
+    /// applies to the tenant-scoped `Resource::query`, so a
     /// page-level shard does not
     /// reimplement filtering, ordering, or cursor validation.
     ///
@@ -777,9 +776,7 @@ impl<M> Table<M> {
         self.load_with_probe(cx, query.clone(), query, state).await
     }
 
-    /// [`Self::load`] with a separate seed for the cursor-existence probes
-    /// (GH #298).
-    ///
+    /// [`Self::load`] with a separate seed for the cursor-existence probes.
     /// The probes only ask whether one more row exists past a cursor, so they
     /// read no relation and do not need `query`'s includes. `probe_query` is
     /// the same scope and declaration pipeline with those includes dropped;
@@ -801,7 +798,7 @@ impl<M> Table<M> {
             .into());
         }
         // The declaration becomes predicates and an ordering through the one
-        // shared routine (GH #210) — the export loader applies the same one to
+        // shared routine — the export loader applies the same one to
         // its own seed query.
         let query = self.apply_declaration(query, state, OrderMode::List);
         let mut db = crate::db::db(cx);
@@ -811,15 +808,15 @@ impl<M> Table<M> {
                 // cursor validation: Toasty's `Page` sets `next_cursor`
                 // optimistically whenever `len == page_size`, which leaves a
                 // phantom cursor when the page sits exactly at a boundary. The
-                // probe seed carries no relation includes (GH #298) because the
+                // probe seed carries no relation includes because the
                 // probes only ask whether a row exists.
                 let base_query = self.apply_declaration(probe_query, state, OrderMode::List);
                 let mut paginated = toasty::stmt::Paginate::new(query, per_page);
-                // Toasty cursor pagination takes exactly one cursor (GH #155):
+                // Toasty cursor pagination takes exactly one cursor:
                 // a URL carrying both `?after=` and `?before=` must fail loudly
                 // instead of silently preferring `after` (the GH #93 fail-open
                 // family). The `CursorDecodeError` marker gives the failure the
-                // drop-pagination retry contract (GH #110).
+                // drop-pagination retry contract.
                 if state.after.is_some() && state.before.is_some() {
                     return Err(crate::cursor::CursorDecodeError::conflicting_cursors());
                 }
@@ -833,14 +830,14 @@ impl<M> Table<M> {
                     .await
                     .map_err(|error| reject_cursor(error.into(), state))?;
                 let mut page = TablePage::from_toasty_page(loaded)?;
-                // Cursor-existence probes, one per landing direction (GH #172):
+                // Cursor-existence probes, one per landing direction:
                 // the engine sets `next_cursor`/`prev_cursor` optimistically,
                 // so a page sitting exactly at a boundary carries a phantom
                 // cursor without validation. Each direction probes only the
                 // edge that can lie:
                 // - forward/first landing: prev is exact (absent on the first page; otherwise the
                 //   page we came from exists), next may be phantom at the end boundary → probe next
-                //   on full pages. A short page cannot have a next page (GH #75).
+                //   on full pages. A short page cannot have a next page.
                 // - backward landing: next is exact (the page we came from follows), prev may be
                 //   phantom when the fetch lands on the first page → probe prev whenever one is
                 //   reported.
@@ -855,7 +852,7 @@ impl<M> Table<M> {
                 // Residual (same as ever): a concurrent delete landing between
                 // the main fetch and the click can still void a validated
                 // cursor — that degrades to the void-window recovery link
-                // (GH #98), never to silently skipped rows.
+                // never to silently skipped rows.
                 if state.before.is_some() {
                     if let Some(cursor) = page.prev_cursor.clone() {
                         let probe = toasty::stmt::Paginate::new(base_query, 1)
@@ -891,14 +888,14 @@ impl<M> Table<M> {
         }
     }
 
-    /// The first declaration this table is missing, if any (GH #138).
+    /// The first declaration this table is missing, if any.
     ///
     /// The same checks [`Self::render`](Self::render_with_state) enforces per
     /// request, lifted so [`Panel::build`](crate::panel::Panel::build) can
     /// refuse to serve a resource whose table could never render — the
     /// declaration is knowable at boot, so a request is too late to report it.
     ///
-    /// `chrome` is the action chrome the caller will attach (GH #207): the
+    /// `chrome` is the action chrome the caller will attach: the
     /// declared table carries no delete/edit/view prefix, so the record-key
     /// requirement is only knowable once the wiring is known. The render
     /// enforces the same predicate on the wired table.
@@ -933,7 +930,7 @@ impl<M> Table<M> {
             .unwrap_or_else(|| self.columns.iter().any(|c| c.is_searchable()))
     }
 
-    /// Whether this table renders the keystroke-live search host (GH #104).
+    /// Whether this table renders the keystroke-live search host.
     pub(crate) fn is_live_search(&self) -> bool {
         self.live_search
     }
@@ -941,7 +938,7 @@ impl<M> Table<M> {
     /// Whether the filter bar renders inside the table: the explicit
     /// `filter_bar(bool)` value, or auto — the table declares at least one filter.
     ///
-    /// Live tables turn it off (GH #166): the list page hoists the bar out of
+    /// Live tables turn it off: the list page hoists the bar out of
     /// the swapped region, the same way it owns the search toolbar, so a filter
     /// change cannot rebuild the control the user is interacting with.
     pub(crate) fn filter_bar_enabled(&self) -> bool {
@@ -949,14 +946,14 @@ impl<M> Table<M> {
     }
 }
 
-/// Attribute a failed paginated fetch to the request's cursor (GH #294).
+/// Attribute a failed paginated fetch to the request's cursor.
 ///
 /// A token cut from a different ordering decodes but the engine refuses the
 /// statement (`invalid_statement`: its field count no longer matches the
 /// query's `ORDER BY`). No other statement this paginated loader builds carries
 /// that error while the request names a cursor. Such a failure is the cursor's,
 /// so it takes the cursor-stripped retry contract instead of re-requesting the
-/// identical URL forever; every other failure keeps the cursor (GH #98).
+/// identical URL forever; every other failure keeps the cursor.
 fn reject_cursor(error: topcoat::Error, state: &TableState) -> topcoat::Error {
     let cursored = state.after.is_some() || state.before.is_some();
     let rejected = error
@@ -1044,10 +1041,10 @@ mod tests {
 
     #[tokio::test]
     async fn table_load_rejects_both_cursors() {
-        // GH #155: `?after=` + `?before=` together must fail loudly instead of
-        // silently preferring `after` (the GH #93 fail-open family). The
+        // `?after=` + `?before=` together must fail loudly instead of
+        // silently preferring `after` (the fail-open family). The
         // failure carries the `CursorDecodeError` marker so the retry link
-        // drops pagination (GH #110).
+        // drops pagination.
         let mut db = Db::builder()
             .models(toasty::models!(User))
             .connect("sqlite::memory:")
@@ -1114,7 +1111,7 @@ mod tests {
     #[test]
     fn table_search_expr_ors_across_searchable_columns() {
         let cx = CxTestBuilder::new().build();
-        // GH #156: distinct names — title + status, not one field twice.
+        // distinct names — title + status, not one field twice.
         let tasks_table = Table::<Task>::r#for(&cx).columns((
             TextColumn::r#for(Task::fields().title(), |t| t.title.clone()).searchable(),
             TextColumn::r#for(Task::fields().status(), |t| t.status.clone()).searchable(),
@@ -1127,7 +1124,7 @@ mod tests {
         assert!(table_none.search_expr("Ada").is_none());
     }
 
-    /// GH #177: the export asks its table which relations the rendered
+    /// the export asks its table which relations the rendered
     /// columns declared; the union across columns is that answer, and a table
     /// whose columns read no relation declares nothing (so the resource's
     /// `export_query` can drop every include).
@@ -1153,7 +1150,7 @@ mod tests {
     #[test]
     fn table_order_by_returns_first_sortable() {
         let cx = CxTestBuilder::new().build();
-        // GH #156: distinct names — title sortable + status plain.
+        // distinct names — title sortable + status plain.
         let tasks_table = Table::<Task>::r#for(&cx).columns((
             TextColumn::r#for(Task::fields().title(), |t| t.title.clone()).sortable(),
             TextColumn::r#for(Task::fields().status(), |t| t.status.clone()),
@@ -1172,7 +1169,7 @@ mod tests {
         let orders = users_table.order_bys_for(&TableState::default(), OrderMode::List);
         // Single sortable column, no app-level PK suffix — toasty's engine
         // appends the physical PK columns to ambiguous cursor orderings
-        // internally (GH #76).
+        // internally.
         assert_eq!(orders.len(), 1, "sortable column only, got {orders:?}");
         // No sortable → empty
         let table_none = Table::<User>::r#for(&cx)
@@ -1241,7 +1238,7 @@ mod tests {
                 .is_empty()
         );
 
-        // The export mode pins an unordered table to PK order (GH #172):
+        // The export mode pins an unordered table to PK order:
         // the chunked cursor walk needs a deterministic order whether or not
         // the table paginates.
         assert_eq!(
@@ -1300,12 +1297,9 @@ mod tests {
 
     #[tokio::test]
     async fn table_renders_inside_the_boundary_region() {
-        // GH #136: relocated from the showcase (`table_boundary_and_memoize`)
-        // — core owns the boundary contract; the showcase owns HTTP wiring.
-        // The topcoat `#[memoize]` half stays upstream and is not re-pinned
-        // here. The region is unconditional since GH #220 dropped the
-        // `boundary(..)` opt-out (it had no caller), so the table always lands
-        // where a morph can swap it.
+        // Core owns the boundary contract; the showcase owns HTTP wiring, and
+        // the topcoat `#[memoize]` half stays upstream. The region is
+        // unconditional, so the table always lands where a morph can swap it.
         use topcoat::view::ViewExt;
 
         let cx = CxTestBuilder::new().build();
@@ -1339,7 +1333,7 @@ mod tests {
 
     #[test]
     fn unapplied_filters_flags_unknown_keys_and_rejected_values() {
-        // GH #93: typo'd keys and allowlist-missed values must be visible,
+        // typo'd keys and allowlist-missed values must be visible,
         // never silently unfiltered.
         let cx = CxTestBuilder::new().build();
         let tbl = status_table(&cx);
@@ -1361,7 +1355,7 @@ mod tests {
 
     #[test]
     fn unapplied_filters_flags_a_refused_filters_transport() {
-        // GH #205: an oversized `?filters=` is refused whole rather than
+        // an oversized `?filters=` is refused whole rather than
         // partially applied, and it reads as its own reason — not as a
         // malformed segment — so the list banner explains itself and the
         // export's 400 is the fail-closed guard instead of a silent drop.
@@ -1384,7 +1378,7 @@ mod tests {
 
     #[test]
     fn ternary_all_is_a_neutral_noop_not_an_invalid_value() {
-        // GH #170: `all` is the documented TernaryFilter no-op — it selects
+        // `all` is the documented TernaryFilter no-op — it selects
         // no predicate AND is never flagged, so the list shows no warning
         // and the export (which refuses on any unapplied filter) stays 200.
         let cx = CxTestBuilder::new().build();
@@ -1414,10 +1408,10 @@ mod tests {
 
     #[tokio::test]
     async fn filter_banner_reports_unfiltered_when_nothing_applies() {
-        // GH #170: an invalid-only request applies no predicate, so the
+        // an invalid-only request applies no predicate, so the
         // banner must say "showing unfiltered results" — "other filter(s)
-        // still apply" would be the lie. Mixed valid+invalid keeps the old
-        // tail (GH #148).
+        // still apply" would be the lie. Mixed valid+invalid keeps the other
+        // filters.
         use topcoat::view::ViewExt;
         let cx = CxTestBuilder::new().build();
         let tbl = status_table(&cx);
@@ -1446,9 +1440,9 @@ mod tests {
     #[test]
     #[should_panic(expected = "duplicate column name")]
     fn duplicate_column_name_panics_on_field_computed_collision() {
-        // GH #156: computed("Status") derives name "status", colliding with
+        // computed("Status") derives name "status", colliding with
         // the field column's name — the TextColumn::name namespace must stay
-        // unique even though computeds are never sortable today (GH #101).
+        // unique even though computeds are never sortable today.
         let _ = Table::<Task>::new().columns((
             TextColumn::r#for(Task::fields().status(), |t: &Task| t.status.clone()).sortable(),
             TextColumn::computed("Status", |t: &Task| t.status.clone()),
@@ -1458,7 +1452,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "duplicate column name")]
     fn duplicate_column_name_panics_on_case_only_computed_collision() {
-        // GH #156: computed names are label.to_lowercase(), so labels
+        // computed names are label.to_lowercase(), so labels
         // differing only by case still collide.
         let _ = Table::<User>::new().columns((
             TextColumn::computed("Status", |u: &User| u.name.clone()),
@@ -1469,7 +1463,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "duplicate column name")]
     fn duplicate_column_name_panics_on_duplicate_field() {
-        // GH #156: same guard covers two bindings of one field.
+        // same guard covers two bindings of one field.
         let _ = Table::<User>::new().columns((
             TextColumn::r#for(User::fields().name(), |u: &User| u.name.clone()),
             TextColumn::r#for(User::fields().name(), |u: &User| u.name.clone()),
@@ -1479,7 +1473,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "duplicate filter name")]
     fn duplicate_filter_name_panics_on_duplicate_field() {
-        // GH #294: the transport names a filter by its field, and the parser
+        // the transport names a filter by its field, and the parser
         // keeps the first value for a duplicated key, so two filters on one
         // field would silently drop one. Refuse the declaration instead.
         let _ = Table::<Task>::new().filters((
@@ -1516,7 +1510,7 @@ mod tests {
 
     #[tokio::test]
     async fn full_walk_reaches_every_row_exactly_once_without_phantoms() {
-        // GH #172: prev/next existence must be exact at every boundary — no
+        // prev/next existence must be exact at every boundary — no
         // phantom links to empty pages, and no skipped rows. A `LIMIT
         // per_page+1` fold with the extra row trimmed would anchor the next
         // link past the extra row (the engine derives cursors from the last
@@ -1568,7 +1562,7 @@ mod tests {
 
     #[tokio::test]
     async fn exact_boundary_pages_carry_exact_cursors() {
-        // GH #172: a full page sitting exactly at the boundary (4 rows,
+        // a full page sitting exactly at the boundary (4 rows,
         // `paginate(2)`) must report no next page — the engine's optimistic
         // `next_cursor` alone would be a phantom link to an empty page.
         let cx = seeded_users(&["u01", "u02", "u03", "u04"]).await;
@@ -1724,7 +1718,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn full_page_costs_main_plus_single_direction_probe() {
-        // GH #172: a full page costs the main fetch plus exactly one `LIMIT
+        // a full page costs the main fetch plus exactly one `LIMIT
         // 1` existence probe — next on forward/first landings, prev on
         // backward landings (each direction probes only the edge that can
         // lie). A short forward page costs the main fetch alone. Counts are
@@ -1863,7 +1857,7 @@ mod tests {
 
     #[tokio::test]
     async fn stale_cursor_is_marked_for_retry() {
-        // GH #294: a token cut from another ordering decodes but the engine
+        // a token cut from another ordering decodes but the engine
         // refuses the statement (the cursor's field count no longer matches
         // the query's `ORDER BY`). That failure is the cursor's, so it carries
         // a cursor marker and the retry drops pagination instead of repeating
@@ -1928,7 +1922,7 @@ mod tests {
             "the refusal is not a decode failure, got {error}"
         );
 
-        // A transient failure keeps the cursor (GH #98): a failure the cursor
+        // A transient failure keeps the cursor: a failure the cursor
         // did not cause carries no marker, so `retry_url_for_error` keeps the
         // pagination it was given.
         let transient = topcoat::Error::from(std::io::Error::other("database unavailable"));

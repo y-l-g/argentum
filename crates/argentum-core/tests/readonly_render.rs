@@ -1,4 +1,4 @@
-//! The read-only side of a `Schema` (GH #187): what a detail page renders.
+//! The read-only side of a `Schema`: what a detail page renders.
 //!
 //! These pin the *shape* — the promise that a view is a reading of a record,
 //! not a disabled form — because the showcase's HTTP tests can only check that
@@ -122,7 +122,7 @@ async fn a_select_without_a_matching_option_shows_the_stored_value() {
 /// A group is a layout, so a view renders its label over its children's
 /// values — and none of a form's affordances. A required group emits no `*`
 /// marker and no `aria-invalid` on the detail page, because the repeater
-/// renders through its own path rather than a field's `render_with` (GH #187).
+/// renders through its own path rather than a field's `render_with`.
 #[tokio::test]
 async fn a_repeater_renders_its_children_without_form_affordances() {
     let schema = Schema::new(
@@ -147,13 +147,13 @@ async fn a_repeater_renders_its_children_without_form_affordances() {
 
 #[tokio::test]
 async fn an_empty_value_renders_as_empty() {
-    // The framework stores `""` rather than NULL (GH #89), so a stored record
+    // The framework stores `""` rather than NULL, so a stored record
     // cannot distinguish absent from empty — and the page must not imply it
     // can (no "(none)", no dash, no placeholder text).
     let schema = Schema::new(TextInput::r#for(Doc::fields().title()));
     let absent = render(&schema, &HashMap::new()).await;
     // The framework stores `""`, never NULL, so a *present* empty value and an
-    // absent key are the same record state and must read the same (GH #89).
+    // absent key are the same record state and must read the same.
     // Compare the value node rather than the whole markup: topcoat renders
     // attributes in no guaranteed order (topcoat#122), so two identical
     // renderings differ in attribute order.
@@ -164,7 +164,7 @@ async fn an_empty_value_renders_as_empty() {
     .await;
     // The value node is the innermost `<div>` of the rendered field: located
     // structurally rather than by its utility classes, so a restyle cannot
-    // silently turn the lookup into an empty string (GH #216).
+    // silently turn the lookup into an empty string.
     let value = |html: &str| {
         let start = html.rfind("<div").expect("each render has the value node");
         let open_end = html[start..].find('>').expect("its tag's end") + start + 1;

@@ -48,10 +48,10 @@ where
         toasty_core::stmt::Type::F32 => toasty_core::stmt::Value::F32(id.parse().ok()?),
         toasty_core::stmt::Type::F64 => toasty_core::stmt::Value::F64(id.parse().ok()?),
         // Bytes PKs have no canonical URL text form; accept the UTF-8 bytes so
-        // list/edit round-trip instead of 404ing (GH #95).
+        // list/edit round-trip instead of 404ing.
         toasty_core::stmt::Type::Bytes => toasty_core::stmt::Value::Bytes(id.as_bytes().to_vec()),
         // Temporal PKs parse from their canonical string forms, in lockstep
-        // with the cursor codec (GH #95). Decimal/net PKs need Toasty
+        // with the cursor codec. Decimal/net PKs need Toasty
         // features this build doesn't enable (`rust_decimal`, `bigdecimal`,
         // `net`) and composite keys have no URL representation — both stay
         // documented limits.
@@ -65,7 +65,7 @@ where
     Some((fid, value))
 }
 
-/// Whether `M`'s primary key is composite (GH #95): more than one field.
+/// Whether `M`'s primary key is composite: more than one field.
 /// Composite keys have no URL representation in Argentum (row keys are plain
 /// `String`s), so handlers fail loudly (500, programmer error) instead of
 /// 404ing every id and hiding the misconfiguration.
@@ -85,7 +85,7 @@ where
 /// Consumers: the panel's edit/delete loaders, which filter the
 /// tenant-scoped [`scoped_query`](crate::resource::scoped_query) instead of
 /// fetching
-/// every row and matching row keys in memory (GH #75 item 1).
+/// every row and matching row keys in memory (item 1).
 pub(crate) fn pk_eq_expr<M>(id: &str) -> Option<toasty::stmt::Expr<bool>>
 where
     M: toasty::schema::Model,
@@ -103,7 +103,7 @@ where
 /// cannot exist, so the batch fails closed) or the PK is not a single
 /// primitive field.
 ///
-/// A single `IN` predicate, not an N-way `OR` chain (GH #85): the batch is
+/// A single `IN` predicate, not an N-way `OR` chain: the batch is
 /// still bounded by `MAX_BULK_IDS` in the bulk-delete handler.
 pub(crate) fn pk_in_expr<M>(ids: &[&str]) -> Option<toasty::stmt::Expr<bool>>
 where
@@ -189,7 +189,7 @@ mod tests {
     #[tokio::test]
     async fn zoned_pks_parse_from_url_ids() {
         // Zoned PKs parse from canonical forms, in lockstep with the cursor
-        // codec (GH #95); garbage stays a 404.
+        // codec; garbage stays a 404.
         let z = jiff::civil::date(2024, 1, 15)
             .at(9, 30, 0, 0)
             .to_zoned(jiff::tz::TimeZone::UTC)
@@ -219,7 +219,7 @@ mod tests {
 
     #[tokio::test]
     async fn temporal_pks_parse_from_url_ids() {
-        // Parse level: canonical forms resolve, garbage does not (GH #95).
+        // Parse level: canonical forms resolve, garbage does not.
         assert!(pk_eq_expr::<TemporalPk>("2024-01-15T09:30:00Z").is_some());
         assert!(pk_eq_expr::<TemporalPk>("not-a-time").is_none());
         // Round-trip through sqlite: the parsed value filters the row.

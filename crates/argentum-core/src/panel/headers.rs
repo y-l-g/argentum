@@ -1,4 +1,4 @@
-//! Response hardening headers (GH #176, GH #278).
+//! Response hardening headers.
 //!
 //! The panel serves one document per request, and a document that anyone can
 //! frame is a clickjacking surface on every deployment by default. `Panel`
@@ -6,7 +6,7 @@
 //! where it lands rather than in each deployment's proxy config.
 //!
 //! A served directory shares the panel's origin, so `Panel` also installs
-//! [`ServedFileHeaders`] on each one (GH #278): the files an app accepts from
+//! [`ServedFileHeaders`] on each one: the files an app accepts from
 //! its users are inert, whatever their extension.
 
 use http::{StatusCode, header};
@@ -89,7 +89,7 @@ impl Layer for FrameAncestors {
 }
 
 /// Queue the directive for the error response the router builds after the
-/// layers have returned (GH #295).
+/// layers have returned.
 ///
 /// There is no response to inspect on this path, so the header is appended
 /// rather than inserted: the router's own error responses carry no policy for
@@ -143,7 +143,7 @@ const INLINE_TYPES: &[&str] = &[
 
 /// Emits `X-Content-Type-Options: nosniff`, a fixed sandboxing
 /// `Content-Security-Policy` and `Content-Disposition: attachment` on every file
-/// response the directory route serves (GH #278).
+/// response the directory route serves.
 ///
 /// A served directory shares the panel's origin (ADR-0017 makes it public by
 /// decision), and Topcoat derives `Content-Type` from the file extension, so a
@@ -238,7 +238,7 @@ mod tests {
     fn default_directive_is_self() {
         // The exact literal the browser receives. Comparing against a
         // `#[cfg(test)]` re-implementation of the same `format!` cannot fail
-        // (GH #216): both sides would change together.
+        // both sides would change together.
         let mut response = response();
         insert_frame_ancestors(&mut response, &FrameAncestors::same_origin().directive);
         assert_eq!(

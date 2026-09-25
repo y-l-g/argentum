@@ -1,4 +1,4 @@
-//! The media library (GH #248): the app-level upload path writes a `medias` row
+//! The media library: the app-level upload path writes a `medias` row
 //! tied to its polymorphic owner, the stored rows render a thumbnail or a link,
 //! and the clear control works with and without JavaScript.
 //!

@@ -1,6 +1,6 @@
 //! Delete / bulk-delete / CSV export handlers plus their caps and parsers.
 //!
-//! Fetch, policy checks, and writes share one framework transaction (GH #84):
+//! Fetch, policy checks, and writes share one framework transaction:
 //! a mid-loop failure deletes zero rows.
 
 use topcoat::{
@@ -23,7 +23,7 @@ use crate::{
     resource::Committed,
 };
 
-/// Failure-toast wording for the delete handlers (GH #174).
+/// Failure-toast wording for the delete handlers.
 const WRITE_DELETE: &str = "delete the record";
 const WRITE_BULK_DELETE: &str = "delete the selected rows";
 use crate::{
@@ -35,7 +35,7 @@ use crate::{
 ///
 /// The string id is parsed against the model's primary-key type and the PK
 /// filter is ANDed onto the tenant-scoped
-/// [`scoped_query`](crate::resource::scoped_query) (ADR-0002, GH #223), so
+/// [`scoped_query`](crate::resource::scoped_query) (ADR-0002), so
 /// tenancy and soft-delete scoping both hold. Fetches the one row by key
 /// instead of loading every row and matching keys in memory — O(N) rows per
 /// edit/delete, leaking the whole table before the policy check.
@@ -43,7 +43,7 @@ use crate::{
 /// A malformed or unknown id maps to 404, not a query error.
 ///
 /// Runs on the caller's executor: mutation handlers pass the open framework
-/// transaction (GH #84) so the fetched snapshot is the checked snapshot.
+/// transaction so the fetched snapshot is the checked snapshot.
 pub(crate) async fn find_by_key<R: Resource>(
     cx: &Cx,
     id: &str,
@@ -52,8 +52,8 @@ pub(crate) async fn find_by_key<R: Resource>(
     find_by_key_in::<R>(id, ex, || crate::resource::scoped_query::<R>(cx)).await
 }
 
-/// [`find_by_key`] for a loader that reads only the record's own columns
-/// (GH #298): the same PK filter over
+/// [`find_by_key`] for a loader that reads only the record's own columns: the
+/// same PK filter over
 /// [`scoped_query_with`](crate::resource::scoped_query_with) with an empty
 /// [`IncludeNeeds`](crate::resource::IncludeNeeds), so the edit handler and
 /// delete do not load the relations the record's list or detail page reads. A
@@ -71,7 +71,7 @@ pub(crate) async fn find_by_key_narrowed<R: Resource>(
 }
 
 /// The error a resource with a composite primary key reports when the URL or
-/// batch carries no single-key representation (GH #95). `None` means the model
+/// batch carries no single-key representation. `None` means the model
 /// has a single-column key.
 fn composite_pk_error<R: Resource>() -> Option<topcoat::Error> {
     if !crate::schema::pk_is_composite::<R::Model>() {
@@ -99,7 +99,7 @@ async fn find_by_key_in<R: Resource>(
     seed: impl FnOnce() -> Result<toasty::stmt::Query<toasty::stmt::List<R::Model>>>,
 ) -> Result<R::Model> {
     let Some(expr) = crate::schema::pk_eq_expr::<R::Model>(id) else {
-        // Composite PKs have no URL representation (GH #95): fail loudly so
+        // Composite PKs have no URL representation: fail loudly so
         // the misconfiguration surfaces instead of 404ing every id.
         if let Some(error) = composite_pk_error::<R>() {
             return Err(error);
@@ -116,7 +116,7 @@ async fn find_by_key_in<R: Resource>(
         .map_err(Into::into)
 }
 
-/// Load the record the request names, scoped and policy-checked (GH #187).
+/// Load the record the request names, scoped and policy-checked.
 ///
 /// Reads the `{id}` path param, loads through the tenant-scoped query (which
 /// turns an unknown *or* out-of-scope id into one 404), and returns 403 unless
@@ -132,8 +132,8 @@ pub(crate) async fn load_viewable<R: Resource>(
     load_viewable_in::<R>(cx, ex, false).await
 }
 
-/// [`load_viewable`] for a loader that reads only the record's own columns
-/// (GH #298): the edit page hydrates its fields from the record, so it does
+/// [`load_viewable`] for a loader that reads only the record's own columns:
+/// the edit page hydrates its fields from the record, so it does
 /// not load the relations the record's list or detail page reads.
 pub(crate) async fn load_viewable_narrowed<R: Resource>(
     cx: &Cx,
@@ -146,8 +146,7 @@ pub(crate) async fn load_viewable_narrowed<R: Resource>(
 /// the `{id}` path param, load through the tenant-scoped query, then 403
 /// unless `can_view` accepts the snapshot.
 ///
-/// `narrowed` selects the loader that reads only the record's own columns
-/// (GH #298).
+/// `narrowed` selects the loader that reads only the record's own columns.
 async fn load_viewable_in<R: Resource>(
     cx: &Cx,
     ex: &mut dyn toasty::Executor,
@@ -166,14 +165,14 @@ async fn load_viewable_in<R: Resource>(
 }
 
 /// Delete action POST — confirmation-marked, policy-checked, and run in the
-/// framework transaction (GH #84): the checked record flows into the write.
+/// framework transaction: the checked record flows into the write.
 ///
-/// The confirmation is the row's alert dialog on the list page (GH #151): the
+/// The confirmation is the row's alert dialog on the list page: the
 /// Delete link opens `?delete=<key>` and the dialog's form POSTs here with
-/// `confirm=1`. Authentication comes before any DB work (GH #144): the CSRF
+/// `confirm=1`. Authentication comes before any DB work: the CSRF
 /// check and the confirmation marker run first, so a forged POST answers 403
 /// without opening a transaction, holding a pooled connection across the body
-/// read, or probing record existence (create/bulk-delete ordering, GH #84).
+/// read, or probing record existence (create/bulk-delete ordering).
 /// The dialog itself is deliberately fetch-free and policy-blind: it carries
 /// no record data and embeds only the caller's own CSRF token, and the
 /// policy/tenancy checks run against the loaded record here.
@@ -186,7 +185,7 @@ pub(crate) fn resource_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
             crate::csrf::verify(cx, &values)?;
             let confirmed = values.get("confirm").is_some_and(|v| truthy(v));
             if !confirmed {
-                // The confirmation UI is the list-page alert dialog (GH #151):
+                // The confirmation UI is the list-page alert dialog:
                 // the row link opens `?delete=<key>` and the dialog's form carries
                 // `confirm=1`. This route only accepts that confirmed POST, so a
                 // missing marker is a malformed client, not a user path.
@@ -197,14 +196,14 @@ pub(crate) fn resource_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
             // Confirmed and authenticated: open the transaction only now (GH
             // #144), fetch through the tenant-scoped query, check Policy against the
             // loaded record, and delete inside the tx — commit makes the checked
-            // delete durable, any error rolls it back (GH #84). Delete takes
-            // the edit contract (GH #86, GH #168): `can_view` plus
+            // delete durable, any error rolls it back. Delete takes
+            // the edit contract: `can_view` plus
             // `can_delete` — a record that cannot be viewed cannot be deleted
             // by UUID-guessing the route.
             let mut db = db(cx);
             let mut tx = db.transaction().await.map_err(crate::db::unavailable)?;
             let id = topcoat::router::path_param_segment(cx, "id").to_string();
-            // The delete path reads only the record's own columns (GH #298):
+            // The delete path reads only the record's own columns:
             // `can_view`/`can_delete` are Rust predicates over those, and
             // `delete_record` consumes the snapshot.
             let record = find_by_key_narrowed::<R>(cx, &id, &mut tx).await?;
@@ -215,12 +214,12 @@ pub(crate) fn resource_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
                 return Err(forbidden().into());
             }
             // `delete_record` consumes the record, and the hook names what was
-            // removed (GH #112): the pre-delete snapshot, since the row is gone
+            // removed: the pre-delete snapshot, since the row is gone
             // by the time it runs.
             let committed_record = record.clone();
             if let Err(error) = R::delete_record(cx, record, &mut tx).await {
                 notify_write_failure(cx, WRITE_DELETE);
-                // Same seam as create/update (GH #229): the driver's text
+                // Same seam as create/update: the driver's text
                 // stays in the log, an app-authored hook error keeps its own.
                 return Err(crate::db::hook_failure(error));
             }
@@ -228,7 +227,7 @@ pub(crate) fn resource_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
                 notify_write_failure(cx, WRITE_DELETE);
                 return Err(crate::db::unavailable(error));
             }
-            // Post-commit (GH #112): the tx is gone, so the hook may open its
+            // Post-commit: the tx is gone, so the hook may open its
             // own handle, and a rollback above never reaches this line.
             crate::resource::run_after_commit::<R>(cx, Committed::deleted(vec![committed_record]))
                 .await;
@@ -240,12 +239,12 @@ pub(crate) fn resource_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
 
 /// Bulk delete POST — ids via `ids` form field (comma-separated).
 ///
-/// Identity is the typed PK fetch alone (GH #85): the display closure
+/// Identity is the typed PK fetch alone: the display closure
 /// `Table::id` is never re-matched, so non-canonical keys (uppercase UUID,
 /// email key) cannot 404 a batch whose rows exist. Bounded by
 /// `MAX_BULK_IDS` so the `IN` list cannot be amplified into a DoS.
 /// Fetch, policy checks, and deletes share one framework transaction
-/// (GH #84): a mid-loop failure deletes zero rows.
+/// a mid-loop failure deletes zero rows.
 pub(crate) fn resource_bulk_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
     Box::pin(HoistView::new(ThenView::<_, BoxView<'_>>::new(
         async move {
@@ -253,10 +252,10 @@ pub(crate) fn resource_bulk_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<
             // Delete/bulk-delete carry no file parts: only the values half is read.
             let values = parse_form_body(cx, body).await?.values;
             crate::csrf::verify(cx, &values)?;
-            // Confirmation marker, mirroring the row delete (GH #184): the bulk
+            // Confirmation marker, mirroring the row delete: the bulk
             // bar's dialog carries `confirm=1`, so a POST without it did not
             // come from the confirming control. Checked after CSRF verification
-            // and before any DB work (GH #144) — a forged POST answers 400
+            // and before any DB work — a forged POST answers 400
             // without touching a connection.
             if !values.get("confirm").is_some_and(|v| truthy(v)) {
                 return Err(topcoat::router::error::bad_request(
@@ -267,7 +266,7 @@ pub(crate) fn resource_bulk_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<
             let ids_raw = values.get("ids").cloned().unwrap_or_default();
             let ids = parse_bulk_ids(&ids_raw, MAX_BULK_IDS);
             if ids.is_empty() {
-                // No ids is a validation miss, not a raw 400 page (GH #151):
+                // No ids is a validation miss, not a raw 400 page:
                 // the bulk bar cannot submit without a selection, so only a
                 // crafted (or stale) POST gets here — answer like any other
                 // mutation, with the list and the reason.
@@ -294,7 +293,7 @@ pub(crate) fn resource_bulk_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<
             };
             let mut db = db(cx);
             let mut tx = db.transaction().await.map_err(crate::db::unavailable)?;
-            // The batch fetch reads only the records' own columns (GH #298):
+            // The batch fetch reads only the records' own columns:
             // the policy predicates and the write below never touch a relation.
             let rows = crate::resource::scoped_query_with::<R>(
                 cx,
@@ -308,7 +307,7 @@ pub(crate) fn resource_bulk_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<
                 return Err(topcoat::router::error::not_found().into());
             }
             for rec in &rows {
-                // Edit contract on every row (GH #168): viewing precedes
+                // Edit contract on every row: viewing precedes
                 // deleting, same as the edit GET/POST pair.
                 if !R::can_view(cx, rec) {
                     return Err(forbidden().into());
@@ -320,7 +319,7 @@ pub(crate) fn resource_bulk_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<
             // All checks passed — perform bulk delete inside the tx, then
             // commit once. Any error drops `tx` uncommitted: zero rows
             // deleted, never half-applied.
-            // The hook names the whole batch (GH #112): a bulk delete is one
+            // The hook names the whole batch: a bulk delete is one
             // write, so it is one `after_commit` call, not one per row. Keeping
             // a copy is the price of that (bounded by `MAX_BULK_IDS`); handing
             // the rows over by reference would mean changing two record-fn
@@ -328,7 +327,7 @@ pub(crate) fn resource_bulk_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<
             let committed_rows = rows.clone();
             if let Err(error) = R::bulk_delete_records(cx, rows, &mut tx).await {
                 notify_write_failure(cx, WRITE_BULK_DELETE);
-                // Same seam as the row delete (GH #229).
+                // Same seam as the row delete.
                 return Err(crate::db::hook_failure(error));
             }
             if let Err(error) = tx.commit().await {
@@ -342,23 +341,23 @@ pub(crate) fn resource_bulk_delete<R: Resource>(cx: &Cx, body: Body) -> BoxView<
     )))
 }
 
-/// Max ids accepted by bulk delete (GH #85): bounds the `IN` list.
+/// Max ids accepted by bulk delete: bounds the `IN` list.
 const MAX_BULK_IDS: usize = 400;
 
-/// Max receivable rows an export will deliver (GH #94): the chunked walk
+/// Max receivable rows an export will deliver: the chunked walk
 /// scans at most `MAX_EXPORT_ROWS + 1` raw rows and anything past the cap is
 /// a 413, so a 100k-row table stays bounded instead of buffering `Vec<Model>`
 /// plus `String` without end. A full raw window with rows left beyond it is a
-/// 413 too, even when fewer rows are viewable (GH #279), so the export never
+/// 413 too, even when fewer rows are viewable, so the export never
 /// returns a partial file.
 const MAX_EXPORT_ROWS: usize = 10_000;
 
-/// Rows per cursor chunk on the export walk (GH #172): each phase fetches
+/// Rows per cursor chunk on the export walk: each phase fetches
 /// this many models at a time instead of materializing the whole export
 /// window, so a 10k-row export holds one chunk plus one CSV fragment.
 const EXPORT_CHUNK_ROWS: usize = 500;
 
-/// Reject an export whose visible row count ran past the cap (GH #94).
+/// Reject an export whose visible row count ran past the cap.
 /// Extracted from the handler so the 413 mapping is testable at the boundary
 /// without materializing 10k rows in a test database.
 fn enforce_export_cap_count(count: usize) -> Result<(), topcoat::Error> {
@@ -369,11 +368,11 @@ fn enforce_export_cap_count(count: usize) -> Result<(), topcoat::Error> {
     }
 }
 
-/// The longest slug a `Content-Disposition` filename keeps (GH #145): the
+/// The longest slug a `Content-Disposition` filename keeps: the
 /// header value stays bounded even for an oversized override.
 const MAX_EXPORT_FILENAME_LEN: usize = 100;
 
-/// Sanitize the export's `Content-Disposition` filename (GH #145): `slug()`
+/// Sanitize the export's `Content-Disposition` filename: `slug`
 /// is an overridable free-form `String`, and Topcoat route validation accepts
 /// quote and CR/LF segments, so a hostile override would otherwise split the
 /// response header. Quote, backslash, and control characters are dropped and
@@ -393,7 +392,7 @@ fn export_filename(slug: &str) -> String {
     }
 }
 
-/// `?bom=1` opts into a UTF-8 BOM prefix on the CSV body for Excel (GH #94).
+/// `?bom=1` opts into a UTF-8 BOM prefix on the CSV body for Excel.
 fn export_wants_bom(cx: &Cx) -> bool {
     let Some(parts) = topcoat::context::try_request_context::<http::request::Parts>(cx) else {
         return false;
@@ -407,13 +406,13 @@ fn export_wants_bom(cx: &Cx) -> bool {
 /// Parse + dedupe bulk `ids` while preserving order, so a repeated id can't
 /// make the fetched-rows count check misfire.
 ///
-/// `max` bounds the parse itself, not just the final list (GH #85): a 10 MiB
+/// `max` bounds the parse itself, not just the final list: a 10 MiB
 /// body of distinct ids stops at `max + 1` entries (which the handler then
 /// rejects with 400) instead of allocating millions of strings while the
 /// `MAX_BULK_IDS` check waits for the parse to finish. Deduping uses a set, so
 /// the scan stays linear in the number of ids.
 ///
-/// Known limit (GH #85): the split happens after url-decoding, so a
+/// Known limit: the split happens after url-decoding, so a
 /// `String`-PK id containing a literal comma (`%2C`) splits into phantom
 /// ids and the batch 404s. Comma-bearing string PKs need a different
 /// transport (future work); all other PK types are comma-free.
@@ -434,26 +433,26 @@ fn parse_bulk_ids(raw: &str, max: usize) -> Vec<String> {
 /// CSV export — the tenant-scoped `export_query` + `Table` filters/sort,
 /// downloads `text/csv`.
 ///
-/// Streams the response as a chunked body (GH #172): the filtered query is
+/// Streams the response as a chunked body: the filtered query is
 /// walked in cursor chunks ([`EXPORT_CHUNK_ROWS`] rows at a time) and each
 /// chunk's CSV is written incrementally, so a 10k-row export holds one chunk
 /// plus one CSV fragment instead of `Vec<Model>` + one joined `String`.
 ///
 /// Two passes keep the pre-body contract. First a bounded visibility scan
 /// counts receivable rows inside the `MAX_EXPORT_ROWS + 1` raw window — the
-/// 413 reflects what the caller may receive (GH #86, GH #145), and a window
+/// 413 reflects what the caller may receive, and a window
 /// that fills with rows left beyond it is a 413 too, because those rows may
-/// be viewable and dropping them would ship a partial file (GH #279). Both
+/// be viewable and dropping them would ship a partial file. Both
 /// refusals happen before any byte is sent. The scan renders no cell, so it
-/// asks for no relation includes (GH #298). Then the streaming pass re-walks
+/// asks for no relation includes. Then the streaming pass re-walks
 /// the same window and emits header + rows, loading the includes the rendered
 /// columns declared. A concurrent mutation landing between the passes can only
 /// fill the window or push the second past the cap — that aborts the stream
 /// loudly instead of truncating silently. The header leads the body even when
-/// the window is empty (GH #298), so an empty table downloads a valid CSV
+/// the window is empty, so an empty table downloads a valid CSV
 /// rather than a 0-byte file indistinguishable from a failed download.
 /// Formula cells are defused per OWASP in [`Table::csv_row`], and `?bom=1`
-/// prepends a UTF-8 BOM for Excel interop (GH #94).
+/// prepends a UTF-8 BOM for Excel interop.
 pub(crate) fn resource_export<R: Resource>(cx: &Cx, _body: Body) -> RouteFuture<'_> {
     Box::pin(async move {
         gate::<R>(cx)?;
@@ -462,7 +461,7 @@ pub(crate) fn resource_export<R: Resource>(cx: &Cx, _body: Body) -> RouteFuture<
         }
         let state = TableState::from_cx(cx);
         let table = R::table(cx);
-        // Fail closed on unapplied filters (GH #93): a typo'd `?filters=`
+        // Fail closed on unapplied filters: a typo'd `?filters=`
         // must not silently export the unfiltered table.
         if !table.unapplied_filters(&state).is_empty() {
             return Err(topcoat::router::error::bad_request(format!(
@@ -478,9 +477,7 @@ pub(crate) fn resource_export<R: Resource>(cx: &Cx, _body: Body) -> RouteFuture<
         }
         // Phase 1: bounded visibility scan — count receivable rows inside the
         // raw cap window, so the 413 below fires before any response bytes.
-        // The scan renders nothing: it calls `R::can_view` per row and reads no
-        // column, so it asks for no relation includes (GH #298) where the
-        // streaming pass below asks for the table's declared ones.
+        // The scan reads no column, so it passes an empty include set.
         let mut chunker = ExportChunker::new(export_base_query::<R>(
             cx,
             &table,
@@ -494,7 +491,7 @@ pub(crate) fn resource_export<R: Resource>(cx: &Cx, _body: Body) -> RouteFuture<
         }
         // The cap counts viewable rows, but only inside the raw window: rows
         // left past it may be viewable too, so a 200 would be a silent
-        // truncation (GH #279).
+        // truncation.
         if chunker.beyond_window() {
             return Err(topcoat::router::error::content_too_large().into());
         }
@@ -509,7 +506,7 @@ pub(crate) fn resource_export<R: Resource>(cx: &Cx, _body: Body) -> RouteFuture<
         // before the first response byte, and the cap counts rows through
         // `R::can_view`, a Rust predicate no `COUNT(*)` can run. Trimming the
         // streaming pass to the cap instead would ship a partial file for a
-        // table the caller may not receive in full (GH #279); the two walks are
+        // table the caller may not receive in full; the two walks are
         // the price of a fail-closed 413. This is not a truncating `LIMIT 200`.
         let want_bom = export_wants_bom(cx);
         let needs = table.include_needs();
@@ -520,7 +517,7 @@ pub(crate) fn resource_export<R: Resource>(cx: &Cx, _body: Body) -> RouteFuture<
             // The tenant scope was already resolved for phase 1 against the
             // same `cx`, table and state, so this cannot fail again — but a
             // stream that cannot build its query aborts instead of sending a
-            // truncated CSV (GH #223 moved the seed behind a `Result`).
+            // truncated CSV (moved the seed behind a `Result`).
             let mut chunker = match export_base_query::<R>(&cx2, &table, &state, &needs) {
                 Ok(query) => ExportChunker::new(query),
                 Err(error) => {
@@ -531,10 +528,10 @@ pub(crate) fn resource_export<R: Resource>(cx: &Cx, _body: Body) -> RouteFuture<
             };
             let mut db_handle = crate::db::db(&cx2);
             // The header leads the body even when the window has no rows
-            // (GH #298): an empty table must download a valid CSV, and a
+            // an empty table must download a valid CSV, and a
             // 0-byte body cannot be told from a failed download.
             let mut head = table.csv_header();
-            // Opt-in BOM for Excel (GH #94): `?bom=1` prepends U+FEFF
+            // Opt-in BOM for Excel: `?bom=1` prepends U+FEFF
             // so non-ASCII cells open correctly; default stays
             // BOM-free so existing clients/tests see plain UTF-8.
             if want_bom {
@@ -579,7 +576,7 @@ pub(crate) fn resource_export<R: Resource>(cx: &Cx, _body: Body) -> RouteFuture<
             }
             if chunker.beyond_window() {
                 // Rows inserted between the passes can fill the window here
-                // only, so phase 1's answer no longer holds (GH #279).
+                // only, so phase 1's answer no longer holds.
                 tracing::error!(resource = R::slug(), "export window overflowed mid-stream");
                 tx.abort(std::io::Error::other("export overflowed its window"));
             }
@@ -599,17 +596,14 @@ pub(crate) fn resource_export<R: Resource>(cx: &Cx, _body: Body) -> RouteFuture<
     })
 }
 
-/// The export's filtered + ordered base query (GH #172): the resource's
+/// The export's filtered + ordered base query: the resource's
 /// [`export_query`](crate::resource::Resource::export_query) — the soft-delete /
 /// row-level seam (ADR-0002) narrowed to the relations `needs` asks for
-/// (GH #177, GH #298), and tenant-scoped by the framework on the way in
-/// (GH #223, [`crate::resource::scoped_query_with`]) — with the table's
-/// declaration applied through the one shared routine the list loader uses
-/// (GH #210).
-///
-/// The visibility scan passes an empty `needs` — it renders no cell — and the
-/// streaming pass passes [`Table::include_needs`], the relations its columns
-/// declared.
+/// and tenant-scoped by the framework on the way in
+/// ([`crate::resource::scoped_query_with`]) — with the table's
+/// declaration applied through the one shared routine the list loader uses.
+/// The visibility scan passes an empty `needs`; the streaming pass passes
+/// [`Table::include_needs`], the relations its columns declared.
 ///
 /// The list and the export differ only in the seed query and the ordering mode:
 /// the list loads the tenant-scoped `Resource::query_with` with
@@ -628,10 +622,10 @@ fn export_base_query<R: Resource>(
     Ok(table.apply_declaration(seed, state, OrderMode::Export))
 }
 
-/// One cursor-chunked pass over an export base query (GH #172).
+/// One cursor-chunked pass over an export base query.
 ///
 /// Yields the raw `MAX_EXPORT_ROWS + 1` window (the bounded over-fetch the
-/// cap counts within, GH #145) a chunk at a time and stops at a short chunk,
+/// cap counts within) a chunk at a time and stops at a short chunk,
 /// so callers hold one chunk instead of the window. Each chunk after the
 /// first resumes from the previous chunk's `next_cursor`; a chunk shorter
 /// than the requested size ends the walk, because chaining an absent cursor
@@ -660,7 +654,7 @@ where
         }
     }
 
-    /// Whether the window filled with rows left past it (GH #279), so the raw
+    /// Whether the window filled with rows left past it, so the raw
     /// walk stopped early rather than at the table's end.
     fn beyond_window(&self) -> bool {
         self.beyond_window
@@ -672,9 +666,9 @@ where
         }
         let remaining = (MAX_EXPORT_ROWS + 1).saturating_sub(self.raw_scanned);
         if remaining == 0 {
-            // The window is full (GH #279): one probe row past it says whether
+            // The window is full: one probe row past it says whether
             // the walk stopped on the table's end or on the window's. A full
-            // chunk without a cursor cannot be probed (GH #232) and is treated
+            // chunk without a cursor cannot be probed and is treated
             // as the end.
             if let Some(cursor) = self.after.clone() {
                 let probe = toasty::stmt::Paginate::new(self.query.clone(), 1)
@@ -712,7 +706,7 @@ where
     }
 }
 
-/// Relationship option search endpoint (GH #150 D2/D5).
+/// Relationship option search endpoint (D2/D5).
 ///
 /// `GET {parent_list_url}/options?field=&q=` — server-side narrowing for
 /// tables above the option cap. `field` allow-lists to a declared searchable
@@ -771,7 +765,7 @@ pub(crate) fn resource_options<R: Resource>(cx: &Cx, _body: Body) -> RouteFuture
             Err(OptionLoadError::LoadFailed) => Err(topcoat::Error::from(std::io::Error::other(
                 "option search failed",
             ))),
-            // Permanent (GH #223): the related resource cannot be scoped at
+            // Permanent: the related resource cannot be scoped at
             // all, so the search cannot succeed until the declaration is
             // fixed — a 500 that says so, not a retry.
             Err(OptionLoadError::Misdeclared) => Err(topcoat::Error::from(std::io::Error::other(
@@ -838,9 +832,9 @@ mod tests {
     use super::{super::Panel, *};
     use crate::panel::test_support::{Dummy, dummy_table, panel_for};
     /// The minimal table-backed model most of this module's tests share
-    /// (GH #217): it was declared nine times, byte-identically, inside the test
+    /// it was declared nine times, byte-identically, inside the test
     /// bodies. The resources that use it differ; the table does not.
-    /// Seed `rows` dummies in a single batched insert (GH #218).
+    /// Seed `rows` dummies in a single batched insert.
     ///
     /// The export-cap tests seed more rows than a per-row `toasty::create!`
     /// loop can afford, so `create_many` accumulates the inserts into one
@@ -866,7 +860,7 @@ mod tests {
 
     #[tokio::test]
     async fn delete_and_bulk_delete_require_can_view() {
-        // GH #168: the edit contract extends to deletes — a record that
+        // the edit contract extends to deletes — a record that
         // cannot be viewed cannot be deleted by UUID-guessing the route,
         // even with `can_delete == true`.
 
@@ -965,9 +959,9 @@ mod tests {
                 true
             }
             fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
-                // Non-canonical display key (GH #85): bulk must still resolve
+                // Non-canonical display key: bulk must still resolve
                 // via the typed PK fetch alone. The record key stays canonical
-                // (GH #168) — the renderer emits it for bulk values, so the
+                // The renderer emits it for bulk values, so the
                 // display/URL split is exercised, not bypassed.
                 crate::resource::Table::r#for(cx)
                     .id(|d: &Dummy| d.id.to_string().to_uppercase())
@@ -1053,7 +1047,7 @@ mod tests {
             )
             .await;
         assert_eq!(capped.status(), http::StatusCode::BAD_REQUEST);
-        // Missing token is 403 (GH #99).
+        // Missing token is 403.
         let no_token = router
             .handle(
                 http::Request::builder()
@@ -1356,7 +1350,7 @@ mod tests {
         );
     }
 
-    /// GH #177: the export's base query is
+    /// the export's base query is
     /// [`Resource::export_query`](crate::resource::Resource::export_query),
     /// handed the includes the rendered columns declared — not everything
     /// [`Resource::query`](crate::resource::Resource::query) loads.
@@ -1537,7 +1531,7 @@ mod tests {
 
     #[test]
     fn export_cap_maps_one_row_past_the_limit_to_413() {
-        // GH #94: the cap branch must produce a content-too-large error, not
+        // the cap branch must produce a content-too-large error, not
         // just a constant that happens to equal 10_000. Exercised at the
         // boundary.
         enforce_export_cap_count(MAX_EXPORT_ROWS).unwrap();
@@ -1551,7 +1545,7 @@ mod tests {
 
     #[tokio::test]
     async fn export_streams_csv_in_chunks_with_parity() {
-        // GH #172: the streamed body reassembles byte-for-byte to the
+        // the streamed body reassembles byte-for-byte to the
         // buffered CSV (header + rows, BOM variant included), arrives without
         // a Content-Length (chunked), and multi-chunk tables cross chunk
         // boundaries without repeating or dropping rows.
@@ -1630,7 +1624,7 @@ mod tests {
         let mut names: Vec<&str> = lines.collect();
         assert_eq!(names.len(), total);
         // The export pins PK order when no sortable column is declared
-        // (GH #172: cursor chunks need a deterministic order), so compare as
+        // (: cursor chunks need a deterministic order), so compare as
         // a set — chunking must neither drop nor repeat rows.
         names.sort_unstable();
         let mut expected: Vec<String> = (0..total).map(|i| format!("user-{i:05}")).collect();
@@ -1647,7 +1641,7 @@ mod tests {
 
     #[tokio::test]
     async fn export_of_an_empty_table_emits_the_header() {
-        // GH #298: the header leads the body even when the window has no rows,
+        // the header leads the body even when the window has no rows,
         // so an empty table downloads a valid CSV (header, and the BOM when
         // asked for) instead of a 0-byte file a consumer cannot tell from a
         // failed download.
@@ -1706,11 +1700,10 @@ mod tests {
 
     #[tokio::test]
     async fn export_visibility_scan_asks_for_no_includes() {
-        // GH #298: the counting pass renders no cell, so it asks for no
-        // relation includes; only the streaming pass loads the ones the
-        // columns declared. `can_view` observes which query loaded the row:
-        // the relation is unloaded in the scan and loaded in the stream, so
-        // both counters must fire.
+        // The counting pass passes no relation includes; only the streaming
+        // pass loads the ones the columns declared. `can_view` observes which
+        // query loaded the row: the relation is unloaded in the scan and loaded
+        // in the stream, so both counters must fire.
         use std::sync::atomic::{AtomicUsize, Ordering};
 
         use http_body_util::BodyExt;
@@ -1849,7 +1842,7 @@ mod tests {
 
     #[tokio::test]
     async fn export_counts_only_viewable_rows_within_the_window() {
-        // GH #145 (with GH #86), preserved under streaming: visibility is
+        // GH #145 (with), preserved under streaming: visibility is
         // counted before the cap inside the raw MAX+1 window, so interleaved
         // denied rows yield a 200 with the visible subset — never a 413, and
         // no count leak.
@@ -1911,7 +1904,7 @@ mod tests {
 
     #[tokio::test]
     async fn export_refuses_when_viewable_rows_lie_past_the_window() {
-        // GH #279: the cap counts viewable rows, but only inside the raw
+        // the cap counts viewable rows, but only inside the raw
         // window. With rows left past it, a 200 would be a partial CSV — the
         // export must refuse with the same 413 the cap uses.
 
@@ -1979,7 +1972,7 @@ mod tests {
 
     #[tokio::test]
     async fn export_chunker_stops_at_a_short_chunk() {
-        // GH #172: a short chunk ends the walk — re-fetching cursor-free
+        // a short chunk ends the walk — re-fetching cursor-free
         // would rescan from the start and multiply the visible count past
         // the cap.
 
@@ -2040,7 +2033,7 @@ mod tests {
 
     #[tokio::test]
     async fn export_and_list_agree_on_rows_and_order() {
-        // GH #210: both loaders apply the table declaration through one shared
+        // both loaders apply the table declaration through one shared
         // routine, so a search term, a filter and a sort cannot reach the list
         // and miss the CSV. This drives the same state through both — the list
         // through `Table::load`, the export through `export_base_query` — and
@@ -2228,7 +2221,7 @@ mod tests {
 
     #[test]
     fn export_filename_cannot_split_the_disposition_header() {
-        // GH #145: `slug()` is an overridable free-form String, so quote and
+        // `slug()` is an overridable free-form String, so quote and
         // control characters must never reach the Content-Disposition header.
         assert_eq!(export_filename("users"), "users.csv");
         for hostile in [
@@ -2316,7 +2309,7 @@ mod tests {
 
     #[tokio::test]
     async fn composite_pk_edit_fails_loudly_not_404() {
-        // GH #95: a composite-PK resource is a programming error the URL
+        // a composite-PK resource is a programming error the URL
         // scheme cannot serve — 500 with a message, never per-id 404s.
 
         use crate::resource::Resource;
@@ -2379,7 +2372,7 @@ mod tests {
 
     #[tokio::test]
     async fn options_endpoint_searches_and_gates() {
-        // GH #150: `GET {parent}/options?field=&q=` narrows server-side,
+        // `GET {parent}/options?field=&q=` narrows server-side,
         // allow-lists to searchable relationship selects, and mirrors gates.
         use http_body_util::BodyExt;
 
@@ -2525,12 +2518,12 @@ mod tests {
         // Escaping itself is pinned where it can fail: `escape_option`'s unit
         // test feeds characters that must be escaped and asserts the exact
         // output. These fixtures are "Ada"/"Grace"/"Alan", so a
-        // `!html.contains("<script")` here could never fail (GH #216).
+        // `!html.contains("<script")` here could never fail.
     }
 
     #[tokio::test]
     async fn option_load_asks_for_no_relation_includes() {
-        // GH #298: an option load projects a value and a label off the related
+        // an option load projects a value and a label off the related
         // record's own columns, so it asks the source for no relation
         // includes. The source's `query` loads `parent` and `can_view` keeps a
         // row only while that relation is unloaded, so a rendered option
@@ -2734,7 +2727,7 @@ mod tests {
             #[auto]
             id: uuid::Uuid,
             author_id: uuid::Uuid,
-            /// A text column for the table declaration (GH #138): every
+            /// A text column for the table declaration: every
             /// servable resource needs one, and `author_id` is a Uuid.
             name: String,
         }

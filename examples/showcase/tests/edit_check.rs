@@ -77,7 +77,7 @@ async fn edit_page_hydrates_and_updates() {
         "redirect to list, got {}",
         loc
     );
-    // Post/Redirect/Get with one-time semantics (GH #97, #126): 303, flash
+    // Post/Redirect/Get with one-time semantics (#126): 303, flash
     // cookie on the redirect, clean Location.
     assert_eq!(resp.status(), 303, "a completed update is a 303 PRG");
     assert!(
@@ -123,7 +123,7 @@ async fn edit_404_for_unknown_or_wrong_tenant() {
 }
 
 /// A forged edit POST must answer 403 before the advisory record lookup
-/// (GH #144): the CSRF check runs first, so a nonexistent id cannot turn the
+/// the CSRF check runs first, so a nonexistent id cannot turn the
 /// token-less 403 into a 404 existence oracle. (The 403-vs-404 distinction
 /// makes this falsifiable: moving the verify back behind the load flips the
 /// nonexistent-id answer to 404.)
@@ -166,7 +166,7 @@ async fn update_record_keeps_absent_fields() {
     let mut db_q = db.clone();
     let users = User::all().exec(&mut db_q).await.unwrap();
     let user = users.first().unwrap().clone();
-    // Only email submitted: name must keep its stored value (GH #89).
+    // Only email submitted: name must keep its stored value.
     let mut values = HashMap::new();
     values.insert("email".to_string(), "kept@example.com".to_string());
     let mut ex = argentum_core::db::db(&cx);
@@ -194,7 +194,7 @@ async fn hydrate_form_values_match_schema_fields() {
     let mut db_q = db.clone();
     let users = User::all().exec(&mut db_q).await.unwrap();
     let user = users.first().unwrap();
-    // Every hydrated key must be a declared form field (GH #89): a renamed
+    // Every hydrated key must be a declared form field: a renamed
     // lens without an updated string literal would render blank and break
     // the unique unchanged-skip.
     assert_hydrate_keys_are_form_fields::<UserResource>(&cx, user);
@@ -376,7 +376,7 @@ async fn post_edit_binds_and_saves_embedded_fields() {
             assert_eq!(url, "/uploads/new.jpg", "the variant payload must persist");
             assert_eq!(alt, "Alt");
         }
-        // The submit carries no `media` discriminant (it predates GH #191), so
+        // The submit carries no `media` discriminant (it predates), so
         // the codec falls back to the first variant — Image. Emptiness is not
         // consulted; a discriminant would decide.
         other => panic!("a submit with no discriminant reads as the first variant, got {other:?}"),
@@ -410,7 +410,7 @@ async fn post_edit_switches_the_publication_variant_explicitly() {
         "the fixture must start Published"
     );
 
-    // Hydration (GH #191): the stored variant reaches the form as the selected
+    // Hydration: the stored variant reaches the form as the selected
     // option of the variant `Select` — the control a user changes it with, and
     // the driver `variant.js` toggles the payload groups by.
     let html = body_string(client.get(&format!("/admin/posts/{}/edit", post.id)).await).await;
@@ -493,10 +493,10 @@ async fn post_edit_switches_the_publication_variant_explicitly() {
     );
 }
 
-/// GH #191: the **create** form carries no discriminant (there is no stored
-/// variant to hydrate), so a submission that fills a variant's payload creates
-/// that variant — the pre-#191 behaviour, now driven by the keys the app schema
-/// resolves rather than remembered column names.
+/// The **create** form carries no discriminant (there is no stored variant to
+/// hydrate), so a submission that fills a variant's payload creates that
+/// variant, driven by the keys the app schema resolves rather than remembered
+/// column names.
 ///
 /// Without this, every created post was `Scheduled` and the payload the author
 /// typed was silently dropped: the hidden discriminant renders empty on create.
@@ -524,7 +524,7 @@ async fn post_create_keeps_the_variant_its_payload_names() {
 
     let csrf = uuid::Uuid::new_v4().to_string();
     // `image_path` is a required `FileUpload`, so the create carries a file
-    // part (GH #277); this router installs no uploader, so the sanitized
+    // part; this router installs no uploader, so the sanitized
     // basename is what the record stores.
     let author_id = author.id.to_string();
     let boundary = "----EditBoundary";
@@ -582,7 +582,7 @@ async fn post_create_keeps_the_variant_its_payload_names() {
     );
 }
 
-/// The typed leaves round-trip and refuse a bad number inline (GH #192).
+/// The typed leaves round-trip and refuse a bad number inline.
 ///
 /// `post_stats_word_count` / `post_stats_read_minutes` are `i64` columns bound
 /// through `TextInput::typed`, so `word_count=twelve` is refused inline rather

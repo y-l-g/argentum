@@ -1,4 +1,4 @@
-// Option search for Argentum selects (GH #91, GH #150, GH #184).
+// Option search for Argentum selects.
 //
 // A `Select::searchable()` renders an `input[data-options-filter]` and an empty
 // `ul[data-options-list]` above its `<select>`, inside
@@ -6,15 +6,15 @@
 //
 // The list is the point. Narrowing the native `<select>`'s own options is not
 // something a page can show: the primitive opts into `appearance: base-select`,
-// whose popup is browser chrome that ignores `option[hidden]` — so the filter
-// used to look inert, and the only way to see its effect was to open the
-// select and read its options (GH #184). This script therefore renders its own
-// filtered listbox from the select's options, and writes the chosen value back
-// onto the select, which stays the form control and the no-JS fallback.
+// whose popup is browser chrome that ignores `option[hidden]`, so a filter over
+// the select's own options would be invisible. This script therefore renders
+// its own filtered listbox from the select's options, and writes the chosen
+// value back onto the select, which stays the form control and the no-JS
+// fallback.
 //
 // * Bounded sets: typing narrows the list by label substring
 //   (case-insensitive); the placeholder option always stays.
-// * Overflowed relationship sets (GH #150): the wrapper carries
+// * Overflowed relationship sets: the wrapper carries
 //   `data-options-server="true"` + `data-options-field="<name>"`. Typing
 //   debounces (200ms, abort in-flight) a `GET
 //   {parent_list_url}/options?field=&q=` fetch that replaces the `<select>`
@@ -27,7 +27,7 @@
 //
 // The server renders both controls so the field works without this script;
 // with it, the native `<select>` is hidden once the combobox over it is wired
-// (GH #236).
+//
 //
 // Document-level delegation (like bulk.js) so streamed/shard swaps that
 // replace form markup need no re-installation.
@@ -55,7 +55,7 @@ function escapeAttr(s) {
 
 // The `<option>` a server answer has to carry for the current value, or null
 // when the answer already echoes it (or nothing is selected). The label is the
-// one the option showed before the swap (GH #293): the answer covers the
+// one the option showed before the swap: the answer covers the
 // needle, not the selection, and the value is a primary key, so using it as the
 // label would show a raw UUID. The label is escaped: it comes from a record.
 function preservedOption(current, label, html) {
@@ -92,7 +92,7 @@ async function serverSearch(filter, wrap, select, field, needle) {
   const placeholderHtml = placeholder ? placeholder.outerHTML : '<option value="">-- Select --</option>';
   // Preserve the current selection across swaps (D2): the server answers the
   // needle and never echoes the current record, so re-attach it when absent.
-  // Its label is only in the option the swap is about to drop (GH #293): the
+  // Its label is only in the option the swap is about to drop: the
   // PK is the value, never the thing to show.
   const currentOption = optionFor(select, current);
   const currentLabel = currentOption
@@ -112,7 +112,7 @@ async function serverSearch(filter, wrap, select, field, needle) {
 // --- the visible listbox -----------------------------------------------------
 
 // How many rows the listbox renders at once. It is an affordance, not the
-// source of truth: the server owns the real bound (GH #150), so this only
+// source of truth: the server owns the real bound, so this only
 // keeps the DOM small.
 const MAX_LIST_ITEMS = 50;
 
@@ -201,7 +201,7 @@ function optionRowId(list, index) {
 }
 
 // `aria-expanded` mirrors the popup: the filter and the list are one
-// combobox, so the input carries the state (GH #293).
+// combobox, so the input carries the state.
 function setExpanded(filter, expanded) {
   if (filter && filter.setAttribute) {
     filter.setAttribute('aria-expanded', expanded ? 'true' : 'false');
@@ -311,7 +311,7 @@ function hideNativeSelect(parts) {
   if (!shouldHideNativeSelect(parts)) return;
   nativeControl(parts).hidden = true;
   // The box that replaces the control starts on the current option's label
-  // (GH #293): without it an edit form renders an empty box over a selected
+  // without it an edit form renders an empty box over a selected
   // record. A choice writes the same label into the input (`chooseOption`), so
   // the two paths agree; the placeholder is not a choice and leaves it empty.
   if (parts.filter.value === '' && parts.select.value !== '') {
@@ -383,7 +383,7 @@ function install() {
   // Arrows move through the list, Enter picks, Escape closes. Focus stays in the
   // input, which is what makes typing-to-narrow continuous. The input is a
   // combobox, not a text box with an implicit submit: Enter while it has focus
-  // is the list's, and never the form's (GH #293) — when the list is showing a
+  // is the list's, and never the form's — when the list is showing a
   // status line ("Searching…", "No matching options") there is no row to pick,
   // and the keystroke still must not submit the record the reader is editing.
   document.addEventListener('keydown', (e) => {
@@ -474,10 +474,8 @@ function install() {
 
 if (typeof document !== 'undefined') install();
 
-// Exposed for the Node unit test (`selects.test.js`). There is no JS test
-// runner in this workspace and this file must stay a plain browser script
-// loaded through `asset!`, so it cannot be an ES module. The guard keeps the
-// browser branch inert.
+// Exposed for the Node unit test (`selects.test.js`); see `bulk.js` for the
+// guard.
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     MAX_LIST_ITEMS,

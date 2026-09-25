@@ -1,10 +1,10 @@
-//! The media library (GH #248): the `medias` table, the page that fills it,
+//! The media library: the `medias` table, the page that fills it,
 //! and the widget that previews a file before it is stored.
 //!
 //! A media row is a stored file plus a **polymorphic owner**: `owner_type` and
 //! `owner_id` name a `Post` or a `User`, and no foreign key can hold that pair
 //! together (ADR-0021). The page uploads through the app's own [`Uploader`] —
-//! the `DirUploader` the panel installs for `FileUpload` (GH #188) — writes the
+//! the `DirUploader` the panel installs for `FileUpload` — writes the
 //! row, and lists what the library holds: a thumbnail for an image, a link for
 //! anything else.
 //!
@@ -40,7 +40,7 @@ use crate::{
 /// own action.
 pub const MEDIA_PATH: &str = "/admin/media";
 
-/// The widget script the page emits (GH #248).
+/// The widget script the page emits.
 ///
 /// An app asset: ADR-0014's nine scripts are the shell's, and this one belongs
 /// to the page that renders the widget. The page links it `defer`red, and only
@@ -66,7 +66,7 @@ const OWNER_FIELD: &str = "owner";
 /// The upload form's file field.
 const FILE_FIELD: &str = "file";
 
-/// The record a media row belongs to (GH #248): the typed half of the
+/// The record a media row belongs to: the typed half of the
 /// polymorphic pair.
 ///
 /// One column pair cannot name two tables, so `MediaAsset` stores the kind and
@@ -113,7 +113,7 @@ impl MediaOwner {
     }
 }
 
-/// The media rows attached to `owner` (GH #248).
+/// The media rows attached to `owner`.
 ///
 /// This is the whole relation the polymorphic pair buys: no foreign key, no
 /// `#[has_many]`, one equality filter on the pair. A row whose owner was
@@ -131,10 +131,9 @@ pub async fn media_for_owner(db: &mut Db, owner: MediaOwner) -> toasty::Result<V
     .await
 }
 
-/// One media row's file: a thumbnail for an image, a link for anything else
-/// (GH #248).
+/// One media row's file: a thumbnail for an image, a link for anything else.
 ///
-/// The framework's file field links every stored path the same way (GH #242);
+/// The framework's file field links every stored path the same way;
 /// telling an image from the rest is the media library's job, and `kind` is
 /// what the row recorded when the upload was stored. The public blog renders a
 /// post's media through this too, so one row looks the same wherever it is
@@ -177,12 +176,12 @@ pub fn media_file_view<'a>(cx: &'a Cx, asset: &MediaAsset) -> BoxView<'a> {
 /// its own loader and pager, which is a different seam from this demo's.
 #[page("/admin/media")]
 async fn media_page(cx: &Cx) -> Result<impl View> {
-    // One tenant's library (GH #87): a tenantless request is refused rather
+    // One tenant's library: a tenantless request is refused rather
     // than served every tenant's rows.
     let tenant = require_tenant(cx)?;
     let mut db = db(cx);
     // The picker's owners. Posts go through the tenant-scoped query the panel
-    // uses (GH #223), so it cannot offer another tenant's post; the showcase's
+    // uses, so it cannot offer another tenant's post; the showcase's
     // users are global.
     let posts = scoped_query::<PostResource>(cx)?
         .order_by(Post::fields().title().asc())
@@ -208,7 +207,7 @@ async fn media_page(cx: &Cx) -> Result<impl View> {
         .map(|user| (user.id, user.name.clone()))
         .collect();
 
-    // The form is the app's, so the token is the app's to embed (GH #99).
+    // The form is the app's, so the token is the app's to embed.
     let csrf_token = csrf::ensure_token(cx);
     let has_assets = try_app_context::<AssetConfig>(cx).is_some();
 
@@ -350,13 +349,12 @@ async fn media_page(cx: &Cx) -> Result<impl View> {
     })
 }
 
-/// `POST /admin/media` — store one uploaded file and write the row that owns it
-/// (GH #248).
+/// `POST /admin/media` — store one uploaded file and write the row that owns it.
 ///
 /// The page renders its own form, so it parses its own multipart body: the
 /// framework's parser serves the fields a `Schema` declares, and this form is
 /// not one. The bytes go through the app's own [`Uploader`] — the same
-/// `DirUploader` the app gives `Panel::uploads` (GH #188) — outside any
+/// `DirUploader` the app gives `Panel::uploads` — outside any
 /// transaction, like every upload (ADR-0017).
 #[route(POST "/admin/media")]
 async fn upload(cx: &Cx, mut multipart: Multipart) -> Result<SeeOther> {
@@ -380,7 +378,7 @@ async fn upload(cx: &Cx, mut multipart: Multipart) -> Result<SeeOther> {
             values.insert(name, field.text().await?);
         }
     }
-    // The framework verifies the forms it renders (GH #99); this one is the
+    // The framework verifies the forms it renders; this one is the
     // app's, so the check is the app's too.
     csrf::verify(cx, &values)?;
     let owner = values
@@ -389,7 +387,7 @@ async fn upload(cx: &Cx, mut multipart: Multipart) -> Result<SeeOther> {
         .ok_or_else(|| bad_request("Choose an owner before uploading."))?;
     let part = file.ok_or_else(|| bad_request("Choose a file before uploading."))?;
     // The name the row records and the store writes: one rule, so the row's
-    // `filename` and the file on disk cannot disagree (GH #90).
+    // `filename` and the file on disk cannot disagree.
     let filename = basename(&part.filename);
     if filename.is_empty() || part.bytes.is_empty() {
         return Err(bad_request("Choose a file before uploading.").into());
@@ -432,10 +430,10 @@ struct UploadedPart {
     bytes: Vec<u8>,
 }
 
-/// Whether `owner` names a record this app attaches media to (GH #248).
+/// Whether `owner` names a record this app attaches media to.
 ///
 /// A post is resolved through the tenant-scoped query the panel uses
-/// (GH #223), so a post in another tenant is not an owner here; a user is
+/// so a post in another tenant is not an owner here; a user is
 /// resolved globally, because the showcase's users carry no tenant. The row's
 /// own tenant is the uploader's, checked by the page that lists it.
 async fn owner_exists(cx: &Cx, owner: MediaOwner, db: &mut Db) -> Result<bool> {
@@ -479,10 +477,10 @@ fn owner_label(
 }
 
 /// Whether an uploaded part is an image, from the content type the browser sent
-/// with it (GH #248).
+/// with it.
 ///
 /// The framework's file field reads no extension and renders every stored path
-/// the same way (GH #242); deciding that a thumbnail suits *these* bytes is the
+/// the same way; deciding that a thumbnail suits *these* bytes is the
 /// media library's, and the part's `Content-Type` is what the browser says they
 /// are. It is a claim, not a sniff: a library that served those bytes to other
 /// people would read their magic numbers instead.

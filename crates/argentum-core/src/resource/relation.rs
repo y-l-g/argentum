@@ -1,4 +1,4 @@
-//! Read-only relation rendering for detail pages (GH #187).
+//! Read-only relation rendering for detail pages.
 //!
 //! A detail page shows a record's related rows — a post's comments — from the
 //! rows `Resource::query`'s `include` already loaded. This renders them, and
@@ -6,7 +6,7 @@
 //! bulk column. A relation on a record page is a fixed, already-loaded set,
 //! and the list's chrome exists to narrow a query this page never runs.
 //!
-//! Two bounds apply to that set (GH #296): the related resource's `can_view`
+//! Two bounds apply to that set: the related resource's `can_view`
 //! decides which rows the reader may see, and [`MAX_RELATION_ROWS`] caps how
 //! many render. Both are in-memory decisions over the loaded rows, so the
 //! relation still issues no query.
@@ -25,7 +25,7 @@ use topcoat::{
 
 use super::Resource;
 
-/// The most rows a relation table renders (GH #296).
+/// The most rows a relation table renders.
 ///
 /// The cap bounds the rendered page, not a query: the related rows are already
 /// loaded, so what it removes is cell projection and DOM size. 50 covers the
@@ -34,7 +34,7 @@ use super::Resource;
 /// truncates, so a capped relation never reads as a complete one.
 pub const MAX_RELATION_ROWS: usize = 50;
 
-/// One column of a relation's read-only table (GH #187).
+/// One column of a relation's read-only table.
 ///
 /// The projection is the same shape a list column uses — a typed closure over
 /// the related record — minus everything that only makes sense against a
@@ -140,7 +140,7 @@ into_relation_columns_tuples!(a, b, c, d, e, f);
 into_relation_columns_tuples!(a, b, c, d, e, f, g);
 into_relation_columns_tuples!(a, b, c, d, e, f, g, h);
 
-/// Render `rows` as a titled, read-only table (GH #187, GH #296).
+/// Render `rows` as a titled, read-only table.
 ///
 /// `R` is the related resource. Its [`can_view`](Resource::can_view) is applied
 /// to every row before that row is projected, so a relation declared through the

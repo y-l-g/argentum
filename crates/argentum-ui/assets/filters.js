@@ -1,4 +1,4 @@
-// Typed filter controls for Argentum tables (GH #74, GH #151).
+// Typed filter controls for Argentum tables.
 //
 // The filter form keeps one hidden `input[name=filters]` transport
 // (`key:value,key2:value2`, parsed by `TableState`). Typed controls carry only
@@ -6,7 +6,7 @@
 // the control values are composed into the transport.
 //
 // Keys and values are escaped with the server's own rule before they join the
-// transport (GH #93, GH #294): `%`, then `:`, then `,`. The server splits the
+// transport: `%`, then `:`, then `,`. The server splits the
 // transport on `,` and the first `:`, so an unescaped `Smith, John` would
 // arrive as two segments and apply the wrong filter.
 //
@@ -28,7 +28,7 @@ function composeFilters(form) {
     const name = el.getAttribute('data-filter-name');
     const value = (el.value || '').trim();
     // The All option is `value=""`, so the empty skip is the whole rule: a
-    // genuine filter value of `"all"` must round-trip (GH #160).
+    // genuine filter value of `"all"` must round-trip.
     if (name && value) {
       parts.push(encodeFilterComponent(name) + ':' + encodeFilterComponent(value));
     }
@@ -38,7 +38,7 @@ function composeFilters(form) {
 
 // Escape `%`, `:`, `,` inside a key or value, in that order, mirroring
 // `encode_filter_component` in `crates/argentum-core/src/resource/state.rs`
-// (GH #93): `%` first, so an escaped `%` is never re-escaped by the later
+// `%` first, so an escaped `%` is never re-escaped by the later
 // passes.
 function encodeFilterComponent(s) {
   return s.replace(/%/g, '%25').replace(/:/g, '%3A').replace(/,/g, '%2C');
@@ -71,9 +71,8 @@ document.addEventListener('submit', (e) => {
   if (transport) transport.value = composeFilters(form);
 });
 
-// Exposed for the Node unit test (`filters.test.js`, run with `node --test`).
-// This file must stay a plain browser script loaded through `asset!`, so it
-// cannot be an ES module. The guard keeps the browser branch inert.
+// Exposed for the Node unit test (`filters.test.js`); see `bulk.js` for the
+// guard.
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { composeFilters, encodeFilterComponent };
 }

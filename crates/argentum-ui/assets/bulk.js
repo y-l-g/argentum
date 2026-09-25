@@ -1,4 +1,4 @@
-// Bulk selection for Argentum tables (GH #74, GH #151, GH #166, GH #184).
+// Bulk selection for Argentum tables.
 //
 // Tables render one checkbox per row (`input[data-row-select]`, value = record
 // key) plus a header select-all (`input[data-bulk-select-all]`). The selection
@@ -14,7 +14,7 @@
 // Without a binding the same writes are inert, so static tables keep working
 // with the transport as a plain hidden field.
 //
-// The destructive submit asks first (GH #184): `[data-bulk-confirm-trigger]`
+// The destructive submit asks first: `[data-bulk-confirm-trigger]`
 // opens the alert dialog that lives inside the form, and the dialog's confirm
 // button submits it. The confirm field rides in the dialog, and the handler
 // refuses a POST without it — so this script is an affordance, never the
@@ -23,7 +23,7 @@
 //
 // Delimiters make membership exact: `,ab,` never matches `b`.
 //
-// A row the resource's per-record policy refuses (GH #235) renders its checkbox
+// A row the resource's per-record policy refuses renders its checkbox
 // `disabled` with the reason as its accessible label: it is not a choice, so
 // every selector here skips disabled boxes — select-all never checks one, the
 // tri-state header never counts one, and one can never reach the transport. A
@@ -55,7 +55,7 @@ function allBoxesIn(root) {
   return Array.from(root.querySelectorAll('input[data-row-select]'));
 }
 
-// The row checkboxes a user may check (GH #235): a row the policy denies delete
+// The row checkboxes a user may check: a row the policy denies delete
 // renders `disabled`, and a disabled control is not part of the selection.
 // Every selector below reads the page through this, so a denied box is invisible
 // to select-all, to the tri-state header, and to the transport alike.
@@ -102,10 +102,10 @@ function sync(root, wire) {
   allBoxesIn(root).forEach((box) => {
     box.checked = !box.disabled && keys.has(box.value);
   });
-  // Tri-state header (GH #160): checked only when every selectable row is
+  // Tri-state header: checked only when every selectable row is
   // checked, indeterminate on a partial selection — otherwise a select-all
   // followed by one uncheck leaves the header lying checked. A denied row is
-  // not a row the header can speak for (GH #235).
+  // not a row the header can speak for.
   const all = root.querySelector('input[data-bulk-select-all]');
   if (all) {
     const state = headerState(boxesIn(root));
@@ -137,7 +137,7 @@ function install() {
     const root = (all || row).closest('[data-table-root]');
     if (!root) return;
     if (all) {
-      // Select-all reaches the selectable rows only (GH #235): a denied row's
+      // Select-all reaches the selectable rows only: a denied row's
       // box is disabled, so a click cannot put a refused key into the transport.
       boxesIn(root).forEach((box) => {
         box.checked = all.checked;
@@ -146,7 +146,7 @@ function install() {
     update(root);
   });
 
-  // The destructive confirm (GH #184). `type="button"`, so the dialog decides
+  // The destructive confirm. `type="button"`, so the dialog decides
   // when the form is submitted; the dialog's own confirm button is the ordinary
   // submit inside it.
   document.addEventListener('click', (e) => {

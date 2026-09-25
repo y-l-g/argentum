@@ -3,7 +3,7 @@
 //! in-memory database.
 //!
 //! The one measurement here is the database's collation against the app-side
-//! unique probe (GH #189).
+//! unique probe.
 
 use toasty::Db;
 
@@ -48,7 +48,7 @@ async fn roundtrip_db() -> Db {
 /// non-`BINARY` collation, and no Argentum declaration (or Toasty field
 /// attribute) sets one. The test is the record of that finding, so a future
 /// driver change that flips the default fails here instead of in production, a
-/// second empty submit at a time (GH #189 item 1).
+/// second empty submit at a time (item 1).
 #[tokio::test]
 async fn unique_collation_matches_the_app_side_probe() {
     let mut db = roundtrip_db().await;

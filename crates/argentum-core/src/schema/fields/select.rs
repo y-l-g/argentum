@@ -20,18 +20,18 @@ use super::{
 ///
 /// `Select::for(Post::fields().author_id()).relationship(AuthorResource::query, |a| a.id, |a|
 /// a.name.clone())` loads options through the related resource's tenant-scoped query
-/// (GH #223) and stores the
+/// and stores the
 /// related record's primary key as the value. Typos in the lens fail at compile
 /// time; a wrong value projection fails where the projected type differs from
 /// the PK. Option values are never read from the related table's `Table::id`
-/// row-key projection (GH #108); that projection stays the list's row identity
+/// row-key projection; that projection stays the list's row identity
 /// (DOM ids, bulk values, edit/delete URLs), not a source of FK values.
 pub struct Select {
     name: String,
     label: String,
     required: bool,
     searchable: bool,
-    /// The embedded value whose variant this control chooses (GH #191): the
+    /// The embedded value whose variant this control chooses: the
     /// discriminant column. When set, the control is a **variant driver** — it
     /// renders `data-variant-select`, and `variant.js` keeps only the groups
     /// marked with that column and the chosen value visible.
@@ -80,13 +80,13 @@ impl Clone for Select {
 impl Select {
     /// Create a `Select` bound to the given field lens (e.g. `Post::fields().author_id()`).
     ///
-    /// Required defaults from the lens's nullability (GH #100, GH #147): a
+    /// Required defaults from the lens's nullability: a
     /// non-nullable FK (`Post::fields().author_id()`) rejects an empty submit
     /// inline instead of dying at the driver's `parse::<Uuid>("")`; opt out
     /// with `.optional()` for nullable columns. A bare `Select` over a
     /// foreign-key lens validates only presence (any value passes) — prefer
     /// [`.relationship()`](Self::relationship), which checks existence
-    /// tenancy-aware, for FK fields (GH #91).
+    /// tenancy-aware, for FK fields.
     pub fn r#for<M, T>(path: toasty::stmt::Path<M, T>) -> Self
     where
         M: toasty::schema::Model,
@@ -106,7 +106,7 @@ impl Select {
     }
 
     /// Create a `Select` over a column the schema generates no lens for
-    /// (GH #191): the **discriminant** of an embedded enum.
+    /// the **discriminant** of an embedded enum.
     ///
     /// The one caller is [`discriminant_select`](crate::schema::discriminant_select),
     /// which fills the options from the app schema's variant list — each one
@@ -138,34 +138,25 @@ impl Select {
         }
     }
 
-    /// Option search over a visible list (GH #91, GH #184) plus server-side
-    /// narrowing past the cap (GH #150): renders a filter input and a
-    /// suggestion listbox above the select. Typing narrows the list by label
-    /// substring for bounded sets, and a pick writes the chosen option onto the
-    /// select, which stays the form control. Past the cap it fetches
-    /// `GET {parent_list_url}/options?field=&q=` (debounced, abort in-flight,
-    /// selection preserved) and re-renders the list from the answer. Reuses the
-    /// related `Table`'s declared `searchable()` columns; non-searchable
-    /// selects keep the cap error. No-JS keeps the plain select.
+    /// Option search over a visible list plus server-side narrowing past the
+    /// cap: renders a filter input and a suggestion listbox above the select.
+    /// Typing narrows the list by label substring for bounded sets, and a pick
+    /// writes the chosen option onto the select, which stays the form control.
+    /// Past the cap it fetches `GET {parent_list_url}/options?field=&q=`
+    /// (debounced, abort in-flight, selection preserved) and re-renders the list
+    /// from the answer. Reuses the related `Table`'s declared `searchable()`
+    /// columns; non-searchable selects keep the cap error.
     ///
     /// The list exists because the select cannot show filtering itself: the
     /// primitive opts into `appearance: base-select`, whose popup is browser
     /// chrome that ignores `option[hidden]`, so narrowing the select's own
-    /// options is invisible (GH #184).
+    /// options is invisible.
     ///
-    /// Behavior asset: `assets/selects.js` (`argentum_ui::SELECTS_JS`, hooks
-    /// `data-select-filterable` / `data-options-filter` /
-    /// `data-options-combobox` / `data-options-list`), emitted by
-    /// `Panel::render_document` on every document with shell assets
-    /// (see ADR-0014). Without it the input is inert and the plain select
-    /// keeps working.
-    ///
-    /// The input is the combobox: it carries `role="combobox"`,
-    /// `aria-controls` naming the listbox, `aria-autocomplete="list"` and a
-    /// collapsed `aria-expanded`, and `selects.js` keeps `aria-expanded` and
-    /// `aria-activedescendant` in step with the popup. On an edit form the
-    /// input starts on the current option's label, so the box over the hidden
-    /// select shows what is stored.
+    /// Needs `assets/selects.js` (`argentum_ui::SELECTS_JS`), emitted by
+    /// `Panel::render_document` on every document with shell assets (ADR-0014);
+    /// without it the input is inert and the plain select keeps working. The
+    /// input is the combobox and starts on the current option's label on an edit
+    /// form.
     pub fn searchable(mut self) -> Self {
         self.searchable = true;
         self
@@ -177,7 +168,7 @@ impl Select {
         self
     }
 
-    /// Opt out of the non-nullable default (GH #100, GH #147): for nullable
+    /// Opt out of the non-nullable default: for nullable
     /// columns where an empty submit is legitimate, or for a non-nullable
     /// column the form does not collect (a record fn substitutes a value —
     /// note the browser-side required attribute drops too, and an empty
@@ -208,51 +199,33 @@ impl Select {
     /// Load options via a related source's tenant-scoped query, a typed
     /// primary-key projection, and a label closure.
     ///
-    /// `R` is any [`OptionSource`] (GH #208) — every `Resource` is one through
-    /// the blanket impl in `resource`. The first argument is the related
-    /// resource's `query` fn (e.g. `AuthorResource::query`) — it is only a
-    /// type-inference witness; the loader calls the source's scoped query
-    /// directly, so the tenant gate and the framework's derived tenant filter
-    /// apply (GH #223). The second argument projects each related record to the
-    /// model's **primary key**: it is stringified with `Display` and becomes
-    /// the `<option value>`. The third maps the record to its display label.
+    /// `R` is any [`OptionSource`] — every `Resource` is one through the blanket
+    /// impl in `resource`. The first argument is the related resource's `query`
+    /// fn (e.g. `AuthorResource::query`), only a type-inference witness: the
+    /// loader calls the source's scoped query directly, so the tenant gate and
+    /// the framework's derived tenant filter apply. The second projects each
+    /// record to the model's **primary key**, stringified with `Display` as the
+    /// `<option value>`; the third maps the record to its display label.
     ///
-    /// Option values are typed PKs, never the table's row-key projection
-    /// (GH #108): using `Table::id` as the option value silently stored
-    /// arbitrary display strings in FK columns (or 500'd at write time when
-    /// the record fn parsed them). The projection is
-    /// `Fn(&R::Model) -> R::Model::PrimaryKey`, so a wrong field fails to
-    /// compile where the types differ. The related PK must be a single
-    /// primitive implementing `Display` — its canonical string is what
-    /// round-trips through the form; composite-key and `Bytes`-key models
-    /// cannot declare relationship selects (use `options_with_labels` for
-    /// those). Edit forms must hydrate the FK with that same canonical string
-    /// (e.g. `record.author_id.to_string()`), or the stored value renders
-    /// unselected.
+    /// Option values are typed PKs, never the table's row-key projection: using
+    /// `Table::id` silently stored display strings in FK columns. The projection
+    /// is `Fn(&R::Model) -> R::Model::PrimaryKey`, so a wrong field fails to
+    /// compile. The related PK must be a single primitive implementing
+    /// `Display`, whose canonical string round-trips through the form; edit
+    /// forms must hydrate the FK with that same string, or the stored value
+    /// renders unselected.
     ///
-    /// Policy-checked (GH #108): the related resource must allow
-    /// `can_view_any` for the request and, when it declares
-    /// `requires_tenant`, have a resolved tenant; each loaded row is then
-    /// filtered through `can_view` before its label can render. A denial
-    /// fails the whole load closed: the select renders no options and not
-    /// the stored value, the field shows `{label} is not available` on GET,
-    /// and a submit that still carries a value fails with that message. A
-    /// required denied select cannot be submitted at all (the empty control
-    /// fails `required` validation first); on an optional select an
-    /// untouched denied value submits empty, so record fns that must
-    /// preserve an inaccessible FK should treat `""` as "leave unchanged"
-    /// (the framework does not substitute it).
+    /// Policy-checked: the related resource must allow `can_view_any` and, when
+    /// it declares `requires_tenant`, have a resolved tenant; each loaded row is
+    /// filtered through `can_view`. A denial fails the load closed — no options
+    /// and not the stored value, `{label} is not available` on GET, and a submit
+    /// that carries a value fails with that message.
     ///
-    /// Bounded and memoized (GH #91): the loader fetches at most one row
-    /// past `MAX_RELATIONSHIP_OPTIONS` (before `can_view` filtering) and
-    /// overflows when the related table is larger — a 10k-row reference table
-    /// costs bounded work per submit. Small tables validate against the
-    /// bounded set; overflowed tables surface `Overflow` (GH #150): searchable
-    /// selects degrade to type-to-search with a targeted existence check,
-    /// non-searchable ones keep the `could not load options, retry` error.
-    /// Base option records are memoized per `(request, tenant)` so any number
-    /// of selects over one resource share the load; searches and targeted
-    /// checks are single bounded round-trips per call, not shared.
+    /// Bounded and memoized: at most one row past `MAX_RELATIONSHIP_OPTIONS`
+    /// (before `can_view` filtering), overflow past it; searchable selects then
+    /// degrade to type-to-search with a targeted existence check, non-searchable
+    /// ones keep the `could not load options, retry` error. Base option records
+    /// are memoized per `(request, tenant)`.
     pub fn relationship<R>(
         mut self,
         _query: fn(&Cx) -> toasty::stmt::Query<toasty::stmt::List<R::Model>>,
@@ -325,7 +298,7 @@ impl Select {
         self.relationship.is_some()
     }
 
-    /// Server-side option search for the endpoint (GH #150 D1/D5).
+    /// Server-side option search for the endpoint (D1/D5).
     ///
     /// Clamps `q`, reuses the related table's searchable columns, bounds to
     /// `MAX_RELATIONSHIP_OPTIONS`. Returns `Overflow` when the filtered set
@@ -344,7 +317,7 @@ impl Select {
         }
     }
 
-    /// Targeted existence check for overflowed selects (GH #150 D4).
+    /// Targeted existence check for overflowed selects (D4).
     async fn check_overflowed(&self, cx: &Cx, value: &str) -> Vec<String> {
         let Some(check) = &self.relationship_check else {
             return vec![format!("{} could not load options, retry", self.label)];
@@ -360,7 +333,7 @@ impl Select {
             Err(OptionLoadError::LoadFailed) | Err(OptionLoadError::Overflow) => {
                 vec![format!("{} could not load options, retry", self.label)]
             }
-            // A misdeclaration (GH #223) is permanent: retrying cannot fix it,
+            // A misdeclaration is permanent: retrying cannot fix it,
             // so it is reported without the retry wording.
             Err(OptionLoadError::Misdeclared) => {
                 vec![format!("{} could not load options", self.label)]
@@ -380,11 +353,11 @@ impl Select {
     /// Async existence check: if relationship is configured and value non-empty, ensure it matches
     /// a loaded option.
     ///
-    /// A loader failure surfaces as a form-level error (GH #91) instead of an
+    /// A loader failure surfaces as a form-level error instead of an
     /// empty-options passthrough that would 500 at FK write time. A policy
-    /// denial (GH #108) is reported as "not available" — retrying cannot fix
+    /// denial is reported as "not available" — retrying cannot fix
     /// a permission decision, and "invalid" would misattribute it to the
-    /// submitted value. An overflowed load (GH #150) uses the targeted check
+    /// submitted value. An overflowed load uses the targeted check
     /// for searchable selects (legitimate FKs beyond the cap validate) and
     /// keeps the retry error for non-searchable ones.
     pub async fn validate_async(&self, cx: &Cx, value: &str) -> Vec<String> {
@@ -421,7 +394,7 @@ impl Select {
                     Err(OptionLoadError::Overflow) | Err(OptionLoadError::LoadFailed) => {
                         errs.push(format!("{} could not load options, retry", self.label));
                     }
-                    // Permanent (GH #223): no retry wording, same as a denial.
+                    // Permanent: no retry wording, same as a denial.
                     Err(OptionLoadError::Misdeclared) => {
                         errs.push(format!("{} could not load options", self.label));
                     }
@@ -451,7 +424,7 @@ impl Select {
         errors: &[String],
         mode: Mode,
     ) -> Result<BoxView<'a>> {
-        // A variant driver (GH #191) reads as the variant's **name** on a
+        // A variant driver reads as the variant's **name** on a
         // read-only page — `Published`, never the `3` the column holds, which
         // is a machine value a reader gets nothing from (ADR-0016). It is the
         // one row that says which state the record is in: the payload rows
@@ -459,8 +432,7 @@ impl Select {
         //
         // A record with no stored variant has no name to show, and neither has
         // one whose value the schema does not declare (data the control cannot
-        // read back either): both render **nothing**, which is what the
-        // pre-#191 hidden control did in view mode.
+        // read back either): both render **nothing** in view mode.
         if mode == Mode::View && self.variant_of.is_some() {
             let stored = value.unwrap_or("").trim();
             let named = self
@@ -474,7 +446,7 @@ impl Select {
             };
         }
         // View mode resolves a static option label and never loads options
-        // (GH #187): a detail page renders one record, so a relationship's
+        // a detail page renders one record, so a relationship's
         // option load would be a query per page, and its scoped/denied paths
         // exist to police a *choice* the page is not offering. A relationship
         // therefore shows its stored key — the same value the column beside it
@@ -495,16 +467,16 @@ impl Select {
         let searchable = self.searchable;
         let current = value.unwrap_or("").trim().to_string();
         let loaded = self.load_options(cx).await;
-        // A policy denial (GH #108) deliberately does not re-render the
+        // A policy denial deliberately does not re-render the
         // stored value: the related rows are not viewable, so neither is
         // their label — the submit fails closed with "not available". The
         // denial is also surfaced on GET (when the caller carries no error
         // yet): the select has no options to pick, so the empty control must
         // explain itself instead of looking like a requireable empty field.
-        // A failed load keeps the stored FK selectable (GH #91): an edit must
+        // A failed load keeps the stored FK selectable: an edit must
         // not blank the relation into a required-error, and the submit
         // surfaces `could not load options, retry`. An overflowed load
-        // (GH #150) also keeps the stored FK; searchable selects degrade to
+        // also keeps the stored FK; searchable selects degrade to
         // type-to-search with a hint (no retry error), non-searchable ones
         // keep the retry path.
         let denied = matches!(&loaded, Err(OptionLoadError::Denied));
@@ -555,8 +527,8 @@ impl Select {
         // the control uses the primitive's chrome.
         let list_id = format!("{name}-options-list");
         let filter_label = format!("Filter {} options", self.label);
-        // Server fetch only past the cap (GH #150): bounded searchable sets
-        // keep the client-side label-substring filter (GH #91), so the
+        // Server fetch only past the cap: bounded searchable sets
+        // keep the client-side label-substring filter, so the
         // `data-options-server` flag must follow the overflow state — not
         // every searchable relationship. `selects.js` branches on this flag.
         let options_field = overflow_searchable.then(|| name.clone());
@@ -568,7 +540,7 @@ impl Select {
         let control = view! {
             cx =>
             if searchable {
-                // The filter input and its suggestion list (GH #184). The
+                // The filter input and its suggestion list. The
                 // list is what makes the filter visible: the native
                 // `<select>` popup is browser chrome the script cannot
                 // narrow (the primitive opts into `appearance: base-select`,
@@ -577,7 +549,7 @@ impl Select {
                 // value onto the select. Without the script the input is
                 // inert and the plain select keeps working.
                 //
-                // The input and the list are one combobox (GH #293): the
+                // The input and the list are one combobox: the
                 // input carries the static ARIA (its role, the list it
                 // controls, list autocompletion), starts collapsed over the
                 // hidden list, and `selects.js` keeps `aria-expanded` and
@@ -653,7 +625,7 @@ mod tests {
     use crate::schema::Schema;
 
     /// A bare `Select` over a non-nullable FK rejects an empty submit inline
-    /// (GH #147): an empty submit fails here with `is required`, so it never
+    /// an empty submit fails here with `is required`, so it never
     /// reaches the driver's `parse::<Uuid>("")`.
     #[test]
     fn bare_non_nullable_fk_select_rejects_empty_inline() {
