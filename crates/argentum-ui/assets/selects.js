@@ -20,7 +20,8 @@
 //   {parent_list_url}/options?field=&q=` fetch that replaces the `<select>`
 //   options with server markup, preserving the current selection and the
 //   placeholder; the list re-renders from the replaced options. The hint
-//   ("Too many options — type to search") stays until the server narrows.
+//   ("Too many options — type to search") is server-rendered and stays
+//   visible.
 //   Without JS the input is inert and the plain select keeps working (stored
 //   value kept, relation cannot be changed past the cap).
 //

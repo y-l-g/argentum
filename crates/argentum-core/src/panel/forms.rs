@@ -2497,16 +2497,23 @@ mod tests {
     #[tokio::test]
     async fn multipart_stream_refuses_a_malformed_filename_star() {
         // A malformed `pct-encoded` triplet fails the ext-value whole (RFC
-        // 5987), so the plain `filename=` wins instead of the literal `%ZZ`.
-        let body = "--B\r\nContent-Disposition: form-data; name=\"image_path\"; filename=\"plain.jpg\"; filename*=UTF-8''%ZZ.jpg\r\nContent-Type: image/jpeg\r\n\r\nBYTES\r\n--B--\r\n";
-        let got = multipart_values(&multipart_type("B"), body.as_bytes().to_vec())
-            .await
-            .unwrap();
-        assert_eq!(
-            got.get("image_path").map(String::as_str),
-            Some("plain.jpg"),
-            "a malformed filename* must fall back to filename=, got {got:?}"
-        );
+        // 5987), so the plain `filename=` wins. `%+1` is the case the strict
+        // check adds: the removed decoder accepted `+` as a sign character.
+        for malformed in ["%ZZ.jpg", "%+1.jpg"] {
+            let body = format!(
+                "--B\r\nContent-Disposition: form-data; name=\"image_path\"; \
+                 filename=\"plain.jpg\"; filename*=UTF-8''{malformed}\r\n\
+                 Content-Type: image/jpeg\r\n\r\nBYTES\r\n--B--\r\n"
+            );
+            let got = multipart_values(&multipart_type("B"), body.into_bytes())
+                .await
+                .unwrap();
+            assert_eq!(
+                got.get("image_path").map(String::as_str),
+                Some("plain.jpg"),
+                "a malformed filename* ({malformed}) must fall back to filename=, got {got:?}"
+            );
+        }
     }
 
     #[tokio::test]

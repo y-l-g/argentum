@@ -28,8 +28,8 @@ therefore holds only for documents rendered through `render_document` with `Shel
 a `Panel` built without `.shell_assets(..)` renders sidebar/toaster hooks with no scripts, as do apps
 using `argentum-ui` components directly.
 
-**Hook contract.** Each asset consumes an explicit hook list, guarded by `xtask/tests/asset_hooks.rs`
-(via `xtask::verify_asset_hooks`, mirroring `registry_sync.rs`): the test fails when an asset file is
+**Hook contract.** Each asset consumes an explicit hook list, guarded by `xtask/tests/it.rs`
+(via `xtask::verify_asset_hooks`, alongside the registry-sync guard): the test fails when an asset file is
 missing or renamed, or when a listed hook no longer appears in both its JS asset and the Rust sources.
 The list is attribute hooks only — structural selectors (`.relative`, `pre code`, `select option`,
 `dialog[open]`) and the inverse direction (a rendered hook with no consumer) are out of scope.

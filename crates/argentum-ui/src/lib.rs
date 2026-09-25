@@ -8,9 +8,10 @@ pub mod components;
 pub mod icons;
 
 // Re-exported at the crate root for ergonomic `argentum_ui::card` etc. The
-// `primitives` half mirrors `topcoat-ui-registry` verbatim (sync with
-// `cargo xtask sync-topcoat-ui`, ADR-0007 — edit the registry, not these); the
-// `composites` half is owned Argentum code in `components/composites/`.
+// `primitives` half mirrors the vendored `topcoat-ui-registry` components
+// verbatim (sync with `cargo xtask sync-topcoat-ui`, ADR-0007 — edit the
+// registry, not these); the `composites` half is owned Argentum code in
+// `components/composites/`.
 pub use components::{
     composites::{
         error_state::error_state,

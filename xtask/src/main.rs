@@ -3,8 +3,9 @@ fn main() -> anyhow::Result<()> {
     let cmd = args.next().unwrap_or_else(|| "help".to_string());
     match cmd.as_str() {
         "sync-topcoat-ui" | "sync" => {
-            // The flags are read from one collected list: `Iterator::any`
-            // consumes the args, so a second call would never see its flag.
+            // One collected list: reading two flags from the same `Iterator`
+            // loses the later one when the earlier scan has already consumed
+            // it (`--prune` alone, or after `--dry-run`).
             let rest: Vec<String> = args.collect();
             let dry_run = rest.iter().any(|a| a == "--dry-run");
             let prune = rest.iter().any(|a| a == "--prune");
