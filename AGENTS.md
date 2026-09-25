@@ -14,6 +14,7 @@ cargo clippy --locked --manifest-path benchmarks/argentum/Cargo.toml --all-targe
 cargo +1.98 check --workspace --locked           # MSRV floor (rust-version 1.98)
 node --test crates/argentum-ui/assets/selects.test.js crates/argentum-ui/assets/bulk.test.js \
   crates/argentum-ui/assets/dialog.test.js crates/argentum-ui/assets/mutation-submit.test.js \
+  crates/argentum-ui/assets/notifications.test.js \
   examples/showcase/assets/media.test.js
 cargo +nightly udeps --workspace --all-targets --all-features --locked  # GH #271
 

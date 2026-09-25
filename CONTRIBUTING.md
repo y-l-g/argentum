@@ -45,7 +45,7 @@ and all ten before merging.
 6. `cargo check --locked --manifest-path benchmarks/argentum/Cargo.toml`
 7. `cargo clippy --locked --manifest-path benchmarks/argentum/Cargo.toml --all-targets -- -D warnings`
 8. `cargo +1.98 check --workspace --locked`
-9. `node --test crates/argentum-ui/assets/selects.test.js crates/argentum-ui/assets/bulk.test.js crates/argentum-ui/assets/dialog.test.js crates/argentum-ui/assets/mutation-submit.test.js examples/showcase/assets/media.test.js`
+9. `node --test crates/argentum-ui/assets/selects.test.js crates/argentum-ui/assets/bulk.test.js crates/argentum-ui/assets/dialog.test.js crates/argentum-ui/assets/mutation-submit.test.js crates/argentum-ui/assets/notifications.test.js examples/showcase/assets/media.test.js`
 10. `cargo +nightly udeps --workspace --all-targets --all-features --locked`
 
 Gate 3 keeps the opt-out auth feature compiling and its tests passing: `auth`
