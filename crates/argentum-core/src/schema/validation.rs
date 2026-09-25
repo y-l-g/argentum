@@ -23,6 +23,18 @@ use email_address::{EmailAddress, Options};
 pub trait TypedValue: std::fmt::Display + std::str::FromStr {
     /// What this type is called in a validation error.
     const NOUN: &'static str;
+
+    /// Whether a successful `FromStr` is a value the form accepts (GH #297).
+    ///
+    /// `FromStr` is the first word, not the last: `f32`/`f64` parse `NaN`,
+    /// `inf` and `-inf` (and a literal that overflows, like `1e400`), none of
+    /// which is a number a field can hand back — the stored spelling would be
+    /// one no user typed. The default accepts whatever `FromStr` produced, so
+    /// only a type with such a gap implements this.
+    fn accepts(value: &Self) -> bool {
+        let _ = value;
+        true
+    }
 }
 
 /// The integer types a typed leaf can bind (GH #191 widened this from the three
@@ -49,10 +61,18 @@ impl TypedValue for bool {
 
 impl TypedValue for f32 {
     const NOUN: &'static str = "number";
+
+    fn accepts(value: &Self) -> bool {
+        value.is_finite()
+    }
 }
 
 impl TypedValue for f64 {
     const NOUN: &'static str = "number";
+
+    fn accepts(value: &Self) -> bool {
+        value.is_finite()
+    }
 }
 
 impl TypedValue for uuid::Uuid {
@@ -70,8 +90,9 @@ impl TypedValue for jiff::Timestamp {
 /// that validates at the form edge and normalises through `Display`.
 type ValueParser = std::sync::Arc<dyn Fn(&str) -> Result<String, String> + Send + Sync>;
 
-/// The parser a typed field binds: reject what `T` cannot parse, and store what
-/// `T`'s own `Display` produces for it (GH #192).
+/// The parser a typed field binds: reject what `T` cannot parse — or parses
+/// into a value it does not accept (GH #297) — and store what `T`'s own
+/// `Display` produces for it (GH #192).
 ///
 /// Normalising through `Display` is the point, not a side effect: it is what
 /// makes an edit that never touched the field write back a value of the same
@@ -79,8 +100,8 @@ type ValueParser = std::sync::Arc<dyn Fn(&str) -> Result<String, String> + Send 
 /// submitted as `2024-01-02T03:04:05Z` is stored as that type's canonical form.
 fn typed_parser<T: TypedValue>() -> ValueParser {
     std::sync::Arc::new(|value: &str| match value.parse::<T>() {
-        Ok(parsed) => Ok(parsed.to_string()),
-        Err(_) => Err(format!("`{value}` is not a valid {}", T::NOUN)),
+        Ok(parsed) if T::accepts(&parsed) => Ok(parsed.to_string()),
+        _ => Err(format!("`{value}` is not a valid {}", T::NOUN)),
     })
 }
 
@@ -208,4 +229,42 @@ fn is_email(value: &str) -> bool {
                 .without_display_text(),
         )
         .is_ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Rules;
+
+    /// The typed rule words one message for a value the type cannot parse and
+    /// for one it parses into a value it does not accept (GH #297).
+    fn rejected(input: &str) -> String {
+        format!("`{input}` is not a valid number")
+    }
+
+    /// GH #297: `f32`/`f64` `FromStr` accepts `NaN`, `inf` and `-inf`, and the
+    /// typed rule passed them through as stored values. They are refused like
+    /// any other unparseable submission.
+    #[test]
+    fn a_float_refuses_a_non_finite_parse() {
+        for input in ["NaN", "nan", "inf", "-inf", "infinity", "1e400"] {
+            let f64_errs = Rules::new().typed::<f64>().validate("Amount", true, input);
+            let f32_errs = Rules::new().typed::<f32>().validate("Amount", true, input);
+            assert_eq!(f64_errs, vec![rejected(input)], "f64 accepted {input}");
+            assert_eq!(f32_errs, vec![rejected(input)], "f32 accepted {input}");
+        }
+    }
+
+    /// The same field keeps accepting a finite number, and normalises it
+    /// through `f64`'s `Display` as any typed rule does.
+    #[test]
+    fn a_float_accepts_and_normalises_a_finite_number() {
+        let rules = Rules::new().typed::<f64>();
+        assert!(rules.validate("Amount", true, "-0.25").is_empty());
+        assert!(rules.validate("Amount", true, "1e3").is_empty());
+        assert_eq!(
+            rules.normalize(" 12.50 ").expect("12.50 parses"),
+            "12.5",
+            "a finite value stores its own spelling"
+        );
+    }
 }

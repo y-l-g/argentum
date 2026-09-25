@@ -394,12 +394,18 @@ fn form_values_from_bytes(bytes: &[u8]) -> HashMap<String, String> {
 
 /// Shared create/edit page shell (GH #73 multipart enctype, CSRF hidden
 /// input, inline error slot). Title and submit label are the only deltas.
+///
+/// `carried` names the upload fields whose value is an uploader's answer rather
+/// than the record's: the shell renders each one's path as a hidden
+/// `keep_<field>` control, so the submit a corrected form makes can keep a file
+/// the browser's empty file input cannot resend (GH #297).
 async fn render_form_page<'a, R: Resource>(
     cx: &'a Cx,
     title: String,
     submit_label: &'static str,
     values: &HashMap<String, String>,
     errors: &HashMap<String, Vec<String>>,
+    carried: &HashSet<String>,
 ) -> Result<BoxView<'a>> {
     let schema = R::form(cx);
     let form_html = schema.render_with(cx, values, errors).await?;
@@ -409,6 +415,20 @@ async fn render_form_page<'a, R: Resource>(
         .has_file_upload()
         .then(|| "multipart/form-data".to_string());
     let csrf = crate::csrf::current_token(cx);
+    // The candidate paths, one hidden control each: the framework re-verifies
+    // them against the installed store before it uses one (GH #297).
+    let mut carried_fields: Vec<BoxView<'a>> = Vec::new();
+    let mut carried_names: Vec<&String> = carried.iter().collect();
+    carried_names.sort();
+    for name in carried_names {
+        let Some(path) = values.get(name) else {
+            continue;
+        };
+        let control = format!("keep_{name}");
+        let path = path.clone();
+        carried_fields
+            .push(view! { cx => <input type="hidden" name=(control) value=(path)> }.boxed());
+    }
     Ok(view! {
         cx =>
         argentum_ui::page(
@@ -421,6 +441,9 @@ async fn render_form_page<'a, R: Resource>(
                     class="flex flex-col gap-4"
                 >
                     (crate::csrf::field(cx, &csrf))
+                    for carried in carried_fields {
+                        (carried)
+                    }
                     (form_html)
                     <div class="flex gap-2">
                         argentum_ui::button(
@@ -460,6 +483,7 @@ pub(crate) fn resource_create<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> 
             "Create",
             &HashMap::new(),
             &HashMap::new(),
+            &HashSet::new(),
         )
         .await?;
         Ok(html)
@@ -502,11 +526,12 @@ pub(crate) fn truthy(v: &str) -> bool {
 }
 
 /// Strip framework transport keys from the submitted values before any
-/// record fn sees them (GH #148): `csrf_token` and the `clear_<field>`
-/// flags are handler keys, not writable fields — a generic `Resource` impl
-/// iterating `values` (the exact threat model in the `unknown_keys` docs)
-/// must not receive them as writes. The framework strips once here, not
-/// per-app convention.
+/// record fn sees them (GH #148): `csrf_token`, the `clear_<field>` flags and
+/// the `keep_<field>` candidates a re-rendered form carries (GH #297) are
+/// handler keys, not writable fields — a generic `Resource` impl iterating
+/// `values` (the exact threat model in the `unknown_keys` docs) must not
+/// receive them as writes. The framework strips once here, not per-app
+/// convention.
 fn strip_transport_keys(schema: &crate::schema::Schema, values: &mut HashMap<String, String>) {
     let declared: std::collections::HashSet<String> = schema.field_names().into_iter().collect();
     // A schema field literally named `csrf_token` (or `clear_<upload>`) is a
@@ -517,7 +542,8 @@ fn strip_transport_keys(schema: &crate::schema::Schema, values: &mut HashMap<Str
         if k == crate::csrf::FIELD_NAME {
             return declared.contains(k.as_str());
         }
-        match k.strip_prefix("clear_") {
+        let field = k.strip_prefix("clear_").or_else(|| k.strip_prefix("keep_"));
+        match field {
             Some(field) if schema.file_uploads().contains_key(field) => {
                 declared.contains(k.as_str())
             }
@@ -542,6 +568,48 @@ fn drop_client_typed_uploads(
     }
 }
 
+/// Re-use the upload a re-rendered form carried (GH #297).
+///
+/// A re-rendered form posts each carried upload's path back under
+/// `keep_<field>`, because the browser's file input is empty on the next
+/// attempt. The candidate is used only when the installed uploader still holds
+/// the path ([`crate::upload::holds`]): a client-typed value is never stored,
+/// which is the GH #277 rule the carry must not re-open. Without an installed
+/// uploader nothing can vouch for a path, so nothing is restored.
+///
+/// A field that carried a file of its own in this submission, or one the user
+/// cleared, keeps its own answer. Returns the field names whose value is an
+/// upload, so the caller can carry them through another re-render.
+async fn restore_pending_uploads(
+    cx: &Cx,
+    schema: &crate::schema::Schema,
+    values: &mut HashMap<String, String>,
+) -> HashSet<String> {
+    let mut restored = HashSet::new();
+    for name in schema.file_uploads().keys() {
+        let empty = values
+            .get(name)
+            .map(|value| value.trim().is_empty())
+            .unwrap_or(true);
+        let cleared = values
+            .get(&format!("clear_{name}"))
+            .is_some_and(|value| truthy(value));
+        if !empty || cleared {
+            continue;
+        }
+        let Some(candidate) = values.get(&format!("keep_{name}")) else {
+            continue;
+        };
+        let candidate = candidate.trim().to_string();
+        if candidate.is_empty() || !crate::upload::holds(cx, &candidate).await {
+            continue;
+        }
+        values.insert(name.clone(), candidate);
+        restored.insert(name.clone());
+    }
+    restored
+}
+
 /// App-side uniqueness check over the form's `unique()`-marked text inputs.
 ///
 /// Generic over every marked field (GH #75). Queries
@@ -549,12 +617,18 @@ fn drop_client_typed_uploads(
 /// `field_name → ["<Label> has already been taken"]` per duplicated value.
 ///
 /// `current` holds the record's own hydrated values on edit: a field whose
-/// submitted value is unchanged belongs to this record and is skipped.
+/// submitted value normalises to the same stored value belongs to this record
+/// and is skipped, so a typed field's re-spelled equivalent is not a duplicate
+/// (GH #297).
 ///
 /// Empty submits are never probed (GH #189): a `unique()` field is required
 /// (see [`crate::schema::TextInput::unique`]), so `validate` has already
 /// answered `"<Label> is required"` and this check has nothing left to say — no
 /// query, and no `""` written past an index that admits one.
+///
+/// The probe binds the leaf's own type (GH #297): a typed field parses the
+/// submission and compares the parsed value, so a value that is unique as text
+/// but not as its declared type is still refused.
 ///
 /// Known limits (GH #88, upstream gap #117): races with concurrent
 /// inserts (only a driver predicate closes it); the probe runs inside the
@@ -572,10 +646,11 @@ async fn check_unique<R: Resource>(
     ex: &mut dyn toasty::Executor,
 ) -> Result<HashMap<String, Vec<String>>, topcoat::Error> {
     let mut errors: HashMap<String, Vec<String>> = HashMap::new();
-    // Absent Repeater groups are not checked (GH #167): `validate` treats an
-    // all-empty group as untouched via the same classification, so a stored
-    // `""` must not flag a group the user never touched.
-    let skip = schema.absent_repeater_fields(values);
+    // Groups the submission leaves out are not checked (GH #167, GH #297):
+    // `validate` treats an all-empty repeater group and a hidden variant group
+    // as untouched through the same classification, so a stored value must not
+    // flag a group the user never saw.
+    let skip = schema.absent_fields(values);
     for (name, input) in schema.text_inputs() {
         if !input.is_unique() || skip.contains(&name) {
             continue;
@@ -590,10 +665,28 @@ async fn check_unique<R: Resource>(
         if submitted.is_empty() {
             continue;
         }
-        // Unchanged on edit → this record's own value, not a duplicate.
-        if current.get(&name).map(|s| s.trim().to_string()) == Some(submitted.clone()) {
+        // Unchanged on edit → this record's own value, not a duplicate. Both
+        // sides normalise through the leaf's own rule (GH #297): a typed
+        // field's re-spelled equivalent — `01` for `1`, an upper-case UUID for
+        // its lower-case form — is the same value, so the probe is skipped. A
+        // text comparison would call it changed, probe this record's own row
+        // and refuse the save.
+        let unchanged = current.get(&name).is_some_and(|kept| {
+            matches!(
+                (input.normalize(kept), input.normalize(&submitted)),
+                (Ok(kept), Ok(submitted)) if kept == submitted
+            )
+        });
+        if unchanged {
             continue;
         }
+        // The leaf's own binding (GH #297): a typed field parses the
+        // submission first, so the probe compares the value the record will
+        // store rather than its spelling. A typed submission that does not
+        // parse has no value to compare — validation refused it first.
+        let Some(filter) = input.eq_filter::<R::Model>(&submitted) else {
+            continue;
+        };
         // Inside the handler's tx (GH #84): the check observes the same
         // snapshot as the write that follows. A failing probe fails the
         // submit (GH #167) — swallowing it would write past a check that
@@ -602,7 +695,7 @@ async fn check_unique<R: Resource>(
         // (GH #298), so it asks for no relation includes.
         let rows =
             crate::resource::scoped_query_with::<R>(cx, &crate::resource::IncludeNeeds::default())?
-                .filter(input.eq_filter::<R::Model>(submitted))
+                .filter(filter)
                 .limit(1)
                 .exec(&mut *ex)
                 .await
@@ -629,9 +722,10 @@ async fn rerender_invalid_form<'a, R: Resource>(
     submit_label: &'static str,
     values: &HashMap<String, String>,
     errors: &HashMap<String, Vec<String>>,
+    carried: &HashSet<String>,
 ) -> Result<BoxView<'a>> {
     drop(tx);
-    render_form_page::<R>(cx, title, submit_label, values, errors).await
+    render_form_page::<R>(cx, title, submit_label, values, errors, carried).await
 }
 
 /// Shared create/edit POST success tail (GH #134): Post/Redirect/Get with a
@@ -672,10 +766,15 @@ pub(crate) fn resource_create_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<
         //
         // Nothing backfills an upload here: a create has no stored value to
         // keep, so a rejected file leaves its field empty beside the reason.
-        let upload_errors = crate::upload::store_uploads(cx, &schema, &files, &mut values).await;
+        // A file that *was* stored is carried instead, so a re-rendered create
+        // can keep it across the next submit (GH #297).
+        let (upload_errors, mut carried) =
+            crate::upload::store_uploads(cx, &schema, &files, &mut values).await;
+        carried.extend(restore_pending_uploads(cx, &schema, &mut values).await);
         // Transport keys never reach the record fn (GH #148): a generic impl
-        // iterating `values` must not see `csrf_token`/`clear_*` as writable
-        // fields — the framework strips them once, not per-app convention.
+        // iterating `values` must not see `csrf_token`/`clear_*`/`keep_*` as
+        // writable fields — the framework strips them once, not per-app
+        // convention.
         strip_transport_keys(&schema, &mut values);
         let mut errors = schema.validate_async(cx, &values).await;
         // A rejected upload owns its field's error slot: "required" would
@@ -705,6 +804,7 @@ pub(crate) fn resource_create_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<
                 "Create",
                 &values,
                 &errors,
+                &carried,
             )
             .await;
         }
@@ -762,6 +862,7 @@ pub(crate) fn resource_edit<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
             "Save",
             &values,
             &HashMap::new(),
+            &HashSet::new(),
         )
         .await?;
         Ok(html)
@@ -812,7 +913,13 @@ pub(crate) fn resource_edit_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_
         // answer for that field, and a *rejected* store drops the submitted
         // name so the backfill below restores what is actually on disk —
         // rendering the client's filename as a stored file would be a lie.
-        let upload_errors = crate::upload::store_uploads(cx, &schema, &files, &mut values).await;
+        let (upload_errors, mut carried) =
+            crate::upload::store_uploads(cx, &schema, &files, &mut values).await;
+        // A form re-rendered after a failed submit carries the path its store
+        // just answered; the uploader must still hold it, and it wins over the
+        // record's stored value below (GH #297). Run before the backfill: a
+        // restored field is non-empty, so the backfill leaves it alone.
+        carried.extend(restore_pending_uploads(cx, &schema, &mut values).await);
         // Untouched file inputs preserve the stored path (GH #90): the edit
         // form renders an empty file input (browsers never pre-fill it), so
         // an empty submit means "keep", not "clear" — without this the
@@ -861,6 +968,7 @@ pub(crate) fn resource_edit_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_
                 "Save",
                 &values,
                 &errors,
+                &carried,
             )
             .await;
         }
@@ -1026,8 +1134,9 @@ mod tests {
     }
 
     /// Record fns never see framework transport keys (GH #148): the create
-    /// POST carries `csrf_token` (and, for file schemas, `clear_<field>`) —
-    /// the framework strips them before `create_record`, so a generic impl
+    /// POST carries `csrf_token` (and, for file schemas, `clear_<field>` and the
+    /// `keep_<field>` candidate a re-rendered form adds, GH #297) — the
+    /// framework strips them before `create_record`, so a generic impl
     /// iterating `values` cannot treat them as writable fields.
     #[tokio::test]
     async fn create_record_receives_no_transport_keys() {
@@ -1104,12 +1213,14 @@ mod tests {
             .expect("panel builds");
         let csrf = uuid::Uuid::new_v4().to_string();
         // `path` is a `FileUpload`, so it arrives as a file part (GH #277);
-        // `clear_path` and `csrf_token` are the transport keys under test.
+        // `clear_path`, the client-typed `keep_path` candidate and
+        // `csrf_token` are the transport keys under test.
         let boundary = "----TransportBoundary";
         let body = format!(
             "--{b}\r\nContent-Disposition: form-data; name=\"title\"\r\n\r\nx\r\n\
              --{b}\r\nContent-Disposition: form-data; name=\"path\"; filename=\"a.bin\"\r\nContent-Type: application/octet-stream\r\n\r\nBYTES\r\n\
              --{b}\r\nContent-Disposition: form-data; name=\"clear_path\"\r\n\r\n1\r\n\
+             --{b}\r\nContent-Disposition: form-data; name=\"keep_path\"\r\n\r\njavascript:alert(1)\r\n\
              --{b}\r\nContent-Disposition: form-data; name=\"csrf_token\"\r\n\r\n{csrf}\r\n\
              --{b}--\r\n",
             b = boundary
@@ -1145,7 +1256,9 @@ mod tests {
         let received = RECEIVED.lock().unwrap();
         let keys = received.last().expect("create_record ran");
         assert!(
-            !keys.contains(&"csrf_token".to_string()) && !keys.contains(&"clear_path".to_string()),
+            !keys.contains(&"csrf_token".to_string())
+                && !keys.contains(&"clear_path".to_string())
+                && !keys.contains(&"keep_path".to_string()),
             "transport keys must be stripped before the record fn, got {keys:?}"
         );
         assert_eq!(keys.len(), 2, "declared fields only, got {keys:?}");
@@ -2494,6 +2607,444 @@ mod tests {
         assert!(
             !WithoutFile::form(&cx).has_file_upload(),
             "plain schema must report no upload"
+        );
+    }
+
+    use crate::schema::{FileUpload, Schema, TextInput};
+
+    /// The body of `response`, for an inline-error assertion.
+    async fn response_html(response: http::Response<Body>) -> String {
+        String::from_utf8_lossy(
+            &http_body_util::BodyExt::collect(response.into_body())
+                .await
+                .unwrap()
+                .to_bytes(),
+        )
+        .to_string()
+    }
+
+    /// The typed unique field the two probes below share (GH #297). The column
+    /// is a `Uuid`, not a whole number: SQLite's INTEGER affinity coerces `01`
+    /// to `1`, so a whole-number column lets a text probe pass.
+    #[derive(Debug, toasty::Model, Clone)]
+    struct Tagged {
+        #[key]
+        #[auto]
+        id: uuid::Uuid,
+        name: String,
+        #[unique]
+        token: uuid::Uuid,
+    }
+
+    struct TaggedResource;
+
+    impl crate::resource::Resource for TaggedResource {
+        type Model = Tagged;
+
+        fn slug() -> String {
+            "tagged".to_string()
+        }
+
+        fn can_view_any(_cx: &Cx) -> bool {
+            true
+        }
+
+        fn can_view(_cx: &Cx, _record: &Tagged) -> bool {
+            true
+        }
+
+        fn can_create(_cx: &Cx) -> bool {
+            true
+        }
+
+        fn can_update(_cx: &Cx, _record: &Tagged) -> bool {
+            true
+        }
+
+        fn table(cx: &Cx) -> crate::resource::Table<Tagged> {
+            crate::resource::Table::r#for(cx)
+                .id(|row: &Tagged| row.id.to_string())
+                .pk(|row: &Tagged| row.id.to_string())
+                .columns(crate::resource::TextColumn::r#for(
+                    Tagged::fields().name(),
+                    |row: &Tagged| row.name.clone(),
+                ))
+        }
+
+        fn form(_cx: &Cx) -> Schema {
+            Schema::new((
+                TextInput::r#for(Tagged::fields().name()),
+                TextInput::typed::<Tagged, uuid::Uuid>(Tagged::fields().token()).unique(),
+            ))
+        }
+
+        fn hydrate_form_values(_cx: &Cx, record: &Tagged) -> HashMap<String, String> {
+            HashMap::from([
+                ("name".to_string(), record.name.clone()),
+                ("token".to_string(), record.token.to_string()),
+            ])
+        }
+
+        async fn create_record(
+            _cx: &Cx,
+            values: HashMap<String, String>,
+            ex: &mut dyn toasty::Executor,
+        ) -> topcoat::Result<Tagged> {
+            toasty::create!(Tagged {
+                name: values.get("name").cloned().unwrap_or_default(),
+                token: submitted_token(&values),
+            })
+            .exec(&mut *ex)
+            .await
+            .map_err(|error| -> topcoat::Error { error.into() })
+        }
+
+        async fn update_record(
+            _cx: &Cx,
+            mut record: Tagged,
+            values: HashMap<String, String>,
+            ex: &mut dyn toasty::Executor,
+        ) -> topcoat::Result<Tagged> {
+            if let Some(name) = values.get("name") {
+                record.name = name.clone();
+            }
+            if values.contains_key("token") {
+                record.token = submitted_token(&values);
+            }
+            toasty::update!(record {
+                name: record.name.clone(),
+                token: record.token,
+            })
+            .exec(&mut *ex)
+            .await
+            .map_err(|error| -> topcoat::Error { error.into() })?;
+            Ok(record)
+        }
+    }
+
+    /// The submitted token, or the nil UUID when it does not parse.
+    fn submitted_token(values: &HashMap<String, String>) -> uuid::Uuid {
+        values
+            .get("token")
+            .and_then(|value| value.parse::<uuid::Uuid>().ok())
+            .unwrap_or(uuid::Uuid::nil())
+    }
+
+    /// GH #297: the app-side unique probe binds the leaf's declared type. The
+    /// stored token's canonical spelling is lower case, so an upper-case
+    /// submission is a different string and the same `Uuid`: a text comparison
+    /// finds no duplicate — and on this non-text column it cannot run at all —
+    /// while the typed comparison refuses the submit.
+    #[tokio::test]
+    async fn a_typed_unique_field_probes_the_declared_type() {
+        const TOKEN: &str = "0f8fad5b-d9cb-469f-a165-70867728950e";
+
+        let db = Db::builder()
+            .models(toasty::models!(Tagged))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        let mut db_q = db.clone();
+        toasty::create!(Tagged {
+            name: "one".to_string(),
+            token: uuid::Uuid::parse_str(TOKEN).unwrap(),
+        })
+        .exec(&mut db_q)
+        .await
+        .unwrap();
+        let router = Panel::new("admin")
+            .app_context(db.clone())
+            .resource::<TaggedResource>()
+            .auth(crate::Auth::disabled())
+            .build()
+            .expect("panel builds");
+
+        let csrf = uuid::Uuid::new_v4().to_string();
+        let request = |body: String| {
+            http::Request::builder()
+                .method(http::Method::POST)
+                .uri("/admin/tagged/create")
+                .header(
+                    http::header::CONTENT_TYPE,
+                    "application/x-www-form-urlencoded",
+                )
+                .header(
+                    http::header::COOKIE,
+                    format!("{}={csrf}", crate::csrf::COOKIE_NAME),
+                )
+                .body(Body::from(body))
+                .unwrap()
+        };
+
+        // The upper-case spelling is not the stored one, so a text probe sees
+        // no duplicate; the typed probe sees the same `Uuid`.
+        let response = router
+            .handle(request(format!(
+                "name=two&token={}&csrf_token={csrf}",
+                TOKEN.to_uppercase()
+            )))
+            .await;
+        assert_eq!(
+            response.status(),
+            200,
+            "the duplicate must re-render, not create"
+        );
+        let html = response_html(response).await;
+        assert!(
+            html.contains("Token has already been taken"),
+            "the typed probe must see the duplicate, got {html}"
+        );
+        let mut db_q = db.clone();
+        assert_eq!(
+            Tagged::all().exec(&mut db_q).await.unwrap().len(),
+            1,
+            "a refused create writes nothing"
+        );
+
+        // The other direction: a genuinely different token still creates.
+        let response = router
+            .handle(request(format!(
+                "name=two&token=3f8fad5b-d9cb-469f-a165-70867728950e&csrf_token={csrf}"
+            )))
+            .await;
+        assert_eq!(
+            response.status(),
+            303,
+            "a distinct value must create, not flag a duplicate"
+        );
+        let mut db_q = db.clone();
+        assert_eq!(
+            Tagged::all().exec(&mut db_q).await.unwrap().len(),
+            2,
+            "the accepted create writes its row"
+        );
+    }
+
+    /// GH #297: the edit exclusion normalises both sides through the leaf's own
+    /// rule, so a re-spelled equivalent of the record's own value is that value
+    /// and the save succeeds; another record's value still refuses.
+    #[tokio::test]
+    async fn a_typed_unique_field_skips_the_records_own_value_on_edit() {
+        const MINE: &str = "0f8fad5b-d9cb-469f-a165-70867728950e";
+        const THEIRS: &str = "3f8fad5b-d9cb-469f-a165-70867728950e";
+
+        let db = Db::builder()
+            .models(toasty::models!(Tagged))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        let mut db_q = db.clone();
+        let mine = toasty::create!(Tagged {
+            name: "mine".to_string(),
+            token: uuid::Uuid::parse_str(MINE).unwrap(),
+        })
+        .exec(&mut db_q)
+        .await
+        .unwrap();
+        toasty::create!(Tagged {
+            name: "theirs".to_string(),
+            token: uuid::Uuid::parse_str(THEIRS).unwrap(),
+        })
+        .exec(&mut db_q)
+        .await
+        .unwrap();
+        let router = Panel::new("admin")
+            .app_context(db.clone())
+            .resource::<TaggedResource>()
+            .auth(crate::Auth::disabled())
+            .build()
+            .expect("panel builds");
+
+        let csrf = uuid::Uuid::new_v4().to_string();
+        let url = format!("/admin/tagged/{}/edit", mine.id);
+        let edit = |token: &str| {
+            http::Request::builder()
+                .method(http::Method::POST)
+                .uri(&url)
+                .header(
+                    http::header::CONTENT_TYPE,
+                    "application/x-www-form-urlencoded",
+                )
+                .header(
+                    http::header::COOKIE,
+                    format!("{}={csrf}", crate::csrf::COOKIE_NAME),
+                )
+                .body(Body::from(format!(
+                    "name=mine&token={token}&csrf_token={csrf}"
+                )))
+                .unwrap()
+        };
+
+        // The record's own token, re-spelled: the same value, so the save
+        // succeeds instead of probing this record's own row.
+        let response = router.handle(edit(&MINE.to_uppercase())).await;
+        assert!(
+            response.status().is_redirection(),
+            "re-spelling the record's own value must save, got {} {}",
+            response.status(),
+            response_html(response).await
+        );
+        let mut db_q = db.clone();
+        let saved = Tagged::filter(Tagged::fields().id().eq(mine.id))
+            .first()
+            .exec(&mut db_q)
+            .await
+            .unwrap()
+            .expect("the edited record");
+        assert_eq!(
+            saved.token,
+            uuid::Uuid::parse_str(MINE).unwrap(),
+            "the re-spelled value is stored canonically"
+        );
+
+        // Another record holds the submitted token: refused, nothing written.
+        let response = router.handle(edit(THEIRS)).await;
+        assert_eq!(
+            response.status(),
+            200,
+            "another record's value must refuse the edit"
+        );
+        let html = response_html(response).await;
+        assert!(
+            html.contains("Token has already been taken"),
+            "the typed probe must see the other record, got {html}"
+        );
+        let mut db_q = db.clone();
+        let unchanged = Tagged::filter(Tagged::fields().id().eq(mine.id))
+            .first()
+            .exec(&mut db_q)
+            .await
+            .unwrap()
+            .expect("the refused record");
+        assert_eq!(
+            unchanged.token,
+            uuid::Uuid::parse_str(MINE).unwrap(),
+            "a refused edit writes nothing"
+        );
+    }
+
+    /// GH #297: `Uploader::holds` defaults to `false`, so a store that does not
+    /// implement it cannot vouch for a carried path — a forged `keep_<field>`
+    /// leaves the field empty and the create refuses.
+    #[tokio::test]
+    async fn a_forged_carry_is_refused_by_the_default_holds() {
+        #[derive(Debug, toasty::Model, Clone)]
+        struct Doc {
+            #[key]
+            #[auto]
+            id: uuid::Uuid,
+            title: String,
+            path: String,
+        }
+
+        /// A store that implements only `store`: `holds` stays the default.
+        struct NoHoldsUploader;
+
+        impl crate::Uploader for NoHoldsUploader {
+            async fn store(
+                &self,
+                _filename: &str,
+                _bytes: &[u8],
+            ) -> std::result::Result<String, String> {
+                Ok("/uploads/stored.bin".to_string())
+            }
+        }
+
+        struct DocResource;
+
+        impl crate::resource::Resource for DocResource {
+            type Model = Doc;
+
+            fn slug() -> String {
+                "docs".to_string()
+            }
+
+            fn can_view_any(_cx: &Cx) -> bool {
+                true
+            }
+
+            fn can_create(_cx: &Cx) -> bool {
+                true
+            }
+
+            fn table(cx: &Cx) -> crate::resource::Table<Doc> {
+                crate::resource::Table::r#for(cx)
+                    .id(|row: &Doc| row.id.to_string())
+                    .columns(crate::resource::TextColumn::r#for(
+                        Doc::fields().title(),
+                        |row: &Doc| row.title.clone(),
+                    ))
+            }
+
+            fn form(_cx: &Cx) -> Schema {
+                Schema::new((
+                    TextInput::r#for(Doc::fields().title()),
+                    FileUpload::r#for(Doc::fields().path()),
+                ))
+            }
+
+            async fn create_record(
+                _cx: &Cx,
+                values: HashMap<String, String>,
+                ex: &mut dyn toasty::Executor,
+            ) -> topcoat::Result<Doc> {
+                toasty::create!(Doc {
+                    title: values.get("title").cloned().unwrap_or_default(),
+                    path: values.get("path").cloned().unwrap_or_default(),
+                })
+                .exec(&mut *ex)
+                .await
+                .map_err(|error| -> topcoat::Error { error.into() })
+            }
+        }
+
+        let db = Db::builder()
+            .models(toasty::models!(Doc))
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.push_schema().await.unwrap();
+        let router = Panel::new("admin")
+            .app_context(db.clone())
+            .uploads(NoHoldsUploader)
+            .resource::<DocResource>()
+            .auth(crate::Auth::disabled())
+            .build()
+            .expect("panel builds");
+
+        let csrf = uuid::Uuid::new_v4().to_string();
+        // A forged candidate with no file part: nothing stored the path.
+        let response = router
+            .handle(
+                http::Request::builder()
+                    .method(http::Method::POST)
+                    .uri("/admin/docs/create")
+                    .header(
+                        http::header::CONTENT_TYPE,
+                        "application/x-www-form-urlencoded",
+                    )
+                    .header(
+                        http::header::COOKIE,
+                        format!("{}={csrf}", crate::csrf::COOKIE_NAME),
+                    )
+                    .body(Body::from(format!(
+                        "title=Doc&keep_path=javascript:alert(1)&csrf_token={csrf}"
+                    )))
+                    .unwrap(),
+            )
+            .await;
+        assert_eq!(response.status(), 200, "the forged carry must re-render");
+        let html = response_html(response).await;
+        assert!(
+            html.contains("Path is required"),
+            "the forged carry must leave the field empty, got {html}"
+        );
+        let mut db_q = db.clone();
+        assert!(
+            Doc::all().exec(&mut db_q).await.unwrap().is_empty(),
+            "a forged carry must not create a record"
         );
     }
 }

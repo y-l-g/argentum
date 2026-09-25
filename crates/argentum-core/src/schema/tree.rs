@@ -2,7 +2,8 @@
 //!
 //! `Node` composes field leaves (`fields`) and containers (`layouts`)
 //! into one tree; `for_each_field` is the single traversal the facade
-//! collectors share, and `walk_repeater_absence` classifies repeaters.
+//! collectors share, and `walk_absent_groups` classifies the groups a
+//! submission leaves out.
 
 use std::collections::{HashMap, HashSet};
 
@@ -215,8 +216,8 @@ pub(crate) fn for_each_field(node: &Node, f: &mut impl FnMut(&Node)) {
     }
 }
 
-/// Classify the schema's repeaters against `values` (GH #147, replacing the
-/// GH #75 required-walk and the optional-group skip in one tree walk).
+/// Classify the schema's groups against `values` (GH #147, GH #297): the
+/// repeaters that are absent and the variant groups the submission hides.
 ///
 /// For every Repeater, all its inner field names (as `field_names()` of the
 /// child schema) are checked: an all-empty group is "absent" — an untouched
@@ -232,7 +233,14 @@ pub(crate) fn for_each_field(node: &Node, f: &mut impl FnMut(&Node)) {
 /// On edit, the GH #90 untouched-file backfill runs before validation, so a
 /// group whose stored file path is non-empty counts as present there even if
 /// the browser submitted it empty — a kept file is real group data.
-pub(crate) fn walk_repeater_absence(
+///
+/// A `Group` marked as one embedded enum variant's payload (GH #191) is
+/// **hidden** when the submission names a different variant
+/// ([`Group::hidden`](super::layouts::Group::hidden)): `variant.js` keeps only
+/// the named variant's group visible, so a value the user cannot see must not
+/// fail the submit. A hidden group's whole subtree joins `skip` and its
+/// required repeaters are suppressed with it, exactly as an absent one.
+pub(crate) fn walk_absent_groups(
     nodes: &[Node],
     values: &HashMap<String, String>,
     skip: &mut HashSet<String>,
@@ -240,6 +248,15 @@ pub(crate) fn walk_repeater_absence(
     inside_absent: bool,
 ) {
     for node in nodes {
+        if let Node::Group(g) = node
+            && g.hidden(values)
+        {
+            if let Some(child) = node.children() {
+                skip.extend(child.field_names());
+                walk_absent_groups(&child.nodes, values, skip, errors, true);
+            }
+            continue;
+        }
         if let Node::Repeater(r) = node {
             let inner_names = r
                 .children
@@ -260,12 +277,12 @@ pub(crate) fn walk_repeater_absence(
                 }
             }
             if let Some(child) = node.children() {
-                walk_repeater_absence(&child.nodes, values, skip, errors, absent);
+                walk_absent_groups(&child.nodes, values, skip, errors, absent);
             }
             continue;
         }
         if let Some(child) = node.children() {
-            walk_repeater_absence(&child.nodes, values, skip, errors, inside_absent);
+            walk_absent_groups(&child.nodes, values, skip, errors, inside_absent);
         }
     }
 }
@@ -384,6 +401,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use topcoat::context::{Cx, CxTestBuilder};
 
     use super::*;
@@ -400,6 +419,59 @@ mod tests {
         name: String,
         #[unique]
         email: String,
+    }
+
+    /// GH #297: a variant group the submission's discriminant does not name is
+    /// the one `variant.js` hides, so its fields cannot fail the submit. The
+    /// named variant's fields still validate, and a submission that names no
+    /// variant hides nothing — the value codec's payload fallback may still
+    /// read any group, so every group stays checked.
+    #[test]
+    fn a_hidden_variant_group_is_not_validated() {
+        let schema =
+            Schema::new((
+                // The discriminant carrier: the marker's owner names it, exactly as
+                // a derived enum's variant `Select` does (GH #191).
+                TextInput::r#for(DummyUser::fields().name()).label("Kind"),
+                Group::new()
+                    .variant("name", "1")
+                    .schema(TextInput::r#for(DummyUser::fields().email()).email()),
+                Group::new().variant("name", "2").schema(
+                    TextInput::typed::<DummyUser, uuid::Uuid>(DummyUser::fields().id()),
+                ),
+            ));
+        let mut values = HashMap::new();
+        values.insert("name".to_string(), "2".to_string());
+        values.insert("email".to_string(), "not-an-email".to_string());
+        values.insert(
+            "id".to_string(),
+            "0f8fad5b-d9cb-469f-a165-70867728950e".to_string(),
+        );
+
+        let errors = schema.validate(&values);
+        assert!(
+            !errors.contains_key("email"),
+            "a hidden variant's field must not block the submit, got {errors:?}"
+        );
+
+        // The named variant's own fields validate as usual.
+        let mut named = values.clone();
+        named.insert("name".to_string(), "1".to_string());
+        let errors = schema.validate(&named);
+        assert!(
+            errors.contains_key("email"),
+            "the named variant's field must still validate, got {errors:?}"
+        );
+
+        // No variant named: the group set is not narrowed, so the invalid
+        // value the payload fallback could read is refused.
+        let mut unnamed = values.clone();
+        unnamed.insert("name".to_string(), String::new());
+        let errors = schema.validate(&unnamed);
+        assert!(
+            errors.contains_key("email"),
+            "an unnamed submission validates every variant's fields, got {errors:?}"
+        );
     }
 
     #[tokio::test]

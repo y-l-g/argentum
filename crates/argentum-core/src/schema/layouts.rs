@@ -3,6 +3,8 @@
 //! The compositional seams for form layout; each holds an optional child
 //! `Schema` rendered through the tree walk.
 
+use std::collections::HashMap;
+
 use argentum_ui::{
     FieldLegendVariant, card, card_content, card_header, card_title, field_error as ui_field_error,
     field_group as ui_field_group, field_legend as ui_field_legend, field_set as ui_field_set,
@@ -143,6 +145,25 @@ impl Group {
             value: value.into(),
         });
         self
+    }
+
+    /// Whether a submission leaves this variant group unrendered (GH #297).
+    ///
+    /// A group with no variant marker is never hidden. A marked group is hidden
+    /// when the submission names a discriminant — `values[owner]`, trimmed and
+    /// non-empty — other than this group's variant, which is the comparison
+    /// `variant.js` makes against the driver's value. A submission that names
+    /// no variant hides nothing: the value codec's payload fallback may still
+    /// read any of the groups, so validation has to see all of them.
+    pub(crate) fn hidden(&self, values: &HashMap<String, String>) -> bool {
+        let Some(variant) = &self.variant else {
+            return false;
+        };
+        let chosen = values
+            .get(&variant.owner)
+            .map(|value| value.trim())
+            .unwrap_or_default();
+        !chosen.is_empty() && chosen != variant.value
     }
 
     pub(crate) async fn render_source<'a>(
@@ -296,7 +317,7 @@ impl Repeater {
             .boxed());
         }
         let required = self.required;
-        // Own error lives under the label key (see `walk_repeater_absence`).
+        // Own error lives under the label key (see `walk_absent_groups`).
         // Field errors key by field name; repeaters have no field name yet, so the
         // label is the only stable key until repeaters become field-bound (GH #78).
         // `errors_for` is the one place "view mode has no errors" lives, so a

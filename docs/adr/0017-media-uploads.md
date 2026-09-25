@@ -1,6 +1,6 @@
 # Media uploads: an app-level `Uploader` and a clear control
 
-Date: 2026-09-22 — Status: accepted — Amended: 2026-09-22, 2026-09-23, 2026-09-24
+Date: 2026-09-22 — Status: accepted — Amended: 2026-09-22, 2026-09-23, 2026-09-24, 2026-09-25
 
 ## Decision
 
@@ -25,6 +25,13 @@ page. The field reads no extension and owns no image pipeline, so it neither pre
 guesses a URL convention (GH #242). **A `FileUpload` value comes only from a file part** — the
 uploader's answer, or the sanitized basename with no uploader — from the stored value on an untouched
 edit, or empty on `clear_<field>`; text a client typed under the field's name is dropped (GH #277).
+**A form that re-renders with errors carries the path its store just answered** in a hidden
+`keep_<field>` control, and the next submit re-uses it only when `Uploader::holds(path)` confirms the
+store still has it (GH #297): the value still originates in the store, so the carry does not widen
+the GH #277 rule. `holds` is defaulted and answers `false` — no carry, the behaviour of a store that
+does not implement it — and its contract is ownership rather than existence: `true` only for a path
+the store itself produced and resolves inside its own root, never for a client-supplied path, or it
+becomes a path-traversal gate.
 **A stored value renders as a link only when it is rooted (`/…`, not `//host`) or an absolute
 `http(s)://…` URL**, and as text otherwise, so a stored scheme cannot become a clickable `href`.
 

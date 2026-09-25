@@ -13,6 +13,42 @@ use super::{
     ValueKind, render_value,
 };
 
+/// The equality expression a typed leaf's unique probe binds (GH #297).
+///
+/// Built where the declared type is known — the lens constructor — so a typed
+/// field compares as its declared type rather than as its text. `None` means
+/// the submitted value does not parse into that type: validation has already
+/// refused it, and the probe has nothing to compare.
+type EqProbe = std::sync::Arc<dyn Fn(&str) -> Option<toasty::stmt::Expr<bool>> + Send + Sync>;
+
+/// The equality probe a typed leaf binds: the submission is parsed into the
+/// declared type and compared through that type's own path, so a value that is
+/// unique as text but not as the type (or the reverse) is checked for what the
+/// record will store (GH #297).
+///
+/// The index resolves inside the closure rather than here: the name is the
+/// leaf's **app field name**, and for a context-bound leaf that is its flattened
+/// storage column (`seo_title`), which the leaf's own lens root does not name —
+/// toasty matches app field names — so resolving it eagerly would panic for an
+/// embedded typed leaf. Only a `unique()` marker reaches the closure.
+///
+/// `IntoExpr` is what lets the comparison name the value: it is implemented for
+/// every scalar toasty stores, and the panel's typed constructors require it
+/// for the same reason they require `TypedValue` — a value that cannot become an
+/// expression cannot be compared against its column.
+fn eq_probe_typed<M, T>(name: &str) -> EqProbe
+where
+    M: toasty::schema::Model,
+    T: TypedValue + toasty::stmt::IntoExpr<T> + 'static,
+{
+    let name = name.to_string();
+    std::sync::Arc::new(move |value: &str| {
+        let parsed = value.parse::<T>().ok().filter(T::accepts)?;
+        let index = M::field_name_to_id(&name).index;
+        Some(M::path_field::<T>(index).eq(parsed))
+    })
+}
+
 /// Typed text field bound to a Toasty field lens. The lens is the single
 /// source of truth for the field name and type, so `TextInput::for(User::fields().name())`
 /// fails to compile if the column does not exist (ADR-0001).
@@ -25,6 +61,9 @@ pub struct TextInput {
     placeholder: Option<String>,
     /// The email and typed-parse rules (GH #243), with their messages.
     rules: Rules,
+    /// The typed leaf's unique probe, absent on a text leaf (GH #297): a text
+    /// leaf's comparison is built from the model the handler queries.
+    typed_probe: Option<EqProbe>,
 }
 
 impl std::fmt::Debug for TextInput {
@@ -61,8 +100,9 @@ impl TextInput {
         let field = lens_field(path, &model);
         let label_str = lens_label(&field);
         let unique = lens_field_unique(&field, model.as_root_unwrap());
+        let name = field.name.app_unwrap().to_string();
         Self {
-            name: field.name.app_unwrap().to_string(),
+            name,
             label: label_str,
             // Non-nullable columns are required by default (GH #100): an
             // empty submit would die at the driver instead of failing
@@ -71,6 +111,7 @@ impl TextInput {
             unique,
             placeholder: None,
             rules: Rules::new(),
+            typed_probe: None,
         }
     }
 
@@ -105,6 +146,7 @@ impl TextInput {
             unique: false,
             placeholder: None,
             rules: Rules::new(),
+            typed_probe: None,
         }
     }
 
@@ -135,24 +177,32 @@ impl TextInput {
     /// a blanket over `FromStr`, because the error a user sees has to name what
     /// was expected. A type that needs different words implements the trait
     /// itself.
+    ///
+    /// `T` must also be [`toasty::stmt::IntoExpr`] of itself, which is what
+    /// lets the app-side unique probe compare a submission through the value it
+    /// parses into rather than through its text (GH #297). Every scalar toasty
+    /// stores implements it, and a newtype wraps one by implementing it the way
+    /// toasty documents.
     pub fn typed<M, T>(path: toasty::stmt::Path<M, T>) -> Self
     where
         M: toasty::schema::Model,
-        T: TypedValue + 'static,
+        T: TypedValue + toasty::stmt::IntoExpr<T> + 'static,
     {
         let model = M::schema();
         let field = lens_field(path, &model);
         let label_str = lens_label(&field);
-        // Uniqueness is a `String`-column property here: the app-side probe
-        // compares text, and `eq_filter` binds a `String` lens. A typed field
-        // declares no index and is not marked unique.
+        // A typed field declares no index and is not marked unique by default;
+        // when the app marks it, the probe binds the declared type (GH #297).
+        let name = field.name.app_unwrap().to_string();
+        let probe = eq_probe_typed::<M, T>(&name);
         Self {
-            name: field.name.app_unwrap().to_string(),
+            name,
             label: label_str,
             required: !field.nullable(),
             unique: false,
             placeholder: None,
             rules: Rules::new().typed::<T>(),
+            typed_probe: Some(probe),
         }
     }
 
@@ -168,9 +218,10 @@ impl TextInput {
     pub fn typed_context<M, T>(cx: &Cx, path: toasty::stmt::Path<M, T>) -> Self
     where
         M: toasty::schema::Model,
-        T: TypedValue + 'static,
+        T: TypedValue + toasty::stmt::IntoExpr<T> + 'static,
     {
         let leaf = FieldResolver::from_cx(cx).resolve(path);
+        let probe = eq_probe_typed::<M, T>(&leaf.name);
         Self {
             name: leaf.name,
             label: leaf.label,
@@ -178,6 +229,7 @@ impl TextInput {
             unique: false,
             placeholder: None,
             rules: Rules::new().typed::<T>(),
+            typed_probe: Some(probe),
         }
     }
 
@@ -251,20 +303,25 @@ impl TextInput {
         &self.label
     }
 
-    /// Typed equality filter against the field this input is bound to.
+    /// The equality expression the app-side unique check probes with (GH #297).
     ///
-    /// The comparison is a string equality on that field's path: the probe
-    /// binds the leaf as `String` (`Model::path_field::<String>`) whatever the
-    /// input's own lens type. `M` must be the model the lens came from. Built
-    /// through the public facade (`Model::field_name_to_id` +
-    /// `Model::path_field` + `Path::eq`) — the crate's generic handlers use it
-    /// for the app-side unique check.
-    pub(crate) fn eq_filter<M>(&self, value: String) -> toasty::stmt::Expr<bool>
+    /// A text leaf compares its submission's text through `M`'s own path — the
+    /// model the handler queries, which is also the model a context-bound
+    /// leaf's flattened column belongs to (GH #185). A typed leaf instead
+    /// parses the submission into its declared type and compares that, so the
+    /// probe sees the value the record will store rather than its spelling —
+    /// `01` and `1` are one value to an integer column. `None` when a typed
+    /// submission does not parse: validation has already refused it, and there
+    /// is nothing left to compare.
+    pub(crate) fn eq_filter<M>(&self, value: &str) -> Option<toasty::stmt::Expr<bool>>
     where
         M: toasty::schema::Model,
     {
-        let fid = M::field_name_to_id(&self.name);
-        M::path_field::<String>(fid.index).eq(value)
+        let Some(probe) = &self.typed_probe else {
+            let index = M::field_name_to_id(&self.name).index;
+            return Some(M::path_field::<String>(index).eq(value.to_string()));
+        };
+        probe(value)
     }
 
     /// Validate a raw string value against the configured rules (GH #243).
