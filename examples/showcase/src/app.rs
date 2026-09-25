@@ -124,9 +124,9 @@ where
     }
 }
 
-/// Generate `delete_record` and `bulk_delete_records` for a resource whose
-/// record fns delete through the resource's own tenant-scoped query, one row
-/// at a time, inside the handler's transaction.
+/// Generate `delete_record` for a resource whose record fns delete through the
+/// resource's own tenant-scoped query, one row at a time, inside the handler's
+/// transaction. Bulk delete rides the framework default, which loops this fn.
 macro_rules! delete_through_query {
     ($model:ident) => {
         fn delete_record(
@@ -145,30 +145,6 @@ macro_rules! delete_through_query {
                     .exec(&mut *ex)
                     .await
                     .map_err(|e| -> topcoat::Error { e.into() })?;
-                Ok(())
-            }
-        }
-
-        fn bulk_delete_records(
-            cx: &Cx,
-            records: Vec<$model>,
-            ex: &mut dyn toasty::Executor,
-        ) -> impl std::future::Future<Output = Result<()>> + Send
-        where
-            Self: Sized,
-        {
-            let cx = cx.clone();
-            async move {
-                // Framework-checked records: delete each
-                // inside the handler's tx — any error rolls the batch back.
-                for rec in &records {
-                    Self::query(&cx)
-                        .filter($model::fields().id().eq(rec.id))
-                        .delete()
-                        .exec(&mut *ex)
-                        .await
-                        .map_err(|e| -> topcoat::Error { e.into() })?;
-                }
                 Ok(())
             }
         }
@@ -992,9 +968,9 @@ impl Resource for PostResource {
 /// predicate is the framework's to apply.
 ///
 /// The queue moderates: row and bulk delete are enabled, which is
-/// what `can_delete`, `delete_record` and `bulk_delete_records` were already
-/// written for. A resource that wants a read-only queue overrides
-/// [`Resource::deletable`] to `false` instead.
+/// what `can_delete` and `delete_record` are written for — bulk delete rides
+/// the framework default that loops `delete_record`. A resource that wants a
+/// read-only queue overrides [`Resource::deletable`] to `false` instead.
 pub struct CommentResource;
 
 /// Re-resolve a comment's parent post through the tenant-scoped
