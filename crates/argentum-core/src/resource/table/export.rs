@@ -20,7 +20,7 @@ impl<M> Table<M> {
     /// included) — one fragment of a streamed export. Formula cells are
     /// defused per OWASP (a leading `'` is prepended when the first
     /// non-whitespace/control character is `=`, `+`, `-`, `@`, `|` or `%`,
-    /// including CR/LF- or tab-led variants, GH #145) so a stored value like
+    /// including CR/LF- or tab-led variants) so a stored value like
     /// `=1+1` opens as text, not a live spreadsheet formula.
     pub fn csv_row(&self, row: &M) -> String
     where

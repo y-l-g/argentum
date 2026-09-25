@@ -1,4 +1,4 @@
-//! Live-search registry + shard dispatch (GH #104).
+//! Live-search registry + shard dispatch.
 //!
 //! `#[shard]` inventory only discovers concrete fns, so each declared
 //! resource monomorphizes its table loader here, keyed by list path.
@@ -19,7 +19,7 @@ use super::{
 };
 use crate::resource::{Resource, TableSignals};
 
-/// One live-table shard invocation (GH #224): the list path the page asks for
+/// One live-table shard invocation: the list path the page asks for
 /// and the interaction signals it owns.
 ///
 /// The one argument the shard's *handler* takes. The `#[shard]` entry packs
@@ -37,7 +37,7 @@ pub(crate) struct TableSearchArgs {
 
 /// A monomorphized live-search table loader, one per declared resource.
 ///
-/// `#[shard]` inventory only discovers concrete fns (GH #104), so the single
+/// `#[shard]` inventory only discovers concrete fns, so the single
 /// concrete [`table_search`] shard dispatches through this registry instead
 /// of going generic. Built by [`Panel::resource`], keyed by list path.
 pub(crate) type SearchFn = Arc<
@@ -56,7 +56,7 @@ pub(crate) struct SearchRegistry(pub(crate) HashMap<String, SearchFn>);
 /// Monomorphize `R`'s table loader into a [`SearchFn`]: tenancy + policy gate,
 /// then the same load + render the streamed list uses.
 ///
-/// The table catches its own load errors (GH #158): a tampered `after=` /
+/// The table catches its own load errors: a tampered `after=` /
 /// `before=` signal fails to decode inside the shard invocation, and the
 /// invocation must render the branded in-region `ErrorState` + retry link
 /// (via `super::list::table_error_view`, same as the streamed list) instead of
@@ -75,15 +75,15 @@ pub(crate) fn search_handler_for<R: Resource>() -> SearchFn {
                 let table = wire_table_actions::<R>(cx, true);
                 let TableSearchArgs { path, signals } = args;
                 // One shared bound and one normalization per request (GH
-                // #148, GH #206, GH #224): `TableSignals::to_state` applies
+                // #148,): `TableSignals::to_state` applies
                 // the same `q` clamp and `filters` bound the GET path applies
-                // (GH #205), and the shard `group_by` arg is client input — an
-                // unknown value must not echo through the retry link
-                // (GH #153). The render below takes the proof and does not
+                // and the shard `group_by` arg is client input — an
+                // unknown value must not echo through the retry link.
+                // The render below takes the proof and does not
                 // normalize again.
                 let state = table.normalize_state(&signals.to_state());
                 // The retry link inside a failed table writes the same signals
-                // the toolbar does (GH #166), so keep a handle for it.
+                // the toolbar does, so keep a handle for it.
                 let retry_signals = signals.clone();
                 let rendered = async {
                     let page = load_table_page::<R>(cx, &table, &state).await?;
@@ -107,7 +107,7 @@ pub(crate) fn search_handler_for<R: Resource>() -> SearchFn {
 }
 
 /// Resolve the registered live-search handler for `path`, answering the gate
-/// first (GH #146 defense in depth): the registry lookup runs only for an
+/// first (defense in depth): the registry lookup runs only for an
 /// authenticated request, so an unknown `path` cannot be distinguished from a
 /// registered one by an unauthenticated probe (404-vs-401 oracle).
 fn search_entry(cx: &Cx, path: &str) -> Result<SearchFn> {
@@ -117,40 +117,28 @@ fn search_entry(cx: &Cx, path: &str) -> Result<SearchFn> {
         .ok_or_else(|| topcoat::router::error::not_found().into())
 }
 
-/// Live table interactions (GH #104, GH #151): re-renders one resource's table
-/// as its signals change, morphing in place per Topcoat #392 (focus, scroll,
-/// and typing survive; rows carry stable `id`s from #104 prep).
+/// Live table interactions: re-renders one resource's table as its signals
+/// change, morphing in place per Topcoat #392 (focus, scroll and typing
+/// survive; rows carry stable `id`s).
 ///
 /// The shard owns no state: the page creates the signals ([`TableSignals`]),
 /// renders the toolbar against them, and passes their handles here. Search,
-/// sort, filters, and pagination all write those signals, so one dependency
-/// graph re-renders the table — no navigation, no scroll jump. The swapped
-/// region is the table without the search toolbar (the live host owns that
-/// slot, so swaps never nest invocations or duplicate inputs).
+/// sort, filters and pagination all write those signals, so one dependency
+/// graph re-renders the table without a navigation or a scroll jump.
 ///
-/// Every arg is untrusted shard input: `path` must name a registered list
-/// (allow-list, never a raw route), and every signal value is clamped or
-/// re-parsed through [`TableSignals::to_state`] like the GET path.
-/// Authorization mirrors the list page (`requires_tenant` + `can_view_any`,
-/// row scoping via the tenant-scoped query, GH #223); shard POSTs carry no
-/// CSRF token, and
-/// none is needed for this read-only rerun. The GET toolbar stays as the
-/// no-JS fallback.
+/// Every arg is untrusted shard input: `path` must name a registered list, and
+/// every signal value is clamped or re-parsed through
+/// [`TableSignals::to_state`] like the GET path. Authorization mirrors the list
+/// page (`requires_tenant` + `can_view_any`, row scoping via the tenant-scoped
+/// query); shard POSTs carry no CSRF token, and none is needed for this
+/// read-only rerun.
 ///
 /// The module exists only to carry `allow(too_many_arguments)`: the shard's
-/// arity *is* the interaction list — one named parameter per dimension — and
-/// that exceeds the lint's default before the macro adds the ambient context.
-///
-/// The wire stays scalar by choice, not by necessity (GH #224). A struct
-/// cannot travel as a shard argument at all (topcoat requires the `expr!`
-/// vocabulary, and a struct has no `Surrogated` surrogate the browser's
-/// `cx.hydrate` can rebuild), but a *list* can: `Vec<Signal<String>>` and
-/// `[Signal<String>; N]` are both vocabulary types that round-trip. Packing
-/// the dimensions into one is still refused, because a list couples the
-/// browser to this server's ordering — adding or reordering a dimension would
-/// silently mismatch the two halves, where a named parameter cannot. So the
-/// handler packs its named parameters into [`TableSearchArgs`] for everything
-/// *below* the shard, and the wire keeps naming each dimension.
+/// arity *is* the interaction list. The wire stays scalar by choice — a struct
+/// cannot travel as a shard argument (topcoat requires the `expr!` vocabulary,
+/// and a struct has no `Surrogated` surrogate the browser's `cx.hydrate` can
+/// rebuild), and packing the dimensions into a list would couple the browser to
+/// this server's ordering.
 #[allow(clippy::too_many_arguments)]
 mod shard_body {
     use super::*;
@@ -168,7 +156,7 @@ mod shard_body {
         bulk: topcoat::runtime::Signal<String>,
     ) -> Result<impl View> {
         let entry = search_entry(cx, &path)?;
-        // One argument struct from here down (GH #224): the handler owns the
+        // One argument struct from here down: the handler owns the
         // wire arity, nothing below it does.
         entry(
             cx,
@@ -211,7 +199,7 @@ mod tests {
 
     use super::{super::Panel, *};
     use crate::panel::test_support::{Dummy, panel_for};
-    /// The signal id the live retry link writes (GH #294): read from the
+    /// The signal id the live retry link writes: read from the
     /// control's own `increment()` handler, which is the side that re-runs the
     /// shard. Locating it by offset from the marker instead would read whatever
     /// payload happened to follow.
@@ -246,7 +234,7 @@ mod tests {
     }
 
     /// The live-search shard answers the gate before the registry lookup
-    /// (GH #146): an unauthenticated probe cannot distinguish a registered
+    /// an unauthenticated probe cannot distinguish a registered
     /// slug from an unregistered one.
     #[cfg(feature = "auth")]
     #[tokio::test]
@@ -391,7 +379,7 @@ mod tests {
 
         let sig = |n: u8, v: &str| format!(r#"{{"t":"Signal","id":"{:032x}","v":"{v}"}}"#, n);
         // Positional shard args: q, filters, sort, dir, the single cursor wire
-        // (GH #166), group_by, and the bulk handle the table binds its
+        // group_by, and the bulk handle the table binds its
         // selection transport to.
         let shard_args = |cursor: &str, group_by: &str| {
             format!(
@@ -477,7 +465,7 @@ mod tests {
 
         // The `before` signal path is symmetric: a tampered backward cursor
         // renders the same cursor-stripped ErrorState. A tampered `group_by`
-        // shard arg is normalized with the same state (GH #153), so it must
+        // shard arg is normalized with the same state, so it must
         // not echo through the retry link either.
         let response = router
             .handle(
@@ -858,7 +846,7 @@ mod tests {
     }
 
     /// Post one live-table shard rerun with an optional `Tenant` request
-    /// extension (GH #281).
+    /// extension.
     ///
     /// The first positional arg is the list path the registry is keyed by, so
     /// the caller chooses the resource; the identity header is the one the
@@ -894,7 +882,7 @@ mod tests {
     }
 
     /// The live-search shard re-checks the tenant and policy gates itself,
-    /// because page guards do not run on shard requests (GH #281): a gated
+    /// because page guards do not run on shard requests: a gated
     /// resource with no tenant must be refused instead of running an unscoped
     /// query, a tenanted rerun must serve only that tenant's rows, and a
     /// `can_view_any` denial is refused even with a tenant present.

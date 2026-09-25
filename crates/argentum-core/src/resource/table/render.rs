@@ -1,7 +1,7 @@
 //! [`Table`] HTML rendering: `render`/`render_with_state`/`render_skeleton` plus the chrome.
 //!
-//! Grouping is page-local and interleaved (GH #219) and a page encodes the
-//! filter transport once (GH #205).
+//! Grouping is page-local and interleaved and a page encodes the
+//! filter transport once.
 
 use std::borrow::Cow;
 
@@ -25,7 +25,7 @@ use super::{
 };
 
 /// Keystroke-quiet delay before a live search input reloads the table
-/// (GH #172, ~150-250ms): `assets/live-search.js` waits this long after the
+/// (~150-250ms): `assets/live-search.js` waits this long after the
 /// last keystroke, then forwards the value through the bound transport below,
 /// so typing "published" triggers one reload instead of nine. The forwarded
 /// write is an ordinary signal write, so Topcoat's abort-in-flight
@@ -33,18 +33,18 @@ use super::{
 pub(crate) const LIVE_SEARCH_DEBOUNCE_MS: u32 = 200;
 
 /// The accessible reason a bulk checkbox disabled by the per-row policy carries
-/// (GH #235): the row's `Delete` is denied, so selecting it could only produce
+/// the row's `Delete` is denied, so selecting it could only produce
 /// a batch the handler refuses. Read aloud by a screen reader in place of the
 /// checkbox's usual "Select row" label, and offered as the pointer tooltip too.
 pub(crate) const DENIED_ROW_REASON: &str = "You cannot delete this row";
 
-/// The share of the table the bulk-selection column claims (GH #240): one
+/// The share of the table the bulk-selection column claims: one
 /// checkbox plus the cell's `p-3` padding at the widths a list is read at. A
 /// percentage, not a length: the column keeps its share as the table narrows,
 /// and the columns that declare none keep theirs.
 const BULK_COLUMN_PERCENT: u8 = 5;
 
-/// The most of the table the kind defaults claim together (GH #240).
+/// The most of the table the kind defaults claim together.
 ///
 /// The defaults are shares of the table, and the columns that declare none
 /// take what they leave: a total over 100% gives those columns no space at
@@ -54,7 +54,7 @@ const BULK_COLUMN_PERCENT: u8 = 5;
 const DEFAULT_WIDTH_BUDGET_PERCENT: u8 = 60;
 
 /// The share a kind default claims, scaled down when the table's defaults
-/// together exceed [`DEFAULT_WIDTH_BUDGET_PERCENT`] (GH #240).
+/// together exceed [`DEFAULT_WIDTH_BUDGET_PERCENT`].
 fn scaled_default_percent(nominal: u8, total: u32) -> u8 {
     if total <= u32::from(DEFAULT_WIDTH_BUDGET_PERCENT) {
         return nominal;
@@ -71,7 +71,7 @@ fn default_width_style(percent: u8) -> Cow<'static, str> {
 
 /// One filter control: a labelled `<select data-filter-name=…>` carrying the
 /// `value`/`label` pairs, with the leading empty "All" option that clears the
-/// filter (GH #74).
+/// filter.
 ///
 /// The empty value is reserved for that clear-filter option. Every pair in
 /// `options` renders verbatim, so a caller whose declared options can include
@@ -133,7 +133,7 @@ fn hidden_state_inputs<'a>(cx: &'a Cx, inputs: Vec<(&'static str, Option<String>
     .boxed()
 }
 
-/// The width every column of one render declares (GH #240): one `style` value
+/// The width every column of one render declares: one `style` value
 /// per declared column, in column order, plus the two chrome columns.
 /// `None` is a column that declares no width — a wide column, which takes a
 /// share of what the declared ones leave.
@@ -175,16 +175,16 @@ impl<M> Table<M> {
     }
 
     /// Render with explicit list state and path instead of reading them from
-    /// `cx` — the seam a live-search shard needs (GH #74): shard requests hit
+    /// `cx` — the seam a live-search shard needs: shard requests hit
     /// the `table_search` shard's own endpoint, so `TableState::from_cx` would
     /// see the endpoint URI, not the list page's `?q=/filters/sort`. Callers
     /// pass the page's state (or shard args rebuilt via
     /// [`TableSignals::to_state`]) and the list URL explicitly.
     ///
-    /// Normalizes the state it is handed (GH #153), so a page calling this
+    /// Normalizes the state it is handed, so a page calling this
     /// directly needs no knowledge of `NormalizedState`; a caller that
     /// already normalized once per request goes through
-    /// `Self::render_normalized` instead (GH #224).
+    /// `Self::render_normalized` instead.
     pub async fn render_with_state<'a>(
         &self,
         cx: &'a Cx,
@@ -200,7 +200,7 @@ impl<M> Table<M> {
     }
 
     /// [`Self::render_with_state`] with the state already normalized
-    /// (GH #224): the request entry normalizes once and every seam below takes
+    /// the request entry normalizes once and every seam below takes
     /// the proof, so a live list request never normalizes the same state
     /// twice.
     pub(crate) async fn render_normalized<'a>(
@@ -216,7 +216,7 @@ impl<M> Table<M> {
         self.render_inner(cx, page, state, path, None).await
     }
 
-    /// Render the interactive body for a live table (GH #151): the same
+    /// Render the interactive body for a live table: the same
     /// presentation as [`Self::render_with_state`], with the sort links, the
     /// pager, the filter transport, and the empty-state clear links bound to
     /// `signals` — each interaction writes a signal and the browser morphs the
@@ -224,7 +224,7 @@ impl<M> Table<M> {
     /// Every bound control keeps its real `href`/form, so a page without JS
     /// still navigates as before.
     ///
-    /// The row-delete dialog is not part of this output (GH #233): it lives
+    /// The row-delete dialog is not part of this output: it lives
     /// outside the region a rerun swaps, rendered once by the page that owns
     /// the signals, so a caller rendering only through this method renders
     /// [`Self::render_delete_dialog`] itself to keep the `?delete=` fallback.
@@ -244,7 +244,7 @@ impl<M> Table<M> {
     }
 
     /// [`Self::render_live_with_state`] with the state already normalized
-    /// (GH #224): the `table_search` shard normalizes once and renders
+    /// the `table_search` shard normalizes once and renders
     /// through here.
     pub(crate) async fn render_live_normalized<'a>(
         &self,
@@ -295,7 +295,7 @@ impl<M> Table<M> {
         let with_actions = self.with_actions();
         let with_bulk = self.bulk_enabled();
         // Record keys feed URLs and bulk values, which handlers resolve as
-        // the typed PK (GH #168): chrome without `pk` would emit display keys
+        // the typed PK: chrome without `pk` would emit display keys
         // the handlers 404 on, so fail loud like a missing row key.
         if (with_actions || with_bulk) && self.record_key.is_none() {
             return Err(std::io::Error::other(
@@ -327,9 +327,9 @@ impl<M> Table<M> {
             .render_pager(cx, state, path, &page, signals.as_ref())
             .await?;
         let filter_warning = self.render_filter_warning(cx, state, path);
-        // The declared grouping, when `?group_by=` names it (GH #92). Read
+        // The declared grouping, when `?group_by=` names it. Read
         // before the row projection so each row can carry its group label,
-        // which the page-local shim orders by (GH #219).
+        // which the page-local shim orders by.
         let group_key = self.effective_group_key(state);
         let row_data = self.row_views(
             state,
@@ -339,8 +339,8 @@ impl<M> Table<M> {
             record_key.as_ref(),
             group_key.as_ref(),
         );
-        // The confirmation dialog lives with the delete chrome (GH #151) and
-        // ships closed, so a row control opens it in place (GH #233). A live
+        // The confirmation dialog lives with the delete chrome and
+        // ships closed, so a row control opens it in place. A live
         // output carries none: the page that owns the signals renders it once,
         // outside the region a rerun swaps (`panel::resource_list_live`). The
         // dialog renders on every page with delete chrome, not only under
@@ -352,7 +352,7 @@ impl<M> Table<M> {
             None
         };
 
-        // Body-only branch (GH #133): the empty and rows pages share the one
+        // Body-only branch: the empty and rows pages share the one
         // chrome wrapper built below — only the table body differs. Group
         // headers and the pager exist solely on rows pages: an empty page
         // renders the honest empty cell instead (its pager would be empty
@@ -361,7 +361,7 @@ impl<M> Table<M> {
         // The declared widths are a property of the columns, not of the row,
         // so they are resolved once here: the same CSS for every row, and a
         // `for` whose expression names `self.columns` would carry the table's
-        // borrow into the view (GH #240).
+        // borrow into the view.
         let cell_widths = self.column_widths().cells;
         let mut pager_views: Vec<BoxView<'_>> = Vec::new();
         let body: BoxView<'_> = if page.rows.is_empty() {
@@ -380,12 +380,12 @@ impl<M> Table<M> {
         } else {
             pager_views = pager;
             // One table body for grouped and ungrouped pages: each grouped
-            // row carries the header its group's first row owns (GH #219), so
+            // row carries the header its group's first row owns, so
             // the header lands inside the table immediately above its own
             // rows instead of a count legend stacked over an ungrouped table.
             let header_colspan =
                 self.columns.len() + usize::from(with_bulk) + usize::from(with_actions);
-            // The one dialog every row control on this table opens (GH #233);
+            // The one dialog every row control on this table opens;
             // empty without delete chrome, where no control renders one.
             let delete_dialog_id = delete_prefix
                 .as_deref()
@@ -396,7 +396,7 @@ impl<M> Table<M> {
                 // The table-level layout is a static class: Tailwind sees the
                 // literal, and the decision carries no per-column value. Each
                 // column's width, which does, rides the `th`/`td` inline
-                // `style` (GH #240). Fixed layout is what stops a filter or a
+                // `style`. Fixed layout is what stops a filter or a
                 // page change from re-measuring the columns.
                 table(
                     attrs: attributes! { class="table-fixed" },
@@ -452,7 +452,7 @@ impl<M> Table<M> {
                                 }
                                 // `row.cells` is built column-for-column, so the
                                 // zip pairs each cell with the column that owns
-                                // its width (GH #240). The cell repeats the
+                                // its width. The cell repeats the
                                 // width its header declares and truncates:
                                 // under the table's fixed layout a value wider
                                 // than the column clips to an ellipsis instead
@@ -519,7 +519,7 @@ impl<M> Table<M> {
             .boxed()
         };
 
-        // The refresh control (GH #234): a live table's region re-renders when
+        // The refresh control: a live table's region re-renders when
         // a signal its shard tracked changes, and a mutation changes rows the
         // tracked inputs do not describe — the query is the same, the data is
         // not. One write that means "re-read the table" is therefore the
@@ -536,7 +536,7 @@ impl<M> Table<M> {
         //
         // A static table renders no control at all: it has no shard to re-run,
         // its region is inert markup, and the client replaces it wholesale
-        // (GH #234) — so the control's presence *is* the page's answer to
+        // So the control's presence *is* the page's answer to
         // "can this table refresh in place?".
         let revision_attrs = signals.as_ref().map(|_| {
             let revision = topcoat::runtime::signal(cx, || "0".to_string());
@@ -551,8 +551,8 @@ impl<M> Table<M> {
         });
 
         // One chrome wrapper for both branches: search bar, filter bar, bulk
-        // bar, warning, table body, pager, dialog (GH #133), inside the
-        // `data-boundary` region the morph swaps (GH #160).
+        // bar, warning, table body, pager, dialog, inside the
+        // `data-boundary` region the morph swaps.
         let inner = view! {
             cx =>
             <div
@@ -584,15 +584,15 @@ impl<M> Table<M> {
         Ok(view! { cx => <div data-boundary="table">(inner)</div> }.boxed())
     }
 
-    /// The bulk-delete bar and its confirmation dialog (GH #184), or the
+    /// The bulk-delete bar and its confirmation dialog, or the
     /// placeholder that keeps the chrome's node order stable when
     /// [`Self::bulk_enabled`] is off.
     ///
     /// One destructive form for the whole page: the transport is fed by the
     /// row checkboxes (`bulk.js`) and ships `,a,b,`-delimited, while on a live
-    /// table the selection lives in a signal instead (GH #166), so a shard
+    /// table the selection lives in a signal instead, so a shard
     /// rerun re-renders the transport from the selection rather than dropping
-    /// it. The trigger ships enabled (GH #184): the confirmation dialog gates
+    /// it. The trigger ships enabled: the confirmation dialog gates
     /// the write and reads the selection when it opens, so an empty selection
     /// is answered by the dialog rather than by a disabled control whose state
     /// has to be kept in step across a live swap.
@@ -614,14 +614,14 @@ impl<M> Table<M> {
         let bulk_action = bulk_delete_url(&prefix);
         let csrf = crate::csrf::current_token(cx);
         // Stable ids so the dialog's confirm button can submit this form
-        // from inside the dialog (GH #184).
+        // from inside the dialog.
         let bulk_form_id = format!("{}-bulk-form", prefix.replace('/', "-"));
         let bulk_dialog_id = format!("{bulk_form_id}-confirm");
         let bulk_dialog_title_id = format!("{bulk_dialog_id}-title");
         let bulk_dialog_description_id = format!("{bulk_dialog_id}-description");
-        // No visible `ids` field (GH #151): the transport is fed by the row
+        // No visible `ids` field: the transport is fed by the row
         // checkboxes (`bulk.js`) and ships `,a,b,`-delimited. On a live
-        // table the selection lives in a signal instead (GH #166), so a
+        // table the selection lives in a signal instead, so a
         // shard rerun re-renders the transport from the selection rather
         // than dropping it.
         let transport_attrs = match signals {
@@ -655,9 +655,9 @@ impl<M> Table<M> {
                     attrs: attributes! { type="button" data-bulk-confirm-trigger="" },
                     "Bulk Delete"
                 )
-                // Destructive confirm (GH #184): a batch is the one place a
+                // Destructive confirm: a batch is the one place a
                 // misclick costs many rows, so it asks first — the same
-                // alert-dialog pattern the row delete already uses (GH #151).
+                // alert-dialog pattern the row delete already uses.
                 alert_dialog(
                     open: false,
                     attrs: attributes! {
@@ -702,44 +702,29 @@ impl<M> Table<M> {
         .boxed()
     }
 
-    /// Project the loaded page into the row presentation the template renders
-    /// (GH #92, GH #96, GH #151, GH #162, GH #168, GH #205, GH #219).
+    /// Project the loaded page into the row presentation the template renders.
     ///
     /// Precomputed so template bodies capture only owned data — the lazy view
     /// outlives the render call, so it must never borrow `self` or `page`.
     ///
-    /// The per-row delete URL (GH #151) opens the confirmation dialog on the
-    /// list page (`?delete=<key>`) instead of posting straight away; the
-    /// per-row edit URL (GH #162, Filament's `recordActions` `EditAction`)
-    /// links straight to `{prefix}/{key}/edit`. Both — and the bulk checkbox
-    /// values — carry the *record* key (GH #168), resolved by handlers as the
-    /// model's typed PK; the display `key` stays on keyed diffs and DOM ids.
-    /// `record_id` can only be empty on chromeless tables (guarded by the
-    /// caller), which render no URLs and no bulk column to read it.
+    /// The per-row delete URL opens the confirmation dialog on the list page
+    /// (`?delete=<key>`); the per-row edit URL links to `{prefix}/{key}/edit`.
+    /// Both — and the bulk checkbox values — carry the *record* key, resolved by
+    /// handlers as the model's typed PK; the display `key` stays on keyed diffs
+    /// and DOM ids.
     ///
     /// The chrome prefixes say which links the table *can* render; the
-    /// [`Table::row_actions`] policy says which of them *this* record may use
-    /// (GH #235). A denied action emits no URL, so the row renders no link —
-    /// the same decision the handler takes, from the same predicate — and a row
-    /// denied `delete` carries `selectable: false`, which renders its bulk
-    /// checkbox disabled. The policy is consulted only when a prefix is wired,
-    /// so a table with no chrome costs no per-record predicate call.
+    /// [`Table::row_actions`] policy says which of them *this* record may use.
+    /// A denied action emits no URL, and a row denied `delete` renders its bulk
+    /// checkbox disabled. The policy is consulted only when a prefix is wired.
     ///
-    /// The delete URL's shared parameters are encoded once for the whole page
-    /// (GH #205): the filter transport is the expensive half of the
-    /// projection, and rebuilding it per row is work a client can inflate with
-    /// one oversized `?filters=`.
-    ///
-    /// Page-local grouping (GH #92/#219) is display-only: `group_by` is a bare
-    /// key closure with no lens, so no `ORDER BY` is derivable and a group
-    /// cannot span pages. The shim therefore reorders *this page's* rows by the
-    /// group label — a stable sort, so rows keep the query's order inside their
-    /// group — and hangs each group's header off its first row, which the table
-    /// body renders immediately above it. The query, its cursors and the export
-    /// keep the declared ordering.
-    ///
-    /// Row keys must be injective within a page (GH #96): duplicates corrupt
-    /// keyed diffs and bulk selection (two rows, one checkbox value).
+    /// The delete URL's shared parameters are encoded once for the whole page,
+    /// because the filter transport is the expensive half and rebuilding it per
+    /// row is work a client can inflate with one oversized `?filters=`. Page-local
+    /// grouping is display-only: `group_by` is a bare key closure with no lens,
+    /// so no `ORDER BY` is derivable and a group cannot span pages; the shim
+    /// reorders this page's rows by label. Row keys must be injective within a
+    /// page, or duplicates corrupt keyed diffs and bulk selection.
     fn row_views(
         &self,
         state: &NormalizedState,
@@ -789,7 +774,7 @@ impl<M> Table<M> {
                     .as_ref()
                     .filter(|_| actions.delete)
                     .map(|base| base.delete_dialog(&record_id));
-                // The shared dialog's POST target for this row (GH #233): the
+                // The shared dialog's POST target for this row: the
                 // row control hands it over before opening the dialog, so the
                 // action and the control come from the one policy decision.
                 let delete_action = self
@@ -822,9 +807,9 @@ impl<M> Table<M> {
                     end += 1;
                 }
                 // The count is page-local, and says so: a group split across
-                // pages must not read as a table total (GH #92). The header
+                // pages must not read as a table total. The header
                 // carries an id derived from its label — never from its
-                // position — so the in-place morph can follow it (GH #104).
+                // position — so the in-place morph can follow it.
                 row_data[start].group_header = Some(GroupHeader {
                     dom_id: group_header_dom_id(&label),
                     text: format!("{label} ({} on this page)", end - start),
@@ -842,14 +827,14 @@ impl<M> Table<M> {
         row_data
     }
 
-    /// The fail-visible filter banner (GH #93): requested filters that produced
+    /// The fail-visible filter banner: requested filters that produced
     /// no predicate render as a `role=alert` banner; the list keeps a 200 while
     /// the export refuses with 400 (see `resource_export`).
     ///
     /// No false tail: when other filters still apply, "unfiltered" would be a
-    /// lie (GH #148 — a malformed segment can ride alongside valid ones).
+    /// lie (— a malformed segment can ride alongside valid ones).
     /// Conversely an invalid-only request applies nothing, so "other filter(s)"
-    /// would be the lie (GH #170) — the consequence keys off applied
+    /// would be the lie — the consequence keys off applied
     /// predicates, not raw entries.
     fn render_filter_warning<'a>(
         &self,
@@ -892,28 +877,23 @@ impl<M> Table<M> {
         )
     }
 
-    /// The row-delete confirmation dialog (GH #151, GH #233), rendered with
-    /// the table when [`Self::with_delete`] wired the delete route.
+    /// The row-delete confirmation dialog, rendered with the table when
+    /// [`Self::with_delete`] wired the delete route.
     ///
     /// One dialog per table: the row Delete controls name it
     /// (`data-row-delete-trigger`) and carry the record's POST target
     /// (`data-row-delete-action`), which `assets/dialog.js` writes to the form
-    /// before opening the dialog in place. The control keeps its
-    /// `?delete=<row key>` href, so a page without the script opens this dialog
-    /// through the URL instead — and that is the render where it ships open,
-    /// with the form's action already set. `?open=false` (the mirror
-    /// `dialog.js` writes on dismissal, [`TableState::open`]) leaves it closed.
-    ///
-    /// Cancel is a button (`data-dialog-close`) on both paths, so a dismissal
-    /// never navigates; on the URL-driven render `dialog.js` closes the dialog
-    /// in place and mirrors `?open=false`, so a reload stays closed. Without
-    /// the document scripts Cancel is inert and Delete still POSTs.
+    /// before opening it in place. The control keeps its `?delete=<row key>`
+    /// href, so a page without the script opens the dialog through the URL —
+    /// and that render ships it open. `?open=false`, the mirror `dialog.js`
+    /// writes on dismissal ([`TableState::open`]), leaves it closed. Cancel is a
+    /// `data-dialog-close` button on both paths, so dismissal never navigates.
     ///
     /// [`Self::render_with_state`] renders it with the table; the live-search
-    /// page (`panel::resource_list_live`) calls this separately because the
-    /// shard swaps the table per keystroke and must not carry dialog state.
-    ///
-    /// Behavior asset: Escape/backdrop dismissal, the `data-dialog-close`
+    /// page calls this separately because the shard swaps the table per
+    /// keystroke and must not carry dialog state. Escape and backdrop dismissal
+    /// need `assets/dialog.js` (`argentum_ui::DIALOG_JS`), emitted by
+    /// `Panel::render_document` on every document with shell assets (ADR-0014).
     /// cancel hook and the trigger wiring need `assets/dialog.js`
     /// (`argentum_ui::DIALOG_JS`), emitted by `Panel::render_document` on every
     /// document with shell assets (see ADR-0014). The dialog primitives are
@@ -928,7 +908,7 @@ impl<M> Table<M> {
     }
 
     /// [`Self::render_delete_dialog`] with the state already normalized
-    /// (GH #224): `render_inner` and the panel's live page both render the
+    /// `render_inner` and the panel's live page both render the
     /// dialog from the one state the request normalized.
     pub(crate) async fn render_delete_dialog_normalized<'a>(
         &self,
@@ -946,7 +926,7 @@ impl<M> Table<M> {
         let action = key.map(|key| delete_action_url(prefix, key));
         // Only the URL-driven dialog mirrors its dismissal into the URL: a
         // dialog a row control opens client-side has no `?delete=` to close,
-        // so dismissing it leaves the URL alone (GH #154 §3).
+        // so dismissing it leaves the URL alone (§3).
         let open_param = server_open.then_some("open");
         let dialog_id = Self::delete_dialog_dom_id(prefix);
         let title_id = format!("{dialog_id}-title");
@@ -1005,7 +985,7 @@ impl<M> Table<M> {
         ))
     }
 
-    /// The DOM id of a table's row-delete dialog (GH #233): the delete prefix
+    /// The DOM id of a table's row-delete dialog: the delete prefix
     /// with its slashes flattened, so two tables with different delete prefixes
     /// never share an id. Two tables over one prefix (a page rendering the same
     /// resource twice) derive the same ids; the panel renders one list table
@@ -1021,19 +1001,19 @@ impl<M> Table<M> {
     /// stream in. Wrapped in the same `data-boundary` region as the real table
     /// so the markup shape matches when the swap arrives.
     /// Carries `aria-busy` while loading plus toolbar/pager pulse placeholders
-    /// (GH #98) so the streamed chrome lands without a layout shift.
+    /// so the streamed chrome lands without a layout shift.
     pub async fn render_skeleton<'a>(&self, cx: &'a Cx) -> Result<BoxView<'a>>
     where
         M: toasty::schema::Model,
     {
         let state = TableState::from_cx(cx);
-        // Same normalization as the table seams (GH #153): the placeholder
+        // Same normalization as the table seams: the placeholder
         // header links must not echo an unknown `?group_by=`.
         self.render_skeleton_normalized(cx, &self.normalize_state(&state))
             .await
     }
 
-    /// [`Self::render_skeleton`] with the state already normalized (GH #224):
+    /// [`Self::render_skeleton`] with the state already normalized:
     /// the panel parses and normalizes once per request and renders the
     /// streamed placeholder from that same state.
     pub(crate) async fn render_skeleton_normalized<'a>(
@@ -1103,7 +1083,7 @@ impl<M> Table<M> {
                 </div>
             </div>
         };
-        // The busy state rides on the morph boundary (GH #160) so assistive
+        // The busy state rides on the morph boundary so assistive
         // tech sees the live region, not just the swapped root below it.
         Ok(view! { cx => <div data-boundary="table" aria-busy="true">(inner)</div> }.boxed())
     }
@@ -1128,8 +1108,8 @@ impl<M> Table<M> {
             }
         });
         let filters_hidden = state.filters_param();
-        // Pre-normalized by the render seams (GH #153): `state.group_by` is
-        // the declared name or `None`, never an unknown value (GH #92).
+        // Pre-normalized by the render seams: `state.group_by` is
+        // the declared name or `None`, never an unknown value.
         let group_hidden = state.group_by.clone();
         // Clear only renders when something survives the search term; every
         // branch below projects the same URL, so one intent serves all three.
@@ -1182,20 +1162,20 @@ impl<M> Table<M> {
         .boxed())
     }
 
-    /// Eager live-search input for live tables (GH #104): the signal-backed
+    /// Eager live-search input for live tables: the signal-backed
     /// input plus the GET form as `<noscript>` fallback. Rendered eagerly
     /// above the streamed region; the shard invocation that fills the table
     /// lives in the streamed region (`Self::render_live_invocation`) so the
     /// table can only ever render once per response.
     ///
-    /// The visible input is deliberately unbound (GH #172): typing stays
+    /// The visible input is deliberately unbound: typing stays
     /// local until it pauses for `LIVE_SEARCH_DEBOUNCE_MS`, then
     /// `assets/live-search.js` forwards the value through the bound hidden
     /// transport, whose `@change` writes `q` and clears the cursors (a new
-    /// term is a new result set). The shard re-renders in place (GH #151).
+    /// term is a new result set). The shard re-renders in place.
     ///
     /// Public so a page owning its own signals can render the same toolbar
-    /// above its own shard (the showcase demos, GH #154 §2); resource lists
+    /// above its own shard (the showcase demos, §2); resource lists
     /// reach it through `panel::resource_list_live`.
     pub async fn render_live_search_bar<'a>(
         &self,
@@ -1205,13 +1185,13 @@ impl<M> Table<M> {
         signals: &TableSignals,
     ) -> Result<BoxView<'a>> {
         // Called directly with raw state (panel live page, showcase demos):
-        // normalize for the `<noscript>` fallback links (GH #153).
+        // normalize for the `<noscript>` fallback links.
         self.render_live_search_bar_normalized(cx, &self.normalize_state(state), path, signals)
             .await
     }
 
     /// [`Self::render_live_search_bar`] with the state already normalized
-    /// (GH #224): the panel's live page renders the toolbar from the request's
+    /// the panel's live page renders the toolbar from the request's
     /// one normalized state.
     pub(crate) async fn render_live_search_bar_normalized<'a>(
         &self,
@@ -1256,10 +1236,10 @@ impl<M> Table<M> {
     }
 
     /// The `table_search` shard invocation filling a live table's streamed
-    /// region (GH #104). The signal handles travel as arguments; every
+    /// region. The signal handles travel as arguments; every
     /// tracked read inside the shard becomes a `dep` marker the browser
     /// watches, so sort/filter/pager/search changes re-render the table in
-    /// place (GH #151).
+    /// place.
     pub(crate) async fn render_live_invocation<'a>(
         &self,
         cx: &'a Cx,
@@ -1268,9 +1248,9 @@ impl<M> Table<M> {
     ) -> Result<BoxView<'a>> {
         use crate::panel::table_search;
 
-        // No snapshot here (GH #157): grouping travels as the `group_by`
+        // No snapshot here: grouping travels as the `group_by`
         // live signal (seeded from the page state by the caller) and the
-        // shard normalizes on read (GH #153).
+        // shard normalizes on read.
         let live_path = path.to_string();
         let TableSignals {
             q,
@@ -1298,7 +1278,7 @@ impl<M> Table<M> {
     }
 
     /// The filter bar for a live table, rendered eagerly by the page that owns
-    /// the signals (GH #166) — the counterpart of [`Self::render_live_search_bar`].
+    /// the signals — the counterpart of [`Self::render_live_search_bar`].
     ///
     /// Hoisting matters for focus: a `<select>` change writes the `filters`
     /// signal, and a bar rebuilt by that rerun would collapse the native popup
@@ -1315,14 +1295,14 @@ impl<M> Table<M> {
     where
         M: toasty::schema::Model,
     {
-        // Called with raw page state (GH #153): normalize so the no-JS
+        // Called with raw page state: normalize so the no-JS
         // fallback form carries the same normalized values the GET path would.
         self.render_live_filter_bar_normalized(cx, &self.normalize_state(state), path, signals)
             .await
     }
 
     /// [`Self::render_live_filter_bar`] with the state already normalized
-    /// (GH #224): the panel's live page renders the hoisted bar from the
+    /// the panel's live page renders the hoisted bar from the
     /// request's one normalized state.
     pub(crate) async fn render_live_filter_bar_normalized<'a>(
         &self,
@@ -1380,10 +1360,10 @@ impl<M> Table<M> {
         } else {
             None
         };
-        // One typed control per declared filter (GH #74). Controls carry only
+        // One typed control per declared filter. Controls carry only
         // `data-filter-name` (no `name`, so they never submit on their own);
         // `filters.js` composes them into the hidden `filters` transport and
-        // submits on change (GH #151), rewriting it even when every control is
+        // submits on change, rewriting it even when every control is
         // "All" so the stale value can never be resubmitted. The free-text
         // input and Apply button survive only inside `<noscript>` as the
         // no-JS fallback.
@@ -1584,7 +1564,7 @@ impl<M> Table<M> {
         }
         let filtered = state.search.is_some() || !state.filters.is_empty();
         // Clear only the dimension the link names and keep the rest of the
-        // state (GH #93 follow-up): the URL is rebuilt from the full state, so
+        // state (follow-up): the URL is rebuilt from the full state, so
         // `group_by` survives, and a "Clear search" link leaves the filters
         // alone.
         let clear_url = filtered.then(|| {
@@ -1594,7 +1574,7 @@ impl<M> Table<M> {
                 state.without_filters(path)
             }
         });
-        // Search matches anywhere in the value (GH #116), so the empty copy
+        // Search matches anywhere in the value, so the empty copy
         // says "matches", not "prefix matches".
         let message = match &state.search {
             Some(term) => format!("No matches for \u{201c}{term}\u{201d}"),
@@ -1606,7 +1586,7 @@ impl<M> Table<M> {
         } else {
             "Clear filters"
         };
-        // Void window (GH #98): a cursor that lands past the last row (e.g.
+        // Void window: a cursor that lands past the last row (e.g.
         // rows deleted under pagination) leaves an empty page with no pager —
         // link back to the first page instead of a dead end. State is
         // preserved, only the cursor is dropped.
@@ -1784,7 +1764,7 @@ impl<M> Table<M> {
         self.delete_prefix.is_some() || self.edit_prefix.is_some() || self.view_prefix.is_some()
     }
 
-    /// The share of the table the row-actions column claims (GH #240): the row
+    /// The share of the table the row-actions column claims: the row
     /// links sit side by side and each is a fixed-size control, so the share
     /// grows with the number of links the table renders. The values hold the
     /// widest set at a 1280px window and the narrower sets inside it.
@@ -1799,7 +1779,7 @@ impl<M> Table<M> {
         }
     }
 
-    /// The width every column of this table declares (GH #240).
+    /// The width every column of this table declares.
     ///
     /// The kind defaults — a [`ColumnWidth::Narrow`] column, the bulk
     /// checkbox, the row actions — are shares of the table, scaled down
@@ -1879,12 +1859,12 @@ impl<M> Table<M> {
             let width = widths.cells[index].clone();
             let label = col.label().to_string();
             // The declared width rides the header cell's inline `style`
-            // (GH #240): a Tailwind class assembled at render would emit no
+            // a Tailwind class assembled at render would emit no
             // CSS, because Tailwind only generates the literals it finds in
             // source. A wide column declares nothing and takes a share of what
             // the declared columns leave.
             // A static preview renders plain labels: no link to an interaction
-            // the page does not honor (GH #151).
+            // the page does not honor.
             let sortable = col.is_sortable();
             let (head_class, aria_sort, header) = if sortable {
                 let (aria, sort_icon, next_desc) = match active {
@@ -1988,7 +1968,7 @@ impl<M> Table<M> {
                     if with_bulk {
                         // The header row is the row `table-fixed` measures, so
                         // the chrome columns declare their width here and
-                        // their `td`s declare none (GH #240).
+                        // their `td`s declare none.
                         table_head(
                             attrs: attributes! { style=(widths.bulk.as_deref()) },
                             <input
@@ -2011,11 +1991,11 @@ impl<M> Table<M> {
 /// Precomputed per-row presentation for the table body: the display row key,
 /// the record key, the rendered cells, and the optional Edit / delete-dialog
 /// action URLs. A struct (not a tuple): five anonymous positions would
-/// mislead readers and trip `clippy::type_complexity` (GH #162).
+/// mislead readers and trip `clippy::type_complexity`.
 ///
 /// `key` is the `Table::id` display projection (keyed diffs, DOM ids);
 /// `record_id` is the `Table::pk` projection (URLs, bulk values), resolved
-/// by handlers as the typed PK (GH #168).
+/// by handlers as the typed PK.
 struct RowView {
     key: String,
     record_id: String,
@@ -2023,26 +2003,26 @@ struct RowView {
     view_url: Option<String>,
     edit_url: Option<String>,
     delete_url: Option<String>,
-    /// The row's delete POST target (`{prefix}/{key}/delete`, GH #233): the
+    /// The row's delete POST target (`{prefix}/{key}/delete`): the
     /// Delete control hands it to the shared dialog before opening it, so the
     /// confirmed POST keeps the route the `?delete=` fallback uses.
     delete_action: Option<String>,
-    /// Whether the row's bulk checkbox is enabled (GH #235): a row the
+    /// Whether the row's bulk checkbox is enabled: a row the
     /// [`Table::row_actions`] policy denies `delete` renders it `disabled`, so
     /// `bulk.js` never lets it into the selection transport and select-all
     /// cannot submit a batch the handler refuses wholesale.
     selectable: bool,
-    /// The row's group label, when `?group_by=` named the declared group
-    /// (GH #219). Carried on every row so the page-local shim can order by it.
+    /// The row's group label, when `?group_by=` named the declared group.
+    /// Carried on every row so the page-local shim can order by it.
     group: Option<String>,
     /// The header this row renders above itself, `Some` only on the first row
-    /// of its group (GH #219).
+    /// of its group.
     group_header: Option<GroupHeader>,
 }
 
-/// One page-local group header (GH #219): the label with its page-local count,
+/// One page-local group header: the label with its page-local count,
 /// and the stable DOM id the injected header row carries so the in-place morph
-/// can follow it (`row_dom_id`'s contract, GH #104).
+/// can follow it (`row_dom_id`'s contract).
 #[derive(Clone)]
 struct GroupHeader {
     /// `"{label} ({n} on this page)"`.
@@ -2151,8 +2131,8 @@ mod tests {
         &html[start..end]
     }
 
-    /// Every whole-percent width a rendered table declares, in document order
-    /// (GH #240). A length declaration is skipped: those carry a unit.
+    /// Every whole-percent width a rendered table declares, in document order.
+    /// A length declaration is skipped: those carry a unit.
     fn declared_percents(html: &str) -> Vec<u32> {
         html.match_indices("style=\"width: ")
             .filter_map(|(at, marker)| {
@@ -2196,7 +2176,7 @@ mod tests {
             id: uuid::Uuid::nil(),
             name: "Ada".to_string(),
         }];
-        // Zero page size is a programmer error (GH #96): a descriptive error
+        // Zero page size is a programmer error: a descriptive error
         // the streamed list renders in-region, never a per-request panic.
         let zero = Table::<User>::r#for(&cx)
             .id(|u| u.id.to_string())
@@ -2230,7 +2210,7 @@ mod tests {
     #[tokio::test]
     async fn table_for_columns_renders_with_keyed_rows() {
         let cx = CxTestBuilder::new().build();
-        // GH #156: columns need distinct names — title + status, not one
+        // columns need distinct names — title + status, not one
         // field twice.
         let tasks_table = Table::<Task>::r#for(&cx).id(|t| t.id.to_string()).columns((
             TextColumn::r#for(Task::fields().title(), |t: &Task| t.title.clone()).searchable(),
@@ -2262,12 +2242,12 @@ mod tests {
             .await
             .unwrap()
             .render(&cx);
-        // GH #216: no Tailwind-class assertions. The chrome literals
+        // no Tailwind-class assertions. The chrome literals
         // (`rounded-xl`, `border-border`, `text-muted-foreground`,
         // `cursor-pointer`) are the showcase's business (#136), and pinning
         // them here meant every restyle broke a core test.
         //
-        // Searchable columns render no extra header chrome (GH #154): the
+        // Searchable columns render no extra header chrome: the
         // search input is the affordance, so the header cell holds its label
         // and nothing interactive. The sortable sibling next door *does* carry
         // an `<a>` and an icon, so this can fail.
@@ -2296,7 +2276,7 @@ mod tests {
         }
     }
 
-    /// GH #240: the table lays out fixed, and a declared column width reaches
+    /// the table lays out fixed, and a declared column width reaches
     /// the header cell and every row's cell as data — an inline `style`, never
     /// a Tailwind class built at render.
     #[tokio::test]
@@ -2326,10 +2306,10 @@ mod tests {
             .await
             .unwrap()
             .render(&cx);
-        // The fixed layout is the table's own contract, not paint: GH #240's
+        // The fixed layout is the table's own contract, not paint:'s
         // Done-when names it as the observable and a class is its only
         // transport, so this is the one class literal asserted here. The paint
-        // classes stay the showcase's business (GH #216/#136).
+        // classes stay the showcase's business (#136).
         let tag = table_tag(&html);
         assert!(
             tag.contains("table-fixed"),
@@ -2351,7 +2331,7 @@ mod tests {
         );
     }
 
-    /// GH #240: a column that declares nothing but its kind claims a share of
+    /// a column that declares nothing but its kind claims a share of
     /// the table — a percentage, so it shrinks with the table instead of
     /// outgrowing it — and the wide column beside it still declares none.
     #[tokio::test]
@@ -2389,7 +2369,7 @@ mod tests {
         );
     }
 
-    /// GH #240: the chrome columns declare a share of the table too — the
+    /// the chrome columns declare a share of the table too — the
     /// header row is the row `table-fixed` measures — and the share grows with
     /// the number of row links, which sit side by side.
     #[tokio::test]
@@ -2407,7 +2387,7 @@ mod tests {
                 chrome_table = chrome_table.with_edit("/admin/users".to_string());
             }
             if links > 2 {
-                // Delete is what the bulk column pairs with (GH #226).
+                // Delete is what the bulk column pairs with.
                 chrome_table = chrome_table
                     .with_delete("/admin/users".to_string())
                     .with_bulk_delete(true);
@@ -2443,7 +2423,7 @@ mod tests {
         }
     }
 
-    /// GH #240: the kind defaults together stay inside their budget, whatever
+    /// the kind defaults together stay inside their budget, whatever
     /// the column set — a column that declares none is rendered at zero width
     /// once the declared shares claim the whole table, header text included,
     /// so the defaults scale down instead of spending the last percent.
@@ -2555,7 +2535,7 @@ mod tests {
             "Delete link must survive, got {html}"
         );
         // Without either prefix there is no Actions column at all — and a
-        // chromeless table needs no `pk` (GH #168): nothing emits URLs.
+        // chromeless table needs no `pk`: nothing emits URLs.
         let plain = Table::<User>::r#for(&cx)
             .id(|u| u.id.to_string())
             .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()));
@@ -2622,7 +2602,7 @@ mod tests {
             html.contains("data-bulk-select-all"),
             "missing select-all in {html}"
         );
-        // Bulk form keeps the hidden `ids` transport (GH #151) and a submit
+        // Bulk form keeps the hidden `ids` transport and a submit
         // that ships disabled until `bulk.js` sees a checked row.
         assert!(
             html.contains("data-bulk-form"),
@@ -2632,7 +2612,7 @@ mod tests {
             html.contains("name=\"ids\"") && !html.contains("ids comma-separated"),
             "missing hidden ids transport in {html}"
         );
-        // GH #184: the destructive write is gated by the confirmation dialog
+        // the destructive write is gated by the confirmation dialog
         // rather than by a disabled control — the trigger opens it, and the
         // dialog's own submit carries `confirm=1` inside the same form.
         assert!(
@@ -2660,16 +2640,16 @@ mod tests {
             !dialog_tag.contains("open=\""),
             "the bulk confirm dialog must render closed, got {dialog_tag}"
         );
-        // GH #293: `dialog.js` refuses to dismiss an alert dialog on a backdrop
+        // `dialog.js` refuses to dismiss an alert dialog on a backdrop
         // click, so the role is the contract that keeps the confirm dialog
         // waiting for an answer rather than treating a stray click as one.
         assert!(
             dialog_tag.contains("role=\"alertdialog\""),
             "the bulk confirm dialog must be an alert dialog, got {dialog_tag}"
         );
-        // The dialog is the decision, not decoration (GH #184): it asks, and
+        // The dialog is the decision, not decoration: it asks, and
         // it offers a way out that is not deleting. Absorbed from the showcase
-        // duplicate (GH #217) so the one test that owns bulk chrome owns all
+        // duplicate so the one test that owns bulk chrome owns all
         // of it.
         assert!(
             html.contains("Delete the selected records?"),
@@ -2719,7 +2699,7 @@ mod tests {
 
     #[tokio::test]
     async fn denied_rows_render_no_links_and_a_disabled_checkbox() {
-        // GH #235: the row policy gates the chrome per record, so a row the
+        // the row policy gates the chrome per record, so a row the
         // resource refuses renders no Edit/Delete link and a bulk checkbox a
         // user cannot check — the rendered affordance and the route agree.
         let cx = CxTestBuilder::new().build();
@@ -2807,7 +2787,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_chromeless_table_never_consults_the_row_policy() {
-        // GH #235: the policy is consulted only where chrome is wired, so a
+        // the policy is consulted only where chrome is wired, so a
         // resource that declares no chrome keeps its list page free of
         // per-record predicate calls — the coarse `TableChrome` gate is intact.
         let cx = CxTestBuilder::new().build();
@@ -2846,7 +2826,7 @@ mod tests {
 
     #[tokio::test]
     async fn action_chrome_emits_record_keys_not_display_keys() {
-        // GH #168: a non-PK display projection drives keyed diffs and DOM ids
+        // a non-PK display projection drives keyed diffs and DOM ids
         // only — edit URLs, delete dialogs, and bulk values carry the `pk`
         // projection handlers resolve as the typed PK.
         use topcoat::view::ViewExt;
@@ -2899,7 +2879,7 @@ mod tests {
 
     #[tokio::test]
     async fn action_chrome_without_pk_fails_loud() {
-        // GH #168: chrome without `pk` would emit display keys the handlers
+        // chrome without `pk` would emit display keys the handlers
         // 404 on — a render error, like a missing row key, not a silent 404.
         let cx = CxTestBuilder::new().build();
         let pkless = Table::<User>::r#for(&cx)
@@ -2986,7 +2966,7 @@ mod tests {
         );
         // The hidden transport carries the composed value for auto-apply; the
         // free-text input + Apply button survive only as the `<noscript>`
-        // fallback (GH #151).
+        // fallback.
         assert!(
             html.contains("data-filters-transport")
                 && html.contains("name=\"filters\"")
@@ -3178,7 +3158,7 @@ mod tests {
 
     #[tokio::test]
     async fn unknown_filter_renders_alert_banner_and_keeps_200() {
-        // GH #93: the list keeps a 200 but warns instead of lying about
+        // the list keeps a 200 but warns instead of lying about
         // "these filters".
         let cx = CxTestBuilder::new().build();
         let tbl = status_table(&cx);
@@ -3279,7 +3259,7 @@ mod tests {
 
     #[tokio::test]
     async fn group_by_unknown_value_renders_no_headers_and_drops_param() {
-        // GH #92: `?group_by=` must name the declared group — any other
+        // `?group_by=` must name the declared group — any other
         // value renders no headers and vanishes from pager links instead of
         // silently grouping by the single declared key.
         let cx = CxTestBuilder::new().build();
@@ -3326,7 +3306,7 @@ mod tests {
 
     #[tokio::test]
     async fn group_by_orders_each_row_under_its_own_header() {
-        // GH #219: the page-local shim must actually group. The seed is
+        // the page-local shim must actually group. The seed is
         // deliberately interleaved in query order (draft, published, draft,
         // published), so a legend-only shim — every header, then an ungrouped
         // table — cannot satisfy the ordering assertions below.
@@ -3388,7 +3368,7 @@ mod tests {
             "both published rows must sit under the published header, got {html}"
         );
         // The injected header carries an id derived from its group label, not
-        // from its position, so the in-place morph can follow it (GH #104):
+        // from its position, so the in-place morph can follow it:
         // the same contract the row ids have.
         for label in ["draft", "published"] {
             let expected = format!("id=\"{}\"", group_header_dom_id(label));
@@ -3399,7 +3379,7 @@ mod tests {
         }
     }
 
-    /// GH #205: a table render builds the row-action URLs from one shared base
+    /// a table render builds the row-action URLs from one shared base
     /// — the encoded filter transport — before the row loop, so every row's
     /// dialog opener is that base plus its own `delete=` key.
     ///
@@ -3414,7 +3394,7 @@ mod tests {
         let tbl = Table::<User>::r#for(&cx)
             .id(|u: &User| u.id.to_string())
             // Every row renders a delete-dialog link, so the table needs the
-            // record key those URLs carry (GH #168).
+            // record key those URLs carry.
             .pk(|u: &User| u.id.to_string())
             .with_delete("/admin/users".to_string())
             .columns(TextColumn::r#for(User::fields().name(), |u: &User| {
@@ -3471,7 +3451,7 @@ mod tests {
 
     #[tokio::test]
     async fn void_window_links_back_to_first_page() {
-        // GH #98: a cursor past the last row (rows deleted under pagination)
+        // a cursor past the last row (rows deleted under pagination)
         // must offer navigation, never a pager-less dead end.
         let cx = CxTestBuilder::new().build();
         let tbl = Table::<User>::r#for(&cx)
@@ -3559,7 +3539,7 @@ mod tests {
             "skeleton must hold chrome placeholders, got {html}"
         );
         // The skeleton and the swapped table must declare the same layout, or
-        // the swap re-measures the columns (GH #240): comparing the two
+        // the swap re-measures the columns: comparing the two
         // opening tags states that without pinning a class literal.
         let skeleton_table = table_tag(&html).to_string();
         // The swap payload is the table itself, under the same boundary region.
@@ -3592,7 +3572,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_static_table_renders_no_runtime_bindings_at_all() {
-        // GH #234: a table without `live_search` has no shard to re-run, so a
+        // a table without `live_search` has no shard to re-run, so a
         // mutation replaces its region with the response's. That is only sound
         // because the region is inert: no binding, no handler, nothing the
         // replacement could leave dead. The refresh control's absence is the
@@ -3670,7 +3650,7 @@ mod tests {
 
     #[tokio::test]
     async fn rendered_rows_carry_stable_dom_ids() {
-        // GH #104: every rendered row exposes its morph id; re-rendering the
+        // every rendered row exposes its morph id; re-rendering the
         // same page yields the same ids.
         let cx = CxTestBuilder::new().build();
         let tbl = Table::<User>::r#for(&cx)

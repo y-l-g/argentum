@@ -56,7 +56,7 @@ impl Brand {
 /// Whether the shell starts in dark mode for a visitor with no stored choice.
 /// Persisted via `theme.js` (`localStorage` + `theme` cookie).
 ///
-/// Precedence (GH #102, corrected in GH #184): this build-time default only
+/// Precedence (corrected in): this build-time default only
 /// sets the initial `<html class>` and is handed to the blocking
 /// `theme_init_script` as its fallback. The stored preference — `localStorage`
 /// first, then the `theme` cookie — wins in **both** directions: a stored
@@ -140,13 +140,13 @@ impl Panel {
             sidebar_menu_button, sidebar_menu_item,
         };
         let mut nav_items = nav_items.to_vec();
-        // Stable order (GH #102): explicit `order` first, declaration order
+        // Stable order: explicit `order` first, declaration order
         // breaking ties — a resource's `navigation()` override interleaves by
         // setting it.
         nav_items.sort_by_key(|item| item.order);
         // A Panel resolves every item it owns (`Panel::resource`); one that
         // reaches the sidebar unresolved has no URL to render, which is a
-        // framework bug rather than user error (GH #165).
+        // framework bug rather than user error.
         debug_assert!(
             nav_items.iter().all(|item| item.url().is_some()),
             "navigation items are resolved by the Panel that owns them"
@@ -298,14 +298,14 @@ impl Panel {
                 crate::notification::render_notification(cx, notification, Default::default())
                     .await?
             }
-            // No `<span>` placeholder (GH #160): the toaster renders an `<ol>`,
+            // No `<span>` placeholder: the toaster renders an `<ol>`,
             // which permits only `li`/`script`/`template` children — the empty
             // view renders nothing.
             None => ().boxed(),
         };
         // The page owns the live-toast signals; resolve the same handles here
         // (same helper, same request identity) and hand them to the shard
-        // (GH #154 §3).
+        // (§3).
         let LiveToast {
             status: toast_status,
             title: toast_title,
@@ -397,9 +397,9 @@ impl Panel {
                     <div class="flex-1 mx-auto max-w-7xl w-full p-6">(slot)</div>
                 )
                 // Toast stack — the shadcn/Sonner surface, fixed bottom-right
-                // and a polite live region so streamed swaps are announced
-                // (GH #98, GH #151). `live_toaster` is the page-owned
-                // in-place transport (GH #154 §3); the flash cookie's toast
+                // and a polite live region so streamed swaps are announced.
+                // `live_toaster` is the page-owned
+                // in-place transport (§3); the flash cookie's toast
                 // rides beside it.
                 argentum_ui::toaster(
                     (notification_view)
@@ -456,8 +456,7 @@ impl Panel {
     ) -> Result<BoxView<'a>> {
         use topcoat::context::try_app_context;
         // The build-time default: the `<html class>` a first-time visitor gets,
-        // and the fallback the blocking script uses when nothing is stored
-        // (GH #102, GH #184).
+        // and the fallback the blocking script uses when nothing is stored.
         let default_dark = try_app_context::<DarkMode>(cx).is_some_and(|dm| dm.0);
         let head: BoxView<'_> = match try_app_context::<ShellAssets>(cx).copied() {
             Some(ShellAssets { stylesheet, font }) => view! {
@@ -514,7 +513,7 @@ mod tests {
             Brand::new("Acme").logo("  /logo.svg  ").logo.as_deref(),
             Some("/logo.svg")
         );
-        // Blank logos fall back to the name-only render (GH #102).
+        // Blank logos fall back to the name-only render.
         assert_eq!(Brand::new("Acme").logo("   ").logo, None);
     }
 
@@ -568,7 +567,7 @@ mod tests {
 
         use crate::resource::{NavTarget, NavigationItem};
 
-        // Attribute-injection safety rests on `view!` escaping (GH #102):
+        // Attribute-injection safety rests on `view!` escaping:
         // lock it with a hostile brand on both render paths (header + sidebar).
         let (parts, ()) = http::Request::builder()
             .uri("/admin/users")
@@ -647,7 +646,7 @@ mod tests {
             html.contains("data-theme-toggle"),
             "theme toggle must render, got {html}"
         );
-        // GH #184: the build-time default is only that — the pre-paint script
+        // the build-time default is only that — the pre-paint script
         // can remove the class again when the visitor has stored `light`.
         assert!(
             html.contains("classList.add") && html.contains("classList.remove"),
@@ -693,7 +692,7 @@ mod tests {
         );
 
         // Error + description: the typed toast and the supporting line. The
-        // icon's colour is paint (GH #216); `data-type="error"` is what selects
+        // icon's colour is paint; `data-type="error"` is what selects
         // the destructive icon, and the `<svg>` proves one rendered.
         let enc = serde_json::to_string(&Notification::error("Boom").description("What happened"))
             .unwrap();
@@ -767,7 +766,7 @@ mod tests {
 
     #[tokio::test]
     async fn sidebar_orders_custom_items_by_sort_key() {
-        // GH #102: `order: -1` interleaves a custom item above the
+        // `order: -1` interleaves a custom item above the
         // resources; ties keep declaration order.
         use topcoat::{context::CxTestBuilder, view::view};
 
@@ -810,7 +809,7 @@ mod tests {
 
     #[tokio::test]
     async fn panel_shell_renders_sidebar_with_active_and_tokens() {
-        // GH #136: structure/aria only — pixel Token/Tailwind classes live in
+        // structure/aria only — pixel Token/Tailwind classes live in
         // the showcase (`admin_resource_list_page_serve_seeded_users`), so a
         // restyle does not fail core without a behavior change.
         use topcoat::{context::CxTestBuilder, view::view};
@@ -863,7 +862,7 @@ mod tests {
             "missing bound data-state in {html}"
         );
         // No separator: the dead "Resources" placeholder group it divided
-        // is gone (GH #102), and a trailing rule with no following group is
+        // is gone, and a trailing rule with no following group is
         // chrome noise.
         assert!(
             !html.contains("Managed via Resource::query seam"),
@@ -956,7 +955,7 @@ mod tests {
         // `Attributes` renders in no guaranteed order (topcoat#122).
         let tag_start = html[..label].rfind('<').expect("close control tag start");
         let tag = opening_tag_at(&html, tag_start);
-        // GH #216: `md:hidden` is the responsive class that makes this control
+        // `md:hidden` is the responsive class that makes this control
         // mobile-only, and it is paint; what a regression would break is that
         // the close control is a real button wired to the sheet's close hook.
         assert!(
@@ -967,7 +966,7 @@ mod tests {
 
     #[tokio::test]
     async fn toaster_renders_no_stray_span_when_empty() {
-        // GH #160: the toaster renders an `<ol>`, which permits only
+        // the toaster renders an `<ol>`, which permits only
         // `li`/`script`/`template` children — with no flash notification and
         // no live toast, neither slot may strand a `<span>` in the list.
         use topcoat::{context::CxTestBuilder, view::view};
@@ -999,7 +998,7 @@ mod tests {
 
     #[tokio::test]
     async fn render_shell_extra_class_reaches_the_provider() {
-        // GH #137: `extra_class` is the custom-document extension point — a
+        // `extra_class` is the custom-document extension point — a
         // passed class must reach the provider markup.
         use topcoat::context::CxTestBuilder;
 

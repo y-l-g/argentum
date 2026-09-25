@@ -26,42 +26,40 @@ use crate::{
     notification::{Notification, notify_write_failure, set_notification},
 };
 
-/// Failure-toast wording for the create/update handlers (GH #174): one place,
+/// Failure-toast wording for the create/update handlers: one place,
 /// so the two paths cannot drift.
 const WRITE_CREATE: &str = "create the record";
 const WRITE_UPDATE: &str = "save the changes";
 use crate::resource::{Committed, Resource};
 
-/// A decoded form body: the text values plus any file parts (GH #188).
+/// A decoded form body: the text values plus any file parts.
 pub(crate) struct FormParts {
     pub(crate) values: HashMap<String, String>,
     /// File parts by field name, staged for the installed
     /// [`Uploader`](crate::Uploader) — empty when none is installed, because
     /// then the bytes could only be dropped and today's drain-and-discard
-    /// (GH #90) is what keeps a large upload off the heap.
+    /// is what keeps a large upload off the heap.
     pub(crate) files: HashMap<String, crate::upload::StagedUpload>,
     /// Field names that arrived as a multipart part carrying a `filename`
-    /// (chosen or empty). Only these may set a `FileUpload` value (GH #277): a
+    /// (chosen or empty). Only these may set a `FileUpload` value: a
     /// text part or a url-encoded pair under the same name is client-typed, not
     /// an upload.
     pub(crate) file_part_names: HashSet<String>,
 }
 
 /// Helper: parse form bodies into a [`FormParts`] — `application/x-www-form-urlencoded`
-/// buffered, plus `multipart/form-data` streamed when a `FileUpload` is present
-/// (GH #73).
-///
+/// buffered, plus `multipart/form-data` streamed when a `FileUpload` is present.
 /// urlencoded decoding is delegated to `form_urlencoded` (already in the tree
 /// via topcoat): it splits pairs, decodes `+` as space, assembles multi-byte
 /// UTF-8 from `%XX` sequences (`%C3%A9` → `é`, not `Ã©`), and keeps encoded
 /// separators (`%26` → `&`) intact. Invalid UTF-8 degrades per-value (lossy)
 /// instead of discarding the whole form.
 ///
-/// Multipart (file) parts stream through Topcoat's multer-based extractor
-/// (GH #90). With no installed uploader the bytes are drained in chunks and
+/// Multipart (file) parts stream through Topcoat's multer-based extractor.
+/// With no installed uploader the bytes are drained in chunks and
 /// discarded while the sanitized filename becomes the `String` value; with one
-/// installed they are buffered up to the same body cap and handed to it
-/// (GH #188). Text parts store their content, and unknown content types fall
+/// installed they are buffered up to the same body cap and handed to it.
+/// Text parts store their content, and unknown content types fall
 /// back to urlencoded.
 pub(crate) async fn parse_form_body(cx: &Cx, body: Body) -> Result<FormParts, topcoat::Error> {
     let content_type =
@@ -75,13 +73,13 @@ pub(crate) async fn parse_form_body(cx: &Cx, body: Body) -> Result<FormParts, to
         .as_deref()
         .is_some_and(is_multipart_content_type)
     {
-        // Stage bytes only when something will consume them (GH #188): the
+        // Stage bytes only when something will consume them: the
         // parser is the one place that knows whether an uploader exists.
         return parse_multipart_values(cx, body, crate::upload::installed(cx)).await;
     }
     let bytes = Bytes::from_request(cx, body).await.map_err(|error| {
         // A body over the route's limit is the extractor's 413, not a malformed
-        // form (GH #295); any other read failure is the 400. The multipart half
+        // form; any other read failure is the 400. The multipart half
         // propagates the same over-limit error untouched.
         if error.is::<topcoat::router::error::ContentTooLargeError>() {
             error
@@ -103,16 +101,16 @@ fn is_multipart_content_type(ct: &str) -> bool {
         .is_some_and(|mime| mime.trim().eq_ignore_ascii_case("multipart/form-data"))
 }
 
-/// Streamed multipart half of [`parse_form_body`] (GH #90).
+/// Streamed multipart half of [`parse_form_body`].
 ///
 /// Fields stream one at a time with constant memory: text fields buffer
 /// (bounded by the request body limit), file fields drain-and-discard while
 /// only the sanitized filename is kept — or, when `capture` is set because an
-/// uploader is installed, buffer up to the same cap so it can store them
-/// (GH #188). Duplicate part names are last-wins; nameless parts are skipped. A
+/// uploader is installed, buffer up to the same cap so it can store them.
+/// Duplicate part names are last-wins; nameless parts are skipped. A
 /// missing boundary is a 400, an over-limit body a 413 — both classified by the
 /// extractor, never silent fallbacks. Every byte the stream carries is also
-/// counted against [`MAX_FORM_BYTES`] (GH #149): file reads and skipped parts
+/// counted against [`MAX_FORM_BYTES`]: file reads and skipped parts
 /// go through the counter chunk by chunk, text fields join it after their
 /// (extractor-bounded) read, so a large upload cannot be read chunk-by-chunk
 /// holding the handler even if the extractor's limit stops wrapping the stream.
@@ -133,7 +131,7 @@ async fn parse_multipart_values(
     while let Some(mut field) = multipart.next_field().await? {
         let Some(name) = field.name().map(str::to_string) else {
             // Nameless parts carry bytes too: drain them through the counter
-            // so the accounting covers the whole request stream (GH #149).
+            // so the accounting covers the whole request stream.
             read_bounded(&mut field, &mut bytes_seen, None).await?;
             continue;
         };
@@ -143,7 +141,7 @@ async fn parse_multipart_values(
         }
         // RFC 6266: `filename*=` (decoded) takes precedence over `filename=`.
         // Multer surfaces the plain `filename=` first, so the raw header is
-        // read for `filename*=` before falling back (GH #90).
+        // read for `filename*=` before falling back.
         let filename =
             filename_star_from_headers(&field).or_else(|| field.file_name().map(str::to_string));
         match filename {
@@ -152,11 +150,11 @@ async fn parse_multipart_values(
                 // Duplicate part names are last-write-wins, bytes included: a
                 // later part replaces whatever an earlier one under the same
                 // name staged, so a name that sanitizes to empty cannot leave
-                // the earlier part's bytes behind (GH #277).
+                // the earlier part's bytes behind.
                 out.files.remove(&name);
                 // Bytes are staged only for a name the framework would persist
-                // (a rejected name sanitizes to empty, GH #149) and only when
-                // an uploader is installed to store them (GH #188). Otherwise
+                // (a rejected name sanitizes to empty) and only when
+                // an uploader is installed to store them. Otherwise
                 // drain to advance the stream.
                 if capture && !sanitized.is_empty() {
                     let mut bytes = Vec::new();
@@ -172,14 +170,14 @@ async fn parse_multipart_values(
                     read_bounded(&mut field, &mut bytes_seen, None).await?;
                 }
                 // A chosen file is the one thing that may set a `FileUpload`
-                // value (GH #277).
+                // value.
                 out.file_part_names.insert(name.clone());
                 out.values.insert(name, sanitized);
             }
             Some(_) => {
                 // Empty filename (no file chosen) → empty value so `required`
                 // validation fires instead of treating it as missing. It is
-                // still a file part (GH #277): the browser submits every file
+                // still a file part: the browser submits every file
                 // input, and "keep" on edit must not read as a forged text
                 // value. It chose no file, so it discards bytes an earlier part
                 // staged under the same name.
@@ -195,7 +193,7 @@ async fn parse_multipart_values(
                 count_form_bytes(&mut bytes_seen, text.len())?;
                 // A later text part under a name an earlier file part used
                 // takes the name out of the file-part set, so the drop removes
-                // the client-typed value instead of storing it (GH #277).
+                // the client-typed value instead of storing it.
                 out.file_part_names.remove(&name);
                 out.files.remove(&name);
                 out.values.insert(name, text);
@@ -206,13 +204,13 @@ async fn parse_multipart_values(
 }
 
 /// Read one multipart field chunk-by-chunk, accounting every byte against
-/// [`MAX_FORM_BYTES`] (GH #149): enforcement normally happens in the extractor
+/// [`MAX_FORM_BYTES`]: enforcement normally happens in the extractor
 /// (`BodyLimit` wraps the multipart stream), but the reader owns its own
 /// counter so an over-cap upload 413s here too instead of holding the handler.
 ///
 /// `keep` decides the destination, not the accounting: `None` drains and
 /// discards (the default path, constant memory), `Some(sink)` buffers for an
-/// installed [`Uploader`](crate::Uploader) (GH #188). One loop, so the two
+/// installed [`Uploader`](crate::Uploader). One loop, so the two
 /// paths cannot disagree about the cap — and the buffered bytes are bounded by
 /// that same cap, so installing an uploader trades the discard for at most one
 /// body's worth of heap rather than widening the contract.
@@ -231,7 +229,7 @@ async fn read_bounded(
     Ok(())
 }
 
-/// Account one drained chunk against the form-body cap (GH #149). Extracted
+/// Account one drained chunk against the form-body cap. Extracted
 /// so the 413 mapping is testable at the boundary without building a
 /// multipart body — through the router the extractor's own limit classifies
 /// the same body first, so the counter only answers when that limit stops
@@ -266,18 +264,18 @@ fn filename_star_from_headers(
     })
 }
 
-/// Pure urlencoded half of [`parse_form_body`] (GH #90) — testable without
+/// Pure urlencoded half of [`parse_form_body`] — testable without
 /// a request. Rejects bodies over `MAX_FORM_BYTES` with 413. Multipart
 /// never reaches here: it streams via [`parse_multipart_values`], where a
 /// missing boundary is a 400 and an over-limit body a 413 (both classified
 /// by the extractor).
 ///
-/// The length check is a deliberate second layer (GH #134): through the router
+/// The length check is a deliberate second layer: through the router
 /// `Bytes::from_request` buffers via `to_bytes(body, body_limit(cx))`, which
 /// enforces the `BodyLimit::max(MAX_FORM_BYTES)` layer
 /// [`Panel::build`](crate::panel::Panel::build) installs, so this branch is
 /// unreachable there. It is the urlencoded symmetric backstop to the multipart
-/// [`count_form_bytes`] counter (GH #149), and the only pin of the 10 MiB
+/// [`count_form_bytes`] counter, and the only pin of the 10 MiB
 /// urlencoded contract at unit level — a bare `CxTestBuilder` carries no
 /// `BodyLimitKind`, so `body_limit(cx)` falls back to Topcoat's 2 MiB default
 /// and cannot pin this cap. Do not collapse into [`form_values_from_bytes`]
@@ -296,12 +294,12 @@ fn form_values_from_request_parts(
     Ok(form_values_from_bytes(bytes))
 }
 
-/// Max form/multipart body accepted (GH #90): 10 MiB. It bounds the whole
+/// Max form/multipart body accepted: 10 MiB. It bounds the whole
 /// multipart stream, file bytes included — whether they are discarded or
-/// buffered for an installed [`Uploader`](crate::Uploader) (GH #188).
+/// buffered for an installed [`Uploader`](crate::Uploader).
 pub(crate) const MAX_FORM_BYTES: usize = 10 * 1024 * 1024;
 
-/// Sanitize a client-supplied filename to a basename (GH #90).
+/// Sanitize a client-supplied filename to a basename.
 ///
 /// Strips directory components (`../../etc/passwd` → `passwd`,
 /// `/abs/path` → `path`, `C:\fakepath\x` → `x`), trims whitespace, drops
@@ -309,13 +307,13 @@ pub(crate) const MAX_FORM_BYTES: usize = 10 * 1024 * 1024;
 /// `required` validation fires.
 ///
 /// Names that could never be a safely persisted file are rejected to empty
-/// (GH #149, before persistence lands): `.` and `..`, and Windows reserved
+/// (before persistence lands): `.` and `..`, and Windows reserved
 /// device names (`con`, `nul`, `com1` — also with an extension, and
 /// case-insensitive). v1 stores only the basename `String` and never touches
 /// the filesystem, so today this is latent; the required validation then
 /// surfaces the empty value as an inline form error (on edit, the
 /// untouched-file backfill preserves the stored value instead — an
-/// explicitly rejected name falls back to "keep", GH #90).
+/// explicitly rejected name falls back to "keep").
 fn sanitize_filename(raw: &str) -> String {
     let base = raw.rsplit(['/', '\\']).next().unwrap_or(raw).trim();
     let clean: String = base.chars().filter(|c| !c.is_control()).collect();
@@ -340,7 +338,7 @@ fn sanitize_filename(raw: &str) -> String {
     }
 }
 
-/// Windows reserved device names (GH #149): the stem before the first dot is
+/// Windows reserved device names: the stem before the first dot is
 /// reserved case-insensitively — `con`, `nul`, `aux`, `prn`, `com1`–`com9`,
 /// `lpt1`–`lpt9` — so `con.txt` cannot become a persisted basename either.
 fn is_windows_reserved_name(name: &str) -> bool {
@@ -361,7 +359,7 @@ fn is_windows_reserved_name(name: &str) -> bool {
     n.parse::<u8>().is_ok_and(|n| (1..=9).contains(&n))
 }
 
-/// Decode an RFC 5987/6266 `filename*=UTF-8''...` value (GH #90).
+/// Decode an RFC 5987/6266 `filename*=UTF-8''...` value.
 ///
 /// Three rules fail the whole value to `None`, so the caller falls back to
 /// `filename=` instead of storing a mangled name: the charset is not UTF-8, a
@@ -414,7 +412,7 @@ fn form_values_from_bytes(bytes: &[u8]) -> HashMap<String, String> {
 /// `carried` names the upload fields whose value is an uploader's answer rather
 /// than the record's: the shell renders each one's path as a hidden
 /// `keep_<field>` control, so the submit a corrected form makes can keep a file
-/// the browser's empty file input cannot resend (GH #297).
+/// the browser's empty file input cannot resend.
 async fn render_form_page<'a, R: Resource>(
     cx: &'a Cx,
     title: String,
@@ -426,13 +424,13 @@ async fn render_form_page<'a, R: Resource>(
     let schema = R::form(cx);
     let form_html = schema.render_with(cx, values, errors).await?;
     let action = topcoat::router::request::uri(cx).path().to_string();
-    // Browsers only send `<input type="file">` content as multipart (GH #73).
+    // Browsers only send `<input type="file">` content as multipart.
     let enctype: Option<String> = schema
         .has_file_upload()
         .then(|| "multipart/form-data".to_string());
     let csrf = crate::csrf::current_token(cx);
     // The candidate paths, one hidden control each: the framework re-verifies
-    // them against the installed store before it uses one (GH #297).
+    // them against the installed store before it uses one.
     let mut carried_fields: Vec<BoxView<'a>> = Vec::new();
     let mut carried_names: Vec<&String> = carried.iter().collect();
     carried_names.sort();
@@ -508,7 +506,7 @@ pub(crate) fn resource_create<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> 
 /// Reject POST keys no declared Schema input owns (GH #89 mass-assignment
 /// allow-list). `csrf_token` is a handler key, not a field, so it is filtered
 /// before the check, as are `clear_<field>` flags for declared `FileUpload`
-/// fields (GH #90 explicit-clear convention — `truthy`, GH #148); absent keys are fine
+/// fields (explicit-clear convention — `truthy`); absent keys are fine
 /// (present-keys-only updates), unknown keys are a 400 — accepting
 /// `role`/`tenant_id` smuggling would let a generic record fn iterating
 /// `values` promote them to client-controlled writes.
@@ -516,7 +514,7 @@ fn reject_unknown_form_keys(
     schema: &crate::schema::Schema,
     values: &HashMap<String, String>,
 ) -> Result<(), topcoat::Error> {
-    // One transport-key vocabulary (GH #148): the same `strip_transport_keys`
+    // One transport-key vocabulary: the same `strip_transport_keys`
     // the record fns benefit from defines which keys the framework owns, so
     // the allow-list and the strip cannot drift apart.
     let mut filtered = values.clone();
@@ -533,7 +531,7 @@ fn reject_unknown_form_keys(
     }
 }
 
-/// The one boolean-vocabulary check for framework form flags (GH #148):
+/// The one boolean-vocabulary check for framework form flags:
 /// `confirm=1|true`, `clear_<field>=1|true`. One vocabulary, not a per-handler
 /// set.
 pub(crate) fn truthy(v: &str) -> bool {
@@ -541,8 +539,8 @@ pub(crate) fn truthy(v: &str) -> bool {
 }
 
 /// Strip framework transport keys from the submitted values before any
-/// record fn sees them (GH #148): `csrf_token`, the `clear_<field>` flags and
-/// the `keep_<field>` candidates a re-rendered form carries (GH #297) are
+/// record fn sees them: `csrf_token`, the `clear_<field>` flags and
+/// the `keep_<field>` candidates a re-rendered form carries are
 /// handler keys, not writable fields — a generic `Resource` impl iterating
 /// `values` (the exact threat model in the `unknown_keys` docs) must not
 /// receive them as writes. The framework strips once here, not per-app
@@ -568,7 +566,7 @@ fn strip_transport_keys(schema: &crate::schema::Schema, values: &mut HashMap<Str
 }
 
 /// Drop any value a declared `FileUpload` received from something other than a
-/// file part (GH #277). The field's value is the uploader's answer, the stored
+/// file part. The field's value is the uploader's answer, the stored
 /// value (edit backfill), or empty (clear) — never text the client typed, which
 /// would reach the record and render as the file's link.
 fn drop_client_typed_uploads(
@@ -583,7 +581,7 @@ fn drop_client_typed_uploads(
     }
 }
 
-/// Re-use the upload a re-rendered form carried (GH #297).
+/// Re-use the upload a re-rendered form carried.
 ///
 /// A re-rendered form posts each carried upload's path back under
 /// `keep_<field>`, because the browser's file input is empty on the next
@@ -627,31 +625,25 @@ async fn restore_pending_uploads(
 
 /// App-side uniqueness check over the form's `unique()`-marked text inputs.
 ///
-/// Generic over every marked field (GH #75). Queries
-/// through the tenant-scoped query (GH #223) and returns
-/// `field_name → ["<Label> has already been taken"]` per duplicated value.
+/// Generic over every marked field. Queries through the tenant-scoped query and
+/// returns `field_name → ["<Label> has already been taken"]` per duplicated
+/// value. `current` holds the record's own hydrated values on edit: a field
+/// whose submitted value normalises to the same stored value belongs to this
+/// record and is skipped, so a typed field's re-spelled equivalent is not a
+/// duplicate.
 ///
-/// `current` holds the record's own hydrated values on edit: a field whose
-/// submitted value normalises to the same stored value belongs to this record
-/// and is skipped, so a typed field's re-spelled equivalent is not a duplicate
-/// (GH #297).
+/// Empty submits are never probed: a `unique()` field is required (see
+/// [`crate::schema::TextInput::unique`]), so `validate` has already answered
+/// `"<Label> is required"` and this check has nothing left to say.
 ///
-/// Empty submits are never probed (GH #189): a `unique()` field is required
-/// (see [`crate::schema::TextInput::unique`]), so `validate` has already
-/// answered `"<Label> is required"` and this check has nothing left to say — no
-/// query, and no `""` written past an index that admits one.
+/// The probe binds the leaf's own type: a typed field parses the submission and
+/// compares the parsed value, so a value unique as text but not as its declared
+/// type is still refused.
 ///
-/// The probe binds the leaf's own type (GH #297): a typed field parses the
-/// submission and compares the parsed value, so a value that is unique as text
-/// but not as its declared type is still refused.
-///
-/// Known limits (GH #88, upstream gap #117): races with concurrent
-/// inserts (only a driver predicate closes it); the probe runs inside the
-/// tenant-scoped query's scope, so a `unique()` field whose index carries
-/// components
-/// outside that scope is not checked exactly — a **composite** index such as
-/// `#[unique(tenant_id, email)]` on a tenant-scoped resource is, which is the
-/// arrangement that lets two tenants share a value (GH #183, GH #88); `unique`
+/// Known limits (upstream gap #117): races with concurrent inserts, and a
+/// `unique()` field whose index carries components outside the tenant-scoped
+/// query's scope is not checked exactly — a composite index such as
+/// `#[unique(tenant_id, email)]` on a tenant-scoped resource is. `unique`
 /// exists on `TextInput` only.
 async fn check_unique<R: Resource>(
     cx: &Cx,
@@ -661,7 +653,7 @@ async fn check_unique<R: Resource>(
     ex: &mut dyn toasty::Executor,
 ) -> Result<HashMap<String, Vec<String>>, topcoat::Error> {
     let mut errors: HashMap<String, Vec<String>> = HashMap::new();
-    // Groups the submission leaves out are not checked (GH #167, GH #297):
+    // Groups the submission leaves out are not checked:
     // `validate` treats an all-empty repeater group and a hidden variant group
     // as untouched through the same classification, so a stored value must not
     // flag a group the user never saw.
@@ -673,15 +665,15 @@ async fn check_unique<R: Resource>(
         let Some(submitted) = values.get(&name).map(|s| s.trim().to_string()) else {
             continue;
         };
-        // Empty values are never probed (GH #189): a `unique()` field is
+        // Empty values are never probed: a `unique` field is
         // required, so validation has already refused this submit — and `""` is
-        // still a value the framework stores (never NULL, GH #89), so a probe
+        // still a value the framework stores (never NULL), so a probe
         // would only rediscover the constraint the form just enforced.
         if submitted.is_empty() {
             continue;
         }
         // Unchanged on edit → this record's own value, not a duplicate. Both
-        // sides normalise through the leaf's own rule (GH #297): a typed
+        // sides normalise through the leaf's own rule: a typed
         // field's re-spelled equivalent — `01` for `1`, an upper-case UUID for
         // its lower-case form — is the same value, so the probe is skipped. A
         // text comparison would call it changed, probe this record's own row
@@ -695,19 +687,18 @@ async fn check_unique<R: Resource>(
         if unchanged {
             continue;
         }
-        // The leaf's own binding (GH #297): a typed field parses the
+        // The leaf's own binding: a typed field parses the
         // submission first, so the probe compares the value the record will
         // store rather than its spelling. A typed submission that does not
         // parse has no value to compare — validation refused it first.
         let Some(filter) = input.eq_filter::<R::Model>(&submitted) else {
             continue;
         };
-        // Inside the handler's tx (GH #84): the check observes the same
+        // Inside the handler's tx: the check observes the same
         // snapshot as the write that follows. A failing probe fails the
-        // submit (GH #167) — swallowing it would write past a check that
-        // never ran. The probe runs through the tenant-scoped query (GH #223),
-        // like every other loader, and reads only the record's own columns
-        // (GH #298), so it asks for no relation includes.
+        // submit — swallowing it would write past a check that
+        // never ran. The probe runs through the tenant-scoped query and reads
+        // only the record's own columns, so it passes an empty include set.
         let rows =
             crate::resource::scoped_query_with::<R>(cx, &crate::resource::IncludeNeeds::default())?
                 .filter(filter)
@@ -725,9 +716,9 @@ async fn check_unique<R: Resource>(
     Ok(errors)
 }
 
-/// Shared create/edit POST error tail (GH #134): re-render the form with inline
+/// Shared create/edit POST error tail: re-render the form with inline
 /// errors. Takes the open framework transaction by value and drops it before
-/// rendering (GH #84) — the re-rendered form reloads relationship options on
+/// rendering — the re-rendered form reloads relationship options on
 /// its own handle, which would block on the pool while the tx holds it —
 /// so the drop is enforced here rather than trusted at each call site.
 async fn rerender_invalid_form<'a, R: Resource>(
@@ -743,7 +734,7 @@ async fn rerender_invalid_form<'a, R: Resource>(
     render_form_page::<R>(cx, title, submit_label, values, errors, carried).await
 }
 
-/// Shared create/edit POST success tail (GH #134): Post/Redirect/Get with a
+/// Shared create/edit POST success tail: Post/Redirect/Get with a
 /// flash notification. The browser follows with a GET, and the flash cookie
 /// rides the error response (Topcoat flushes `Set-Cookie` on `Err` too,
 /// topcoat#408). Redirect target and notification are the caller's only
@@ -755,7 +746,7 @@ fn redirect_after_write<R: Resource>(cx: &Cx, note: &'static str) -> topcoat::Er
 
 /// The staged submission both write handlers carry into their transaction: the
 /// declared schema, the upload-staged and transport-stripped values, the
-/// validation errors so far, the upload paths a re-render keeps (GH #297), and
+/// validation errors so far, the upload paths a re-render keeps, and
 /// the stored values the edit path compares against.
 struct Submission {
     schema: crate::schema::Schema,
@@ -766,10 +757,10 @@ struct Submission {
 }
 
 /// Stage a create/edit submission: reject undeclared keys, take file values
-/// only from file parts (GH #277), store the uploads outside the transaction
-/// (GH #188), restore the paths a re-rendered form carried (GH #297), backfill
-/// an untouched file input from `advisory` (GH #90), strip the transport keys
-/// (GH #148), and validate — required and unique-free checks first, then the
+/// only from file parts, store the uploads outside the transaction
+/// restore the paths a re-rendered form carried, backfill
+/// an untouched file input from `advisory`, strip the transport keys
+/// and validate — required and unique-free checks first, then the
 /// async relationship existence check.
 ///
 /// `advisory` is the edit path's pre-transaction snapshot: it seeds the stored
@@ -790,7 +781,7 @@ async fn prepare_submission<R: Resource>(
     let current = advisory
         .map(|advisory| R::hydrate_form_values(cx, &advisory))
         .unwrap_or_default();
-    // A declared `FileUpload` takes its value only from a file part (GH #277):
+    // A declared `FileUpload` takes its value only from a file part:
     // a text part or a url-encoded pair under the same name is client-typed,
     // not an upload, and would otherwise reach the record and render as the
     // file's link.
@@ -803,10 +794,10 @@ async fn prepare_submission<R: Resource>(
         crate::upload::store_uploads(cx, &schema, &files, &mut values).await;
     // A form re-rendered after a failed submit carries the path its store just
     // answered; the uploader must still hold it, and it wins over the record's
-    // stored value below (GH #297). Run before the backfill: a restored field
+    // stored value below. Run before the backfill: a restored field
     // is non-empty, so the backfill leaves it alone.
     carried.extend(restore_pending_uploads(cx, &schema, &mut values).await);
-    // Untouched file inputs preserve the stored path (GH #90): the edit form
+    // Untouched file inputs preserve the stored path: the edit form
     // renders an empty file input (browsers never pre-fill it), so an empty
     // submit means "keep", not "clear" — without this the required check
     // rejects untouched edits and optional uploads get blanked. An explicit
@@ -824,10 +815,7 @@ async fn prepare_submission<R: Resource>(
             values.insert(name.clone(), current[name].clone());
         }
     }
-    // Transport keys never reach the record fn (GH #148): a generic impl
-    // iterating `values` must not see `csrf_token`/`clear_*`/`keep_*` as
-    // writable fields — the framework strips them once, not per-app
-    // convention.
+    // Transport keys never reach the record fn; see `strip_transport_keys`.
     strip_transport_keys(&schema, &mut values);
     let mut errors = schema.validate_async(cx, &values).await;
     // A rejected upload owns its field's error slot: "required" would restate
@@ -842,7 +830,7 @@ async fn prepare_submission<R: Resource>(
     })
 }
 
-/// The shared write tail (GH #84, GH #112, GH #229): commit the transaction,
+/// The shared write tail: commit the transaction,
 /// run the after-commit hook on the row the record fn wrote, and redirect with
 /// the success flash; a failed write or commit maps to the caller's operation
 /// toast and the opaque error.
@@ -861,7 +849,7 @@ async fn commit_write<'a, R: Resource>(
         Ok(record) => match tx.commit().await {
             Ok(()) => {
                 // Post-commit, so the effect cannot survive a rollback
-                // (GH #112); the tx is gone, so the hook may open its own
+                // the tx is gone, so the hook may open its own
                 // handle.
                 crate::resource::run_after_commit::<R>(cx, committed(record)).await;
                 Err(redirect_after_write::<R>(cx, note))
@@ -875,7 +863,7 @@ async fn commit_write<'a, R: Resource>(
         // concurrent write) surfaces as an error, not a string-matched inline
         // message: Toasty exposes no unique-violation predicate (upstream gap
         // #117), so the failure cannot be classified here. It is still not
-        // echoed raw (GH #229): the driver's text goes to the log through the
+        // echoed raw: the driver's text goes to the log through the
         // opaque mapping, and an app-authored hook error keeps its own.
         Err(error) => {
             notify_write_failure(cx, failure);
@@ -901,12 +889,10 @@ pub(crate) fn resource_create_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<
             carried,
             ..
         } = prepare_submission::<R>(cx, parts, None).await?;
-        // Framework-owned transaction (GH #84): opened only after
-        // validation — `validate_async` relationship loaders run on their
-        // own handle, which would block on the pool while the tx holds it
-        // (see `db` pool discipline). The unique check and the write then
-        // observe one snapshot and commit atomically. Dropping `tx`
-        // without commit (validation errors, policy denials) rolls back.
+        // Framework-owned transaction, opened only after validation so that
+        // `validate_async` loaders still run before it opens (see `crate::db`
+        // pool discipline). The unique check and the write observe one snapshot
+        // and commit atomically; dropping `tx` without commit rolls back.
         let mut db = db(cx);
         let mut tx = db.transaction().await.map_err(crate::db::unavailable)?;
         // App-side unique check over every `unique()`-marked input — the only
@@ -929,10 +915,10 @@ pub(crate) fn resource_create_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<
             )
             .await;
         }
-        // Typed fields write their own spelling, not the browser's (GH #192).
+        // Typed fields write their own spelling, not the browser's.
         schema.normalize_values(&mut values);
         // Attempt creation via Resource hook, inside the tx. The row it
-        // returns is what `after_commit` names for this write (GH #112) — the
+        // returns is what `after_commit` names for this write — the
         // key is the database's to generate, so the row is the only place the
         // framework can learn it.
         let written = R::create_record(cx, values.clone(), &mut tx).await;
@@ -941,7 +927,7 @@ pub(crate) fn resource_create_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<
 }
 
 /// Edit page GET — hydrates the form from the record the tenant-scoped
-/// load returned (GH #223).
+/// load returned.
 pub(crate) fn resource_edit<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
     Box::pin(HoistView::new(ThenView::new(async move {
         gate::<R>(cx)?;
@@ -967,7 +953,7 @@ pub(crate) fn resource_edit<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
 
 /// Edit page POST — validates, checks `can_view` + `can_update`, mutates via Update projection.
 ///
-/// Requires both `can_view` and `can_update` (matching GET, GH #86 deny-by-default):
+/// Requires both `can_view` and `can_update` (matching GET, deny-by-default):
 /// a view-denied but writable record must not be mutable by direct POST.
 pub(crate) fn resource_edit_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_> {
     Box::pin(HoistView::new(ThenView::new(async move {
@@ -975,13 +961,12 @@ pub(crate) fn resource_edit_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_
         let parts = parse_form_body(cx, body).await?;
         crate::csrf::verify(cx, &parts.values)?;
         let id = topcoat::router::path_param_segment(cx, "id").to_string();
-        // Advisory load on a pooled handle (GH #86): feeds hydration and the
+        // Advisory load on a pooled handle: feeds hydration and the
         // pre-validation file backfill below. The body is already parsed and
-        // CSRF-verified (GH #144), so the load never runs for a forged POST.
+        // CSRF-verified, so the load never runs for a forged POST.
         // The authoritative load + policy check happens inside the framework
-        // transaction — validation (`validate_async` relationship loaders)
-        // runs on its own handle and must never execute while the tx holds
-        // the pool (see `db` pool discipline).
+        // transaction; validation's `validate_async` loaders run before it
+        // opens (see `crate::db` pool discipline).
         let mut db0 = db(cx);
         let advisory = find_by_key_narrowed::<R>(cx, &id, &mut db0).await?;
         if !R::can_view(cx, &advisory) {
@@ -997,7 +982,7 @@ pub(crate) fn resource_edit_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_
             carried,
             current,
         } = prepare_submission::<R>(cx, parts, Some(advisory)).await?;
-        // Authoritative load inside the framework transaction (GH #84, #86):
+        // Authoritative load inside the framework transaction (#86):
         // policy is checked on this snapshot and the same record flows into
         // the write — never a silent re-load outside the checked snapshot.
         let mut db = db(cx);
@@ -1024,7 +1009,7 @@ pub(crate) fn resource_edit_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_
             )
             .await;
         }
-        // Typed fields write their own spelling, not the browser's (GH #192).
+        // Typed fields write their own spelling, not the browser's.
         schema.normalize_values(&mut values);
         let written = R::update_record(cx, record, values.clone(), &mut tx).await;
         commit_write::<R>(cx, tx, written, Committed::updated, "Updated", WRITE_UPDATE).await
@@ -1062,7 +1047,7 @@ mod tests {
                 _ex: &mut dyn toasty::Executor,
             ) -> Result<Dummy> {
                 // Nothing to write in this test; a record fn returns the row it
-                // wrote (GH #112), so it hands back the one it was given.
+                // wrote, so it hands back the one it was given.
                 Ok(record)
             }
             fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
@@ -1086,7 +1071,7 @@ mod tests {
             .build()
             .expect("panel builds");
         let url = format!("/admin/dummies/{}/edit", row.id);
-        // GET already required both; POST must match (GH #86).
+        // GET already required both; POST must match.
         let get = router
             .handle(
                 http::Request::builder()
@@ -1120,7 +1105,7 @@ mod tests {
             http::StatusCode::FORBIDDEN,
             "view-denied edit POST must not mutate"
         );
-        // Missing token is 403 even before policy (GH #99).
+        // Missing token is 403 even before policy.
         let no_token = router
             .handle(
                 http::Request::builder()
@@ -1137,7 +1122,7 @@ mod tests {
         assert_eq!(no_token.status(), http::StatusCode::FORBIDDEN);
     }
 
-    /// One boolean vocabulary for framework form flags (GH #148): `1` and
+    /// One boolean vocabulary for framework form flags: `1` and
     /// `true` are truthy everywhere (`confirm`, `clear_<field>`); `yes` was a
     /// delete-only extra and is gone.
     #[test]
@@ -1146,11 +1131,10 @@ mod tests {
         assert!(!truthy("yes") && !truthy("") && !truthy("on") && !truthy("TRUE"));
     }
 
-    /// Record fns never see framework transport keys (GH #148): the create
-    /// POST carries `csrf_token` (and, for file schemas, `clear_<field>` and the
-    /// `keep_<field>` candidate a re-rendered form adds, GH #297) — the
-    /// framework strips them before `create_record`, so a generic impl
-    /// iterating `values` cannot treat them as writable fields.
+    /// Record fns never see framework transport keys: the create POST carries
+    /// `csrf_token` (and, for file schemas, `clear_<field>` and the
+    /// `keep_<field>` candidate a re-rendered form adds), which the framework
+    /// strips before `create_record`.
     #[tokio::test]
     async fn create_record_receives_no_transport_keys() {
         use std::sync::Mutex;
@@ -1201,7 +1185,7 @@ mod tests {
                 let mut keys = values.keys().cloned().collect::<Vec<_>>();
                 keys.sort();
                 RECEIVED.lock().unwrap().push(keys);
-                // A create returns the row it wrote (GH #112).
+                // A create returns the row it wrote.
                 toasty::create!(Doc {
                     path: values.get("path").cloned().unwrap_or_default(),
                     title: values.get("title").cloned().unwrap_or_default(),
@@ -1222,7 +1206,7 @@ mod tests {
             .build()
             .expect("panel builds");
         let csrf = uuid::Uuid::new_v4().to_string();
-        // `path` is a `FileUpload`, so it arrives as a file part (GH #277);
+        // `path` is a `FileUpload`, so it arrives as a file part;
         // `clear_path`, the client-typed `keep_path` candidate and
         // `csrf_token` are the transport keys under test.
         let boundary = "----TransportBoundary";
@@ -1275,7 +1259,7 @@ mod tests {
     }
 
     /// GH #229, create half: a write that fails at the driver surfaces the
-    /// opaque mapping (GH #174), never the driver's own text — the property
+    /// opaque mapping, never the driver's own text — the property
     /// `db.rs` pins for `unavailable`, one layer up and through the real
     /// create handler.
     #[tokio::test]
@@ -1541,7 +1525,7 @@ mod tests {
         );
     }
 
-    /// Post/Redirect/Get (GH #97, #126): a mutation answers 303, the flash
+    /// Post/Redirect/Get (#126): a mutation answers 303, the flash
     /// cookie rides the error response (Topcoat flushes `Set-Cookie` on `Err`,
     /// topcoat#408), and nothing rides the `Location` query. Following the
     /// redirect consumes the cookie, so a reload does not replay the toast.
@@ -1579,7 +1563,7 @@ mod tests {
                 ex: &mut dyn toasty::Executor,
             ) -> Result<Dummy> {
                 // The row the write produced is what the handler needs back
-                // (GH #112), so a test double writes a real one.
+                // so a test double writes a real one.
                 toasty::create!(Dummy {
                     name: "created".to_string(),
                 })
@@ -1738,7 +1722,7 @@ mod tests {
             "changed-to-duplicate must be flagged, got {errors:?}"
         );
 
-        // Empty submits are never probed (GH #189): a `unique()` field is
+        // Empty submits are never probed: a `unique` field is
         // required, so validation has already refused the submit — on a field
         // whose `.optional()` was overridden, too, in either call order.
         let mut empty = HashMap::new();
@@ -1814,7 +1798,7 @@ mod tests {
 
         // Validation owns the empty case, so the probe adds nothing and no
         // query runs — this is what keeps the second empty submit off the
-        // unique index (GH #189).
+        // unique index.
         let errors =
             check_unique::<SubscriberResource>(&cx, &schema, &first, &HashMap::new(), &mut ex)
                 .await
@@ -1835,7 +1819,7 @@ mod tests {
         );
     }
 
-    /// GH #189: uniqueness comes from the lens as well as the builder
+    /// uniqueness comes from the lens as well as the builder
     /// (`#[unique]` → `lens_field_unique`), so a field that was never marked by
     /// hand is required too — the rule is a property of the field, not of the
     /// declaration style.
@@ -2041,7 +2025,7 @@ mod tests {
         }
 
         // Schema never pushed: the probe query cannot run, so the check must
-        // fail the submit instead of silently passing it (GH #167).
+        // fail the submit instead of silently passing it.
         let db = Db::builder()
             .models(toasty::models!(Probe))
             .connect("sqlite::memory:")
@@ -2104,7 +2088,7 @@ mod tests {
         );
 
         // Absent group (all-inner-empty) with a stored `""`: validation calls
-        // it clean (GH #147), so the unique check must agree (GH #167).
+        // it clean, so the unique check must agree.
         let mut absent = HashMap::new();
         absent.insert("nickname".to_string(), "".to_string());
         assert!(
@@ -2163,7 +2147,7 @@ mod tests {
         ]);
         assert!(reject_unknown_form_keys(&schema, &values).is_ok());
 
-        // Absent keys are fine (present-keys-only updates, GH #89).
+        // Absent keys are fine (present-keys-only updates).
         let values = HashMap::from([(
             crate::csrf::FIELD_NAME.to_string(),
             "some-token".to_string(),
@@ -2182,7 +2166,7 @@ mod tests {
     #[test]
     fn form_values_decode_utf8_plus_and_encoded_separators() {
         // Multi-byte UTF-8: %C3%A9 must assemble to é, not the per-byte
-        // mojibake `byte as char` would emit (GH #75 item 6).
+        // mojibake `byte as char` would emit (item 6).
         let got = form_values_from_bytes(b"name=R%C3%A9mi");
         assert_eq!(got.get("name").map(String::as_str), Some("Rémi"));
 
@@ -2200,10 +2184,10 @@ mod tests {
     }
 
     /// Build a request context carrying `content_type` and run the streaming
-    /// multipart parser over `body` (GH #90).
+    /// multipart parser over `body`.
     ///
     /// `capture` mirrors the handler's "an uploader is installed" decision
-    /// (GH #188): the value half is what most of these tests read.
+    /// the value half is what most of these tests read.
     async fn multipart_parts(
         content_type: &str,
         body: Vec<u8>,
@@ -2221,7 +2205,7 @@ mod tests {
         parse_multipart_values(&cx, Body::from(body), capture).await
     }
 
-    /// The values half of [`multipart_parts`] — the parser's pre-#188 output.
+    /// The values half of [`multipart_parts`].
     async fn multipart_values(
         content_type: &str,
         body: Vec<u8>,
@@ -2236,7 +2220,7 @@ mod tests {
     }
 
     /// The multipart drain's byte accounting 413s one byte past the cap
-    /// (GH #149 tripwire).
+    /// (tripwire).
     #[test]
     fn multipart_drain_counts_bytes_and_413s_one_past_the_cap() {
         let mut seen = 0usize;
@@ -2293,7 +2277,7 @@ mod tests {
             ) -> topcoat::Result<Dummy> {
                 // The over-cap body is refused before any write, so this test
                 // never reaches the record fn; a create returns its row
-                // (GH #112), and there is none to return.
+                // and there is none to return.
                 Err(std::io::Error::other("unreachable: the body cap 413s first").into())
             }
         }
@@ -2355,7 +2339,7 @@ mod tests {
         assert_eq!(got.get("image_path").map(String::as_str), Some(""));
     }
 
-    /// GH #188: file bytes are staged for the uploader only when one is
+    /// file bytes are staged for the uploader only when one is
     /// installed — otherwise today's drain-and-discard is what keeps a large
     /// upload off the heap for every app that never installs one.
     #[tokio::test]
@@ -2398,7 +2382,7 @@ mod tests {
         );
     }
 
-    /// A filename the framework refuses to persist sanitizes to empty (GH #149),
+    /// A filename the framework refuses to persist sanitizes to empty,
     /// and then nothing is staged: an uploader is never handed an empty name.
     #[tokio::test]
     async fn multipart_stages_nothing_for_a_rejected_filename() {
@@ -2412,7 +2396,7 @@ mod tests {
 
     #[tokio::test]
     async fn multipart_stream_sanitizes_traversal_and_filename_star() {
-        // Traversal filename lands sanitized (GH #90).
+        // Traversal filename lands sanitized.
         let body = "--B\r\nContent-Disposition: form-data; name=\"image_path\"; filename=\"../../../etc/passwd\"\r\nContent-Type: application/octet-stream\r\n\r\nBYTES\r\n--B--\r\n";
         let got = multipart_values(&multipart_type("B"), body.as_bytes().to_vec())
             .await
@@ -2482,7 +2466,7 @@ mod tests {
         assert_eq!(sanitize_filename("C:\\fakepath\\x"), "x");
         assert_eq!(sanitize_filename(""), "");
         // Names that could never be a safe persisted file are rejected to
-        // empty (GH #149): dot/dot-dot, and Windows reserved device names —
+        // empty: dot/dot-dot, and Windows reserved device names —
         // case-insensitively and with an extension too.
         assert_eq!(sanitize_filename("."), "");
         assert_eq!(sanitize_filename(".."), "");
@@ -2608,7 +2592,7 @@ mod tests {
         .to_string()
     }
 
-    /// The typed unique field the two probes below share (GH #297). The column
+    /// The typed unique field the two probes below share. The column
     /// is a `Uuid`, not a whole number: SQLite's INTEGER affinity coerces `01`
     /// to `1`, so a whole-number column lets a text probe pass.
     #[derive(Debug, toasty::Model, Clone)]
@@ -2715,7 +2699,7 @@ mod tests {
             .unwrap_or(uuid::Uuid::nil())
     }
 
-    /// GH #297: the app-side unique probe binds the leaf's declared type. The
+    /// the app-side unique probe binds the leaf's declared type. The
     /// stored token's canonical spelling is lower case, so an upper-case
     /// submission is a different string and the same `Uuid`: a text comparison
     /// finds no duplicate — and on this non-text column it cannot run at all —
@@ -2803,7 +2787,7 @@ mod tests {
         );
     }
 
-    /// GH #297: the edit exclusion normalises both sides through the leaf's own
+    /// the edit exclusion normalises both sides through the leaf's own
     /// rule, so a re-spelled equivalent of the record's own value is that value
     /// and the save succeeds; another record's value still refuses.
     #[tokio::test]
@@ -2904,7 +2888,7 @@ mod tests {
         );
     }
 
-    /// GH #297: `Uploader::holds` defaults to `false`, so a store that does not
+    /// `Uploader::holds` defaults to `false`, so a store that does not
     /// implement it cannot vouch for a carried path — a forged `keep_<field>`
     /// leaves the field empty and the create refuses.
     #[tokio::test]

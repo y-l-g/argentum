@@ -1,9 +1,9 @@
-//! The detail page (GH #187): `GET {prefix}/{slug}/{id}`, read-only.
+//! The detail page: `GET {prefix}/{slug}/{id}`, read-only.
 //!
 //! One record, rendered through [`Resource::view`] — the same `Schema` a form
 //! uses, read the other way round. It lives beside the form handlers rather
 //! than in `list.rs` because it is a record page: it loads through the same
-//! tenant-scoped query (`find_by_key`, GH #223), checks the same `can_view`
+//! tenant-scoped query (`find_by_key`), checks the same `can_view`
 //! policy,
 //! and answers the same 404 for an unknown or out-of-scope id.
 
@@ -16,7 +16,7 @@ use topcoat::{
 use super::{actions::load_viewable, gate, list_url};
 use crate::{db::db, resource::Resource};
 
-/// Detail page GET (GH #187).
+/// Detail page GET.
 ///
 /// A resource that declares no [`view`](Resource::view) has no detail page:
 /// the handler 404s rather than rendering an empty shell, which keeps
@@ -24,7 +24,7 @@ use crate::{db::db, resource::Resource};
 /// and makes the row link's absence honest.
 ///
 /// The record loads through the tenant-scoped query (`find_by_key` — the
-/// tenancy half derived by the framework, GH #223 — and the resource's own
+/// tenancy half derived by the framework, — and the resource's own
 /// soft-delete scope, ADR-0002), so an unknown id and an id outside the
 /// request's scope get one answer, as everywhere else in the panel. `can_view`
 /// on the loaded record is a 403 rather than a 404: the record exists and this
@@ -42,14 +42,14 @@ pub(crate) fn resource_view<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
         // and the form cannot disagree about what a field holds.
         let values = R::hydrate_form_values(cx, &record);
         let body = R::view(cx).render_readonly(cx, &values).await?;
-        // Relations render from the record itself (GH #187): the `Schema`
+        // Relations render from the record itself: the `Schema`
         // above carries only its string projection, and the related rows are
         // already loaded by `query`'s `include`, so this adds no query.
         let relations = R::view_relations(cx, &record);
         // The record's own label titles the page when the resource declares
-        // one (GH #241). The fallback is the page's name plus the URL's record
+        // one. The fallback is the page's name plus the URL's record
         // key, which is what the route carries (`Table::id` is the list's
-        // display key and `pk` its record key, GH #168).
+        // display key and `pk` its record key).
         let title = detail_title::<R>(cx, &record, &id);
         let back = list_url(cx, &R::slug());
         Ok(view! {
@@ -75,7 +75,7 @@ pub(crate) fn resource_view<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
     })))
 }
 
-/// The detail page's title (GH #241): the record's label when the resource
+/// The detail page's title: the record's label when the resource
 /// declares one ([`Resource::record_label`]), else the page's name and the
 /// URL's record key.
 fn detail_title<R: Resource>(cx: &Cx, record: &R::Model, id: &str) -> String {

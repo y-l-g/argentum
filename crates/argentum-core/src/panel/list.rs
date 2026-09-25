@@ -3,7 +3,7 @@
 //! One generic handler drives every resource's list; the live variant owns
 //! the interaction signals and fills the table through the `search` module's
 //! shard. Shared table helpers (`wire_table_actions`, `table_error_view`)
-//! keep the streamed page and the shard from drifting (GH #134).
+//! keep the streamed page and the shard from drifting.
 
 use topcoat::{
     Result,
@@ -18,14 +18,14 @@ use crate::resource::{
     Resource, RowActions, Table, TableChrome, TablePage, TableSignals, TableState, create_page_url,
 };
 
-/// Retry link for a failed streamed table load (GH #110).
+/// Retry link for a failed streamed table load.
 ///
 /// A malformed `?after=`/`?before=` cursor, a conflicting `after` + `before`
-/// pair (GH #155), or a cursor the query's ordering refuses (GH #294) is the
+/// pair, or a cursor the query's ordering refuses is the
 /// failure itself: retrying the identical URL loops forever, so drop
 /// pagination from the link and keep the rest of the state
 /// (search/sort/filters/grouping). Every other failure keeps pagination too
-/// (GH #98) so a transient blip retries the same evidence.
+/// so a transient blip retries the same evidence.
 pub(crate) fn retry_url_for_error(
     state: &TableState,
     error: &topcoat::Error,
@@ -38,7 +38,7 @@ pub(crate) fn retry_url_for_error(
     }
 }
 
-/// The action chrome a resource declares (GH #207): the one derivation both
+/// The action chrome a resource declares: the one derivation both
 /// [`wire_table_actions`] and the build-time declaration check
 /// ([`check_resource`](super::check_resource)) read, so the table the panel
 /// serves and the table it validated cannot disagree about whether a record
@@ -47,38 +47,32 @@ pub(crate) fn declared_chrome<R: Resource>(cx: &Cx) -> TableChrome {
     TableChrome {
         delete: R::deletable(),
         edit: R::editable(),
-        // GH #187: the View link follows the declaration, not a flag — a
+        // the View link follows the declaration, not a flag — a
         // resource with no `view` schema has no page to link to.
         view: R::viewed(cx),
     }
 }
 
 /// Delete/bulk/edit action wiring shared by the streamed list and the
-/// live-search shard (GH #134): the delete form posts to `{list url}/{id}/delete`
-/// and the bulk bar to `{list url}/bulk-delete`, both derived from the panel
+/// live-search shard: the delete form posts to `{list url}/{id}/delete` and the
+/// bulk bar to `{list url}/bulk-delete`, both derived from the panel
 /// declaration (not the request path) so the URLs are right wherever the table
 /// renders.
 ///
-/// Chrome is opt-in (GH #226) and each affordance is gated by the flag that
-/// promises it — `deletable()` for row + bulk delete, `editable()` for the
-/// per-row Edit link — because the alternative ships Edit/Delete controls whose
-/// actions always answer 403. A resource that wants them declares the flag and
-/// the matching policy predicate together; see [`Resource::deletable`].
+/// Chrome is opt-in and each affordance is gated by the flag that promises it —
+/// `deletable()` for row + bulk delete, `editable()` for the per-row Edit link —
+/// because the alternative ships controls whose actions always answer 403; see
+/// [`Resource::deletable`]. The per-*record* gate rides the same call: the
+/// table's row policy pairs each action with exactly what its route checks —
+/// `can_view` for View, `can_view` + `can_update` for Edit, `can_view` +
+/// `can_delete` for Delete and the bulk checkbox. A row the predicate refuses
+/// renders no link and a disabled checkbox, while the handler keeps its
+/// all-or-nothing check for a hand-crafted POST.
 ///
-/// The flags are the coarse gate; the per-*record* gate rides the same call
-/// (GH #235). The table's row policy is wired from the resource's predicates,
-/// each action paired with exactly what its route checks: `can_view` for View,
-/// `can_view` + `can_update` for Edit (GH #86), `can_view` + `can_delete` for
-/// Delete and the bulk checkbox (GH #168). A row the predicate refuses renders
-/// no link and a disabled checkbox, while the handler keeps its all-or-nothing
-/// check as the safety net for a hand-crafted POST.
-///
-/// `live` selects the shard variant: the swapped region is everything except
-/// the toolbar the page owns eagerly (the live host owns those slots, so swaps
-/// must never nest invocations or duplicate inputs), hence the shard forces
+/// `live` selects the shard variant: the swapped region is everything except the
+/// toolbar the page owns eagerly, hence the shard forces
 /// `.search(false).filter_bar(false)` while the streamed page keeps the declared
-/// table as-is. The filter bar joins the search toolbar there (GH #166): a
-/// control rebuilt by its own rerun loses focus.
+/// table as-is.
 pub(crate) fn wire_table_actions<R: Resource>(cx: &Cx, live: bool) -> Table<R::Model> {
     let mut table = R::table(cx);
     if live {
@@ -89,7 +83,7 @@ pub(crate) fn wire_table_actions<R: Resource>(cx: &Cx, live: bool) -> Table<R::M
     let policy_cx = cx.clone();
     table = table.row_actions(move |record| {
         // Read once: every route pairs its own predicate with `can_view`, so a
-        // record that cannot be viewed allows no action (GH #168).
+        // record that cannot be viewed allows no action.
         let view = R::can_view(&policy_cx, record);
         RowActions {
             view,
@@ -113,13 +107,13 @@ pub(crate) fn wire_table_actions<R: Resource>(cx: &Cx, live: bool) -> Table<R::M
 }
 
 /// Branded in-region table failure shared by the streamed list and the
-/// live-search shard (GH #134, GH #158): the trace line, the cursor-aware
+/// live-search shard: the trace line, the cursor-aware
 /// retry link ([`retry_url_for_error`]), and the `ErrorState` render are one
 /// copy so the three load sites cannot drift.
 ///
-/// On a live table (`signals`) the retry stays in place (GH #166) instead of
+/// On a live table (`signals`) the retry stays in place instead of
 /// navigating, and re-runs the request that failed with the query it failed
-/// with: the click increments a retry token the shard reads (GH #294), so the
+/// with: the click increments a retry token the shard reads, so the
 /// rerun does not depend on the query signals changing — a write of an
 /// unchanged value re-runs nothing. A cursor failure resets only the cursor,
 /// the same reset its `href` spells out; every other failure keeps the whole
@@ -136,7 +130,7 @@ pub(crate) fn table_error_view<'a, R: Resource>(
     let retry_url = retry_url_for_error(state, error, path);
     let action: BoxView<'a> = match signals {
         Some(signals) => {
-            // Retry re-runs the shard (GH #294). The token is the rerun's only
+            // Retry re-runs the shard. The token is the rerun's only
             // cause: the shard reads it (declaring the dependency below), and
             // every click increments it, so the write always changes even when
             // the query signals already hold the values that failed.
@@ -183,7 +177,7 @@ pub(crate) fn table_error_view<'a, R: Resource>(
 }
 
 /// The list page header: the resource's title and the Create entry point
-/// (GH #162, Filament's List page `CreateAction`), a real link so no-JS keeps
+/// (Filament's List page `CreateAction`), a real link so no-JS keeps
 /// working, gated on `can_create`. The POST handler enforces the same policy.
 fn list_header<'a, R: Resource>(cx: &'a Cx, title: &str, list_path: &str) -> BoxView<'a> {
     let title = title.to_string();
@@ -214,7 +208,7 @@ fn list_header<'a, R: Resource>(cx: &'a Cx, title: &str, list_path: &str) -> Box
 /// The list page every declared [`Resource`] gets at `{prefix}/{slug}`.
 ///
 /// One generic handler drives all resources: resolve the [`TableState`] from
-/// the URL, scope through the tenant-scoped query (GH #223),
+/// the URL, scope through the tenant-scoped query,
 /// apply the table's search/sort/pagination declarations, render through
 /// `Resource::table`. The page title is the resource's navigation label.
 ///
@@ -229,7 +223,7 @@ pub(crate) fn resource_list<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
         if !R::can_view_any(cx) {
             return Err(forbidden().into());
         }
-        // Ensure the CSRF cookie before streaming starts (GH #99): streamed
+        // Ensure the CSRF cookie before streaming starts: streamed
         // children can only read it via current_token.
         crate::csrf::ensure_token(cx);
         let state = TableState::from_cx(cx);
@@ -250,7 +244,7 @@ pub(crate) fn resource_list<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
         // before failing, topcoat's `error_boundary` is the replace-in-place
         // seam.)
         //
-        // One normalization per request (GH #224): the skeleton, the load,
+        // One normalization per request: the skeleton, the load,
         // the render and the retry link all read the state this page parsed,
         // so it normalizes here and every seam below takes the proof (GH
         // #153: the retry link must not echo an unknown `?group_by=`).
@@ -283,7 +277,7 @@ pub(crate) fn resource_list<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
     })))
 }
 
-/// Live list page for `Table::live_search` tables (GH #104, GH #151): the
+/// Live list page for `Table::live_search` tables: the
 /// page owns the interaction signals (`q`, `filters`, `sort`, `dir`,
 /// `cursor`, `group_by`, `bulk`) and renders the search toolbar eagerly above
 /// the streamed region while the `table_search` shard invocation fills the
@@ -299,14 +293,14 @@ pub(crate) fn resource_list_live<R: Resource>(
     list_path: String,
 ) -> BoxView<'_> {
     Box::pin(HoistView::new(ThenView::new(async move {
-        // One state→signal conversion (GH #224), seeded from the state the
+        // One state→signal conversion, seeded from the state the
         // page parsed — before normalizing, so an unknown `?group_by=` seeds
         // the signal as written and is dropped on the way back in.
         let signals = state.to_signals(cx);
-        // One normalization per request (GH #224): the toolbar, the hoisted
+        // One normalization per request: the toolbar, the hoisted
         // filter bar, the skeleton, the dialog and the retry link all read
         // the state this page parsed, so it normalizes here and every seam
-        // below takes the proof (GH #153: no unknown `?group_by=` in a link).
+        // below takes the proof (: no unknown `?group_by=` in a link).
         let state = table.normalize_state(&state);
         let host = if table.search_enabled() {
             Some(
@@ -317,7 +311,7 @@ pub(crate) fn resource_list_live<R: Resource>(
         } else {
             None
         };
-        // The filter bar is hoisted next to the search host (GH #166): a
+        // The filter bar is hoisted next to the search host: a
         // `<select>` change re-renders the table, and a control inside the
         // swapped region would lose focus and collapse its popup mid-change.
         let filter_bar = if table.filter_bar_enabled() {
@@ -332,13 +326,12 @@ pub(crate) fn resource_list_live<R: Resource>(
         let skeleton = table.render_skeleton_normalized(cx, &state).await?;
         // The delete confirmation dialog is not part of the swapped table
         // region: a keystroke starts a new result set and must never carry
-        // (or re-open) a dialog, so the live page renders it eagerly once
-        // (GH #151).
+        // (or re-open) a dialog, so the live page renders it eagerly once.
         let delete_dialog = table.render_delete_dialog_normalized(cx, &state).await?;
         let header = list_header::<R>(cx, &title, &list_path);
         let lazy_rows = ThenView::new(async move {
             // The retry link inside the table writes the same signals the
-            // toolbar does (GH #166), so a bad cursor recovers in place.
+            // toolbar does, so a bad cursor recovers in place.
             let retry_signals = signals.clone();
             let rendered = table.render_live_invocation(cx, &list_path, signals).await;
             match rendered {
@@ -382,18 +375,18 @@ pub(crate) fn resource_list_live<R: Resource>(
 /// [`resource_list`], kept separate so the page shell can stream before it.
 ///
 /// The load asks for the includes the table's columns declared
-/// ([`Table::include_needs`], GH #298), so a resource that narrows its loaders
+/// ([`Table::include_needs`]), so a resource that narrows its loaders
 /// loads exactly what the rendered cells read; the cursor-existence probes ask
 /// for none, because they only test whether a row exists. A resource that
 /// overrides nothing keeps its full
 /// [`query`](crate::resource::Resource::query) at both, the same safe default
 /// the export takes.
 ///
-/// Resource lists must declare a page size (GH #172): without
+/// Resource lists must declare a page size: without
 /// [`Table::paginate`] the load would be an unbounded `exec`, so the missing
 /// declaration fails loudly here — like a missing row key at render — instead
 /// of silently loading the whole table. Page-owned tables (the showcase
-/// demos, GH #154 §2) load through [`Table::load`] directly and keep the
+/// demos, §2) load through [`Table::load`] directly and keep the
 /// unbounded branch for previews.
 pub(crate) async fn load_table_page<R: Resource>(
     cx: &Cx,
@@ -423,7 +416,7 @@ mod tests {
     use super::{super::TABLE_SEARCH_PATH, *};
     use crate::panel::test_support::{Dummy, dummy_table, panel_for};
 
-    /// The minimal table-backed model the list-chrome tests share (GH #217):
+    /// The minimal table-backed model the list-chrome tests share:
     /// `list_html` was declared twice with byte-identical bodies apart from one
     /// seeded row, so a change to the panel's list route had to be made twice.
     /// The `GET /admin/dummies` body for a resource registered with one seeded
@@ -433,7 +426,7 @@ mod tests {
     }
 
     /// [`list_html`] with the named rows seeded in order, so a per-record
-    /// policy has rows to disagree about (GH #235).
+    /// policy has rows to disagree about.
     async fn list_html_with<R: Resource>(names: &[&str]) -> String {
         use http_body_util::BodyExt;
 
@@ -467,7 +460,7 @@ mod tests {
 
     #[tokio::test]
     async fn live_search_host_and_shard_dispatch() {
-        // GH #104: opt-in tables render the signal host (page bodies are
+        // opt-in tables render the signal host (page bodies are
         // hoisted, so signals work there); the slug-dispatched shard serves
         // the table and 404s unknown paths.
 
@@ -495,7 +488,7 @@ mod tests {
             fn can_view(_cx: &Cx, _record: &Dummy) -> bool {
                 true
             }
-            // GH #226: the bulk transport this test pins is opt-in chrome, so
+            // the bulk transport this test pins is opt-in chrome, so
             // the flag and the predicate it promises are declared together.
             fn can_delete(_cx: &Cx, _record: &Dummy) -> bool {
                 true
@@ -555,7 +548,7 @@ mod tests {
             html.contains("data-live-search"),
             "opt-in table must render the shard host, got {html}"
         );
-        // GH #166: the filter bar is hoisted next to the search host — it
+        // the filter bar is hoisted next to the search host — it
         // renders eagerly, above the swapped region, so a filter change cannot
         // rebuild the control the user is interacting with.
         let filter_at = html
@@ -578,7 +571,7 @@ mod tests {
         // path renders rows and the live controls bound to the caller's
         // signals.
         let sig = |n: u8, v: &str| format!(r#"{{"t":"Signal","id":"{:032x}","v":"{v}"}}"#, n);
-        /// The signal id a rendered refresh control writes (GH #234): read
+        /// The signal id a rendered refresh control writes: read
         /// from the control's own `data-topcoat-on:change` handler, which is
         /// the side that re-runs the shard. Locating it by offset from the
         /// marker instead would read whatever payload happened to follow.
@@ -611,7 +604,7 @@ mod tests {
             id
         }
         // Args are positional shard inputs: q, filters, sort, dir, the single
-        // cursor wire (GH #166), group_by, and the bulk handle the table binds
+        // cursor wire, group_by, and the bulk handle the table binds
         // its selection transport to.
         let shard_args =
             |path: &str, q: &str, filters: &str, sort: &str, dir: &str, cursor: &str| {
@@ -663,7 +656,7 @@ mod tests {
             !table_html.contains("data-filter-name="),
             "the swapped table must not duplicate the hoisted filter bar, got {table_html}"
         );
-        // GH #166: the bulk selection is signal-backed — the table binds its
+        // the bulk selection is signal-backed — the table binds its
         // transport to the selection signal, so a rerun re-renders the
         // selection instead of dropping it...
         assert!(
@@ -685,13 +678,13 @@ mod tests {
             !table_html.contains(r#"::topcoat::dep("00000000000000000000000000000007")"#),
             "the bulk signal must not become a shard dependency, got {table_html}"
         );
-        // GH #151: the table's chrome is bound to the signals, so sort/pager
+        // the table's chrome is bound to the signals, so sort/pager
         // interactions re-render in place. `href` stays the no-JS fallback.
         assert!(
             table_html.contains("data-topcoat-on:click") && table_html.contains("sort=name"),
             "live table must bind the sort link and keep its href, got {table_html}"
         );
-        // GH #234: the shard's own refresh control. A mutation changes rows the
+        // the shard's own refresh control. A mutation changes rows the
         // tracked inputs do not describe, so the client writes this token and
         // the shard re-runs. The write is only a re-run because the render read
         // the signal: the control's own write handler and the dep marker must
@@ -726,7 +719,7 @@ mod tests {
             .app_context(db)
             .build();
 
-        // Cursors are honored as sent (GH #151): the sort/filter/search
+        // Cursors are honored as sent: the sort/filter/search
         // handlers clear them in the browser, so a live cursor always belongs
         // to the current query; crafting one past a new query is the client's
         // own read-only inconsistency.
@@ -783,7 +776,7 @@ mod tests {
             table_html.contains("Bob"),
             "fresh search must match new query, got {table_html}"
         );
-        // GH #293: the shard request carries no `?sort=`, so the sort the
+        // the shard request carries no `?sort=`, so the sort the
         // table is rendered with exists only in the signals it was invoked
         // with; the sorted column must report that direction.
         let response = call_shard(
@@ -950,7 +943,7 @@ mod tests {
             !html.contains("/delete"),
             "read-only list must not render delete actions, got {html}"
         );
-        // GH #226: the read-only example must not emit an Edit link it cannot
+        // the read-only example must not emit an Edit link it cannot
         // honour — it declares neither chrome flag, so both are absent.
         assert!(
             !html.contains("/edit") && !html.contains(">Edit<"),
@@ -960,7 +953,7 @@ mod tests {
 
     #[tokio::test]
     async fn unpaginated_resource_list_fails_loud_without_loading() {
-        // GH #172: a resource list without `Table::paginate` fails loudly in
+        // a resource list without `Table::paginate` fails loudly in
         // the table region instead of unbounded-loading the whole table — the
         // seeded row must not render, and the branded error state must.
 
@@ -1023,7 +1016,7 @@ mod tests {
 
     #[tokio::test]
     async fn unpaginated_table_load_stays_unbounded() {
-        // GH #172: the guard lives on the list path (`load_table_page`), not
+        // the guard lives on the list path (`load_table_page`), not
         // the `None` branch itself — page-owned tables keep loading
         // unbounded through `Table::load` directly.
         use topcoat::context::CxTestBuilder;
@@ -1120,7 +1113,7 @@ mod tests {
 
     #[tokio::test]
     async fn non_editable_resource_hides_edit_links() {
-        // GH #162: `editable()` is the `deletable()` (GH #96) counterpart for
+        // `editable` is the `deletable` counterpart for
         // the per-row Edit link — read-only resources hide it, writable ones
         // link each row to `{list}/{id}/edit`.
 
@@ -1193,7 +1186,7 @@ mod tests {
         );
     }
 
-    /// GH #226: chrome is opt-in, so a list whose rows the policy denies renders
+    /// chrome is opt-in, so a list whose rows the policy denies renders
     /// no Edit link — the acceptance test for the flipped `editable()` default.
     ///
     /// This resource never mentions `editable()` or `deletable()`, so no prefix
@@ -1289,7 +1282,7 @@ mod tests {
         );
     }
 
-    /// GH #235: a resource that opts into chrome narrows it per record. The
+    /// a resource that opts into chrome narrows it per record. The
     /// panel wires each action from the predicate its route checks — `can_view`
     /// for View, `can_view` + `can_update` for Edit, `can_view` + `can_delete`
     /// for Delete and the bulk checkbox — so a refused row renders no link and
@@ -1434,7 +1427,7 @@ mod tests {
         tag[..end].contains("disabled")
     }
 
-    /// The GET `?q=` term is clamped like the shard's (GH #148): bounded
+    /// The GET `?q=` term is clamped like the shard's: bounded
     /// echoed state.
     #[test]
     fn from_cx_clamps_the_search_term() {
@@ -1484,7 +1477,7 @@ mod tests {
             #[auto]
             id: uuid::Uuid,
             // The conventional column, present so this gated resource has a
-            // scoping predicate the framework can derive (GH #231): a gated
+            // scoping predicate the framework can derive: a gated
             // resource without one is a `build` error now, and the gate this
             // fixture tests is only isolable on a resource that builds. Nothing
             // here exercises the filter — every asserted request is tenantless
@@ -1533,7 +1526,7 @@ mod tests {
         let router = panel_for::<GatedResource>(db)
             .build()
             .expect("panel builds");
-        // No tenant anywhere → 403, not unscoped rows (GH #87).
+        // No tenant anywhere → 403, not unscoped rows.
         let resp = router
             .handle(
                 http::Request::builder()
@@ -1564,7 +1557,7 @@ mod tests {
             .await;
         assert_eq!(resp.status(), http::StatusCode::FORBIDDEN);
         // A server-set `Tenant` request extension supplies the tenant → gate
-        // passes (create page 200). A request header does not (GH #131).
+        // passes (create page 200). A request header does not.
         let tenant = uuid::Uuid::new_v4();
         let (mut parts, ()) = http::Request::builder()
             .uri("/admin/dummies/create")
@@ -1582,7 +1575,7 @@ mod tests {
         );
     }
 
-    /// GH #223: the case no tenancy test exercised — `requires_tenant()` is
+    /// the case no tenancy test exercised — `requires_tenant()` is
     /// `true` **and** the request carries a valid tenant, but the resource
     /// overrides nothing (`query` stays the default). The framework's derived
     /// tenant filter is the only thing scoping this list, so before it existed
@@ -1649,7 +1642,7 @@ mod tests {
         let router = panel_for::<ScopedResource>(db)
             .build()
             .expect("panel builds");
-        // A server-set `Tenant` request extension supplies the tenant (GH #131).
+        // A server-set `Tenant` request extension supplies the tenant.
         let (mut parts, ()) = http::Request::builder()
             .uri("/admin/scoped")
             .body(())
@@ -1731,7 +1724,7 @@ mod tests {
             .expect("panel builds");
 
         // A tampered `?after=` cursor fails to decode inside the list load
-        // (GH #79): the load resolves the error view without pending, so
+        // the load resolves the error view without pending, so
         // suspense renders it in the initial paint with status 200 — the
         // skeleton streams only while a load pends, and a fast failure
         // answers with no streamed region and no swap payload. The branded
@@ -1776,7 +1769,7 @@ mod tests {
             !body.contains("No records yet"),
             "a failed load is not an empty state: {body}"
         );
-        // GH #110: the tampered cursor is the failure itself, so the retry link
+        // the tampered cursor is the failure itself, so the retry link
         // drops `after`/`before` instead of re-requesting the identical broken
         // URL forever. The rest of the list state still retries.
         assert!(
@@ -1788,7 +1781,7 @@ mod tests {
             "a malformed cursor must not travel into the retry link: {body}"
         );
 
-        // GH #294: a cursor that decodes but was cut from another ordering is
+        // a cursor that decodes but was cut from another ordering is
         // refused by the engine, not the decoder. It is the same retry
         // contract — drop pagination rather than loop on the identical URL.
         let stale = crate::cursor::encode(&toasty::stmt::Value::Record(
@@ -1829,9 +1822,8 @@ mod tests {
 
     #[tokio::test]
     async fn both_cursors_render_error_state_without_cursors() {
-        // GH #155: `?after=` + `?before=` together must fail loudly instead of
-        // silently preferring `after`. Both tokens below are valid — the old
-        // code rendered the `after` page with a 200 and no error.
+        // `?after=` + `?before=` together must fail loudly instead of
+        // silently preferring `after`. Both tokens below are valid.
         use topcoat::router::Body;
 
         #[derive(Debug, toasty::Model, Clone)]
@@ -1933,8 +1925,8 @@ mod tests {
 
     #[test]
     fn retry_url_for_error_drops_only_bad_cursors() {
-        // GH #110: a malformed cursor can never decode, so its retry link drops
-        // pagination; any other failure keeps the full evidence (GH #98).
+        // a malformed cursor can never decode, so its retry link drops
+        // pagination; any other failure keeps the full evidence.
         let state = TableState {
             search: Some("Ada".to_string()),
             after: Some("cur".to_string()),
