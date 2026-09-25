@@ -11,7 +11,7 @@
 //! Path=/ — the `__Host-` name requires them, GH #149) on writes and removals
 //! alike, so set and clear cannot drift. One-time semantics ride the cookie
 //! alone: Topcoat flushes `Set-Cookie` on error responses too (topcoat#408), so
-//! the mutation `Err` redirects carry no `?notification=` query fallback.
+//! the mutation `Err` redirects carry the flash in the cookie alone.
 
 use argentum_ui::{
     icons, toast, toast_close, toast_content, toast_description, toast_icon, toast_title,

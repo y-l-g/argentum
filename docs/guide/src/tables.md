@@ -25,8 +25,8 @@ Notes:
 - `.id(...)` is required. It keys rows for selection and live updates. Never use a loop index.
 - `.pk(...)` declares the record key that action URLs and bulk checkbox values carry; handlers
   resolve it as the model's typed primary key. Emit the primary key, not a display label. Declare it
-  with the row and bulk chrome (`deletable()` or `editable()`): `Panel::build` refuses a table that
-  declares chrome without one. The two projections agree in the common case
+  whenever the resource carries action chrome — `deletable()`, `editable()`, or a declared detail
+  `view()` — because `Panel::build` refuses a table that carries chrome without a record key. The two projections agree in the common case
   (`|u| u.id.to_string()`).
 - `searchable()` searches with `?q=`: an escaped substring match (`like_with_escape`, OR across
   searchable columns), so a term containing `%` or `_` matches those characters literally. `LIKE` is
