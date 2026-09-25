@@ -305,7 +305,7 @@ impl Panel {
         };
         // The page owns the live-toast signals; resolve the same handles here
         // (same helper, same request identity) and hand them to the shard
-        // (§3).
+        // (GH #154 §3).
         let LiveToast {
             status: toast_status,
             title: toast_title,
@@ -399,7 +399,7 @@ impl Panel {
                 // Toast stack — the shadcn/Sonner surface, fixed bottom-right
                 // and a polite live region so streamed swaps are announced.
                 // `live_toaster` is the page-owned
-                // in-place transport (§3); the flash cookie's toast
+                // in-place transport (GH #154 §3); the flash cookie's toast
                 // rides beside it.
                 argentum_ui::toaster(
                     (notification_view)

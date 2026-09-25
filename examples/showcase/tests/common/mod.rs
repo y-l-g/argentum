@@ -280,7 +280,7 @@ impl<'a> TestClient<'a> {
     }
 
     /// POST a JSON body to a runtime endpoint (a shard or procedure), with the
-    /// page identity header the browser runtime sends (§2 tests).
+    /// page identity header the browser runtime sends (GH #154 §2 tests).
     pub async fn post_json(&self, uri: &str, body: String, identity: &str) -> http::Response<Body> {
         let mut request = self.request(http::Method::POST, uri);
         request.headers_mut().insert(

@@ -52,8 +52,8 @@ pub(crate) async fn find_by_key<R: Resource>(
     find_by_key_in::<R>(id, ex, || crate::resource::scoped_query::<R>(cx)).await
 }
 
-/// [`find_by_key`] for a loader that reads only the record's own columns
-/// the same PK filter over
+/// [`find_by_key`] for a loader that reads only the record's own columns: the
+/// same PK filter over
 /// [`scoped_query_with`](crate::resource::scoped_query_with) with an empty
 /// [`IncludeNeeds`](crate::resource::IncludeNeeds), so the edit handler and
 /// delete do not load the relations the record's list or detail page reads. A
@@ -132,7 +132,7 @@ pub(crate) async fn load_viewable<R: Resource>(
     load_viewable_in::<R>(cx, ex, false).await
 }
 
-/// [`load_viewable`] for a loader that reads only the record's own columns
+/// [`load_viewable`] for a loader that reads only the record's own columns:
 /// the edit page hydrates its fields from the record, so it does
 /// not load the relations the record's list or detail page reads.
 pub(crate) async fn load_viewable_narrowed<R: Resource>(

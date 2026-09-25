@@ -74,10 +74,10 @@ pub(crate) fn search_handler_for<R: Resource>() -> SearchFn {
                 }
                 let table = wire_table_actions::<R>(cx, true);
                 let TableSearchArgs { path, signals } = args;
-                // One shared bound and one normalization per request (GH
-                // #148,): `TableSignals::to_state` applies
-                // the same `q` clamp and `filters` bound the GET path applies
-                // and the shard `group_by` arg is client input — an
+                // One shared bound and one normalization per request (GH #148):
+                // `TableSignals::to_state` applies the same `q` clamp and
+                // `filters` bound the GET path applies. The shard `group_by` arg
+                // is client input — an
                 // unknown value must not echo through the retry link.
                 // The render below takes the proof and does not
                 // normalize again.

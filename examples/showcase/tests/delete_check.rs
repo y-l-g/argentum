@@ -22,7 +22,7 @@ async fn delete_requires_confirmation_and_deletes() {
 
     // The list renders a Delete link that opens the confirmation dialog
     // (`?delete=<key>`) — no per-row POST form, no navigation to open. The
-    // row action is destructive (§6), matching the bulk Delete and
+    // row action is destructive (GH #154 §6), matching the bulk Delete and
     // the dialog's confirm.
     let resp = client.get("/admin/users").await;
     let html = body_string(resp).await;
@@ -95,7 +95,7 @@ async fn delete_requires_confirmation_and_deletes() {
         "Delete this record?",
         "data-dialog-close",
         // URL-driven dialogs carry the marker dialog.js mirrors `?open=`
-        // through (§3); signal-driven dialogs do not.
+        // through (GH #154 §3); signal-driven dialogs do not.
         "data-dialog-open-param=\"open\"",
         "bg-destructive",
         action.as_str(),

@@ -757,8 +757,8 @@ struct Submission {
 }
 
 /// Stage a create/edit submission: reject undeclared keys, take file values
-/// only from file parts, store the uploads outside the transaction
-/// restore the paths a re-rendered form carried, backfill
+/// only from file parts, store the uploads outside the transaction, restore the
+/// paths a re-rendered form carried, backfill
 /// an untouched file input from `advisory`, strip the transport keys
 /// and validate — required and unique-free checks first, then the
 /// async relationship existence check.

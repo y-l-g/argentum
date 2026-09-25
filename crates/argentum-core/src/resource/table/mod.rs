@@ -753,7 +753,7 @@ impl<M> Table<M> {
     /// Resolve and execute this table's query for `state` — search, filters,
     /// ordering, and cursor pagination — and return the rows.
     ///
-    /// The loader half of the live-table seam (§2): a page that owns
+    /// The loader half of the live-table seam (GH #154 §2): a page that owns
     /// its own table (the showcase demos) can hand its shard a query and this
     /// hook applies the same declaration pipeline `panel::load_table_page`
     /// applies to the tenant-scoped `Resource::query`, so a

@@ -181,7 +181,11 @@ pub trait Resource: Sized + Send + Sync + 'static {
     /// the list columns check.
     ///
     /// Returns `None` (the default) for a resource with no related records to
-    /// show, which renders nothing.
+    /// show, which renders nothing. The two lifetimes are deliberately separate:
+    /// the returned view may borrow the request context, never the record — a
+    /// view holding the record would pin the handler's local binding for as long
+    /// as the page, which does not compile, and the projections return owned
+    /// strings ([`render_relation`]), so nothing needs to.
     fn view_relations<'a>(
         _cx: &'a Cx,
         _record: &Self::Model,
@@ -288,8 +292,11 @@ pub trait Resource: Sized + Send + Sync + 'static {
     /// [`can_view`](Self::can_view) reads, because the loaders run that
     /// predicate over the loaded rows; the tenant half is the framework's to AND
     /// on. The list and the export ask for their table's
-    /// [`include_needs`](Table::include_needs); the detail page, edit, delete,
-    /// bulk delete and the option and pagination probes ask for none.
+    /// [`include_needs`](Table::include_needs). The detail page reads
+    /// [`view_relations`](Self::view_relations), an opaque hook with no
+    /// declaration, so it loads [`Self::query`] unchanged; edit, delete, bulk
+    /// delete and the option and pagination probes read no relation, so they ask
+    /// for an empty set.
     fn query_with(cx: &Cx, _needs: &IncludeNeeds) -> toasty::stmt::Query<List<Self::Model>> {
         Self::query(cx)
     }
@@ -308,10 +315,19 @@ pub trait Resource: Sized + Send + Sync + 'static {
     /// **The default delegates to [`Self::query_with`]**, which returns
     /// [`Self::query`] unchanged unless the resource overrides it. Over-fetching
     /// costs a join; dropping a relation a column reads breaks the render, so the
-    /// default over-fetches. An override must keep the non-tenant scope of
-    /// [`Self::query`] and include whatever [`can_view`](Self::can_view) reads:
-    /// the visibility scan calls it on every row of both passes before any cell
-    /// is written, and reading an un-included relation panics in `Deferred::get`.
+    /// default over-fetches.
+    ///
+    /// # What an override must keep
+    ///
+    /// - **The non-tenant scope of [`Self::query`]** (soft deletes, row-level visibility): the
+    ///   export is a reader like any other, and an override that drops that half exports other
+    ///   rows. The tenant half is the framework's.
+    /// - **Whatever the policy path reads.** The visibility scan calls
+    ///   [`Self::can_view`](Self::can_view) on every row of both passes before any cell is written,
+    ///   so a `can_view` that reads a relation needs it included even though no column declared it.
+    /// - **Every name a column declared.** A declared name with no matching include renders an
+    ///   unloaded relation, which the column's `is_unloaded` guard (ADR-0011) reports in test
+    ///   builds instead of a silent `"-"`.
     fn export_query(cx: &Cx, needs: &IncludeNeeds) -> toasty::stmt::Query<List<Self::Model>> {
         Self::query_with(cx, needs)
     }
@@ -513,7 +529,9 @@ pub trait Resource: Sized + Send + Sync + 'static {
     ///
     /// [`Committed`] names the mutation and the rows it wrote: the committed row
     /// a create or update returned, the rows a delete or bulk delete removed
-    /// (one call with every row). It is never called when nothing committed. A
+    /// (one call with every row). It is never called when nothing committed: a
+    /// validation error, a policy denial, a failed record fn, or a failed commit
+    /// all leave the hook untouched, so a rollback cannot produce the effect. A
     /// hook that returns `Err` is logged and ignored — the write is committed,
     /// and retries are the app's to build; a panic surfaces as Topcoat's
     /// panic-isolated 500.
@@ -573,7 +591,9 @@ pub trait Resource: Sized + Send + Sync + 'static {
 ///   leak [`Resource::requires_tenant`] exists to prevent.
 ///
 /// App code that loads rows itself must call this — on a gated resource
-/// [`Resource::query`] is the *tenant-unscoped* base by design.
+/// [`Resource::query`] is the *tenant-unscoped* base by design, so calling it
+/// directly is safe only for rows whose tenant membership is already settled (a
+/// write by id against a record the framework loaded and authorized).
 pub fn scoped_query<R: Resource>(cx: &Cx) -> Result<Query<List<R::Model>>> {
     apply_tenant_scope::<R>(cx, R::query(cx))
 }

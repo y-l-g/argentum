@@ -70,9 +70,11 @@ pub(crate) fn declared_chrome<R: Resource>(cx: &Cx) -> TableChrome {
 /// all-or-nothing check for a hand-crafted POST.
 ///
 /// `live` selects the shard variant: the swapped region is everything except the
-/// toolbar the page owns eagerly, hence the shard forces
+/// toolbar the page owns eagerly (the live host owns those slots, so a swap must
+/// never nest invocations or duplicate inputs), hence the shard forces
 /// `.search(false).filter_bar(false)` while the streamed page keeps the declared
-/// table as-is.
+/// table as-is. The filter bar joins the search toolbar there: a control rebuilt
+/// by its own rerun loses focus.
 pub(crate) fn wire_table_actions<R: Resource>(cx: &Cx, live: bool) -> Table<R::Model> {
     let mut table = R::table(cx);
     if live {
@@ -386,7 +388,7 @@ pub(crate) fn resource_list_live<R: Resource>(
 /// [`Table::paginate`] the load would be an unbounded `exec`, so the missing
 /// declaration fails loudly here — like a missing row key at render — instead
 /// of silently loading the whole table. Page-owned tables (the showcase
-/// demos, §2) load through [`Table::load`] directly and keep the
+/// demos, GH #154 §2) load through [`Table::load`] directly and keep the
 /// unbounded branch for previews.
 pub(crate) async fn load_table_page<R: Resource>(
     cx: &Cx,

@@ -15,12 +15,31 @@ use syn::DeriveInput;
 ///
 /// ```ignore
 /// #[derive(Debug, Clone, toasty::Embed, argentum_core::EmbeddedForm)]
-/// pub struct Seo { pub title: String, pub description: String }
+/// pub enum Publication {
+///     #[column(variant = 1)]
+///     Scheduled {
+///         #[shared(timestamp)]
+///         #[form(label = "Publication timestamp")]
+///         scheduled_at: String,
+///         scheduled_for: String,
+///     },
+///     #[column(variant = 2)]
+///     Published { #[shared(timestamp)] published_at: String, canonical_url: String },
+/// }
 ///
-/// Section::new("SEO").schema(Seo::form(cx, Post::fields().seo()));
-/// write_embedded(cx, Post::fields().seo(), &record.seo, &mut values);
-/// let seo = read_embedded(cx, Post::fields().seo(), &values);
+/// // form declaration — no field bindings written by hand
+/// Section::new("Publication").schema(Publication::form(cx, Post::fields().publication()))
 /// ```
+///
+/// # How a field is classified
+///
+/// A type this panel can spell — `String`, the integer family, `bool`,
+/// `f32`/`f64`, `Uuid`, `jiff::Timestamp` — is a **leaf**: one column, read and
+/// written as text (typed leaves parse through `TypedValue`). Any other type is
+/// another **embedded value**, delegated to that type's own `EmbeddedForm`. A
+/// relation, an `Option<T>`, a `Vec<T>` and a `#[document]` inside a value do
+/// not compile, or are refused at the schema (the `argentum-core`
+/// `schema::embedded` module docs list what is not covered).
 ///
 /// # Which variant an enum reads
 ///
@@ -35,8 +54,7 @@ use syn::DeriveInput;
 /// - `#[form(textarea)]` / `#[form(textarea, rows = 3)]` — a multi-line control for a `String`
 ///   leaf, and its height.
 ///
-/// Anything else in `#[form(..)]` is a compile error. See the `argentum-core`
-/// module docs for how a field is classified and what is not covered.
+/// Anything else in `#[form(..)]` is a compile error.
 #[proc_macro_derive(EmbeddedForm, attributes(form))]
 pub fn embedded_form(input: TokenStream) -> TokenStream {
     let input = syn::parse_macro_input!(input as DeriveInput);

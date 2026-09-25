@@ -39,8 +39,10 @@
 //!
 //! Every leaf under an embedded step is **not required** by default: the
 //! resolver reports `nullable=true` by binding policy, since only the matching
-//! variant writes a variant payload column. The flattened column of a required
-//! embedded struct is still `NOT NULL`.
+//! variant writes a variant payload column. That is the binding default, not a
+//! storage fact — the flattened column of a required embedded struct is
+//! `NOT NULL`. A leaf that must be present says so on the field's type, or the
+//! app marks the control in its own layout.
 
 use std::collections::HashMap;
 

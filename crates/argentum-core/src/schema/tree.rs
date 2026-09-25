@@ -74,7 +74,7 @@ impl Node {
     }
 }
 
-/// Where a schema render reads field values and errors from (§4), and
+/// Where a schema render reads field values and errors from (GH #154 §4), and
 /// which side of the record the render is for.
 ///
 /// Plain maps, no bindings: `Mode::Form` is the create/edit path, and

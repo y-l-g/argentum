@@ -82,8 +82,8 @@ function install() {
 
 if (typeof document !== 'undefined') install();
 
-// Exposed for the Node unit test (`media.test.js`); see `bulk.js` for the
-// guard.
+// Exposed for the Node unit test (`media.test.js`), guarded so the browser
+// branch stays inert; see ADR-0014 for the no-build stance.
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { showPreview, clearPreview };
 }

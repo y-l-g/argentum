@@ -720,11 +720,17 @@ impl<M> Table<M> {
     ///
     /// The delete URL's shared parameters are encoded once for the whole page,
     /// because the filter transport is the expensive half and rebuilding it per
-    /// row is work a client can inflate with one oversized `?filters=`. Page-local
-    /// grouping is display-only: `group_by` is a bare key closure with no lens,
-    /// so no `ORDER BY` is derivable and a group cannot span pages; the shim
-    /// reorders this page's rows by label. Row keys must be injective within a
-    /// page, or duplicates corrupt keyed diffs and bulk selection.
+    /// row is work a client can inflate with one oversized `?filters=`.
+    ///
+    /// Page-local grouping is display-only: `group_by` is a bare key closure with
+    /// no lens, so no `ORDER BY` is derivable and a group cannot span pages. The
+    /// shim therefore reorders *this page's* rows by the group label — a stable
+    /// sort, so rows keep the query's order inside their group — and hangs each
+    /// group's header off its first row. The query, its cursors and the export
+    /// keep the declared ordering.
+    ///
+    /// Row keys must be injective within a page: duplicates corrupt keyed diffs
+    /// and bulk selection.
     fn row_views(
         &self,
         state: &NormalizedState,
@@ -832,7 +838,7 @@ impl<M> Table<M> {
     /// the export refuses with 400 (see `resource_export`).
     ///
     /// No false tail: when other filters still apply, "unfiltered" would be a
-    /// lie (— a malformed segment can ride alongside valid ones).
+    /// lie — a malformed segment can ride alongside valid ones.
     /// Conversely an invalid-only request applies nothing, so "other filter(s)"
     /// would be the lie — the consequence keys off applied
     /// predicates, not raw entries.
@@ -890,14 +896,15 @@ impl<M> Table<M> {
     /// `data-dialog-close` button on both paths, so dismissal never navigates.
     ///
     /// [`Self::render_with_state`] renders it with the table; the live-search
-    /// page calls this separately because the shard swaps the table per
-    /// keystroke and must not carry dialog state. Escape and backdrop dismissal
-    /// need `assets/dialog.js` (`argentum_ui::DIALOG_JS`), emitted by
-    /// `Panel::render_document` on every document with shell assets (ADR-0014).
-    /// cancel hook and the trigger wiring need `assets/dialog.js`
-    /// (`argentum_ui::DIALOG_JS`), emitted by `Panel::render_document` on every
-    /// document with shell assets (see ADR-0014). The dialog primitives are
-    /// vendored under the ADR-0007 sync guard so they carry no note themselves.
+    /// page (`panel::resource_list_live`) calls this separately because the
+    /// shard swaps the table per keystroke and must not carry dialog state.
+    ///
+    /// Escape/backdrop dismissal, the `data-dialog-close` cancel hook and the
+    /// trigger wiring need `assets/dialog.js` (`argentum_ui::DIALOG_JS`),
+    /// emitted by `Panel::render_document` on every document with shell assets
+    /// (ADR-0014). Without the document scripts Cancel is inert and Delete still
+    /// POSTs; the dialog primitives are vendored under the ADR-0007 sync guard,
+    /// so they carry no note themselves.
     pub async fn render_delete_dialog<'a>(
         &self,
         cx: &'a Cx,
@@ -926,7 +933,7 @@ impl<M> Table<M> {
         let action = key.map(|key| delete_action_url(prefix, key));
         // Only the URL-driven dialog mirrors its dismissal into the URL: a
         // dialog a row control opens client-side has no `?delete=` to close,
-        // so dismissing it leaves the URL alone (§3).
+        // so dismissing it leaves the URL alone (GH #154 §3).
         let open_param = server_open.then_some("open");
         let dialog_id = Self::delete_dialog_dom_id(prefix);
         let title_id = format!("{dialog_id}-title");
@@ -1175,7 +1182,7 @@ impl<M> Table<M> {
     /// term is a new result set). The shard re-renders in place.
     ///
     /// Public so a page owning its own signals can render the same toolbar
-    /// above its own shard (the showcase demos, §2); resource lists
+    /// above its own shard (the showcase demos, GH #154 §2); resource lists
     /// reach it through `panel::resource_list_live`.
     pub async fn render_live_search_bar<'a>(
         &self,
@@ -2306,7 +2313,7 @@ mod tests {
             .await
             .unwrap()
             .render(&cx);
-        // The fixed layout is the table's own contract, not paint:'s
+        // The fixed layout is the table's own contract, not paint: the
         // Done-when names it as the observable and a class is its only
         // transport, so this is the one class literal asserted here. The paint
         // classes stay the showcase's business (#136).

@@ -20,7 +20,7 @@ use topcoat::context::Cx;
 
 /// Spec alias — ADR-0001 typed lens. Currently uses `toasty::stmt::Path` directly;
 /// a richer `FieldLens` trait will replace this alias if Toasty exposes the
-/// metadata walk directly (see, upstream issue #183).
+/// metadata walk directly (see upstream issue #183).
 pub type FieldLens<M, T> = toasty::stmt::Path<M, T>;
 
 /// The storage column an embedded path flattens to, plus the metadata field
