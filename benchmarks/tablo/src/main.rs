@@ -402,13 +402,13 @@ mod tests {
 }
 
 async fn run_bench(iterations: usize) {
-    println!("=== Tablo Phase-2 bench (GH #171, UNGATED): real list path ===");
+    println!("=== Tablo bench (GH #171, UNGATED): real list path ===");
     println!("workload: 50 rows, 2 includes (author + comments), tenancy set, policy enforced");
     println!(
         "path: TableState::from_cx -> Table::load (scoped_query + .paginate(50)) -> render_with_state -> HTML"
     );
     println!(
-        "budget: <40ms p50 (Phase 2, 50 rows, 2 includes) — reference only; UNGATED while GH #171 collects numbers, gating follows in a follow-up"
+        "budget: <40ms p50 (50 rows, 2 includes) — reference only; UNGATED while GH #171 collects numbers, gating follows in a follow-up"
     );
 
     // SQLite leg — always runs.

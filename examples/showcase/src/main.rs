@@ -1,6 +1,6 @@
 use showcase::{
     app::router,
-    models::{seed, seed_phase2},
+    models::{seed, seed_content},
 };
 use toasty::Db;
 
@@ -22,7 +22,7 @@ async fn main() {
 
     db.push_schema().await.expect("push schema");
     seed(&mut db).await.expect("seed users");
-    seed_phase2(&mut db).await.expect("seed phase2");
+    seed_content(&mut db).await.expect("seed content");
 
     let router = router(db);
 

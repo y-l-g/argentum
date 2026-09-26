@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tablo Phase 2 bench — oha + in-process honest bench for the Tablo list
+# Tablo bench — oha + in-process honest bench for the Tablo list
 # (50 rows, 2 includes, real list path with tenancy + policy, GH #171).
 # Baselines (axum-maud, leptos) are compile-only smoke, not comparable
 # (GH #159): they render stubs, so no cross-framework oha matrix exists.
@@ -169,7 +169,7 @@ done
     cat "$RESULTS_DIR"/tablo_bench.txt 2>/dev/null || echo "no bench.txt"
   fi
   echo ""
-  echo "Budget: Phase 2 Tablo list (50 rows, 2 includes) <40ms p50 — reference only, UNGATED per GH #171 (numbers first, gate follows). Baselines are smoke-only, not comparable (GH #159)."
+  echo "Budget: Tablo list (50 rows, 2 includes) <40ms p50 — reference only, UNGATED per GH #171 (numbers first, gate follows). Baselines are smoke-only, not comparable (GH #159)."
 } | tee "$RESULTS_DIR/results.md"
 
 echo "bench.sh: done -> $RESULTS_DIR/results.md"
