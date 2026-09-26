@@ -35,7 +35,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-e3ed18f2.js";
+            window.path_to_searchindex_js = "searchindex-74b8eb73.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-da1679ae.js"></script>
@@ -225,6 +225,12 @@ field columns less than 40% of the table. <code>TextColumn::width(ColumnWidth::.
 explicit <code>Rem</code> does not shrink with the table, so a table narrower than its lengths leaves the field
 columns no space at all. The width is emitted as an inline <code>style</code> — Tailwind generates only the class
 literals it finds in source — and a value wider than its column truncates with an ellipsis.</li>
+<li>A <code>w-full</code> table never exceeds its container on its own, so on a narrow viewport the percentages
+would crush the cells instead of scrolling: the table carries a <code>min-width</code> summing its declared
+widths (shares as emitted, lengths verbatim, one readability floor per wide column, a content floor on
+the actions column), and the wrapper’s <code>overflow-x-auto</code> scrolls once the table is wider than its
+container. The actions column pairs its share with that floor on its header and cells, so the row
+buttons fit instead of spilling past the table.</li>
 <li>Computed columns render only. They do not affect search or sort.</li>
 </ul>
 <p>Filters:</p>
@@ -267,7 +273,9 @@ The plain links and forms stay as the no-JS fallback.</p>
 chrome is opt-in, and the flag pairs with <code>can_view</code> + <code>can_delete</code>). The column then follows those
 predicates per record (GH #235): a row either one refuses renders its checkbox <code>disabled</code>
 with the reason as its accessible label, so select-all never submits a key the handler would refuse
-the whole batch over. Bulk delete asks first: the bulk bar’s
+the whole batch over. A row refused every action keeps its actions cell with a <code>Locked</code> badge in place
+of the links — carrying the same reason as its tooltip — so the row reads as locked rather than as
+missing chrome, and the row keeps a cell per header. Bulk delete asks first: the bulk bar’s
 button opens an alert dialog that names how many rows are selected, and its confirm control is the
 only thing carrying the <code>confirm=1</code> the handler requires — a POST without that marker is a 400, so
 the safeguard does not depend on the script that opens the dialog (GH #184).</p>
