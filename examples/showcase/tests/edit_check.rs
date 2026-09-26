@@ -2,8 +2,8 @@ use http::header::LOCATION;
 use showcase::{app::router_for_tests as router, models::User};
 
 use crate::common::{
-    assert_hydrate_keys_are_form_fields, body_string, demo_client, multipart_body,
-    response_cookies, seeded_db, set_cookie_header,
+    assert_hydrate_keys_are_form_fields, body_string, demo_client, response_cookies, seeded_db,
+    set_cookie_header,
 };
 
 #[tokio::test]
@@ -304,7 +304,7 @@ async fn post_body_renders_as_a_textarea() {
 /// the app schema rather than the model alone.
 #[tokio::test]
 async fn post_edit_binds_and_saves_embedded_fields() {
-    use showcase::models::{Media, Post};
+    use showcase::models::Post;
 
     let db = crate::common::full_db().await;
     let router = router(db.clone());
@@ -331,10 +331,10 @@ async fn post_edit_binds_and_saves_embedded_fields() {
         html.contains(&format!("value=\"{}\"", post.seo.title)),
         "the stored embedded value must hydrate, got {html}"
     );
-    // Three levels deep, inside an enum variant.
+    // The nested-embed demo is the `Seo` struct only: no deeper nesting.
     assert!(
-        html.contains("name=\"media_poster_credit_author\""),
-        "a struct nested in a variant must flatten to its column, got {html}"
+        !html.contains("media_") && !html.contains("Attachment"),
+        "no nested-embed demo beyond Seo may render, got {html}"
     );
 
     // Save with new embedded values; the flattened columns must reach the
@@ -345,11 +345,11 @@ async fn post_edit_binds_and_saves_embedded_fields() {
         .post_form(
             &format!("/admin/posts/{}/edit", post.id),
             format!(
-                "title=Hello+Toasty&author_id={}&image_path={}&tags=rust&body=Body&\
+                "title=Hello+Toasty&author_id={}&cover_id=&tags=rust&body=Body&\
                  status=published&featured=true&seo_title=Edited+SEO&seo_description=Desc&\
-                 media_url=/uploads/new.jpg&media_alt=Alt&media_video_url=&\
-                 media_poster_url=&media_poster_credit_author=&csrf_token={csrf}",
-                post.author_id, post.image_path
+                 publication=2&publication_timestamp=2026-01-01T00%3A00&\
+                 publication_canonical_url=https%3A%2F%2Fexample.com%2Fnew&csrf_token={csrf}",
+                post.author_id
             ),
         )
         .await;
@@ -371,16 +371,6 @@ async fn post_edit_binds_and_saves_embedded_fields() {
         "the embedded struct's leaf must persist"
     );
     assert_eq!(saved.seo.description, "Desc");
-    match saved.media {
-        Media::Image { url, alt } => {
-            assert_eq!(url, "/uploads/new.jpg", "the variant payload must persist");
-            assert_eq!(alt, "Alt");
-        }
-        // The submit carries no `media` discriminant (it predates), so
-        // the codec falls back to the first variant — Image. Emptiness is not
-        // consulted; a discriminant would decide.
-        other => panic!("a submit with no discriminant reads as the first variant, got {other:?}"),
-    }
 }
 
 /// GH #191: the edit form carries the **stored variant**, and a submit that
@@ -392,7 +382,7 @@ async fn post_edit_binds_and_saves_embedded_fields() {
 /// the user meant.
 #[tokio::test]
 async fn post_edit_switches_the_publication_variant_explicitly() {
-    use showcase::models::{Media, Post, Publication};
+    use showcase::models::{Post, Publication};
 
     let db = crate::common::full_db().await;
     let router = router(db.clone());
@@ -437,26 +427,27 @@ async fn post_edit_switches_the_publication_variant_explicitly() {
             "the option must read as the variant name {name}, got {publication_select}"
         );
     }
+    // The timestamp control is a `datetime-local` input reading UTC.
+    assert!(
+        html.contains("type=\"datetime-local\""),
+        "the publication timestamp must render datetime-local, got {html}"
+    );
 
     // Submit Archived while leaving the Published payload filled in: the
     // discriminant decides, so the post is Archived and the stale canonical URL
-    // is not what the row carries.
+    // is not what the row carries. Timestamps post as ISO strings.
     let csrf = uuid::Uuid::new_v4().to_string();
     let resp = client
         .csrf(&csrf)
         .post_form(
             &format!("/admin/posts/{}/edit", post.id),
             format!(
-                "title=Hello+Toasty&author_id={}&image_path={}&tags=rust&body=Body&\
+                "title=Hello+Toasty&author_id={}&cover_id=&tags=rust&body=Body&\
                  status=published&featured=true&seo_title=Edited+SEO&seo_description=Desc&\
-                 media=2&media_url=&media_alt=&media_video_url=hello-toasty.mp4&\
-                 media_poster_url=p.jpg&media_poster_credit_author=Ada&\
-                 media_poster_credit_licence=CC-BY&\
-                 post_stats_word_count=10&post_stats_read_minutes=1&\
-                 publication=3&publication_timestamp=2026-01-01T00:00:00Z&\
+                 publication=3&publication_timestamp=2026-01-01T00%3A00%3A00Z&\
                  publication_canonical_url=https%3A%2F%2Fexample.com%2Fstale&\
                  publication_reason=superseded&csrf_token={csrf}",
-                post.author_id, post.image_path
+                post.author_id
             ),
         )
         .await;
@@ -478,7 +469,10 @@ async fn post_edit_switches_the_publication_variant_explicitly() {
             archived_at,
             reason,
         } => {
-            assert_eq!(archived_at, "2026-01-01T00:00:00Z");
+            assert_eq!(
+                archived_at,
+                "2026-01-01T00:00:00Z".parse::<jiff::Timestamp>().unwrap()
+            );
             assert_eq!(reason, "superseded");
         }
         other => panic!(
@@ -486,11 +480,6 @@ async fn post_edit_switches_the_publication_variant_explicitly() {
              (a filled canonical_url is not a vote)"
         ),
     }
-    // The media discriminant round-trips unchanged: still the stored Video.
-    assert!(
-        matches!(saved.media, Media::Video { .. }),
-        "an unchanged variant stays put"
-    );
 }
 
 /// The **create** form carries no discriminant (there is no stored variant to
@@ -523,41 +512,18 @@ async fn post_create_keeps_the_variant_its_payload_names() {
     );
 
     let csrf = uuid::Uuid::new_v4().to_string();
-    // `image_path` is a required `FileUpload`, so the create carries a file
-    // part; this router installs no uploader, so the sanitized
-    // basename is what the record stores.
     let author_id = author.id.to_string();
-    let boundary = "----EditBoundary";
-    let body = multipart_body(
-        boundary,
-        &[
-            ("title", "Created Published"),
-            ("author_id", &author_id),
-            ("tags", ""),
-            ("body", "Body"),
-            ("status", "published"),
-            ("featured", "false"),
-            ("seo_title", "S"),
-            ("seo_description", "D"),
-            ("media", "1"),
-            ("media_url", "/i.jpg"),
-            ("media_alt", "alt"),
-            ("media_video_url", ""),
-            ("media_poster_url", ""),
-            ("media_poster_credit_author", ""),
-            ("media_poster_credit_licence", ""),
-            ("post_stats_word_count", "1"),
-            ("post_stats_read_minutes", "1"),
-            ("publication", ""),
-            ("publication_timestamp", "2026-03-01T00:00:00Z"),
-            ("publication_canonical_url", "https://example.com/new"),
-            ("csrf_token", &csrf),
-        ],
-        &[("image_path", "created.jpg", "FAKEBYTES")],
-    );
     let resp = client
         .csrf(&csrf)
-        .post_multipart("/admin/posts/create", boundary, body)
+        .post_form(
+            "/admin/posts/create",
+            format!(
+                "title=Created+Published&author_id={author_id}&tags=&body=Body&\
+                 status=published&featured=false&cover_id=&seo_title=S&seo_description=D&\
+                 publication=&publication_timestamp=2026-03-01T00%3A00%3A00Z&\
+                 publication_canonical_url=https%3A%2F%2Fexample.com%2Fnew&csrf_token={csrf}"
+            ),
+        )
         .await;
     assert!(
         resp.status().is_redirection(),
@@ -575,21 +541,29 @@ async fn post_create_keeps_the_variant_its_payload_names() {
     assert_eq!(
         created.publication,
         Publication::Published {
-            published_at: "2026-03-01T00:00:00Z".to_string(),
+            published_at: "2026-03-01T00:00:00Z".parse::<jiff::Timestamp>().unwrap(),
             canonical_url: "https://example.com/new".to_string(),
         },
         "the submitted payload names the variant when no discriminant is posted"
     );
 }
 
-/// The typed leaves round-trip and refuse a bad number inline.
-///
-/// `post_stats_word_count` / `post_stats_read_minutes` are `i64` columns bound
-/// through `TextInput::typed`, so `word_count=twelve` is refused inline rather
-/// than stored as a zero.
+/// Word counts are computed, not stored: an empty body reads zero words and
+/// zero minutes, and the detail page shows the reading stats.
 #[tokio::test]
-async fn post_edit_round_trips_typed_leaves_and_refuses_a_bad_number() {
-    use showcase::models::Post;
+async fn post_detail_shows_computed_word_counts() {
+    use showcase::{
+        app::{read_minutes, word_count},
+        models::Post,
+    };
+
+    assert_eq!(word_count(""), 0);
+    assert_eq!(read_minutes(0), 0);
+    assert_eq!(word_count("hello"), 1);
+    assert_eq!(read_minutes(1), 1);
+    assert_eq!(word_count(&"word ".repeat(200)), 200);
+    assert_eq!(read_minutes(200), 1);
+    assert_eq!(read_minutes(201), 2);
 
     let db = crate::common::full_db().await;
     let router = router(db.clone());
@@ -601,70 +575,101 @@ async fn post_edit_round_trips_typed_leaves_and_refuses_a_bad_number() {
         .await
         .unwrap()
         .expect("the seeded post");
+    let words = word_count(&post.body);
 
-    // Hydration: the integer reaches the control through its own `Display`.
-    let html = body_string(client.get(&format!("/admin/posts/{}/edit", post.id)).await).await;
+    let html = body_string(client.get(&format!("/admin/posts/{}", post.id)).await).await;
     assert!(
-        html.contains("name=\"post_stats_word_count\"")
-            && html.contains(&format!("value=\"{}\"", post.post_stats.word_count)),
+        html.contains(&format!("{words} words")),
+        "the detail page must show the computed word count, got {html}"
+    );
+    assert!(
+        html.contains("min read"),
+        "the detail page must show the reading time, got {html}"
+    );
+    // Detail-only: the create and edit forms carry no word-count fields.
+    let create = body_string(client.get("/admin/posts/create").await).await;
+    assert!(
+        !create.contains("word_count") && !create.contains("read_minutes"),
+        "counts are computed, so the form carries no fields for them: {create}"
+    );
+}
+
+/// The stored-integer demo is `User.age`: optional, zero or more, shown in the
+/// user detail.
+#[tokio::test]
+async fn user_age_round_trips_and_refuses_a_negative() {
+    use showcase::models::User;
+
+    let db = crate::common::seeded_db().await;
+    let router = router(db.clone());
+    let client = demo_client(&router, &db).await;
+    let mut db_q = db.clone();
+    let user = User::all().exec(&mut db_q).await.unwrap().remove(0);
+
+    // The form carries the typed control, hydrated with the stored value.
+    let html = body_string(client.get(&format!("/admin/users/{}/edit", user.id)).await).await;
+    assert!(
+        html.contains("name=\"age\"") && html.contains(&format!("value=\"{}\"", user.age)),
         "the typed integer must hydrate its control, got {html}"
+    );
+    // And the detail page shows it.
+    let detail = body_string(client.get(&format!("/admin/users/{}", user.id)).await).await;
+    assert!(
+        detail.contains(&user.age.to_string()),
+        "the user detail must show the age, got {detail}"
     );
 
     let csrf = uuid::Uuid::new_v4().to_string();
-    let body = |word_count: &str| {
-        format!(
-            "title=Hello+Toasty&author_id={}&image_path={}&tags=rust&body=Body&\
-             status=published&featured=true&seo_title=Edited+SEO&seo_description=Desc&\
-             media_url=/uploads/new.jpg&media_alt=Alt&media_video_url=&\
-             media_poster_url=&media_poster_credit_author=&\
-             post_stats_word_count={word_count}&post_stats_read_minutes=9&csrf_token={csrf}",
-            post.author_id, post.image_path
-        )
-    };
-
-    // A number the column cannot hold is a field error, not a silent zero.
-    let resp = client
-        .csrf(&csrf)
-        .post_form(&format!("/admin/posts/{}/edit", post.id), body("twelve"))
-        .await;
-    assert!(
-        resp.status().is_success(),
-        "a bad number re-renders the form, got {}",
-        resp.status()
-    );
-    // The refusal's wording is `typed_leaves`'s; this pins the HTTP wiring: the
-    // route re-renders the form and writes nothing.
-    let after_bad = Post::filter(Post::fields().id().eq(post.id))
+    // A negative age is refused and writes nothing; a valid one round-trips.
+    let before = User::filter(User::fields().id().eq(user.id))
         .first()
         .exec(&mut db_q)
         .await
         .unwrap()
-        .expect("the post still exists");
-    assert_eq!(
-        after_bad.post_stats.word_count, post.post_stats.word_count,
-        "a rejected edit writes nothing"
-    );
-
-    // A number it can hold round-trips, and the stored value is the type's
-    // spelling of it.
+        .expect("the user")
+        .age;
     let resp = client
         .csrf(&csrf)
-        .post_form(&format!("/admin/posts/{}/edit", post.id), body("4242"))
+        .post_form(
+            &format!("/admin/users/{}/edit", user.id),
+            format!(
+                "name={}&email={}&age=-1&csrf_token={csrf}",
+                user.name, user.email
+            ),
+        )
+        .await;
+    assert!(
+        !resp.status().is_redirection(),
+        "a negative age must not save, got {}",
+        resp.status()
+    );
+    let still = User::filter(User::fields().id().eq(user.id))
+        .first()
+        .exec(&mut db_q)
+        .await
+        .unwrap()
+        .expect("the user still exists");
+    assert_eq!(still.age, before, "a refused edit writes nothing");
+    let resp = client
+        .csrf(&csrf)
+        .post_form(
+            &format!("/admin/users/{}/edit", user.id),
+            format!(
+                "name={}&email={}&age=42&csrf_token={csrf}",
+                user.name, user.email
+            ),
+        )
         .await;
     assert!(
         resp.status().is_redirection(),
-        "a valid number redirects, got {}",
+        "a valid age redirects, got {}",
         resp.status()
     );
-    let after = Post::filter(Post::fields().id().eq(post.id))
+    let saved = User::filter(User::fields().id().eq(user.id))
         .first()
         .exec(&mut db_q)
         .await
         .unwrap()
-        .expect("the post still exists");
-    assert_eq!(
-        after.post_stats.word_count, 4242,
-        "the typed value is stored"
-    );
-    assert_eq!(after.post_stats.read_minutes, 9, "its sibling too");
+        .expect("the user still exists");
+    assert_eq!(saved.age, 42);
 }

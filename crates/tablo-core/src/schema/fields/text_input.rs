@@ -5,7 +5,9 @@ use super::{
     super::{
         lenses::{FieldResolver, lens_field, lens_field_unique, lens_label},
         tree::Mode,
-        validation::{Rules, TypedValue},
+        validation::{
+            Rules, TypedValue, format_timestamp_input, is_timestamp, parse_timestamp_storage,
+        },
     },
     FieldChrome, ValueKind, render_field, render_value,
 };
@@ -39,7 +41,16 @@ where
     T: TypedValue + toasty::stmt::IntoExpr<T> + 'static,
 {
     let name = name.to_string();
+    let timestamp = is_timestamp::<T>();
     std::sync::Arc::new(move |value: &str| {
+        // A timestamp submission may be the control's zone-less shape;
+        // validation normalises it to storage spelling first.
+        if timestamp {
+            let storage = parse_timestamp_storage(value).ok()?;
+            let parsed = storage.parse::<T>().ok().filter(T::accepts)?;
+            let index = M::field_name_to_id(&name).index;
+            return Some(M::path_field::<T>(index).eq(parsed));
+        }
         let parsed = value.parse::<T>().ok().filter(T::accepts)?;
         let index = M::field_name_to_id(&name).index;
         Some(M::path_field::<T>(index).eq(parsed))
@@ -61,6 +72,10 @@ pub struct TextInput {
     /// The typed leaf's unique probe, absent on a text leaf: a text
     /// leaf's comparison is built from the model the handler queries.
     typed_probe: Option<EqProbe>,
+    /// The control's `type`: `datetime-local` for a timestamp leaf, `text`
+    /// otherwise (`email` overrides at render). A timestamp submits a
+    /// zone-less `datetime-local` string the typed rule reads as UTC.
+    input_type: &'static str,
 }
 
 impl std::fmt::Debug for TextInput {
@@ -75,6 +90,7 @@ impl std::fmt::Debug for TextInput {
             .field("unique", &self.unique)
             .field("placeholder", &self.placeholder)
             .field("typed", &self.rules.is_typed())
+            .field("input_type", &self.input_type)
             .finish()
     }
 }
@@ -109,6 +125,7 @@ impl TextInput {
             placeholder: None,
             rules: Rules::new(),
             typed_probe: None,
+            input_type: "text",
         }
     }
 
@@ -144,6 +161,7 @@ impl TextInput {
             placeholder: None,
             rules: Rules::new(),
             typed_probe: None,
+            input_type: "text",
         }
     }
 
@@ -171,6 +189,10 @@ impl TextInput {
     /// blanket over `FromStr`, because the error names what was expected; `T`
     /// must be [`toasty::stmt::IntoExpr`] of itself so the unique probe compares
     /// through the parsed value rather than its text.
+    ///
+    /// A `jiff::Timestamp` leaf renders `type="datetime-local"`: the control
+    /// carries no zone, so the stored instant renders in UTC and a submission
+    /// is read back as UTC.
     pub fn typed<M, T>(path: toasty::stmt::Path<M, T>) -> Self
     where
         M: toasty::schema::Model,
@@ -183,6 +205,11 @@ impl TextInput {
         // when the app marks it, the probe binds the declared type.
         let name = field.name.app_unwrap().to_string();
         let probe = eq_probe_typed::<M, T>(&name);
+        let input_type = if is_timestamp::<T>() {
+            "datetime-local"
+        } else {
+            "text"
+        };
         Self {
             name,
             label: label_str,
@@ -191,6 +218,7 @@ impl TextInput {
             placeholder: None,
             rules: Rules::new().typed::<T>(),
             typed_probe: Some(probe),
+            input_type,
         }
     }
 
@@ -210,6 +238,11 @@ impl TextInput {
     {
         let leaf = FieldResolver::from_cx(cx).resolve(path);
         let probe = eq_probe_typed::<M, T>(&leaf.name);
+        let input_type = if is_timestamp::<T>() {
+            "datetime-local"
+        } else {
+            "text"
+        };
         Self {
             name: leaf.name,
             label: leaf.label,
@@ -218,6 +251,7 @@ impl TextInput {
             placeholder: None,
             rules: Rules::new().typed::<T>(),
             typed_probe: Some(probe),
+            input_type,
         }
     }
 
@@ -349,9 +383,17 @@ impl TextInput {
         let input_type = if self.rules.is_email() {
             "email"
         } else {
-            "text"
+            self.input_type
         };
-        let value_owned = value.map(|s| s.to_string());
+        // A timestamp renders its UTC `datetime-local` spelling, not the
+        // stored RFC 3339: the control carries no zone.
+        let value_owned = value.map(|s| {
+            if self.input_type == "datetime-local" {
+                format_timestamp_input(s)
+            } else {
+                s.to_string()
+            }
+        });
         let chrome = FieldChrome::new(&self.name, errors, None);
         let aria_invalid = chrome.aria_invalid();
         let described_by = chrome.described_by();

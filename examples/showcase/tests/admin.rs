@@ -341,6 +341,7 @@ async fn admin_list_pagination_walks_cursor_links() {
                 email: email,
                 role: "member",
                 active: true,
+                age: 30,
                 created_at: "2024-03-01T00:00:00Z".parse::<jiff::Timestamp>().unwrap(),
             })
             .exec(&mut db_q)
@@ -447,6 +448,7 @@ async fn admin_list_pagination_walks_descending_cursor_links() {
                 email: format!("desc{:02}@example.com", i),
                 role: "member",
                 active: true,
+                age: 30,
                 created_at: "2024-03-01T00:00:00Z".parse::<jiff::Timestamp>().unwrap(),
             })
             .exec(&mut db_q)
@@ -515,6 +517,7 @@ async fn admin_list_pagination_keeps_tied_sort_values() {
                 email: format!("tied{:02}@example.com", i),
                 role: "member",
                 active: true,
+                age: 30,
                 created_at: "2024-03-01T00:00:00Z".parse::<jiff::Timestamp>().unwrap(),
             })
             .exec(&mut db_q)
@@ -588,6 +591,7 @@ async fn admin_list_search_matches_substrings_and_escapes_wildcards() {
         email: "percent@example.com".to_string(),
         role: "admin".to_string(),
         active: true,
+        age: 30,
         created_at: "2024-02-01T09:30:00Z"
             .parse::<jiff::Timestamp>()
             .expect("timestamp"),

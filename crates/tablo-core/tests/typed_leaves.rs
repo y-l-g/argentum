@@ -59,10 +59,15 @@ async fn a_typed_field_renders_the_values_display() {
         html.contains("value=\"1240\""),
         "an integer field renders its value: {html}"
     );
-    // Not a `datetime-local`: the field type declares the control.
+    // A timestamp renders `datetime-local` in UTC: the control carries no
+    // zone, so the stored instant shows as its UTC calendar spelling.
     assert!(
-        html.contains("type=\"text\"") && !html.contains("datetime-local"),
-        "a typed timestamp is still a text input: {html}"
+        html.contains("type=\"datetime-local\""),
+        "a typed timestamp is a datetime-local input: {html}"
+    );
+    assert!(
+        html.contains("value=\"2024-01-02T03:04\""),
+        "the timestamp renders in UTC for the control: {html}"
     );
     assert!(html.contains("Word count"), "label from the lens: {html}");
 }

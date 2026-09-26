@@ -111,23 +111,15 @@ pub async fn tenanted_db() -> (Db, uuid::Uuid, uuid::Uuid) {
         status: "published".to_string(),
         featured: true,
         created_at: "2024-01-15T09:30:00Z".parse::<jiff::Timestamp>().unwrap(),
-        image_path: "/images/t1.jpg".to_string(),
+        cover_id: None,
         tags: "t1".to_string(),
         seo: showcase::models::Seo {
             title: "T1 SEO".to_string(),
             description: String::new(),
         },
         publication: showcase::models::Publication::Published {
-            published_at: "2024-01-15T09:30:00Z".to_string(),
+            published_at: "2024-01-15T09:30:00Z".parse::<jiff::Timestamp>().unwrap(),
             canonical_url: String::new(),
-        },
-        media: showcase::models::Media::Image {
-            url: "/images/t1.jpg".to_string(),
-            alt: String::new(),
-        },
-        post_stats: showcase::models::PostStats {
-            word_count: 0,
-            read_minutes: 0,
         },
         author_id: a1.id,
     })
@@ -141,23 +133,15 @@ pub async fn tenanted_db() -> (Db, uuid::Uuid, uuid::Uuid) {
         status: "draft".to_string(),
         featured: false,
         created_at: "2024-06-01T12:00:00Z".parse::<jiff::Timestamp>().unwrap(),
-        image_path: "/images/t2.jpg".to_string(),
+        cover_id: None,
         tags: "t2".to_string(),
         seo: showcase::models::Seo {
             title: "T2 SEO".to_string(),
             description: String::new(),
         },
         publication: showcase::models::Publication::Scheduled {
-            scheduled_at: "2024-07-01T09:00:00Z".to_string(),
+            scheduled_at: "2024-07-01T09:00:00Z".parse::<jiff::Timestamp>().unwrap(),
             scheduled_for: String::new(),
-        },
-        media: showcase::models::Media::Image {
-            url: "/images/t2.jpg".to_string(),
-            alt: String::new(),
-        },
-        post_stats: showcase::models::PostStats {
-            word_count: 0,
-            read_minutes: 0,
         },
         author_id: a2.id,
     })

@@ -1,24 +1,20 @@
-//! The media library: the `medias` table, the page that fills it,
-//! and the widget that previews a file before it is stored.
+//! The media library: the `medias` table and the page that fills it.
 //!
-//! A media row is a stored file plus a **polymorphic owner**: `owner_type` and
-//! `owner_id` name a `Post` or a `User`, and no foreign key can hold that pair
-//! together (ADR-0021). The page uploads through the app's own [`Uploader`] —
-//! the `DirUploader` the panel installs for `FileUpload` — writes the
-//! row, and lists what the library holds: a thumbnail for an image, a link for
-//! anything else.
-//!
-//! `Post::media` is a different thing and keeps its name: the embedded enum
-//! holding an image/video *description* in the post's own columns. This page
-//! stores files; that value describes one. `CONTEXT.md` keeps the two apart.
+//! A WordPress-style library: one row per stored file with the tenant that
+//! uploaded it, the `path` the `Uploader` returned, the client's `filename`,
+//! a `kind`, and a timestamp. Rows carry no owner: a post shows one row as its
+//! cover through its own `cover_id`, and the library lists one tenant's rows
+//! (ADR-0021). The page uploads through the app's own [`Uploader`] — the
+//! `DirUploader` the panel installs for `FileUpload` — writes the row, and
+//! lists what the library holds: a thumbnail for an image, a link for anything
+//! else.
 
 use std::collections::HashMap;
 
 use tablo_core::{
-    Notification, Resource, Uploader, csrf, db::db, notification::set_notification, require_tenant,
-    scoped_query,
+    Notification, Uploader, csrf, db::db, notification::set_notification, require_tenant,
+    schema::OptionSource,
 };
-use toasty::Db;
 use topcoat::{
     Result,
     asset::AssetConfig,
@@ -32,8 +28,8 @@ use topcoat::{
 };
 
 use crate::{
-    app::{DirUploader, PostResource, UserResource, basename, upload_dir},
-    models::{MediaAsset, Post, User},
+    app::{DirUploader, basename, upload_dir},
+    models::MediaAsset,
 };
 
 /// Where the media library lives: the page, the upload route, and the form's
@@ -48,87 +44,62 @@ pub const MEDIA_PATH: &str = "/admin/media";
 /// public blog's document.
 pub const MEDIA_JS: topcoat::asset::Asset = topcoat::asset::asset!("../assets/media.js");
 
-/// The `owner_type` a post-owned media row stores.
-pub const OWNER_POST: &str = "post";
-
-/// The `owner_type` a user-owned media row stores.
-pub const OWNER_USER: &str = "user";
-
 /// The `kind` of a row whose bytes are an image: the row renders a thumbnail.
 pub const KIND_IMAGE: &str = "image";
 
 /// The `kind` of every other row: it renders a link.
 pub const KIND_FILE: &str = "file";
 
-/// The upload form's owner field.
-const OWNER_FIELD: &str = "owner";
-
 /// The upload form's file field.
 const FILE_FIELD: &str = "file";
 
-/// The record a media row belongs to: the typed half of the
-/// polymorphic pair.
+/// The media library as a relationship source: one tenant's rows.
 ///
-/// One column pair cannot name two tables, so `MediaAsset` stores the kind and
-/// the key as a string and a `Uuid`, and this enum is where the app recovers
-/// the type it lost. The two variants are the owners the showcase attaches
-/// media to.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MediaOwner {
-    Post(uuid::Uuid),
-    User(uuid::Uuid),
-}
+/// A post's cover picker loads its options through this source, so the tenant
+/// gate and the tenant filter apply to the choice exactly as they apply to the
+/// page that lists the same rows.
+pub struct MediaLibrary;
 
-impl MediaOwner {
-    /// The `owner_type` this owner stores.
-    pub fn kind(self) -> &'static str {
-        match self {
-            Self::Post(_) => OWNER_POST,
-            Self::User(_) => OWNER_USER,
+impl OptionSource for MediaLibrary {
+    type Model = MediaAsset;
+
+    fn scoped_query(cx: &Cx) -> Result<toasty::stmt::Query<toasty::stmt::List<MediaAsset>>> {
+        let tenant = require_tenant(cx)?;
+        Ok(toasty::stmt::Query::<toasty::stmt::List<MediaAsset>>::all()
+            .filter(MediaAsset::fields().tenant_id().eq(tenant)))
+    }
+
+    fn can_view_any(_cx: &Cx) -> bool {
+        true
+    }
+
+    fn can_view(_cx: &Cx, _record: &MediaAsset) -> bool {
+        true
+    }
+
+    fn requires_tenant() -> bool {
+        true
+    }
+
+    fn slug() -> String {
+        "media".to_string()
+    }
+
+    fn search_expr(_cx: &Cx, term: &str) -> Option<toasty::stmt::Expr<bool>> {
+        let term = term.trim();
+        if term.is_empty() {
+            return None;
         }
+        Some(
+            MediaAsset::fields()
+                .filename()
+                .like_with_escape(format!("%{term}%"), '\\'),
+        )
     }
 
-    /// The `owner_id` this owner stores.
-    pub fn id(self) -> uuid::Uuid {
-        match self {
-            Self::Post(id) | Self::User(id) => id,
-        }
+    fn order_by(_cx: &Cx) -> Option<toasty::stmt::OrderByExpr> {
+        Some(MediaAsset::fields().filename().asc())
     }
-
-    /// The form value naming this owner: `"post:<uuid>"` or `"user:<uuid>"`.
-    pub fn value(self) -> String {
-        format!("{}:{}", self.kind(), self.id())
-    }
-
-    /// Read a form value back, or `None` when it names no owner this library
-    /// stores.
-    pub fn parse(value: &str) -> Option<Self> {
-        let (kind, id) = value.trim().split_once(':')?;
-        let id = id.parse::<uuid::Uuid>().ok()?;
-        match kind {
-            OWNER_POST => Some(Self::Post(id)),
-            OWNER_USER => Some(Self::User(id)),
-            _ => None,
-        }
-    }
-}
-
-/// The media rows attached to `owner`.
-///
-/// This is the whole relation the polymorphic pair buys: no foreign key, no
-/// `#[has_many]`, one equality filter on the pair. A row whose owner was
-/// deleted still matches, which is the tradeoff ADR-0021 records — the caller
-/// decides what to do about it.
-pub async fn media_for_owner(db: &mut Db, owner: MediaOwner) -> toasty::Result<Vec<MediaAsset>> {
-    MediaAsset::filter(
-        MediaAsset::fields()
-            .owner_type()
-            .eq(owner.kind().to_string())
-            .and(MediaAsset::fields().owner_id().eq(owner.id())),
-    )
-    .order_by(MediaAsset::fields().created_at().desc())
-    .exec(db)
-    .await
 }
 
 /// One media row's file: a thumbnail for an image, a link for anything else.
@@ -136,7 +107,7 @@ pub async fn media_for_owner(db: &mut Db, owner: MediaOwner) -> toasty::Result<V
 /// The framework's file field links every stored path the same way;
 /// telling an image from the rest is the media library's job, and `kind` is
 /// what the row recorded when the upload was stored. The public blog renders a
-/// post's media through this too, so one row looks the same wherever it is
+/// post's cover through this too, so one row looks the same wherever it is
 /// shown.
 pub fn media_file_view<'a>(cx: &'a Cx, asset: &MediaAsset) -> BoxView<'a> {
     if asset.kind == KIND_IMAGE {
@@ -180,32 +151,12 @@ async fn media_page(cx: &Cx) -> Result<impl View> {
     // than served every tenant's rows.
     let tenant = require_tenant(cx)?;
     let mut db = db(cx);
-    // The picker's owners. Posts go through the tenant-scoped query the panel
-    // uses, so it cannot offer another tenant's post; the showcase's
-    // users are global.
-    let posts = scoped_query::<PostResource>(cx)?
-        .order_by(Post::fields().title().asc())
-        .exec(&mut db)
-        .await?;
-    let users = UserResource::query(cx)
-        .order_by(User::fields().name().asc())
-        .exec(&mut db)
-        .await?;
     // No resource owns `MediaAsset`, so its tenant filter is this page's —
     // written once, on the column the model declares.
     let media = MediaAsset::filter(MediaAsset::fields().tenant_id().eq(tenant))
         .order_by(MediaAsset::fields().created_at().desc())
         .exec(&mut db)
         .await?;
-
-    let post_titles: HashMap<uuid::Uuid, String> = posts
-        .iter()
-        .map(|post| (post.id, post.title.clone()))
-        .collect();
-    let user_names: HashMap<uuid::Uuid, String> = users
-        .iter()
-        .map(|user| (user.id, user.name.clone()))
-        .collect();
 
     // The form is the app's, so the token is the app's to embed.
     let csrf_token = csrf::ensure_token(cx);
@@ -217,7 +168,7 @@ async fn media_page(cx: &Cx) -> Result<impl View> {
             tablo_ui::page_header(
                 tablo_ui::page_title("Media library")
                 tablo_ui::page_description(
-                    "Files stored through the app's uploader, attached to a post or a user."
+                    "Files stored through the app's uploader, picked as post covers."
                 )
             )
             tablo_ui::page_content(
@@ -231,29 +182,6 @@ async fn media_page(cx: &Cx) -> Result<impl View> {
                             class="flex flex-col gap-4"
                         >
                             (csrf::field(cx, &csrf_token))
-                            <div class="flex flex-col gap-2">
-                                <label class="text-sm font-medium" for="media-owner">
-                                    "Owner"
-                                </label>
-                                tablo_ui::select(
-                                    attrs: attributes! { id="media-owner" name=(OWNER_FIELD) required="" },
-                                    <option value="" selected="">"Choose an owner…"</option>
-                                    <optgroup label="Posts">
-                                        for post in &posts {
-                                            <option value=(MediaOwner::Post(post.id).value())>
-                                                (post.title.clone())
-                                            </option>
-                                        }
-                                    </optgroup>
-                                    <optgroup label="Users">
-                                        for user in &users {
-                                            <option value=(MediaOwner::User(user.id).value())>
-                                                (user.name.clone())
-                                            </option>
-                                        }
-                                    </optgroup>
-                                )
-                            </div>
                             <div class="flex flex-col gap-2">
                                 <label class="text-sm font-medium" for="media-file">
                                     "File"
@@ -272,8 +200,8 @@ async fn media_page(cx: &Cx) -> Result<impl View> {
                                     // the browser resets the form and the file
                                     // input empties; `media.js` empties the input
                                     // and the preview itself and cancels that
-                                    // reset, so a file clear keeps the owner the
-                                    // user picked (ADR-0021).
+                                    // reset, so a file clear keeps the form
+                                    // usable (ADR-0021).
                                     tablo_ui::button(
                                         variant: tablo_ui::ButtonVariant::Outline,
                                         size: tablo_ui::ButtonSize::Sm,
@@ -328,9 +256,6 @@ async fn media_page(cx: &Cx) -> Result<impl View> {
                                                     </span>
                                                 }
                                                 <span class="text-xs text-muted-foreground">
-                                                    (owner_label(asset, &post_titles, &user_names))
-                                                </span>
-                                                <span class="text-xs text-muted-foreground">
                                                     (asset.created_at.strftime("%Y-%m-%d %H:%M").to_string())
                                                 </span>
                                             </div>
@@ -349,7 +274,7 @@ async fn media_page(cx: &Cx) -> Result<impl View> {
     })
 }
 
-/// `POST /admin/media` — store one uploaded file and write the row that owns it.
+/// `POST /admin/media` — store one uploaded file and write the row for it.
 ///
 /// The page renders its own form, so it parses its own multipart body: the
 /// framework's parser serves the fields a `Schema` declares, and this form is
@@ -381,10 +306,6 @@ async fn upload(cx: &Cx, mut multipart: Multipart) -> Result<SeeOther> {
     // The framework verifies the forms it renders; this one is the
     // app's, so the check is the app's too.
     csrf::verify(cx, &values)?;
-    let owner = values
-        .get(OWNER_FIELD)
-        .and_then(|value| MediaOwner::parse(value))
-        .ok_or_else(|| bad_request("Choose an owner before uploading."))?;
     let part = file.ok_or_else(|| bad_request("Choose a file before uploading."))?;
     // The name the row records and the store writes: one rule, so the row's
     // `filename` and the file on disk cannot disagree.
@@ -393,12 +314,6 @@ async fn upload(cx: &Cx, mut multipart: Multipart) -> Result<SeeOther> {
         return Err(bad_request("Choose a file before uploading.").into());
     }
     let mut db = db(cx);
-    // A polymorphic pair carries no foreign key, so nothing else can tell a
-    // dangling owner from a real one: the app's check is the integrity the
-    // database does not have (ADR-0021).
-    if !owner_exists(cx, owner, &mut db).await? {
-        return Err(bad_request("That owner does not exist.").into());
-    }
     // The app's own store, pointed at the directory the panel serves: the
     // `Uploader` `Panel::uploads` installs lives on the app context for the
     // framework's form parser and is not readable from a page, so the page
@@ -410,8 +325,6 @@ async fn upload(cx: &Cx, mut multipart: Multipart) -> Result<SeeOther> {
         .map_err(bad_request)?;
     toasty::create!(MediaAsset {
         tenant_id: tenant,
-        owner_type: owner.kind().to_string(),
-        owner_id: owner.id(),
         path: path,
         filename: filename,
         kind: kind_of(&part.content_type).to_string(),
@@ -428,52 +341,6 @@ struct UploadedPart {
     filename: String,
     content_type: String,
     bytes: Vec<u8>,
-}
-
-/// Whether `owner` names a record this app attaches media to.
-///
-/// A post is resolved through the tenant-scoped query the panel uses
-/// so a post in another tenant is not an owner here; a user is
-/// resolved globally, because the showcase's users carry no tenant. The row's
-/// own tenant is the uploader's, checked by the page that lists it.
-async fn owner_exists(cx: &Cx, owner: MediaOwner, db: &mut Db) -> Result<bool> {
-    let exists = match owner {
-        MediaOwner::Post(id) => scoped_query::<PostResource>(cx)?
-            .filter(Post::fields().id().eq(id))
-            .first()
-            .exec(&mut *db)
-            .await?
-            .is_some(),
-        MediaOwner::User(id) => User::filter(User::fields().id().eq(id))
-            .first()
-            .exec(&mut *db)
-            .await?
-            .is_some(),
-    };
-    Ok(exists)
-}
-
-/// The owner a row names, as the page shows it.
-///
-/// A row whose owner is gone still renders — the pair has no foreign key, so
-/// deleting a post or a user leaves its media behind — and says so rather than
-/// showing a blank (ADR-0021).
-fn owner_label(
-    asset: &MediaAsset,
-    post_titles: &HashMap<uuid::Uuid, String>,
-    user_names: &HashMap<uuid::Uuid, String>,
-) -> String {
-    match asset.owner_type.as_str() {
-        OWNER_POST => match post_titles.get(&asset.owner_id) {
-            Some(title) => format!("Post · {title}"),
-            None => "Post · (deleted)".to_string(),
-        },
-        OWNER_USER => match user_names.get(&asset.owner_id) {
-            Some(name) => format!("User · {name}"),
-            None => "User · (deleted)".to_string(),
-        },
-        other => format!("{other} · (unknown owner kind)"),
-    }
 }
 
 /// Whether an uploaded part is an image, from the content type the browser sent
@@ -499,28 +366,6 @@ fn kind_of(content_type: &str) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn a_form_value_round_trips_through_the_owner_pair() {
-        let post = uuid::Uuid::from_u128(7);
-        let owner = MediaOwner::Post(post);
-        assert_eq!(owner.value(), format!("post:{post}"));
-        assert_eq!(MediaOwner::parse(&owner.value()), Some(owner));
-        assert_eq!(owner.kind(), OWNER_POST);
-        assert_eq!(owner.id(), post);
-
-        let user = uuid::Uuid::from_u128(8);
-        let owner = MediaOwner::User(user);
-        assert_eq!(MediaOwner::parse(&owner.value()), Some(owner));
-        assert_eq!(owner.kind(), OWNER_USER);
-    }
-
-    #[test]
-    fn a_value_naming_no_owner_is_refused() {
-        for value in ["", "post", "post:", ":7", "author:7", "post:not-a-uuid"] {
-            assert_eq!(MediaOwner::parse(value), None, "{value:?}");
-        }
-    }
 
     #[test]
     fn the_kind_follows_the_content_type() {

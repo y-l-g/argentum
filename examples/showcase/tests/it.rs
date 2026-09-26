@@ -29,5 +29,4 @@ mod media_check;
 mod relation_check;
 mod states_check;
 mod tenancy_check;
-mod upload_check;
 mod variant_check;

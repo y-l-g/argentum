@@ -228,6 +228,16 @@ pub trait Resource: Sized + Send + Sync + 'static {
         None
     }
 
+    /// A public URL for one record, rendered as a "View public post"-style
+    /// link on the detail and edit pages when `Some`.
+    ///
+    /// The default declares none, so no link renders. A resource whose records
+    /// have a public page overrides this with its URL — the showcase's posts
+    /// return their `/blog/{id}` page.
+    fn public_url(_cx: &Cx, _record: &Self::Model) -> Option<String> {
+        None
+    }
+
     /// The URL slug for this resource's pages, e.g. `"users"` mounts the list
     /// at `{panel prefix}/users`.
     ///

@@ -28,11 +28,10 @@ use topcoat::{
 
 use crate::{
     app::GEIST,
-    media::{MediaOwner, media_file_view, media_for_owner},
-    models::{Author, Post},
+    models::{Author, MediaAsset, Post},
 };
 
-/// The status a post carries once it is visible to the public.
+// The status a post carries once it is visible to the public.
 const PUBLISHED: &str = "published";
 
 // The record key in `/blog/{id}`: the post's `Uuid`, parsed from the segment.
@@ -188,10 +187,17 @@ async fn post_page(cx: &Cx) -> Result<impl View> {
     .await?
     .ok_or_not_found()?;
 
-    // The post's media library rows: the polymorphic pair has no
-    // relation to include, so the page asks for them by owner — the same
-    // query the media library's own page could run.
-    let media = media_for_owner(&mut db, MediaOwner::Post(post.id)).await?;
+    // The post's cover, when the picker names one: a single library row the
+    // post's `cover_id` points at.
+    let cover = match post.cover_id {
+        Some(cover_id) => {
+            MediaAsset::filter(MediaAsset::fields().id().eq(cover_id))
+                .first()
+                .exec(&mut db)
+                .await?
+        }
+        None => None,
+    };
 
     Ok(view! {
         <a
@@ -215,28 +221,15 @@ async fn post_page(cx: &Cx) -> Result<impl View> {
                 </p>
             }
 
-            if let Some(cover) = cover_url(&post.image_path) {
+            if let Some(asset) = cover.as_ref().and_then(|asset| cover_url(asset)) {
                 <img
-                    src=(cover)
+                    src=(asset.to_string())
                     alt=(post.title.clone())
                     class="mt-8 w-full rounded-lg border border-border"
                 >
             }
 
             <div class="mt-8 leading-7">(&post.body)</div>
-
-            // Uploaded through the admin's media library: a thumbnail for an
-            // image, a link for anything else.
-            if !media.is_empty() {
-                <section class="mt-8 border-t border-border pt-6">
-                    <h2 class="text-sm font-medium text-muted-foreground">"Media"</h2>
-                    <ul class="mt-3 flex flex-wrap items-center gap-4">
-                        for asset in &media {
-                            <li>(media_file_view(cx, asset))</li>
-                        }
-                    </ul>
-                </section>
-            }
         </article>
     })
 }
@@ -253,13 +246,13 @@ fn author_name(post: &Post) -> String {
     }
 }
 
-/// The cover URL for a post, or `None` when the record carries no servable one.
+/// The cover URL for a picked library row, or `None` when it names no servable
+/// path.
 ///
-/// `image_path` is the field the admin form and the demo uploader write. The
-/// uploader stores the served URL it returned — a rooted path this app serves —
-/// while the seed stores a bare filename, which names no route and would render
-/// a broken image.
-fn cover_url(image_path: &str) -> Option<&str> {
-    let path = image_path.trim();
+/// The row stores the served URL the uploader returned — a rooted path this
+/// app serves — so a row whose path is not one renders no image rather than a
+/// broken one.
+fn cover_url(asset: &MediaAsset) -> Option<&str> {
+    let path = asset.path.trim();
     path.starts_with('/').then_some(path)
 }

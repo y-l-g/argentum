@@ -5,9 +5,7 @@ use jiff::Timestamp;
 use tablo_core::auth::{AdminUser, hash_password};
 use toasty::Db;
 
-use crate::models::{
-    Author, Comment, Credit, Media, Post, PostStats, Poster, Publication, Seo, User,
-};
+use crate::models::{Author, Comment, Post, Publication, Seo, User};
 
 /// Seed the users the panel lists. Names sort deterministically (name-asc):
 /// Ada and Alan stay first for pagination and search tests, followed by six
@@ -19,6 +17,7 @@ pub async fn seed(db: &mut Db) -> toasty::Result<()> {
             email: "ada@example.com",
             role: "admin",
             active: true,
+            age: 36,
             created_at: "2024-01-15T09:30:00Z"
                 .parse::<Timestamp>()
                 .expect("timestamp"),
@@ -28,6 +27,7 @@ pub async fn seed(db: &mut Db) -> toasty::Result<()> {
             email: "alan@example.com",
             role: "member",
             active: false,
+            age: 41,
             created_at: "2024-06-01T12:00:00Z"
                 .parse::<Timestamp>()
                 .expect("timestamp"),
@@ -37,6 +37,7 @@ pub async fn seed(db: &mut Db) -> toasty::Result<()> {
             email: "grace@example.com",
             role: "member",
             active: true,
+            age: 78,
             created_at: "2023-11-20T18:45:00Z"
                 .parse::<Timestamp>()
                 .expect("timestamp"),
@@ -46,6 +47,7 @@ pub async fn seed(db: &mut Db) -> toasty::Result<()> {
             email: "claude@example.com",
             role: "member",
             active: true,
+            age: 57,
             created_at: "2024-02-10T10:00:00Z"
                 .parse::<Timestamp>()
                 .expect("timestamp"),
@@ -55,6 +57,7 @@ pub async fn seed(db: &mut Db) -> toasty::Result<()> {
             email: "dorothy@example.com",
             role: "member",
             active: true,
+            age: 62,
             created_at: "2024-02-18T14:00:00Z"
                 .parse::<Timestamp>()
                 .expect("timestamp"),
@@ -64,6 +67,7 @@ pub async fn seed(db: &mut Db) -> toasty::Result<()> {
             email: "edsger@example.com",
             role: "member",
             active: false,
+            age: 51,
             created_at: "2024-03-05T09:00:00Z"
                 .parse::<Timestamp>()
                 .expect("timestamp"),
@@ -73,6 +77,7 @@ pub async fn seed(db: &mut Db) -> toasty::Result<()> {
             email: "frances@example.com",
             role: "admin",
             active: true,
+            age: 59,
             created_at: "2024-03-12T16:30:00Z"
                 .parse::<Timestamp>()
                 .expect("timestamp"),
@@ -82,6 +87,7 @@ pub async fn seed(db: &mut Db) -> toasty::Result<()> {
             email: "ken@example.com",
             role: "member",
             active: true,
+            age: 82,
             created_at: "2024-04-02T11:15:00Z"
                 .parse::<Timestamp>()
                 .expect("timestamp"),
@@ -264,26 +270,18 @@ fn memoized_password_hash(password: &str) -> String {
 }
 /// The embedded shapes a filler/backlog row carries.
 ///
-/// A compact, valid default so the pagination filler does not repeat four
+/// A compact, valid default so the pagination filler does not repeat two
 /// nested literals sixty times. The narrative rows below spell theirs out, so
 /// the showcase has real embedded data to look at.
-fn filler_embedded(index: usize) -> (Seo, Publication, Media, PostStats) {
+fn filler_embedded() -> (Seo, Publication) {
     (
         Seo {
             title: String::new(),
             description: String::new(),
         },
         Publication::Scheduled {
-            scheduled_at: String::new(),
+            scheduled_at: "2024-07-01T09:00:00Z".parse::<Timestamp>().unwrap(),
             scheduled_for: String::new(),
-        },
-        Media::Image {
-            url: format!("backlog-{index:02}.jpg"),
-            alt: String::new(),
-        },
-        PostStats {
-            word_count: 0,
-            read_minutes: 0,
         },
     )
 }
@@ -340,33 +338,17 @@ pub async fn seed_content(db: &mut Db) -> toasty::Result<()> {
             status: "published".to_string(),
             featured: true,
             created_at: "2024-01-15T09:30:00Z".parse::<Timestamp>().unwrap(),
-            image_path: "hello-toasty.jpg".to_string(),
+            cover_id: None,
             tags: "rust,async".to_string(),
-            // Embedded shapes with real values: an embedded struct,
-            // an embedded enum whose timestamps share one column, an embedded
-            // struct nested inside a variant, and an embedded struct of typed
-            // leaves.
+            // Embedded shapes with real values: an embedded struct and an
+            // embedded enum whose timestamps share one column.
             seo: Seo {
                 title: "Hello Toasty — the admin panel".to_string(),
                 description: "How we render admin tables over Toasty.".to_string(),
             },
             publication: Publication::Published {
-                published_at: "2024-01-15T09:30:00Z".to_string(),
+                published_at: "2024-01-15T09:30:00Z".parse::<Timestamp>().unwrap(),
                 canonical_url: "https://example.com/hello-toasty".to_string(),
-            },
-            media: Media::Video {
-                video_url: "hello-toasty.mp4".to_string(),
-                poster: Poster {
-                    url: "hello-toasty-poster.jpg".to_string(),
-                    credit: Credit {
-                        author: "Ada Author".to_string(),
-                        licence: "CC-BY-4.0".to_string(),
-                    },
-                },
-            },
-            post_stats: PostStats {
-                word_count: 1240,
-                read_minutes: 6,
             },
             author_id: ada_author.id,
         })
@@ -380,23 +362,15 @@ pub async fn seed_content(db: &mut Db) -> toasty::Result<()> {
             status: "draft".to_string(),
             featured: false,
             created_at: "2024-06-01T12:00:00Z".parse::<Timestamp>().unwrap(),
-            image_path: "second-post.jpg".to_string(),
+            cover_id: None,
             tags: "draft".to_string(),
             seo: Seo {
                 title: "Second Post".to_string(),
                 description: "Draft notes on cursor pagination.".to_string(),
             },
             publication: Publication::Scheduled {
-                scheduled_at: "2024-07-01T09:00:00Z".to_string(),
+                scheduled_at: "2024-07-01T09:00:00Z".parse::<Timestamp>().unwrap(),
                 scheduled_for: "2024-08-01T09:00:00Z".to_string(),
-            },
-            media: Media::Image {
-                url: "second-post.jpg".to_string(),
-                alt: "A draft cover".to_string(),
-            },
-            post_stats: PostStats {
-                word_count: 320,
-                read_minutes: 2,
             },
             author_id: alan_author.id,
         })
@@ -435,7 +409,7 @@ pub async fn seed_content(db: &mut Db) -> toasty::Result<()> {
         .into_iter()
         .enumerate()
         {
-            let (seo, publication, media, post_stats) = filler_embedded(index);
+            let (seo, publication) = filler_embedded();
             toasty::create!(Post {
                 id: seeded_post_id(index + 2),
                 tenant_id: tenant,
@@ -444,12 +418,10 @@ pub async fn seed_content(db: &mut Db) -> toasty::Result<()> {
                 status: "draft".to_string(),
                 featured: false,
                 created_at: created_at.parse::<Timestamp>().unwrap(),
-                image_path: "draft-cover.jpg".to_string(),
+                cover_id: None,
                 tags: tags,
                 seo: seo,
                 publication: publication,
-                media: media,
-                post_stats: post_stats,
                 author_id: author_id,
             })
             .exec(db)
@@ -483,7 +455,7 @@ pub async fn seed_content(db: &mut Db) -> toasty::Result<()> {
                 2 => june_writer.id,
                 _ => rosa_editor.id,
             };
-            let (seo, publication, media, post_stats) = filler_embedded(index);
+            let (seo, publication) = filler_embedded();
             toasty::create!(Post {
                 id: uuid::Uuid::from_u128(FILLER_ID_BASE + index as u128),
                 tenant_id: tenant,
@@ -492,12 +464,10 @@ pub async fn seed_content(db: &mut Db) -> toasty::Result<()> {
                 status: "draft".to_string(),
                 featured: false,
                 created_at: created_at,
-                image_path: "draft-cover.jpg".to_string(),
+                cover_id: None,
                 tags: "backlog,draft".to_string(),
                 seo: seo,
                 publication: publication,
-                media: media,
-                post_stats: post_stats,
                 author_id: author_id,
             })
             .exec(db)

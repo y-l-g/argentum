@@ -93,18 +93,22 @@ async fn post_detail_renders_the_record_read_only() {
         "detail page must show the status: {html}"
     );
     // Each value carries the label the form and the table use: the
-    // flag reads "Featured" and the stored image reads "Cover image".
+    // flag reads "Featured".
     assert!(
         html.contains("Featured</div>"),
         "detail page must label the flag as featured: {html}"
     );
     assert!(
-        html.contains("Cover image"),
-        "detail page must label the stored image by role: {html}"
-    );
-    assert!(
         html.contains("Back to list"),
         "detail page must offer a way back: {html}"
+    );
+    assert!(
+        html.contains("View public post") && html.contains(&format!("/blog/{}", post.id)),
+        "detail page must link the public post: {html}"
+    );
+    assert!(
+        html.contains("words ·") && html.contains("min read"),
+        "detail page must show the computed reading stats: {html}"
     );
 
     // Read-only means read-only. The shell carries its own chrome (the sign-out

@@ -52,6 +52,7 @@ pub(crate) fn resource_view<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
         // display key and `pk` its record key).
         let title = detail_title::<R>(cx, &record, &id);
         let back = list_url(cx, &R::slug());
+        let public = R::public_url(cx, &record);
         Ok(view! {
             cx =>
             tablo_ui::page(
@@ -60,6 +61,14 @@ pub(crate) fn resource_view<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
                     <a href=(back) class="text-sm text-muted-foreground underline">
                         "Back to list"
                     </a>
+                    if let Some(public) = public {
+                        <a
+                            href=(public)
+                            class="text-sm text-muted-foreground underline"
+                        >
+                            "View public post"
+                        </a>
+                    }
                 )
                 tablo_ui::page_content(
                     <div class="flex flex-col gap-4">
