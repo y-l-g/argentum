@@ -66,9 +66,8 @@ pub(crate) fn declared_chrome<R: Resource>(cx: &Cx) -> TableChrome {
 /// table's row policy pairs each action with exactly what its route checks —
 /// `can_view` for View, `can_view` + `can_update` for Edit, `can_view` +
 /// `can_delete` for Delete and the bulk checkbox. A row the predicate refuses
-/// renders no link and a disabled checkbox, while the handler keeps its
-/// all-or-nothing check for a hand-crafted POST. A row refused every action
-/// keeps its actions cell with a `Locked` badge in place of the links.
+/// renders no link and no checkbox, while the handler keeps its
+/// all-or-nothing check for a hand-crafted POST.
 ///
 /// `live` selects the shard variant: the swapped region is everything except the
 /// toolbar the page owns eagerly (the live host owns those slots, so a swap must
@@ -1289,7 +1288,7 @@ mod tests {
     /// panel wires each action from the predicate its route checks — `can_view`
     /// for View, `can_view` + `can_update` for Edit, `can_view` + `can_delete`
     /// for Delete and the bulk checkbox — so a refused row renders no link and
-    /// a disabled checkbox instead of a control the route answers 403 to.
+    /// no checkbox instead of a control the route answers 403 to.
     ///
     /// This is the panel half, which the render-level test cannot cover: a
     /// hand-written `row_actions` closure proves the renderer, not the wiring.
@@ -1338,8 +1337,14 @@ mod tests {
         }
 
         let html = list_html_with::<RowPolicyResource>(&["Ada", "Hidden", "Locked"]).await;
-        let rows = rendered_rows(&html);
-        assert_eq!(rows.len(), 3, "three rows seeded, three rendered: {html}");
+        let rows = keyed_rows(&html);
+        // Two of the three rows carry key chrome: the view-refused row renders
+        // no link and no checkbox, so no key of its reaches the page.
+        assert_eq!(rows.len(), 2, "two rows carry key chrome: {html}");
+        assert!(
+            html.contains("Hidden"),
+            "the refused row still renders its cells: {html}"
+        );
         // The table orders by the PK fallback (no sortable column), so the
         // seeding order is not the rendering order: read each row's own key.
         let id_of = |name: &str| {
@@ -1348,9 +1353,9 @@ mod tests {
                 .map(|(id, _)| id.clone())
                 .unwrap_or_else(|| panic!("missing the {name} row in {html}"))
         };
-        let (ada, hidden, locked) = (id_of("Ada"), id_of("Hidden"), id_of("Locked"));
+        let (ada, locked) = (id_of("Ada"), id_of("Locked"));
 
-        // The allowed row keeps all three links and an enabled checkbox.
+        // The allowed row keeps all three links and the page's only checkbox.
         assert!(
             html.contains(&format!("href=\"/admin/dummies/{ada}\""))
                 && html.contains(&format!("/admin/dummies/{ada}/edit"))
@@ -1358,26 +1363,32 @@ mod tests {
             "the allowed row must keep its View/Edit/Delete links, got {html}"
         );
         assert!(
-            !disabled_box(&html, &ada),
-            "the allowed row's checkbox must stay enabled, got {html}"
+            has_checkbox(&html, &ada),
+            "the allowed row must keep its checkbox, got {html}"
+        );
+        assert_eq!(
+            html.matches("data-row-select").count(),
+            1,
+            "the allowed row owns the page's only checkbox, got {html}"
         );
 
-        // The view-refused row renders no link at all — the View link included,
-        // which is the half only `can_view` can withhold.
-        assert!(
-            !html.contains(&format!("/admin/dummies/{hidden}")),
-            "the view-refused row must render no View/Edit link, got {html}"
+        // The view-refused row renders no link at all — its key reaches
+        // neither an href nor a checkbox — so its absence is counted, not
+        // named: three record hrefs (Ada's View and Edit, Locked's View) and
+        // one delete opener (Ada's) leave it none.
+        assert_eq!(
+            html.matches("href=\"/admin/dummies/").count(),
+            3,
+            "only Ada and Locked may own a record href, got {html}"
         );
-        assert!(
-            !html.contains(&format!("delete={hidden}")),
-            "the view-refused row must render no Delete link, got {html}"
-        );
-        assert!(
-            disabled_box(&html, &hidden),
-            "the view-refused row's checkbox must be disabled, got {html}"
+        assert_eq!(
+            html.matches("delete=").count(),
+            1,
+            "only Ada may own a delete opener, got {html}"
         );
 
-        // The update/delete-refused row keeps View and loses the other two.
+        // The update/delete-refused row keeps View and loses the other two,
+        // with no checkbox.
         assert!(
             html.contains(&format!("href=\"/admin/dummies/{locked}\""))
                 && !html.contains(&format!("/admin/dummies/{locked}/edit"))
@@ -1385,49 +1396,96 @@ mod tests {
             "the update/delete-refused row must keep only its View link, got {html}"
         );
         assert!(
-            disabled_box(&html, &locked),
-            "the update/delete-refused row's checkbox must be disabled, got {html}"
+            !has_checkbox(&html, &locked),
+            "the update/delete-refused row must render no checkbox, got {html}"
         );
     }
 
-    /// The `(record key, name cell)` pairs `html` renders, in document order.
+    /// The `(record key, name cell)` pairs `html` renders for rows carrying key
+    /// chrome, in document order: the bulk checkbox value, else the first
+    /// record href id. A row the policy refuses every action for carries
+    /// neither, so it is absent here — its cells still render, which the caller
+    /// asserts on the name.
     ///
     /// A test cannot assume the seeding order — a paginated table with no
     /// sortable column orders by the PK fallback, and the keys are random — so
-    /// it reads each row's own cells.
-    fn rendered_rows(html: &str) -> Vec<(String, String)> {
+    /// it reads each row's own cells. Group header rows (`id="group-…"`) carry
+    /// no record and are skipped.
+    fn keyed_rows(html: &str) -> Vec<(String, String)> {
         let mut rows = Vec::new();
         let mut rest = html;
-        while let Some(at) = rest.find("data-row-select") {
-            let start = rest[..at]
-                .rfind("<input")
-                .expect("the marker's opening tag");
-            let tag = &rest[start..];
-            let value_at = tag.find("value=\"").expect("a checkbox value");
-            let after = &tag[value_at + "value=\"".len()..];
-            let end = after.find('"').expect("a closed value");
-            let id = after[..end].to_string();
-            // The name is the cell after the checkbox's own `<td>`.
-            let cell = &rest[at..];
-            let cell_at = cell.find("<td").expect("the name cell");
-            let text = &cell[cell_at..];
-            let text_at = text.find('>').expect("the cell's opening tag") + 1;
-            let text_end = text[text_at..].find('<').expect("the cell's text end");
-            rows.push((id, text[text_at..text_at + text_end].trim().to_string()));
-            rest = &rest[at + 1..];
+        while let Some(at) = rest.find("<tr") {
+            let tag_end = rest[at..].find('>').expect("the row's opening tag") + at;
+            let tag = &rest[at..tag_end];
+            let after_tag = &rest[tag_end..];
+            let row_end = after_tag.find("</tr>").expect("the row's closing tag");
+            let chunk = &after_tag[..row_end];
+            if tag.contains("id=\"row-") {
+                // The key: the row's own checkbox value, else the first
+                // record href id (`/admin/dummies/{id}[…]`).
+                let key = checkbox_value(chunk).or_else(|| record_href_id(chunk));
+                // The name: the first cell carrying text (the bulk cell holds
+                // an input or nothing, never text).
+                let mut name = None;
+                let mut cells = chunk;
+                while let Some(td) = cells.find("<td") {
+                    let cell = &cells[td..];
+                    let gt = cell.find('>').expect("the cell's opening tag") + 1;
+                    let after = &cell[gt..];
+                    let end = after.find("</td>").expect("the cell's end");
+                    let text = after[..end].split('<').next().unwrap_or("").trim();
+                    if !text.is_empty() {
+                        name = Some(text.to_string());
+                        break;
+                    }
+                    cells = &after[end..];
+                }
+                if let (Some(key), Some(name)) = (key, name) {
+                    rows.push((key, name));
+                }
+            }
+            rest = &after_tag[row_end..];
         }
         rows
     }
 
-    /// Whether the checkbox carrying `id` renders `disabled`.
-    fn disabled_box(html: &str, id: &str) -> bool {
-        let at = html
-            .find(&format!("value=\"{id}\""))
-            .unwrap_or_else(|| panic!("missing a checkbox for {id} in {html}"));
-        let start = html[..at].rfind("<input").expect("its opening tag");
-        let tag = &html[start..];
-        let end = tag.find('>').expect("the tag's end");
-        tag[..end].contains("disabled")
+    /// The `value` of the `data-row-select` checkbox in `chunk`, if one renders.
+    fn checkbox_value(chunk: &str) -> Option<String> {
+        let at = chunk.find("data-row-select")?;
+        let start = chunk[..at].rfind("<input")?;
+        let tag = &chunk[start..];
+        let end = tag.find('>')?;
+        let tag = &tag[..end];
+        let value_at = tag.find("value=\"")? + "value=\"".len();
+        let after = &tag[value_at..];
+        let end = after.find('"')?;
+        Some(after[..end].to_string())
+    }
+
+    /// The record id of the first `/admin/dummies/{id}` href in `chunk`, with
+    /// any `/edit` suffix stripped.
+    fn record_href_id(chunk: &str) -> Option<String> {
+        let at = chunk.find("/admin/dummies/")? + "/admin/dummies/".len();
+        let after = &chunk[at..];
+        let end = after
+            .find(['"', '/'])
+            .expect("the href closes or continues");
+        Some(after[..end].to_string())
+    }
+
+    /// Whether the `data-row-select` checkbox carrying `id` renders.
+    fn has_checkbox(html: &str, id: &str) -> bool {
+        let mut rest = html;
+        while let Some(at) = rest.find("data-row-select") {
+            let start = rest[..at].rfind("<input").expect("its opening tag");
+            let tag = &rest[start..];
+            let end = tag.find('>').expect("the tag's end");
+            if tag[..end].contains(&format!("value=\"{id}\"")) {
+                return true;
+            }
+            rest = &rest[at + 1..];
+        }
+        false
     }
 
     /// The GET `?q=` term is clamped like the shard's: bounded

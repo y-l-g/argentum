@@ -76,6 +76,11 @@ pub struct Panel {
     pages: Vec<PageFn>,
     routes: Vec<RouteFn>,
     root_target: Option<String>,
+    /// The dashboard label, when the app declares one with [`Panel::dashboard`].
+    /// [`Panel::build`] then registers its sidebar entry at the mount prefix
+    /// and serves no root redirect: the dashboard page — an app-level `#[page]`
+    /// at the prefix — wins at the panel root.
+    dashboard: Option<String>,
     slugs: Vec<String>,
     search_handlers: HashMap<String, SearchFn>,
     /// `Content-Security-Policy: frame-ancestors …` for every response
@@ -105,8 +110,15 @@ pub struct Panel {
 /// Where the panel root redirects (the first declared resource's list).
 /// Lives on the `app_context` because page handlers are plain `fn` pointers
 /// and cannot capture.
+///
+/// Installed only when nothing else serves the root: a declared dashboard
+/// ([`Panel::dashboard`]) or any discovered handler at the prefix wins at the
+/// panel root instead (see [`root_served`]).
 #[derive(Debug, Clone)]
 struct RootRedirect(String);
+/// The sidebar sort key of the dashboard entry [`Panel::dashboard`] declares:
+/// below every default resource entry, so the dashboard sorts first.
+const DASHBOARD_ORDER: i32 = -2;
 /// The mount prefix of the [`Panel`] that built this Router (e.g. `/admin`).
 /// Installed by [`Panel::build`] so generic handlers can derive every
 /// resource URL as `{prefix}/{slug}` — correct by construction even when a
@@ -147,6 +159,7 @@ impl Panel {
             pages: Vec::new(),
             routes: Vec::new(),
             root_target: None,
+            dashboard: None,
             slugs: Vec::new(),
             search_handlers: HashMap::new(),
             frame_ancestors: Some(headers::DEFAULT_FRAME_ANCESTORS.to_string()),
@@ -243,7 +256,8 @@ impl Panel {
     /// Registers the resource's **list page** at `{prefix}/{slug}` (e.g.
     /// `Panel::new("admin").resource::<UserResource>()` serves `/admin/users`)
     /// and derives its [`NavigationItem`] from the same slug, so the sidebar
-    /// and the router can never disagree. The panel root redirects to the
+    /// and the router can never disagree. Without a dashboard (see
+    /// [`Panel::dashboard`]) the panel root redirects to the
     /// first declared resource's list. Multiple calls compose. Sidebar order
     /// comes from the resource's [`Resource::navigation`] override, defaulting
     /// to declaration order (#165).
@@ -357,6 +371,36 @@ impl Panel {
         self
     }
 
+    /// Declare the dashboard: the sidebar entry at the panel root.
+    ///
+    /// Records `label` for the entry [`Panel::build`] registers at the mount
+    /// prefix with `order: -2`, so it sorts above the resources; the entry is
+    /// exact-matched, staying current on the root alone. The page itself is the
+    /// app's: an app-level `#[page]` at the prefix (the showcase's live feed),
+    /// which the auth gate covers like every other page under the prefix. A
+    /// page at the prefix wins at the panel root over the first-resource
+    /// redirect — whether this marker declared it or discovery alone owns it.
+    /// Without such a page the root keeps redirecting to the first declared
+    /// resource's list, and the entry leads there through the redirect rather
+    /// than at a dead root.
+    pub fn dashboard(mut self, label: impl Into<String>) -> Self {
+        self.dashboard = Some(label.into());
+        self
+    }
+
+    /// Declare a sidebar entry pointing at an explicit `url`.
+    ///
+    /// The nav-only seam for pages no resource owns — the showcase's media
+    /// library — wrapping [`NavigationItem::at`]: the URL is kept verbatim and
+    /// `order` sorts against the resources (lower renders first, ties keep
+    /// declaration order). No groups, no icons.
+    pub fn link(mut self, label: impl Into<String>, url: impl Into<String>, order: i32) -> Self {
+        let mut item = NavigationItem::at(label, url);
+        item.order = order;
+        self.nav_items.push(item);
+        self
+    }
+
     /// Set branding for the shell (header + sidebar). Additive `class` stays the only Shell seam.
     pub fn brand(mut self, brand: Brand) -> Self {
         self.brand = Some(brand);
@@ -428,8 +472,9 @@ impl Panel {
     /// items linked into the binary, mounting the browser-runtime layer
     /// (`RouterBuilderRuntimeExt::runtime`, required by `runtime::script`),
     /// installing the `Db` and the panel navigation on the `app_context`,
-    /// registering each declared resource's list page, and pointing the
-    /// panel root at the first resource.
+    /// registering each declared resource's list page, and serving the panel
+    /// root — the app's page at the prefix when one owns it (see
+    /// [`Panel::dashboard`]), else a redirect to the first resource.
     ///
     /// # Errors
     ///
@@ -464,10 +509,11 @@ impl Panel {
             shell_assets,
             brand,
             dark_mode,
-            nav_items,
+            mut nav_items,
             pages,
             routes,
             root_target,
+            dashboard,
             slugs: _,
             search_handlers,
             frame_ancestors,
@@ -576,6 +622,14 @@ impl Panel {
         // resource URLs from the declaration instead of sniffing the request
         // path (item 6 / B4).
         builder = builder.app_context(PanelPrefix(prefix.clone()));
+        // The dashboard entry points at the mount prefix the panel owns, so it
+        // stays correct wherever the panel mounts; exact-matched, so it reads
+        // as current on the root alone and never alongside a resource.
+        if let Some(label) = dashboard.as_deref() {
+            let mut item = NavigationItem::exact(label, prefix.clone());
+            item.order = DASHBOARD_ORDER;
+            nav_items.push(item);
+        }
         if !nav_items.is_empty() {
             builder = builder.app_context(nav_items);
         }
@@ -610,10 +664,17 @@ impl Panel {
         for route in routes {
             builder = builder.route(route);
         }
-        // The panel root has no home page of its own; until custom pages exist,
-        // the prefix serves a redirect to the first resource's
-        // list so the mount point is never a dead URL.
-        if let Some(target) = root_target {
+        // The panel root serves the app's own page when one owns it — a
+        // dashboard `#[page]` at the prefix, or any discovered handler on it:
+        // discovery is binary-global, so the page reaches every router this
+        // binary builds, and installing this route beside it would collide
+        // (one path and method serves one handler). Without such a page the
+        // prefix redirects to the first resource's list, even when a dashboard
+        // entry is declared: the entry then leads through the redirect instead
+        // of stranding a dead root, so the mount point is never a dead URL.
+        if !root_served(&prefix)
+            && let Some(target) = root_target
+        {
             builder = builder
                 .app_context(RootRedirect(target))
                 .route(RouteFn::new(
@@ -858,6 +919,34 @@ fn validation_cx(db: &Db) -> Cx {
     Cx::new(std::sync::Arc::new(app_context))
 }
 
+/// Whether a discovered handler already serves `GET` at the panel root.
+///
+/// Discovery is binary-global: an app-level `#[page]` (or `#[route]`) at the
+/// prefix lands in every router this binary builds, including test-local
+/// panels that declare no dashboard. Installing the root redirect beside it
+/// would collide — Topcoat rejects two handlers on one path and method — so
+/// the discovered handler wins and [`Panel::build`] serves no redirect. A
+/// binary with no such handler (and a build without `discover`) reports false
+/// and keeps the redirect.
+///
+/// Only the exact prefix counts: a handler on a longer path shares no endpoint
+/// with the root route.
+fn root_served(prefix: &str) -> bool {
+    fn serves_get_at(prefix: &str, path: &str, methods: topcoat::router::Methods<'_>) -> bool {
+        if path != prefix {
+            return false;
+        }
+        match methods {
+            topcoat::router::Methods::Any => true,
+            topcoat::router::Methods::Only(methods) => methods.contains(&http::Method::GET),
+        }
+    }
+    inventory::iter::<&'static dyn topcoat::router::Page>()
+        .any(|page| serves_get_at(prefix, page.path().as_str(), page.methods()))
+        || inventory::iter::<&'static dyn topcoat::router::Route>()
+            .any(|route| serves_get_at(prefix, route.path().as_str(), route.methods()))
+}
+
 /// Parse a panel route path, panicking on malformed input — the paths are
 /// built from the panel prefix and the resource slug, both validated at
 /// registration ([`validate_route_segment`]), so a malformed path here is a
@@ -930,8 +1019,10 @@ pub(crate) fn list_url(cx: &Cx, slug: &str) -> String {
 }
 
 /// The panel root: a temporary redirect to the first declared resource's
-/// list, so the mount point is never a dead URL (custom pages remain future
-/// work; see `docs/guide/src/panel-and-routing.md`). Filament registers its
+/// list, so the mount point is never a dead URL. Installed whenever no
+/// discovered handler serves the root — whether or not the app declares a
+/// dashboard entry (see [`Panel::dashboard`]); a page at the prefix serves the
+/// root instead. Filament registers its
 /// home page here.
 pub(crate) fn panel_root_redirect(cx: &Cx, _body: Body) -> RouteFuture<'_> {
     Box::pin(async move {
@@ -1649,6 +1740,73 @@ mod tests {
         assert_eq!(users.url(), Some("/admin/users"));
         assert_eq!(categories.url(), Some("/admin/categories"));
         assert_ne!(users.url(), categories.url());
+    }
+
+    /// The panel root redirects to the first resource unless a page serves it —
+    /// with or without a declared dashboard.
+    ///
+    /// This binary serves no page at `/admin`, so the redirect installs either
+    /// way; a declared dashboard without its page falls back to the redirect,
+    /// and its entry leads through it instead of at a dead root. The showcase
+    /// pins the served half: its dashboard page answers `GET /admin` with the
+    /// feed.
+    #[tokio::test]
+    async fn panel_root_redirects_unless_a_page_serves_it() {
+        use crate::resource::Resource;
+
+        struct DummyResource;
+        impl Resource for DummyResource {
+            type Model = Dummy;
+            fn table(cx: &Cx) -> crate::resource::Table<Dummy> {
+                dummy_table(cx)
+            }
+        }
+
+        async fn root_response(
+            router: &topcoat::router::Router,
+        ) -> (http::StatusCode, Option<String>) {
+            let response = router
+                .handle(
+                    http::Request::builder()
+                        .uri("/admin")
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await;
+            let status = response.status();
+            let location = response
+                .headers()
+                .get(http::header::LOCATION)
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_string);
+            (status, location)
+        }
+
+        let db = Db::builder().connect("sqlite::memory:").await.unwrap();
+        let router = panel_for::<DummyResource>(db)
+            .build()
+            .expect("panel builds");
+        assert_eq!(
+            root_response(&router).await,
+            (
+                http::StatusCode::TEMPORARY_REDIRECT,
+                Some("/admin/dummies".to_string())
+            )
+        );
+
+        let db = Db::builder().connect("sqlite::memory:").await.unwrap();
+        let router = panel_for::<DummyResource>(db)
+            .dashboard("Dashboard")
+            .build()
+            .expect("panel builds");
+        assert_eq!(
+            root_response(&router).await,
+            (
+                http::StatusCode::TEMPORARY_REDIRECT,
+                Some("/admin/dummies".to_string())
+            ),
+            "a dashboard without its page falls back to the redirect"
+        );
     }
 
     /// GH #174: duplicate slugs are reported by `build`, not asserted in the

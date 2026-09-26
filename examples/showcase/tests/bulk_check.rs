@@ -177,27 +177,39 @@ async fn bulk_bar_renders_checkboxes_with_row_keys() {
 
     // The list streams (skeleton first, rows in the swap payload); the
     // collected body contains both. The table paginates by 25, so the first
-    // page carries every seeded row's checkbox.
+    // page carries every seeded row's checkbox but the refused row's: Ken's
+    // SSO-guarded row renders none.
     let resp = client.get("/admin/users").await;
     assert!(resp.status().is_success());
     let html = body_string(resp).await;
+    let ken = users
+        .iter()
+        .find(|u| u.name == "Ken Thompson")
+        .expect("the seeded SSO-managed row");
     assert_eq!(
         html.matches("data-row-select").count(),
-        roster,
-        "first page should carry {roster} row checkboxes in {}",
+        roster - 1,
+        "first page should carry every seeded row's checkbox but Ken's in {}",
         html
     );
     // Every rendered checkbox value is a real row key (the visible rows;
-    // delete forms carry ids in actions, never in `value=`).
+    // delete forms carry ids in actions, never in `value=`), and the refused
+    // row's key is none of them.
+    assert!(
+        !html.contains(&format!("value=\"{}\"", ken.id)),
+        "the refused row must render no checkbox value in {}",
+        html
+    );
     let mut found = 0;
     for u in &users {
-        if html.contains(&format!("value=\"{}\"", u.id)) {
+        if u.id != ken.id && html.contains(&format!("value=\"{}\"", u.id)) {
             found += 1;
         }
     }
     assert_eq!(
-        found, roster,
-        "all rendered row keys should be checkbox values in {}",
+        found,
+        roster - 1,
+        "all rendered row keys but Ken's should be checkbox values in {}",
         html
     );
     // A filtered list shows only the matching row's checkbox.
@@ -237,10 +249,10 @@ async fn bulk_bar_renders_checkboxes_with_row_keys() {
     );
 }
 
-/// GH #235: select-all over the seeded roster. Every row renders a checkbox,
-/// but Ken's is disabled — the SSO guard denies his delete — so the browser's
-/// select-all collects the other seven and the handler deletes them, instead of
-/// refusing the whole batch over the one row the resource protects.
+/// GH #235: select-all over the seeded roster. Ken's SSO-guarded row renders
+/// no checkbox — the guard denies his delete — so the browser's select-all
+/// collects the other seven and the handler deletes them, instead of refusing
+/// the whole batch over the one row the resource protects.
 #[tokio::test]
 async fn select_all_skips_the_denied_row_and_deletes_the_rest() {
     let db = seeded_db().await;
@@ -260,9 +272,8 @@ async fn select_all_skips_the_denied_row_and_deletes_the_rest() {
     );
 
     let html = body_string(client.get("/admin/users").await).await;
-    // The rendered chrome is the fix: the denied row links no edit page and no
-    // delete dialog, and its checkbox is disabled, carrying the reason as its
-    // accessible label.
+    // The rendered chrome is the fix: the denied row links no edit page and
+    // no delete dialog, and renders no checkbox at all.
     assert!(
         !html.contains(&format!("/admin/users/{}/edit", ken.id)),
         "the denied row must render no Edit link, got {html}"
@@ -271,28 +282,24 @@ async fn select_all_skips_the_denied_row_and_deletes_the_rest() {
         !html.contains(&format!("delete={}", ken.id)),
         "the denied row must render no Delete link, got {html}"
     );
-    let ken_tag = input_tag_with_value(&html, &ken.id.to_string());
     assert!(
-        ken_tag.contains("disabled"),
-        "the denied row's checkbox must be disabled, got {ken_tag}"
+        !html.contains(&format!("value=\"{}\"", ken.id)),
+        "the denied row must render no checkbox, got {html}"
     );
-    assert!(
-        ken_tag.contains("You cannot delete this row"),
-        "the disabled checkbox must carry the reason, got {ken_tag}"
-    );
-    // The allowed rows keep both links, so the absences above are not passing
-    // on a page that renders no chrome at all.
+    // The allowed rows keep both links and a checkbox, so the absences above
+    // are not passing on a page that renders no chrome at all.
     let ada = users
         .iter()
         .find(|u| u.name == "Ada Lovelace")
         .expect("the seeded allowed row");
     assert!(
         html.contains(&format!("/admin/users/{}/edit", ada.id))
-            && html.contains(&format!("delete={}", ada.id)),
-        "an allowed row must keep its Edit and Delete links, got {html}"
+            && html.contains(&format!("delete={}", ada.id))
+            && html.contains(&format!("value=\"{}\"", ada.id)),
+        "an allowed row must keep its Edit and Delete links and its checkbox, got {html}"
     );
 
-    // What select-all submits: exactly the boxes `bulk.js` would check.
+    // What select-all submits: exactly the boxes on the page.
     let ids = selectable_row_ids(&html);
     assert_eq!(
         ids.len(),
@@ -328,18 +335,6 @@ async fn select_all_skips_the_denied_row_and_deletes_the_rest() {
     assert_eq!(remaining[0].name, "Ken Thompson");
 }
 
-/// The opening `<input …>` tag whose `value` attribute is `value`.
-///
-/// Attributes render in no guaranteed order (topcoat#122), so callers assert on
-/// the whole tag rather than on a single attribute's position.
-fn input_tag_with_value(html: &str, value: &str) -> String {
-    let at = html
-        .find(&format!("value=\"{value}\""))
-        .unwrap_or_else(|| panic!("missing an input with value {value} in {html}"));
-    let start = html[..at].rfind("<input").expect("its opening tag");
-    input_tag_at(&html[start..])
-}
-
 /// The `<input …>` tag `html` starts with, up to the `>` that closes it.
 fn input_tag_at(html: &str) -> String {
     let mut quoted = false;
@@ -354,9 +349,8 @@ fn input_tag_at(html: &str) -> String {
 }
 
 /// The row ids the page offers for bulk selection, in document order: every
-/// `data-row-select` checkbox a user can check. A row the per-record policy
-/// denies delete renders `disabled`, and `bulk.js`'s `boxesIn` skips
-/// exactly those — so this is what select-all submits.
+/// `data-row-select` checkbox on the page. A row the per-record policy denies
+/// delete renders no checkbox, so this is what select-all submits.
 fn selectable_row_ids(html: &str) -> Vec<String> {
     let mut ids = Vec::new();
     let mut rest = html;
@@ -365,12 +359,10 @@ fn selectable_row_ids(html: &str) -> Vec<String> {
             .rfind("<input")
             .expect("the marker's opening tag");
         let tag = input_tag_at(&rest[start..]);
-        if !tag.contains("disabled") {
-            let value_at = tag.find("value=\"").expect("a checkbox value");
-            let after = &tag[value_at + "value=\"".len()..];
-            let end = after.find('"').expect("a closed value");
-            ids.push(after[..end].to_string());
-        }
+        let value_at = tag.find("value=\"").expect("a checkbox value");
+        let after = &tag[value_at + "value=\"".len()..];
+        let end = after.find('"').expect("a closed value");
+        ids.push(after[..end].to_string());
         rest = &rest[at + 1..];
     }
     ids

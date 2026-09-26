@@ -38,10 +38,8 @@ pub type RowPolicy<M> = Arc<dyn Fn(&M) -> RowActions + Send + Sync>;
 /// affordances a resource declares, this says which of them the caller may use
 /// on one loaded row. [`Table::row_actions`] stores the projection and the
 /// renderer consults it per row — a denied action emits no link, and a row
-/// denied `delete` renders its bulk checkbox `disabled` with the reason as its
-/// accessible label, so the row can never enter the selection transport. A row
-/// denied every action keeps its actions cell with a `Locked` badge in place
-/// of the links, so the state reads as locked rather than as missing chrome.
+/// denied `delete` renders no bulk checkbox, so the row can never enter the
+/// selection transport.
 ///
 /// The panel derives one from the resource's
 /// [`can_view`](crate::resource::Resource::can_view) /

@@ -21,6 +21,11 @@ pub enum NavTarget {
     /// An explicit URL: a custom path, a query view, another panel's mount.
     /// Active state is string matching (exact, or a slash-boundary prefix).
     Url(String),
+    /// An explicit URL that is current only on itself, never on a longer path
+    /// beneath it. The panel root is a prefix of every page the panel serves,
+    /// so a dashboard entry pointing at it would read as current everywhere;
+    /// an exact entry stays current on the dashboard alone.
+    Exact(String),
 }
 
 impl NavTarget {
@@ -29,7 +34,7 @@ impl NavTarget {
     pub fn url(&self) -> Option<&str> {
         match self {
             Self::Derived => None,
-            Self::Url(url) => Some(url),
+            Self::Url(url) | Self::Exact(url) => Some(url),
         }
     }
 }
@@ -39,6 +44,7 @@ impl std::fmt::Debug for NavTarget {
         match self {
             Self::Derived => f.write_str("Derived"),
             Self::Url(url) => f.debug_tuple("Url").field(url).finish(),
+            Self::Exact(url) => f.debug_tuple("Exact").field(url).finish(),
         }
     }
 }
@@ -49,8 +55,8 @@ pub struct NavigationItem {
     pub label: String,
     /// Where this entry points. [`NavTarget::Derived`] until the owning Panel
     /// resolves it — see [`NavTarget`]. Build items with
-    /// [`NavigationItem::for_resource`] or [`NavigationItem::at`] rather than
-    /// spelling the variant out.
+    /// [`NavigationItem::for_resource`], [`NavigationItem::at`], or
+    /// [`NavigationItem::exact`] rather than spelling the variant out.
     pub target: NavTarget,
     /// Sort key for the sidebar: items render in stable `order`
     /// order, so declaration order breaks ties. Resources declare in
@@ -92,6 +98,19 @@ impl NavigationItem {
         }
     }
 
+    /// A sidebar entry at an explicit `url` that is current only on itself.
+    ///
+    /// [`Self::at`] prefix-matches, which suits a section root like
+    /// `/admin/users`; the panel root is a prefix of every panel page, so the
+    /// dashboard entry uses this instead and stays current on `/admin` alone.
+    pub fn exact(label: impl Into<String>, url: impl Into<String>) -> Self {
+        Self {
+            label: label.into(),
+            target: NavTarget::Exact(url.into()),
+            order: 0,
+        }
+    }
+
     /// Resolve a [`NavTarget::Derived`] entry against the Panel that owns it
     /// leaving an explicit target untouched.
     ///
@@ -119,9 +138,10 @@ impl NavigationItem {
     }
 
     /// Whether this item is current for the given request path (without query):
-    /// an exact match, or a prefix match on a slash boundary (so
-    /// `/admin/users` is active on `/admin/users/create` but not on
-    /// `/admin/userships`). Uniform for every item — since resources mount at
+    /// an exact match, or — for [`NavTarget::Url`] — a prefix match on a slash
+    /// boundary (so `/admin/users` is active on `/admin/users/create` but not
+    /// on `/admin/userships`). A [`NavTarget::Exact`] entry matches exactly
+    /// only. Uniform for every item — since resources mount at
     /// `{prefix}/{slug}`, no generated item points at the bare panel
     /// prefix.
     ///
@@ -136,6 +156,9 @@ impl NavigationItem {
         };
         if current_path == url {
             return true;
+        }
+        if matches!(self.target, NavTarget::Exact(_)) {
+            return false;
         }
         current_path
             .strip_prefix(url)
@@ -269,5 +292,19 @@ mod tests {
         // unrelated
         assert!(!users.is_current_path("/other"));
         assert!(!showcase.is_current_path("/admin/users"));
+    }
+
+    #[test]
+    fn exact_navigation_item_matches_only_itself() {
+        let dashboard = NavigationItem::exact("Dashboard", "/admin");
+        assert!(dashboard.is_current_path("/admin"));
+        assert!(!dashboard.is_current_path("/admin/users"));
+        assert!(!dashboard.is_current_path("/administrator"));
+        assert_eq!(dashboard.url(), Some("/admin"));
+        // Explicit targets survive resolution verbatim, exact ones included.
+        assert_eq!(
+            dashboard.clone().resolved("backoffice", "users").url(),
+            Some("/admin")
+        );
     }
 }

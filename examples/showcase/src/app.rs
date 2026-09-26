@@ -1392,6 +1392,10 @@ fn build_router(db: Db, bundle: Option<AssetBundle>, uploads: Option<PathBuf>) -
         // Light by default: the header toggle is the only thing that
         // turns dark on. `Panel::dark_mode` stays available for an app that
         // wants a dark-first panel.
+        .dashboard("Dashboard")
+        // The media library is an app page with no resource behind it, so it
+        // enters the sidebar through the link seam, sorted after the resources.
+        .link("Media library", crate::media::MEDIA_PATH, 10)
         .resource::<UserResource>()
         .resource::<AuthorResource>()
         .resource::<PostResource>()

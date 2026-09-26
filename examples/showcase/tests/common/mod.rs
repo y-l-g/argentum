@@ -609,38 +609,55 @@ fn unescape_href(href: &str) -> String {
         .replace("&amp;", "&")
 }
 
-/// The row titles rendered into a table table, in document order.
+/// The row titles rendered into a table, in document order.
 ///
-/// Each row's first cell is the title projection, so this reads the table the
-/// list handlers build (skeleton rows carry no `data-row-select` and are
-/// skipped). Used by pagination and comments assertions that care about which
-/// rows a page actually holds.
+/// Each row's first data cell is the title projection, so this reads the table
+/// the list handlers build: one entry per `<tr id="row-…">`, whether or not
+/// the row renders a bulk checkbox (a refused row renders none, and skeleton
+/// rows carry no id and are skipped). Used by pagination and comments
+/// assertions that care about which rows a page actually holds.
 pub fn row_titles(html: &str) -> Vec<String> {
+    let bulk = html.contains("data-bulk-select-all");
     let mut out = Vec::new();
     let mut rest = html;
-    while let Some(at) = rest.find("data-row-select") {
-        rest = &rest[at..];
-        if let Some(td) = rest.find("<td")
-            && let Some(gt) = rest[td..].find('>')
-        {
-            let after = &rest[td + gt + 1..];
-            if let Some(end) = after.find("</td>") {
-                let text = after[..end].split('<').next().unwrap_or("").trim();
-                if !text.is_empty() {
-                    out.push(text.to_string());
-                }
+    while let Some(at) = rest.find("<tr") {
+        let tag_end = rest[at..].find('>').expect("the row's opening tag") + at;
+        let tag = &rest[at..tag_end];
+        let after_tag = &rest[tag_end..];
+        let row_end = after_tag.find("</tr>").expect("the row's closing tag");
+        let chunk = &after_tag[..row_end];
+        if tag.contains("id=\"row-") {
+            // The title cell follows the bulk cell when the table has one;
+            // the bulk cell holds an input or nothing, never title text.
+            let mut cells = chunk;
+            if bulk {
+                let first = cells.find("<td").expect("the bulk cell");
+                let after = &cells[first..];
+                let end = after.find("</td>").expect("the bulk cell's end");
+                cells = &after[end..];
+            }
+            let td = cells.find("<td").expect("the title cell");
+            let after = &cells[td..];
+            let gt = after.find('>').expect("the cell's opening tag") + 1;
+            let text = &after[gt..];
+            let end = text.find("</td>").expect("the cell's end");
+            let title = text[..end].split('<').next().unwrap_or("").trim();
+            if !title.is_empty() {
+                out.push(title.to_string());
             }
         }
-        rest = &rest[1..];
+        rest = &after_tag[row_end..];
     }
     out
 }
 
-/// The record key of every rendered row, in document order.
+/// The record key of every selectable row, in document order.
 ///
 /// The bulk checkbox carries the record key as its `value` (`Table::pk`), so a
 /// pagination walk can assert the exact rows a page holds: tied display values
-/// cannot be told apart by their first cell. Attributes render in no
+/// cannot be told apart by their first cell. A row the policy refuses renders
+/// no checkbox, so its key is absent here — pair with [`row_titles`] for full
+/// coverage. Attributes render in no
 /// guaranteed order (topcoat#122), so this reads each `<input>` tag whole
 /// rather than assuming `value` and the marker sit in a fixed order.
 pub fn row_keys(html: &str) -> Vec<String> {

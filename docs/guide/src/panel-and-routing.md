@@ -18,7 +18,8 @@ Routes for a resource with slug `users` under prefix `admin`:
 - `GET /admin/users/export` : CSV export
 - `GET /admin/users/options` : relation option search for a searchable select (GH #150),
   see [Forms](./forms.md)
-- `GET /admin` redirects to the first resource
+- `GET /admin` : dashboard — the app's page at the panel root (the showcase serves its live
+  feed there). A panel that declares no dashboard redirects to the first resource instead.
 
 Useful panel options:
 
@@ -33,6 +34,11 @@ Panel::new("admin")
 have chosen one** — the toggle is always rendered, and a stored choice wins in both directions
 (GH #184): picking light persists, and the next page stays light instead of falling back to this
 default. Omit `dark_mode` and the panel starts light.
+
+`dashboard("Dashboard")` declares the sidebar entry at the panel root: the app's page there wins
+over the first-resource redirect, and the entry sorts first. `link("Media library",
+"/admin/media", 10)` adds a sidebar entry for a page no resource owns, sorted after the
+resources by its order.
 
 The panel owns the URL of each resource's list page and resolves a resource's sidebar entry to
 `{prefix}/{slug}`; the resource owns the label and the ordering. See

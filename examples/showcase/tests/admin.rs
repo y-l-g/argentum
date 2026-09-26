@@ -159,14 +159,19 @@ async fn error_responses_carry_frame_ancestors() {
         "a wrong-method response must carry the directive"
     );
 
-    // The root's temporary redirect to the first resource leaves through the
-    // same `Err` branch and keeps the directive.
+    // The dashboard at the panel root renders like any other page and keeps
+    // the directive.
     let response = client.get("/admin").await;
-    assert_eq!(response.status(), http::StatusCode::TEMPORARY_REDIRECT);
+    assert!(
+        response.status().is_success(),
+        "GET /admin serves the dashboard, got {}",
+        response.status()
+    );
     assert!(
         csp(&response).is_some_and(|policy| policy.contains("frame-ancestors")),
-        "the root redirect must carry the directive"
+        "the dashboard must carry the directive"
     );
+    let _ = body_string(response).await;
 
     // The gate's login redirect does too: an unauthenticated page request is
     // answered by a redirect to the login route.
@@ -192,16 +197,106 @@ async fn error_responses_carry_frame_ancestors() {
 }
 
 #[tokio::test]
-async fn admin_root_redirects_to_first_resource() {
+async fn admin_root_serves_the_dashboard() {
     let db = seeded_db().await;
     let router = router(db.clone());
     let client = demo_client(&router, &db).await;
     let response = client.get("/admin").await;
 
-    assert_eq!(response.status(), http::StatusCode::TEMPORARY_REDIRECT);
+    assert!(
+        response.status().is_success(),
+        "GET /admin serves the dashboard, got {}",
+        response.status()
+    );
+    let html = body_string(response).await;
+    assert!(
+        html.contains(">Dashboard</h1>"),
+        "the root renders the dashboard heading: {html}"
+    );
+    assert!(
+        html.contains("data-live-feed"),
+        "the dashboard carries the live feed: {html}"
+    );
+}
+
+#[tokio::test]
+async fn panel_chrome_lists_dashboard_media_and_blog_link() {
+    // The shell's own chrome, pinned on a resource page so the dashboard's
+    // assertions above stay on the root: Dashboard first, the media library
+    // entry after the resources, and the public blog link in the header.
+    let db = seeded_db().await;
+    let router = router(db.clone());
+    let client = demo_client(&router, &db).await;
+    let html = body_string(client.get("/admin/users").await).await;
+
+    let dashboard_at = html
+        .find("href=\"/admin\"")
+        .unwrap_or_else(|| panic!("missing the Dashboard entry in {html}"));
+    for label in ["Users", "Writers", "Blog Posts", "Comments"] {
+        let at = html
+            .find(label)
+            .unwrap_or_else(|| panic!("missing {label} in {html}"));
+        assert!(
+            dashboard_at < at,
+            "the Dashboard entry must sort first, before {label}: {html}"
+        );
+    }
+    assert!(
+        html.contains("href=\"/admin/media\"") && html.contains("Media library"),
+        "missing the media library entry in {html}"
+    );
+    let media_at = html.find("href=\"/admin/media\"").unwrap();
+    let comments_at = html
+        .find("href=\"/admin/comments\"")
+        .expect("the Comments entry");
+    assert!(
+        comments_at < media_at,
+        "the media library sorts after the resources: {html}"
+    );
+    assert!(
+        html.contains("href=\"/blog\"") && html.contains(">View blog<"),
+        "missing the header blog link in {html}"
+    );
+    // The blog has no sidebar entry: the header link is the page's only one
+    // to `/blog`.
     assert_eq!(
-        response.headers().get(http::header::LOCATION).unwrap(),
-        "/admin/users"
+        html.matches("href=\"/blog\"").count(),
+        1,
+        "the blog must not gain a sidebar entry: {html}"
+    );
+    // Same tab: the blog link carries no target.
+    let blog_at = html.find("href=\"/blog\"").expect("the blog link");
+    let tag_start = html[..blog_at].rfind("<a").expect("its opening tag");
+    let tag_end = html[tag_start..].find('>').expect("the tag's end") + tag_start;
+    assert!(
+        !html[tag_start..tag_end].contains("target="),
+        "the blog link stays in the same tab: {html}"
+    );
+    // Active state: on a resource page the resource is current and the
+    // exact-matched Dashboard is not — one highlight, not two.
+    assert_eq!(
+        html.matches("data-active=\"true\"").count(),
+        1,
+        "exactly one sidebar entry is current on a resource page: {html}"
+    );
+}
+
+#[tokio::test]
+async fn dashboard_marks_only_itself_current() {
+    // The mirror half: on the root the Dashboard entry is the current one,
+    // and no resource entry highlights alongside it.
+    let db = seeded_db().await;
+    let router = router(db.clone());
+    let client = demo_client(&router, &db).await;
+    let html = body_string(client.get("/admin").await).await;
+    assert_eq!(
+        html.matches("data-active=\"true\"").count(),
+        1,
+        "exactly one sidebar entry is current on the dashboard: {html}"
+    );
+    assert!(
+        html.contains("aria-current=\"page\""),
+        "the current entry names itself: {html}"
     );
 }
 
@@ -211,6 +306,7 @@ async fn removed_showcase_routes_are_not_found() {
     let router = router(db.clone());
     let client = demo_client(&router, &db).await;
     for path in [
+        "/admin/live",
         "/admin/showcase",
         "/admin/showcase/ui",
         "/admin/showcase/dialog",
@@ -484,9 +580,12 @@ async fn admin_list_pagination_walks_descending_cursor_links() {
     descending.reverse();
     assert_eq!(names, descending, "the pages must stay in descending order");
     let unique: std::collections::HashSet<_> = keys.iter().collect();
+    // One row short of the total: the SSO-denied row renders no checkbox, so
+    // its key never reaches the page. Its single appearance is covered by the
+    // title walk above.
     assert_eq!(
         unique.len(),
-        total,
+        total - 1,
         "no row may appear on two pages of a descending walk"
     );
 }
@@ -548,14 +647,16 @@ async fn admin_list_pagination_keeps_tied_sort_values() {
     );
 
     // The tie-breaker is what makes the split exact: without it the second
-    // page would repeat the tie or drop it, so the keys would not cover `total`
-    // distinct rows.
+    // page would repeat the tie or drop it, so the keys would not cover the
+    // selectable rows. One row short of the total: the SSO-denied row renders
+    // no checkbox, so its key never reaches the page; its title is covered by
+    // the page-1 assertions above.
     let mut keys = row_keys(&page1);
     keys.extend(row_keys(&page2));
     let unique: std::collections::HashSet<_> = keys.iter().collect();
     assert_eq!(
         unique.len(),
-        total,
+        total - 1,
         "the tie-breaker must not skip or repeat a row"
     );
 }
