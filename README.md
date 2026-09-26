@@ -78,7 +78,6 @@ contributor specs in [`docs/dev/`](docs/dev/), domain vocabulary in
 - Upstream: the [Toasty guide](https://tokio-rs.github.io/toasty/0.10.0/guide/) (queries, filters,
   sorting, preloading, migrations) and the [Topcoat docs](https://docs.rs/topcoat) (`view!` and
   `#[component]`, router, cookie and session).
-- The [Filament PHP docs](https://filamentphp.com/docs) are product inspiration, not API source.
 
 ## Contributing
 
