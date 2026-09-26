@@ -257,6 +257,13 @@ async fn panel_chrome_lists_dashboard_media_and_blog_link() {
         html.contains("href=\"/blog\"") && html.contains(">View blog<"),
         "missing the header blog link in {html}"
     );
+    // The blog has no sidebar entry: the header link is the page's only one
+    // to `/blog`.
+    assert_eq!(
+        html.matches("href=\"/blog\"").count(),
+        1,
+        "the blog must not gain a sidebar entry: {html}"
+    );
     // Same tab: the blog link carries no target.
     let blog_at = html.find("href=\"/blog\"").expect("the blog link");
     let tag_start = html[..blog_at].rfind("<a").expect("its opening tag");

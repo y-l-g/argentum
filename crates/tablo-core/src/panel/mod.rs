@@ -379,9 +379,10 @@ impl Panel {
     /// app's: an app-level `#[page]` at the prefix (the showcase's live feed),
     /// which the auth gate covers like every other page under the prefix. A
     /// page at the prefix wins at the panel root over the first-resource
-    /// redirect — whether this marker declared it or discovery alone owns it —
-    /// and without either the root keeps redirecting to the first declared
-    /// resource's list.
+    /// redirect — whether this marker declared it or discovery alone owns it.
+    /// Without such a page the root keeps redirecting to the first declared
+    /// resource's list, and the entry leads there through the redirect rather
+    /// than at a dead root.
     pub fn dashboard(mut self, label: impl Into<String>) -> Self {
         self.dashboard = Some(label.into());
         self
@@ -668,10 +669,10 @@ impl Panel {
         // discovery is binary-global, so the page reaches every router this
         // binary builds, and installing this route beside it would collide
         // (one path and method serves one handler). Without such a page the
-        // prefix redirects to the first resource's list so the mount point is
-        // never a dead URL.
-        if dashboard.is_none()
-            && !root_served(&prefix)
+        // prefix redirects to the first resource's list, even when a dashboard
+        // entry is declared: the entry then leads through the redirect instead
+        // of stranding a dead root, so the mount point is never a dead URL.
+        if !root_served(&prefix)
             && let Some(target) = root_target
         {
             builder = builder
@@ -1018,9 +1019,10 @@ pub(crate) fn list_url(cx: &Cx, slug: &str) -> String {
 }
 
 /// The panel root: a temporary redirect to the first declared resource's
-/// list, so the mount point is never a dead URL. Installed only when the app
-/// declares no dashboard (see [`Panel::dashboard`]); a declared dashboard's
-/// app-level page serves the root instead. Filament registers its
+/// list, so the mount point is never a dead URL. Installed whenever no
+/// discovered handler serves the root — whether or not the app declares a
+/// dashboard entry (see [`Panel::dashboard`]); a page at the prefix serves the
+/// root instead. Filament registers its
 /// home page here.
 pub(crate) fn panel_root_redirect(cx: &Cx, _body: Body) -> RouteFuture<'_> {
     Box::pin(async move {
@@ -1740,15 +1742,16 @@ mod tests {
         assert_ne!(users.url(), categories.url());
     }
 
-    /// The panel root redirects to the first resource without a dashboard, and
-    /// yields to the dashboard page with one.
+    /// The panel root redirects to the first resource unless a page serves it —
+    /// with or without a declared dashboard.
     ///
-    /// This binary serves no page at `/admin`, so the redirect installs; a
-    /// declared dashboard skips it (the app's own page serves the root there).
-    /// The showcase pins the served half: its dashboard page answers `GET
-    /// /admin` with the feed.
+    /// This binary serves no page at `/admin`, so the redirect installs either
+    /// way; a declared dashboard without its page falls back to the redirect,
+    /// and its entry leads through it instead of at a dead root. The showcase
+    /// pins the served half: its dashboard page answers `GET /admin` with the
+    /// feed.
     #[tokio::test]
-    async fn panel_root_redirects_without_a_dashboard_and_yields_with_one() {
+    async fn panel_root_redirects_unless_a_page_serves_it() {
         use crate::resource::Resource;
 
         struct DummyResource;
@@ -1759,16 +1762,24 @@ mod tests {
             }
         }
 
-        async fn root_status(router: &topcoat::router::Router) -> http::StatusCode {
-            router
+        async fn root_response(
+            router: &topcoat::router::Router,
+        ) -> (http::StatusCode, Option<String>) {
+            let response = router
                 .handle(
                     http::Request::builder()
                         .uri("/admin")
                         .body(Body::empty())
                         .unwrap(),
                 )
-                .await
-                .status()
+                .await;
+            let status = response.status();
+            let location = response
+                .headers()
+                .get(http::header::LOCATION)
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_string);
+            (status, location)
         }
 
         let db = Db::builder().connect("sqlite::memory:").await.unwrap();
@@ -1776,8 +1787,11 @@ mod tests {
             .build()
             .expect("panel builds");
         assert_eq!(
-            root_status(&router).await,
-            http::StatusCode::TEMPORARY_REDIRECT
+            root_response(&router).await,
+            (
+                http::StatusCode::TEMPORARY_REDIRECT,
+                Some("/admin/dummies".to_string())
+            )
         );
 
         let db = Db::builder().connect("sqlite::memory:").await.unwrap();
@@ -1785,7 +1799,14 @@ mod tests {
             .dashboard("Dashboard")
             .build()
             .expect("panel builds");
-        assert_eq!(root_status(&router).await, http::StatusCode::NOT_FOUND);
+        assert_eq!(
+            root_response(&router).await,
+            (
+                http::StatusCode::TEMPORARY_REDIRECT,
+                Some("/admin/dummies".to_string())
+            ),
+            "a dashboard without its page falls back to the redirect"
+        );
     }
 
     /// GH #174: duplicate slugs are reported by `build`, not asserted in the

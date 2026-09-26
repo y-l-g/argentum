@@ -434,6 +434,13 @@ impl<M> Table<M> {
                             let delete_action_for_row = row.delete_action.clone();
                             let delete_dialog_for_row = delete_dialog_id.clone();
                             let selectable_for_row = row.selectable;
+                            // A refused action emits no URL, so a row refused
+                            // every one renders no link wrapper either — only
+                            // the empty cell its header declares.
+                            let links_for_row = view_for_row.is_some()
+                                || edit_for_row.is_some()
+                                || (open_for_row.is_some()
+                                        && delete_action_for_row.is_some());
                             let row_dom_id = row_dom_id(&key_for_row);
                             if let Some(header) = row.group_header.clone() {
                                 table_row(
@@ -491,46 +498,48 @@ impl<M> Table<M> {
                                 if with_actions {
                                     table_cell(
                                         attrs: attributes! { style=(actions_min.as_deref()) },
-                                        <div class="flex gap-2">
-                                            if let Some(url) = view_for_row {
-                                                <a
-                                                    href=(url)
-                                                    class=(button_variants(
-                                                        ButtonVariant::Outline,
-                                                        ButtonSize::Md,
-                                                    ))
-                                                >
-                                                    "View"
-                                                </a>
-                                            }
-                                            if let Some(url) = edit_for_row {
-                                                <a
-                                                    href=(url)
-                                                    class=(button_variants(
-                                                        ButtonVariant::Outline,
-                                                        ButtonSize::Md,
-                                                    ))
-                                                >
-                                                    "Edit"
-                                                </a>
-                                            }
-                                            if let (Some(url), Some(action)) = (
-                                                open_for_row,
-                                                delete_action_for_row,
-                                            ) {
-                                                <a
-                                                    href=(url)
-                                                    data-row-delete-trigger=(delete_dialog_for_row)
-                                                    data-row-delete-action=(action)
-                                                    class=(button_variants(
-                                                        ButtonVariant::Destructive,
-                                                        ButtonSize::Md,
-                                                    ))
-                                                >
-                                                    "Delete"
-                                                </a>
-                                            }
-                                        </div>
+                                        if links_for_row {
+                                            <div class="flex gap-2">
+                                                if let Some(url) = view_for_row {
+                                                    <a
+                                                        href=(url)
+                                                        class=(button_variants(
+                                                            ButtonVariant::Outline,
+                                                            ButtonSize::Md,
+                                                        ))
+                                                    >
+                                                        "View"
+                                                    </a>
+                                                }
+                                                if let Some(url) = edit_for_row {
+                                                    <a
+                                                        href=(url)
+                                                        class=(button_variants(
+                                                            ButtonVariant::Outline,
+                                                            ButtonSize::Md,
+                                                        ))
+                                                    >
+                                                        "Edit"
+                                                    </a>
+                                                }
+                                                if let (Some(url), Some(action)) = (
+                                                    open_for_row,
+                                                    delete_action_for_row,
+                                                ) {
+                                                    <a
+                                                        href=(url)
+                                                        data-row-delete-trigger=(delete_dialog_for_row)
+                                                        data-row-delete-action=(action)
+                                                        class=(button_variants(
+                                                            ButtonVariant::Destructive,
+                                                            ButtonSize::Md,
+                                                        ))
+                                                    >
+                                                        "Delete"
+                                                    </a>
+                                                }
+                                            </div>
+                                        }
                                     )
                                 }
                             )

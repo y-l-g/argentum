@@ -206,7 +206,9 @@ _Avoid_: MenuItem, NavLink, SidebarEntry
 ### NavTarget
 
 Where a NavigationItem points. `Derived` means the declaring Resource cannot know its mount, so
-the owning Panel resolves the URL; `Url` names a URL outright. The distinction is the type rather
+the owning Panel resolves the URL; `Url` names a URL outright, current on itself and the paths
+beneath it; `Exact` names a URL outright, current on itself alone — the dashboard entry at the
+panel root uses it, since the root is a prefix of every panel page. The distinction is the type rather
 than a convention, so prefix resolution can never touch a URL an author wrote (GH #165).
 
 _Avoid_: Link, Route, Target, SidebarUrl

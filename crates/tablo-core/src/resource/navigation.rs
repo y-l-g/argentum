@@ -55,8 +55,8 @@ pub struct NavigationItem {
     pub label: String,
     /// Where this entry points. [`NavTarget::Derived`] until the owning Panel
     /// resolves it — see [`NavTarget`]. Build items with
-    /// [`NavigationItem::for_resource`] or [`NavigationItem::at`] rather than
-    /// spelling the variant out.
+    /// [`NavigationItem::for_resource`], [`NavigationItem::at`], or
+    /// [`NavigationItem::exact`] rather than spelling the variant out.
     pub target: NavTarget,
     /// Sort key for the sidebar: items render in stable `order`
     /// order, so declaration order breaks ties. Resources declare in

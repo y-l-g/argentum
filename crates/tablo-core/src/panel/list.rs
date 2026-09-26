@@ -1337,7 +1337,7 @@ mod tests {
         }
 
         let html = list_html_with::<RowPolicyResource>(&["Ada", "Hidden", "Locked"]).await;
-        let rows = rendered_rows(&html);
+        let rows = keyed_rows(&html);
         // Two of the three rows carry key chrome: the view-refused row renders
         // no link and no checkbox, so no key of its reaches the page.
         assert_eq!(rows.len(), 2, "two rows carry key chrome: {html}");
@@ -1411,7 +1411,7 @@ mod tests {
     /// sortable column orders by the PK fallback, and the keys are random — so
     /// it reads each row's own cells. Group header rows (`id="group-…"`) carry
     /// no record and are skipped.
-    fn rendered_rows(html: &str) -> Vec<(String, String)> {
+    fn keyed_rows(html: &str) -> Vec<(String, String)> {
         let mut rows = Vec::new();
         let mut rest = html;
         while let Some(at) = rest.find("<tr") {
