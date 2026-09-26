@@ -6,7 +6,7 @@ use toasty::Deferred;
 /// path.
 pub use crate::seed::{
     BLOCKED_TENANT, DEMO_ADMIN_EMAIL, DEMO_ADMIN_PASSWORD, DEMO_TENANT, REMOVED_COMMENT_BODY,
-    TENANTLESS_ADMIN_EMAIL, create_admin, seed, seed_phase2,
+    TENANTLESS_ADMIN_EMAIL, create_admin, seed, seed_content,
 };
 
 /// User shown in the admin list — the realistic spec model (US16):
@@ -153,7 +153,7 @@ pub struct PostStats {
     pub read_minutes: i64,
 }
 
-/// Post with BelongsTo Author and HasMany Comments (Phase 2 relations via include + computed).
+/// Post with BelongsTo Author and HasMany Comments (relations via include + computed).
 #[derive(Debug, Clone, toasty::Model)]
 pub struct Post {
     #[key]

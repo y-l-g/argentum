@@ -7,7 +7,7 @@
 
 use http::header::{CONTENT_TYPE, COOKIE};
 use http_body_util::BodyExt;
-use showcase::models::{DEMO_ADMIN_EMAIL, DEMO_ADMIN_PASSWORD, create_admin, seed, seed_phase2};
+use showcase::models::{DEMO_ADMIN_EMAIL, DEMO_ADMIN_PASSWORD, create_admin, seed, seed_content};
 use tablo_core::{Resource, Tenant};
 use toasty::Db;
 use topcoat::{
@@ -58,19 +58,19 @@ pub async fn empty_users_db() -> Db {
     db
 }
 
-/// `Db` with the phase-1 users seed applied.
+/// `Db` with the users seed applied.
 pub async fn seeded_db() -> Db {
     let mut db = empty_schema_db().await;
     seed(&mut db).await.expect("seed");
     db
 }
 
-/// `Db` with both seed phases (users, authors, posts, comments) and the
+/// `Db` with the full seed (users, authors, posts, comments) and the
 /// shipped auth models.
 pub async fn full_db() -> Db {
     let mut db = empty_schema_db().await;
     seed(&mut db).await.expect("seed");
-    seed_phase2(&mut db).await.expect("seed_phase2");
+    seed_content(&mut db).await.expect("seed_content");
     db
 }
 

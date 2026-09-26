@@ -39,6 +39,6 @@ The showcase's posts list demonstrates tenancy (tenant 1 vs 2 rows),
 `SelectFilter`/`TernaryFilter`/`DateFilter`, grouping, export, `FileUpload`/`Repeater` and
 `Panel::brand`. It paints light by default: the stored `theme` preference wins in both directions, the
 header toggle is the only thing that turns dark on, and `dark_mode(true)` remains available for a
-dark-first panel. The `benchmarks/` Phase-2 `<40ms p50` figure is a target, not a gate — the harness
+dark-first panel. The `benchmarks/` `<40ms p50` figure is a target, not a gate — the harness
 prints it for reference only (GH #171) and `benchmarks/results/` is gitignored. Grouping and export
 stay in-memory shims until Toasty exposes `GROUP BY` (#118).

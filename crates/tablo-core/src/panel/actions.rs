@@ -352,7 +352,7 @@ const MAX_BULK_IDS: usize = 400;
 /// returns a partial file.
 const MAX_EXPORT_ROWS: usize = 10_000;
 
-/// Rows per cursor chunk on the export walk: each phase fetches
+/// Rows per cursor chunk on the export walk: each pass fetches
 /// this many models at a time instead of materializing the whole export
 /// window, so a 10k-row export holds one chunk plus one CSV fragment.
 const EXPORT_CHUNK_ROWS: usize = 500;
@@ -475,7 +475,7 @@ pub(crate) fn resource_export<R: Resource>(cx: &Cx, _body: Body) -> RouteFuture<
             ))
             .into());
         }
-        // Phase 1: bounded visibility scan — count receivable rows inside the
+        // Visibility scan — count receivable rows inside the
         // raw cap window, so the 413 below fires before any response bytes.
         // The scan reads no column, so it passes an empty include set.
         let mut chunker = ExportChunker::new(export_base_query::<R>(
@@ -496,7 +496,7 @@ pub(crate) fn resource_export<R: Resource>(cx: &Cx, _body: Body) -> RouteFuture<
             return Err(topcoat::router::error::content_too_large().into());
         }
         enforce_export_cap_count(visible)?;
-        // Phase 2: re-walk the window, streaming CSV fragments into a bounded
+        // Streaming pass: re-walk the window, streaming CSV fragments into a bounded
         // channel the response body reads from (chunked, no Content-Length).
         // The walk moves onto a spawned task with an owned `Cx` clone, so a
         // slow consumer back-pressures the fetch instead of holding the
@@ -514,7 +514,7 @@ pub(crate) fn resource_export<R: Resource>(cx: &Cx, _body: Body) -> RouteFuture<
         let cx2 = cx.clone();
         tokio::spawn(async move {
             let mut tx = tx;
-            // The tenant scope was already resolved for phase 1 against the
+            // The tenant scope was already resolved for the scan against the
             // same `cx`, table and state, so this cannot fail again — but a
             // stream that cannot build its query aborts instead of sending a
             // truncated CSV (moved the seed behind a `Result`).
@@ -576,7 +576,7 @@ pub(crate) fn resource_export<R: Resource>(cx: &Cx, _body: Body) -> RouteFuture<
             }
             if chunker.beyond_window() {
                 // Rows inserted between the passes can fill the window here
-                // only, so phase 1's answer no longer holds.
+                // only, so the scan's answer no longer holds.
                 tracing::error!(resource = R::slug(), "export window overflowed mid-stream");
                 tx.abort(std::io::Error::other("export overflowed its window"));
             }

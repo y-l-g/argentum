@@ -1,5 +1,5 @@
 //! The showcase's demo rows: the users the panel lists, the two admin
-//! accounts, and the phase-2 authors, posts and comments.
+//! accounts, and the authors, posts and comments.
 
 use jiff::Timestamp;
 use tablo_core::auth::{AdminUser, hash_password};
@@ -288,7 +288,7 @@ fn filler_embedded(index: usize) -> (Seo, Publication, Media, PostStats) {
     )
 }
 
-/// Seed Phase 2 relation data (Authors + Posts + Comments) — call only when DB was built with all
+/// Seed content rows (Authors + Posts + Comments) — call only when DB was built with all
 /// models.
 ///
 /// The two original rows keep their identity (filter/group/export tests pin
@@ -300,7 +300,7 @@ fn filler_embedded(index: usize) -> (Seo, Publication, Media, PostStats) {
 /// that need a specific row narrow by `?q=` rather than assuming it is on the
 /// title-ordered first page, and "nothing was created" assertions compare a
 /// before/after count instead of a literal seed size.
-pub async fn seed_phase2(db: &mut Db) -> toasty::Result<()> {
+pub async fn seed_content(db: &mut Db) -> toasty::Result<()> {
     // Authors
     if Author::all().exec(db).await?.is_empty() {
         let tenant = DEMO_TENANT;
