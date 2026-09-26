@@ -1130,7 +1130,11 @@ impl Resource for CommentResource {
 
     fn form(_cx: &Cx) -> Schema {
         Schema::new((
-            TextInput::r#for(Comment::fields().body()).placeholder("Write a reply…"),
+            // Prose, so a textarea rather than a one-line input — the same
+            // shape the post body uses.
+            Textarea::r#for(Comment::fields().body())
+                .placeholder("Write a reply…")
+                .rows(4),
             Select::r#for(Comment::fields().post_id())
                 .relationship::<PostResource>(
                     PostResource::query,
