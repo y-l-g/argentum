@@ -1,21 +1,8 @@
 # Tablo
 
-> **Admin toolkit for Rust**, server-rendered on **Topcoat** (UI and reactivity) and **Toasty** (ORM). Filament-style Panel plus Resource, tables, and forms, with no SPA build step.
+**Admin toolkit for Rust**, server-rendered on **Topcoat** (UI and reactivity) and **Toasty** (ORM). Filament-style Panel plus Resource, tables, and forms, with no SPA build step.
 
 [![CI](https://github.com/y-l-g/tablo/actions/workflows/ci.yml/badge.svg)](https://github.com/y-l-g/tablo/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-
-## What it is
-
-- Server-rendered HTML with `view!` and `#[component]`. No SPA, no WASM bundle.
-- Typed end to end: Toasty model to query to table and form. A bad column name fails to compile.
-- A Topcoat app: layouts, `href!`, `Cx`, `#[memoize]`, small `$(...)` expressions.
-- Fast by default: concurrent renders, preloaded relations, cursor pagination.
-
-It is deliberately not:
-
-- Not a Livewire port. No string state paths, no reflection DI, no Blade partials.
-- Not driver-agnostic in v1. The workspace targets Toasty over SQLite.
-- Not a client framework. Anything that needs the DB renders on the server.
 
 ## Quick start
 
