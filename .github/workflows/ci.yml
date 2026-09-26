@@ -135,7 +135,7 @@ jobs:
         # is rev-pinned, so a cache keyed on Cargo.lock restores exactly the
         # revision `topcoat fmt` requires.
         id: cache-topcoat
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cargo/bin/topcoat
           key: topcoat-cli-${{ hashFiles('Cargo.lock') }}
