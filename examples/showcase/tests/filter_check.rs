@@ -288,23 +288,15 @@ async fn posts_filter_with_cursor_paginates_filtered_rows() {
             status: "published".to_string(),
             featured: false,
             created_at: "2024-02-01T00:00:00Z".parse::<jiff::Timestamp>().unwrap(),
-            image_path: "/images/extra.jpg".to_string(),
+            cover_id: None,
             tags: "extra".to_string(),
             seo: showcase::models::Seo {
                 title: "Extra".to_string(),
                 description: String::new(),
             },
             publication: showcase::models::Publication::Published {
-                published_at: "2024-02-01T00:00:00Z".to_string(),
+                published_at: "2024-02-01T00:00:00Z".parse::<jiff::Timestamp>().unwrap(),
                 canonical_url: String::new(),
-            },
-            media: showcase::models::Media::Image {
-                url: "extra.jpg".to_string(),
-                alt: String::new(),
-            },
-            post_stats: showcase::models::PostStats {
-                word_count: 0,
-                read_minutes: 0,
             },
             author_id: author_id,
         })
@@ -374,23 +366,15 @@ async fn create_fixture_post(
         status: status.to_string(),
         featured,
         created_at: "2024-02-01T00:00:00Z".parse::<jiff::Timestamp>().unwrap(),
-        image_path: "fixture.jpg".to_string(),
+        cover_id: None,
         tags: "fixture".to_string(),
         seo: showcase::models::Seo {
             title: title.to_string(),
             description: String::new(),
         },
         publication: showcase::models::Publication::Scheduled {
-            scheduled_at: String::new(),
+            scheduled_at: "2024-02-01T00:00:00Z".parse::<jiff::Timestamp>().unwrap(),
             scheduled_for: String::new(),
-        },
-        media: showcase::models::Media::Image {
-            url: "fixture.jpg".to_string(),
-            alt: String::new(),
-        },
-        post_stats: showcase::models::PostStats {
-            word_count: 0,
-            read_minutes: 0,
         },
         author_id: author.id,
     })

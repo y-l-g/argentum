@@ -1,11 +1,10 @@
 use std::{collections::HashMap, path::PathBuf};
 
 use tablo_core::{
-    Brand, ColumnWidth, Committed, DateFilter, FileUpload, Grid, Group, IncludeNeeds, Panel,
-    RelationColumn, RelationColumns, Repeater, Resource, Schema, Section, Select, SelectFilter,
-    Table, Tabs, TernaryFilter, TextColumn, TextInput, Textarea, Uploader, VariantFilter,
-    read_embedded, render_relation, require_tenant, scoped_query, submitted, tenant_id,
-    write_embedded,
+    Brand, ColumnWidth, Committed, DateFilter, Grid, Group, IncludeNeeds, Panel, RelationColumn,
+    RelationColumns, Repeater, Resource, Schema, Section, Select, SelectFilter, Table,
+    TernaryFilter, TextColumn, TextInput, Textarea, Uploader, VariantFilter, read_embedded,
+    render_relation, require_tenant, scoped_query, submitted, tenant_id, write_embedded,
 };
 use toasty::Db;
 use topcoat::{
@@ -18,9 +17,12 @@ use topcoat::{
     view::{View, ViewExt, view},
 };
 
-use crate::models::{
-    Author, BLOCKED_TENANT, Comment, Media, Post, PostStats, Publication, REMOVED_COMMENT_BODY,
-    Seo, User,
+use crate::{
+    media::MediaLibrary,
+    models::{
+        Author, BLOCKED_TENANT, Comment, MediaAsset, Post, Publication, REMOVED_COMMENT_BODY, Seo,
+        User,
+    },
 };
 
 /// The theme's sans font, pulled from Fontsource and self-hosted as a Topcoat
@@ -104,6 +106,21 @@ where
     }
 }
 
+/// The kept age: absent keeps the stored value, empty stores zero like a
+/// create, otherwise the parsed value. Range is the validation layer's
+/// (`UserResource::validate`), never this helper's: reaching here with a
+/// negative means the form was bypassed.
+fn kept_age(values: &HashMap<String, String>, current: i64) -> Result<i64> {
+    match values.get("age") {
+        None => Ok(current),
+        Some(v) if v.trim().is_empty() => Ok(0),
+        Some(v) => v
+            .trim()
+            .parse::<i64>()
+            .map_err(|e| topcoat::Error::from(std::io::Error::other(format!("invalid age: {e}")))),
+    }
+}
+
 /// The submitted embedded value for `field`; an absent group keeps `current`
 /// The submit may omit a section the form did not render.
 fn kept_embedded<M, T, L>(
@@ -121,6 +138,50 @@ where
         read_embedded(cx, field(), values)
     } else {
         current.clone()
+    }
+}
+
+/// How many words `body` holds: whitespace-separated tokens.
+///
+/// Empty bodies hold none.
+pub fn word_count(body: &str) -> usize {
+    body.split_whitespace().count()
+}
+
+/// How many minutes `words` take to read at 200 words per minute, rounded up.
+///
+/// Empty bodies read in no minutes.
+pub fn read_minutes(words: usize) -> i64 {
+    if words == 0 {
+        0
+    } else {
+        words.div_ceil(200) as i64
+    }
+}
+
+/// The submitted cover: an empty picker clears the cover, otherwise the picked
+/// library row's id.
+fn submitted_cover(values: &HashMap<String, String>) -> Result<Option<uuid::Uuid>, topcoat::Error> {
+    match values.get("cover_id").map(|s| s.trim().to_string()) {
+        Some(s) if !s.is_empty() => s.parse::<uuid::Uuid>().map(Some).map_err(|e| {
+            topcoat::Error::from(std::io::Error::other(format!("invalid cover_id: {e}")))
+        }),
+        _ => Ok(None),
+    }
+}
+
+/// The kept cover: an absent picker keeps the stored one, an empty one clears
+/// it, otherwise the picked row's id.
+fn kept_cover(
+    values: &HashMap<String, String>,
+    current: Option<uuid::Uuid>,
+) -> Result<Option<uuid::Uuid>, topcoat::Error> {
+    match values.get("cover_id") {
+        Some(s) if s.trim().is_empty() => Ok(None),
+        Some(s) => s.trim().parse::<uuid::Uuid>().map(Some).map_err(|e| {
+            topcoat::Error::from(std::io::Error::other(format!("invalid cover_id: {e}")))
+        }),
+        None => Ok(current),
     }
 }
 
@@ -215,9 +276,6 @@ impl Resource for UserResource {
     }
 
     fn form(_cx: &Cx) -> Schema {
-        // One section, one card: a single-child `Tabs` wrapper would be a
-        // layout container with nothing to lay out. `Tabs` earns its
-        // place on `posts/create`, where it groups the upload and tags blocks.
         Schema::new(
             Section::new("Profile").schema((
                 TextInput::r#for(User::fields().name()).placeholder("Ada Lovelace"),
@@ -240,6 +298,29 @@ impl Resource for UserResource {
                     ])
                     .label("Active")
                     .optional(),
+                // A stored integer: optional, zero or more.
+                TextInput::typed::<User, i64>(User::fields().age())
+                    .label("Age")
+                    .optional(),
+            )),
+        )
+    }
+
+    fn view(_cx: &Cx) -> Schema {
+        Schema::new(
+            Section::new("Profile").schema((
+                TextInput::r#for(User::fields().name()),
+                TextInput::r#for(User::fields().email()),
+                Select::r#for(User::fields().role())
+                    .options(vec!["admin".to_string(), "member".to_string()])
+                    .label("Role"),
+                Select::r#for(User::fields().active())
+                    .options_with_labels(vec![
+                        ("true".to_string(), "Active".to_string()),
+                        ("false".to_string(), "Inactive".to_string()),
+                    ])
+                    .label("Active"),
+                TextInput::typed::<User, i64>(User::fields().age()).label("Age"),
             )),
         )
     }
@@ -253,7 +334,29 @@ impl Resource for UserResource {
             "active".to_string(),
             if record.active { "true" } else { "false" }.to_string(),
         );
+        map.insert("age".to_string(), record.age.to_string());
         map
+    }
+
+    /// A stored integer holds zero or more: empty submits are the presence
+    /// rule's (optional, so allowed), a non-number is the typed rule's, and a
+    /// negative is this hook's — all render inline with a 200 and write
+    /// nothing, never a 500 from a record fn.
+    fn validate(_cx: &Cx, values: &HashMap<String, String>) -> HashMap<String, Vec<String>> {
+        let mut errors = HashMap::new();
+        if let Some(raw) = values.get("age") {
+            let trimmed = raw.trim();
+            if !trimmed.is_empty()
+                && let Ok(parsed) = trimmed.parse::<i64>()
+                && parsed < 0
+            {
+                errors.insert(
+                    "age".to_string(),
+                    vec!["Age must be zero or more".to_string()],
+                );
+            }
+        }
+        errors
     }
 
     /// Wake the live feed after a committed write, so an open page re-reads the
@@ -280,6 +383,16 @@ impl Resource for UserResource {
             values.get("active").map(|s| s.trim().to_string()),
             Some(a) if a == "false"
         );
+        // An optional stored integer: empty stores zero. A non-number is the
+        // typed rule's inline error; a negative is `validate`'s. Both render
+        // before a record fn runs, so reaching here with either means the form
+        // was bypassed.
+        let age = match values.get("age").map(|s| s.trim().to_string()) {
+            Some(s) if !s.is_empty() => s.parse::<i64>().map_err(|e| {
+                topcoat::Error::from(std::io::Error::other(format!("invalid age: {e}")))
+            })?,
+            _ => 0,
+        };
         // The created row goes back to the framework: it is what
         // `after_commit` names for this write.
         toasty::create!(User {
@@ -287,6 +400,7 @@ impl Resource for UserResource {
             email: email,
             role: role,
             active: active,
+            age: age,
             created_at: jiff::Timestamp::now(),
         })
         .exec(&mut *ex)
@@ -306,6 +420,7 @@ impl Resource for UserResource {
         let email = kept(&values, "email", &record.email);
         let role = kept_one_of(&values, "role", &["admin", "member"], &record.role);
         let active = kept_bool(&values, "active", record.active);
+        let age = kept_age(&values, record.age)?;
         // The updated row goes back to the framework: it is what
         // `after_commit` names, and it is already the committed state.
         toasty::update!(record {
@@ -313,6 +428,7 @@ impl Resource for UserResource {
             email: email,
             role: role,
             active: active,
+            age: age,
         })
         .exec(&mut *ex)
         .await
@@ -511,17 +627,21 @@ impl Resource for PostResource {
         Some(record.title.clone())
     }
 
+    /// The post's public page, linked from the detail and edit headers.
+    fn public_url(_cx: &Cx, record: &Post) -> Option<String> {
+        Some(format!("/blog/{}", record.id))
+    }
+
     /// One post, read-only. Each entry binds the same storage name
     /// the form posts — flattened embedded columns included — so a field means
     /// the same thing on both pages. The *list* of fields is still written
     /// twice: the schema seam has no way to derive one declaration from the
     /// other, and a page that shows a subset is the normal case.
     ///
-    /// What is absent, and why: the **author key** (`Uuid`), because binding a
-    /// non-`String` lens is the GH #192 seam; and the **comments**, which are a
-    /// relation and so render through [`Self::view_relations`] below rather
-    /// than as a field here. The shared publication timestamp *is* bound, which
-    /// is why `models.rs` declares it `String`.
+    /// What is absent, and why: the **author key** (`Uuid`) and the **cover key**
+    /// (`Option<Uuid>`), because a key renders as an id rather than a name —
+    /// the cover renders as a thumbnail through [`Self::view_relations`] — and
+    /// the **comments**, which are a relation and so render there too.
     fn view(cx: &Cx) -> Schema {
         Schema::new((
             Section::new("Post").schema((
@@ -541,7 +661,6 @@ impl Resource for PostResource {
                             ])
                             .label("Featured"),
                     )),
-                    TextInput::r#for(Post::fields().image_path()).label("Cover image"),
                     TextInput::r#for(Post::fields().tags()).label("Tags"),
                 )),
             ),
@@ -550,7 +669,7 @@ impl Resource for PostResource {
                 Textarea::r#for_context(cx, Post::fields().seo().description()).rows(3),
             )),
             Section::new("Publication").schema(
-                Textarea::r#for_context(
+                TextInput::typed_context(
                     cx,
                     Post::fields().publication().published().published_at(),
                 )
@@ -560,7 +679,7 @@ impl Resource for PostResource {
         ))
     }
 
-    /// The post's comments, from the rows `query` already included.
+    /// The post's computed reading stats, its cover, and its comments.
     ///
     /// `record.comments.get()` reads the included relation — no query, no
     /// per-row load — which is the point #66's criterion made. `is_unloaded` is
@@ -571,13 +690,21 @@ impl Resource for PostResource {
     /// The table names `CommentResource`, so the related resource's `can_view`
     /// decides which loaded comments render.
     fn view_relations<'a>(cx: &'a Cx, record: &Post) -> Option<topcoat::view::BoxView<'a>> {
+        let words = word_count(&record.body);
+        let minutes = read_minutes(words);
+        let cover_id = record.cover_id;
         if record.comments.is_unloaded() {
             return Some(
                 view! {
                     cx =>
-                    <p class="text-sm text-destructive">
-                        "Comments were not loaded by this query — add them to Resource::query's include."
-                    </p>
+                    <div class="flex flex-col gap-4">
+                        <p class="text-sm text-muted-foreground">
+                            (format!("{words} words · {minutes} min read"))
+                        </p>
+                        <p class="text-sm text-destructive">
+                            "Comments were not loaded by this query — add them to Resource::query's include."
+                        </p>
+                    </div>
                 }
                 .boxed(),
             );
@@ -589,12 +716,25 @@ impl Resource for PostResource {
         // `CommentResource` is named at the relation, so the table applies the
         // related resource's `can_view` and the policy cannot drift from the
         // comments queue's.
-        Some(render_relation::<CommentResource>(
-            cx,
-            "Comments",
-            columns,
-            record.comments.get(),
-        ))
+        let comments =
+            render_relation::<CommentResource>(cx, "Comments", columns, record.comments.get());
+        Some(
+            view! {
+                cx =>
+                <div class="flex flex-col gap-4">
+                    <p class="text-sm text-muted-foreground">
+                        (format!("{words} words · {minutes} min read"))
+                    </p>
+                    if let Some(cover_id) = cover_id {
+                        <p class="text-xs text-muted-foreground">
+                            (format!("Cover: {cover_id}"))
+                        </p>
+                    }
+                    (comments)
+                </div>
+            }
+            .boxed(),
+        )
     }
 
     fn can_view_any(cx: &Cx) -> bool {
@@ -750,10 +890,17 @@ impl Resource for PostResource {
                     )
                     .searchable()
                     .label("Author"),
-            )),
-            // Upload and tags as tabs: grouped until tab JS lands.
-            Tabs::new().schema((
-                FileUpload::r#for(Post::fields().image_path()).label("Cover image"),
+                // One media source: the cover is a picked library row, not an
+                // upload. Optional and single: empty clears the cover.
+                Select::r#for(Post::fields().cover_id())
+                    .relationship::<MediaLibrary>(
+                        |_cx| toasty::stmt::Query::<toasty::stmt::List<MediaAsset>>::all(),
+                        |m: &MediaAsset| m.id,
+                        |m: &MediaAsset| m.filename.clone(),
+                    )
+                    .searchable()
+                    .label("Cover")
+                    .optional(),
                 Repeater::new("Tags").schema(TextInput::r#for(Post::fields().tags()).label("Tag")),
             )),
             // Embedded **values**. One declaration per value: the
@@ -762,13 +909,9 @@ impl Resource for PostResource {
             // spells `seo_title`, and no variant is recovered from which
             // payload columns happen to be filled in.
             Group::new().schema((
-                Section::new("SEO").schema(
-                    Seo::form(cx, Post::fields().seo())
-                        .extend(PostStats::form(cx, Post::fields().post_stats())),
-                ),
+                Section::new("SEO").schema(Seo::form(cx, Post::fields().seo())),
                 Section::new("Publication")
                     .schema(Publication::form(cx, Post::fields().publication())),
-                Section::new("Attachment").schema(Media::form(cx, Post::fields().media())),
             )),
         ))
     }
@@ -783,7 +926,10 @@ impl Resource for PostResource {
             if record.featured { "true" } else { "false" }.to_string(),
         );
         m.insert("author_id".to_string(), record.author_id.to_string());
-        m.insert("image_path".to_string(), record.image_path.clone());
+        m.insert(
+            "cover_id".to_string(),
+            record.cover_id.map(|id| id.to_string()).unwrap_or_default(),
+        );
         m.insert("tags".to_string(), record.tags.clone());
         // Embedded values: each writes the columns the app schema
         // resolves for it — the flattened leaves, the enum's discriminant, and
@@ -797,8 +943,6 @@ impl Resource for PostResource {
             &record.publication,
             &mut m,
         );
-        write_embedded(cx, Post::fields().media(), &record.media, &mut m);
-        write_embedded(cx, Post::fields().post_stats(), &record.post_stats, &mut m);
         m
     }
     fn create_record(
@@ -829,7 +973,6 @@ impl Resource for PostResource {
                     "author not found",
                 )));
             }
-            let image_path = submitted_trimmed(&values, "image_path");
             let tags = submitted_trimmed(&values, "tags");
             // Optional lifecycle fields with draft defaults: older clients
             // omitting them still create a valid draft.
@@ -842,6 +985,7 @@ impl Resource for PostResource {
                 values.get("featured").map(|s| s.trim().to_string()),
                 Some(s) if s == "true"
             );
+            let cover_id = submitted_cover(&values)?;
             // The same fail-closed check as the author create above: the 403 is
             // already answered, so a nil-tenant post cannot be minted.
             let tid = require_tenant(&cx)?;
@@ -850,8 +994,6 @@ impl Resource for PostResource {
             // form posted rather than from which payloads are non-empty.
             let seo = read_embedded(&cx, Post::fields().seo(), &values);
             let publication = read_embedded(&cx, Post::fields().publication(), &values);
-            let media = read_embedded(&cx, Post::fields().media(), &values);
-            let post_stats = read_embedded(&cx, Post::fields().post_stats(), &values);
             // The created row goes back to the framework.
             toasty::create!(Post {
                 tenant_id: tid,
@@ -860,12 +1002,10 @@ impl Resource for PostResource {
                 status: status,
                 featured: featured,
                 created_at: jiff::Timestamp::now(),
-                image_path: image_path,
+                cover_id: cover_id,
                 tags: tags,
                 seo: seo,
                 publication: publication,
-                media: media,
-                post_stats: post_stats,
                 author_id: author_id,
             })
             .exec(&mut *ex)
@@ -904,11 +1044,11 @@ impl Resource for PostResource {
                     "author not found",
                 )));
             }
-            let image_path = kept(&values, "image_path", &rec.image_path);
             let tags = kept(&values, "tags", &rec.tags);
             let body = kept(&values, "body", &rec.body);
             let status = kept_one_of(&values, "status", &["draft", "published"], &rec.status);
             let featured = kept_bool(&values, "featured", rec.featured);
+            let cover_id = kept_cover(&values, rec.cover_id)?;
             // Embedded values: an absent value keeps the stored one,
             // exactly like the scalar fields above — the submit may
             // omit a section the form did not render. "Absent" is decided by
@@ -920,25 +1060,16 @@ impl Resource for PostResource {
                 &values,
                 &rec.publication,
             );
-            let media = kept_embedded(&cx, || Post::fields().media(), &values, &rec.media);
-            let post_stats = kept_embedded(
-                &cx,
-                || Post::fields().post_stats(),
-                &values,
-                &rec.post_stats,
-            );
             toasty::update!(rec {
                 title: title,
                 author_id: author_id,
-                image_path: image_path,
+                cover_id: cover_id,
                 tags: tags,
                 body: body,
                 status: status,
                 featured: featured,
                 seo: seo,
-                publication: publication,
-                media: media,
-                post_stats: post_stats
+                publication: publication
             })
             .exec(&mut *ex)
             .await
@@ -1213,30 +1344,18 @@ pub fn router(db: Db) -> Router {
 /// loudly when its generated bundle is missing, while tests can exercise the
 /// server-rendered markup without pretending an asset bundle exists.
 ///
-/// It installs **no uploader** either, which pins the framework's default: a
-/// `FileUpload` with no store keeps the sanitized client filename.
-/// A test that wants the demo store uses [`router_with_uploads`].
+/// It installs **no uploader** either, which pins the framework's default for
+/// a `FileUpload` with no store. A test that needs the demo store uses
+/// [`router_with_app_uploads`].
 pub fn router_for_tests(db: Db) -> Router {
     build_router(db, None, None)
-}
-
-/// Build the showcase router with uploads enabled against `dir`.
-///
-/// Assets are left out, like [`router_for_tests`]: the upload tests assert on
-/// markup and on the served bytes, not on the stylesheet. Used by the upload
-/// tests, which need a directory of their own — the application's is shared
-/// state on disk.
-pub fn router_with_uploads(db: Db, dir: impl Into<PathBuf>) -> Router {
-    build_router(db, None, Some(dir.into()))
 }
 
 /// Build the showcase router with uploads at the directory the application
 /// itself uses.
 ///
-/// [`router_with_uploads`] takes a directory so the framework's upload tests
-/// can own theirs; this one is the configuration the app runs with, which is
-/// what the media library's page writes through — the panel's `serve_dir` mount
-/// and the store are two ends of one directory.
+/// The media library's page writes through this configuration — the panel's
+/// `serve_dir` mount and the store are two ends of one directory.
 pub fn router_with_app_uploads(db: Db) -> Router {
     build_router(db, None, Some(upload_dir()))
 }

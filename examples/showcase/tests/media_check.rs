@@ -1,6 +1,6 @@
-//! The media library: the app-level upload path writes a `medias` row
-//! tied to its polymorphic owner, the stored rows render a thumbnail or a link,
-//! and the clear control works with and without JavaScript.
+//! The media library: the app-level upload path writes a `medias` row,
+//! the stored rows render a thumbnail or a link, and the clear control works
+//! with and without JavaScript.
 //!
 //! The widget's JavaScript half is `examples/showcase/assets/media.test.js`
 //! (Node); what a server-rendered page can pin is the markup contract those
@@ -10,8 +10,8 @@
 use http_body_util::BodyExt;
 use showcase::{
     app::router_with_app_uploads,
-    media::{KIND_FILE, KIND_IMAGE, MEDIA_PATH, MediaOwner, OWNER_POST, media_for_owner},
-    models::{DEMO_TENANT, MediaAsset, Post, User},
+    media::{KIND_FILE, KIND_IMAGE, MEDIA_PATH},
+    models::{DEMO_TENANT, MediaAsset},
 };
 use topcoat::router::{Body, Router};
 
@@ -20,28 +20,6 @@ use crate::common::{TestClient, body_string, demo_client, full_db, tenantless_cl
 /// Bytes of an uploaded file: ASCII, so the multipart body can be a `String`,
 /// which is all the test client takes.
 const PAYLOAD: &str = "PNG-FAKE-BYTES";
-
-/// The one published seed post — the media library's post owner.
-async fn published_post(db: &toasty::Db) -> Post {
-    let mut db = db.clone();
-    Post::filter(Post::fields().status().eq("published".to_string()))
-        .first()
-        .exec(&mut db)
-        .await
-        .expect("query the published seed post")
-        .expect("the seed publishes one post")
-}
-
-/// The seeded draft: a second owner of the same kind as [`published_post`].
-async fn draft_post(db: &toasty::Db) -> Post {
-    let mut db = db.clone();
-    Post::filter(Post::fields().title().eq("Second Post".to_string()))
-        .first()
-        .exec(&mut db)
-        .await
-        .expect("query the draft seed post")
-        .expect("the seed creates the Second Post draft")
-}
 
 /// How many media rows the database holds.
 async fn media_count(db: &toasty::Db) -> usize {
@@ -55,7 +33,6 @@ async fn media_count(db: &toasty::Db) -> usize {
 /// posts no token at all, which is the forged-request case.
 async fn post_upload(
     client: &TestClient<'_>,
-    owner: MediaOwner,
     filename: &str,
     content_type: &str,
     payload: &str,
@@ -74,11 +51,9 @@ async fn post_upload(
         })
         .unwrap_or_default();
     let body = format!(
-        "--{b}\r\nContent-Disposition: form-data; name=\"owner\"\r\n\r\n{owner}\r\n\
-         --{b}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"{filename}\"\r\nContent-Type: {content_type}\r\n\r\n{payload}\r\n\
+        "--{b}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"{filename}\"\r\nContent-Type: {content_type}\r\n\r\n{payload}\r\n\
          {token}--{b}--\r\n",
         b = boundary,
-        owner = owner.value(),
     );
     client.post_multipart(MEDIA_PATH, boundary, body).await
 }
@@ -87,14 +62,13 @@ async fn post_upload(
 async fn upload(
     router: &Router,
     db: &toasty::Db,
-    owner: MediaOwner,
     filename: &str,
     content_type: &str,
     payload: &str,
 ) -> http::Response<Body> {
     let client = demo_client(router, db).await;
     let csrf = uuid::Uuid::new_v4().to_string();
-    post_upload(&client, owner, filename, content_type, payload, Some(&csrf)).await
+    post_upload(&client, filename, content_type, payload, Some(&csrf)).await
 }
 
 /// The opening tag carrying `needle`.
@@ -129,13 +103,11 @@ fn upload_form(html: &str) -> &str {
 }
 
 #[tokio::test]
-async fn an_upload_creates_a_row_tied_to_its_owner() {
+async fn an_upload_creates_a_row() {
     let db = full_db().await;
     let router = router_with_app_uploads(db.clone());
-    let post = published_post(&db).await;
-    let owner = MediaOwner::Post(post.id);
 
-    let response = upload(&router, &db, owner, "cover.png", "image/png", PAYLOAD).await;
+    let response = upload(&router, &db, "cover.png", "image/png", PAYLOAD).await;
     assert!(
         response.status().is_redirection(),
         "the upload must save, got {}",
@@ -143,16 +115,9 @@ async fn an_upload_creates_a_row_tied_to_its_owner() {
     );
 
     let mut db_q = db.clone();
-    let rows = media_for_owner(&mut db_q, owner)
-        .await
-        .expect("query the owner's media");
+    let rows = MediaAsset::all().exec(&mut db_q).await.unwrap();
     assert_eq!(rows.len(), 1, "one row for the upload");
     let row = &rows[0];
-    assert_eq!(row.owner_type, OWNER_POST);
-    assert_eq!(
-        row.owner_id, post.id,
-        "the row names the post it was uploaded for"
-    );
     assert_eq!(row.tenant_id, DEMO_TENANT);
     assert_eq!(row.filename, "cover.png");
     assert_eq!(row.kind, KIND_IMAGE);
@@ -178,80 +143,35 @@ async fn an_upload_creates_a_row_tied_to_its_owner() {
 }
 
 #[tokio::test]
-async fn a_lookup_returns_one_owners_rows_and_not_every_row_of_that_kind() {
+async fn the_upload_form_is_file_only() {
     let db = full_db().await;
     let router = router_with_app_uploads(db.clone());
-    // Two owners of the same kind: the pair's second half is what tells them
-    // apart, so a lookup that dropped `owner_id` would hand one owner the
-    // other's rows — the leak ADR-0021 makes the app responsible for.
-    let first = published_post(&db).await;
-    let second = draft_post(&db).await;
-    assert_ne!(first.id, second.id);
-
-    let first_owner = MediaOwner::Post(first.id);
-    let second_owner = MediaOwner::Post(second.id);
-    upload(&router, &db, first_owner, "first.png", "image/png", PAYLOAD).await;
-    upload(
-        &router,
-        &db,
-        second_owner,
-        "second.png",
-        "image/png",
-        PAYLOAD,
-    )
-    .await;
-
-    let mut db_q = db.clone();
-    let on_first = media_for_owner(&mut db_q, first_owner).await.unwrap();
-    let mut db_q = db.clone();
-    let on_second = media_for_owner(&mut db_q, second_owner).await.unwrap();
-
-    assert_eq!(on_first.len(), 1, "one row per owner, not two");
-    assert_eq!(on_second.len(), 1, "one row per owner, not two");
-    assert_eq!(on_first[0].owner_id, first.id);
-    assert_eq!(on_second[0].owner_id, second.id);
-    assert_eq!(on_first[0].filename, "first.png");
-    assert_eq!(on_second[0].filename, "second.png");
-    assert_ne!(on_first[0].id, on_second[0].id);
-}
-
-#[tokio::test]
-async fn a_media_row_can_name_either_owner_kind() {
-    let db = full_db().await;
-    let router = router_with_app_uploads(db.clone());
-    let post = published_post(&db).await;
-    let mut db_q = db.clone();
-    let user = showcase::models::User::all()
-        .exec(&mut db_q)
-        .await
-        .unwrap()
-        .remove(0);
-
-    let post_owner = MediaOwner::Post(post.id);
-    let user_owner = MediaOwner::User(user.id);
-    upload(&router, &db, post_owner, "cover.png", "image/png", PAYLOAD).await;
-    upload(&router, &db, user_owner, "avatar.png", "image/png", PAYLOAD).await;
-
-    let mut db_q = db.clone();
-    let on_post = media_for_owner(&mut db_q, post_owner).await.unwrap();
-    let on_user = media_for_owner(&mut db_q, user_owner).await.unwrap();
-    assert_eq!(on_post.len(), 1, "the post's media");
-    assert_eq!(on_user.len(), 1, "the user's media");
-    assert_eq!(on_post[0].owner_type, "post");
-    assert_eq!(on_user[0].owner_type, "user");
+    let client = demo_client(&router, &db).await;
+    let html = body_string(client.get(MEDIA_PATH).await).await;
+    let form = upload_form(&html);
+    assert!(
+        form.contains("name=\"file\""),
+        "the form must offer a file input: {form}"
+    );
+    assert!(
+        !form.contains("name=\"owner\""),
+        "the form must not offer an owner picker: {form}"
+    );
+    assert!(
+        !form.contains("<select"),
+        "a file-only form renders no select: {form}"
+    );
 }
 
 #[tokio::test]
 async fn the_stored_row_renders_a_thumbnail_for_an_image_and_a_link_for_anything_else() {
     let db = full_db().await;
     let router = router_with_app_uploads(db.clone());
-    let post = published_post(&db).await;
-    let owner = MediaOwner::Post(post.id);
-    upload(&router, &db, owner, "cover.png", "image/png", PAYLOAD).await;
-    upload(&router, &db, owner, "notes.txt", "text/plain", "NOTES").await;
+    upload(&router, &db, "cover.png", "image/png", PAYLOAD).await;
+    upload(&router, &db, "notes.txt", "text/plain", "NOTES").await;
 
     let mut db_q = db.clone();
-    let rows = media_for_owner(&mut db_q, owner).await.unwrap();
+    let rows = MediaAsset::all().exec(&mut db_q).await.unwrap();
     let image = rows
         .iter()
         .find(|row| row.kind == KIND_IMAGE)
@@ -319,46 +239,13 @@ async fn the_clear_control_clears_the_input_without_javascript() {
 }
 
 #[tokio::test]
-async fn an_upload_for_an_owner_that_does_not_exist_is_refused() {
-    let db = full_db().await;
-    let router = router_with_app_uploads(db.clone());
-    let before = media_count(&db).await;
-
-    let response = upload(
-        &router,
-        &db,
-        MediaOwner::Post(uuid::Uuid::new_v4()),
-        "cover.png",
-        "image/png",
-        PAYLOAD,
-    )
-    .await;
-
-    assert_eq!(
-        response.status(),
-        400,
-        "a polymorphic pair carries no foreign key, so the app refuses a dangling owner"
-    );
-    assert_eq!(media_count(&db).await, before, "and writes no row");
-}
-
-#[tokio::test]
 async fn an_upload_without_the_csrf_token_is_refused() {
     let db = full_db().await;
     let router = router_with_app_uploads(db.clone());
     let before = media_count(&db).await;
-    let post = published_post(&db).await;
     let client = demo_client(&router, &db).await;
 
-    let response = post_upload(
-        &client,
-        MediaOwner::Post(post.id),
-        "cover.png",
-        "image/png",
-        PAYLOAD,
-        None,
-    )
-    .await;
+    let response = post_upload(&client, "cover.png", "image/png", PAYLOAD, None).await;
 
     assert_eq!(response.status(), 403, "the app's own form is CSRF-checked");
     assert_eq!(media_count(&db).await, before, "and writes no row");
@@ -368,7 +255,6 @@ async fn an_upload_without_the_csrf_token_is_refused() {
 async fn a_tenantless_request_is_refused() {
     let db = full_db().await;
     let router = router_with_app_uploads(db.clone());
-    let post = published_post(&db).await;
     let client = tenantless_client(&router, &db).await;
 
     assert_eq!(
@@ -380,7 +266,6 @@ async fn a_tenantless_request_is_refused() {
     let before = media_count(&db).await;
     let response = post_upload(
         &client,
-        MediaOwner::Post(post.id),
         "cover.png",
         "image/png",
         PAYLOAD,
@@ -395,21 +280,11 @@ async fn a_tenantless_request_is_refused() {
 async fn a_client_filename_is_stored_as_a_basename_inside_the_served_directory() {
     let db = full_db().await;
     let router = router_with_app_uploads(db.clone());
-    let post = published_post(&db).await;
-    let owner = MediaOwner::Post(post.id);
 
-    upload(
-        &router,
-        &db,
-        owner,
-        "../../escape.png",
-        "image/png",
-        PAYLOAD,
-    )
-    .await;
+    upload(&router, &db, "../../escape.png", "image/png", PAYLOAD).await;
 
     let mut db_q = db.clone();
-    let row = media_for_owner(&mut db_q, owner).await.unwrap().remove(0);
+    let row = MediaAsset::all().exec(&mut db_q).await.unwrap().remove(0);
     assert_eq!(row.filename, "escape.png", "the row keeps the basename");
     assert!(
         !row.path.contains(".."),
@@ -432,8 +307,6 @@ async fn a_client_filename_is_stored_as_a_basename_inside_the_served_directory()
 async fn a_filename_that_would_break_the_url_still_fetches_back() {
     let db = full_db().await;
     let router = router_with_app_uploads(db.clone());
-    let post = published_post(&db).await;
-    let owner = MediaOwner::Post(post.id);
     let client = demo_client(&router, &db).await;
 
     // Every name here reaches the store as the browser sent it, and every one
@@ -450,7 +323,7 @@ async fn a_filename_that_would_break_the_url_still_fetches_back() {
         ("trailing .png ", "trailing .png"),
     ] {
         let csrf = uuid::Uuid::new_v4().to_string();
-        let response = post_upload(&client, owner, sent, "image/png", PAYLOAD, Some(&csrf)).await;
+        let response = post_upload(&client, sent, "image/png", PAYLOAD, Some(&csrf)).await;
         assert!(
             response.status().is_redirection(),
             "{sent:?} must save, got {}",
@@ -458,7 +331,7 @@ async fn a_filename_that_would_break_the_url_still_fetches_back() {
         );
 
         let mut db_q = db.clone();
-        let rows = media_for_owner(&mut db_q, owner).await.unwrap();
+        let rows = MediaAsset::all().exec(&mut db_q).await.unwrap();
         let row = rows
             .iter()
             .find(|row| row.filename == recorded)
@@ -492,15 +365,44 @@ async fn a_filename_that_would_break_the_url_still_fetches_back() {
 }
 
 #[tokio::test]
-async fn the_blog_post_page_shows_the_media_attached_to_the_post() {
+async fn a_picked_cover_renders_on_the_blog_post_page() {
+    use showcase::models::{Author, DEMO_TENANT, Post, Publication, Seo};
+
     let db = full_db().await;
     let router = router_with_app_uploads(db.clone());
-    let post = published_post(&db).await;
-    let owner = MediaOwner::Post(post.id);
-    upload(&router, &db, owner, "cover.png", "image/png", PAYLOAD).await;
+    upload(&router, &db, "cover.png", "image/png", PAYLOAD).await;
 
     let mut db_q = db.clone();
-    let row = media_for_owner(&mut db_q, owner).await.unwrap().remove(0);
+    let row = MediaAsset::all().exec(&mut db_q).await.unwrap().remove(0);
+    let author = Author::all()
+        .first()
+        .exec(&mut db_q)
+        .await
+        .unwrap()
+        .expect("a seeded author");
+    let post = toasty::create!(Post {
+        id: uuid::Uuid::new_v4(),
+        tenant_id: DEMO_TENANT,
+        title: "Cover Post",
+        body: "Body with a cover.",
+        status: "published".to_string(),
+        featured: false,
+        created_at: "2024-03-01T09:00:00Z".parse::<jiff::Timestamp>().unwrap(),
+        cover_id: Some(row.id),
+        tags: String::new(),
+        seo: Seo {
+            title: String::new(),
+            description: String::new(),
+        },
+        publication: Publication::Published {
+            published_at: "2024-03-01T09:00:00Z".parse::<jiff::Timestamp>().unwrap(),
+            canonical_url: String::new(),
+        },
+        author_id: author.id,
+    })
+    .exec(&mut db_q)
+    .await
+    .expect("create the covered post");
 
     // Anonymous, like any reader of the public blog.
     let html = body_string(
@@ -512,7 +414,7 @@ async fn the_blog_post_page_shows_the_media_attached_to_the_post() {
     let thumbnail = tag_with(&html, &format!("src=\"{}\"", row.path));
     assert!(
         thumbnail.starts_with("<img"),
-        "the post's page must show its media, got {thumbnail}"
+        "the post's page must show its picked cover, got {thumbnail}"
     );
 }
 
@@ -520,17 +422,12 @@ async fn the_blog_post_page_shows_the_media_attached_to_the_post() {
 async fn the_library_lists_one_tenants_rows() {
     let db = full_db().await;
     let router = router_with_app_uploads(db.clone());
-    let mut db_q = db.clone();
-    let user = User::all().exec(&mut db_q).await.unwrap().remove(0);
-    let owner = MediaOwner::User(user.id);
 
-    // A user is global in this app, so another tenant can attach media to one:
-    // the row carries the tenant that uploaded it.
+    // Another tenant uploads: the row carries the tenant that uploaded it.
     let other = uuid::Uuid::from_u128(4242);
     let csrf = uuid::Uuid::new_v4().to_string();
     let response = post_upload(
         &demo_client(&router, &db).await.tenant(other),
-        owner,
         "avatar.png",
         "image/png",
         PAYLOAD,
@@ -547,29 +444,5 @@ async fn the_library_lists_one_tenants_rows() {
     assert!(
         html.contains("No media has been uploaded yet."),
         "another tenant's media must not be listed: {html}"
-    );
-}
-
-#[tokio::test]
-async fn a_row_whose_owner_is_gone_still_renders() {
-    let db = full_db().await;
-    let router = router_with_app_uploads(db.clone());
-    let post = published_post(&db).await;
-    let owner = MediaOwner::Post(post.id);
-    upload(&router, &db, owner, "cover.png", "image/png", PAYLOAD).await;
-
-    // The pair carries no foreign key, so nothing cascades: the row stays, and
-    // the page says what happened to its owner (ADR-0021).
-    let mut db_q = db.clone();
-    Post::filter(Post::fields().id().eq(post.id))
-        .delete()
-        .exec(&mut db_q)
-        .await
-        .expect("delete the post the media was uploaded for");
-
-    let html = body_string(demo_client(&router, &db).await.get(MEDIA_PATH).await).await;
-    assert!(
-        html.contains("Post · (deleted)"),
-        "the row must still render, named as dangling: {html}"
     );
 }

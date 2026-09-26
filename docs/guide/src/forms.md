@@ -14,7 +14,7 @@ Schema::new((
     )),
     Grid::new(2).schema((
         TextInput::r#for(User::fields().name()),
-        FileUpload::r#for(Post::fields().image_path()),
+        FileUpload::r#for(MediaAsset::fields().path()),
     )),
 ))
 ```
@@ -34,13 +34,15 @@ What to know:
   (`"a b"@example.com`), a unicode address (`用户@例え.jp`) and a bracketed domain literal
   (`a@[127.0.0.1]`) pass.
 - **A non-`String` column binds through `TextInput::typed`** (GH #192):
-  `TextInput::typed::<Post, i64>(Post::fields().post_stats().word_count())` renders the value's
+  `TextInput::typed::<User, i64>(User::fields().age())` renders the value's
   `Display`, parses the submission through the type's own `FromStr`, and refuses what it cannot parse
   as an inline field error naming the input — `` `twelve` is not a valid whole number `` — instead of
   a 500 or a silent default. What is stored is `Display` of the parsed value, so a value re-submitted
   unchanged is written back in the shape it was read. `typed_context(cx, path)` is the
   embedded/document sibling, as `r#for_context` is to `r#for`. `TypedValue` covers the integer types,
-  `f64`, `Uuid` and `jiff::Timestamp`; a type needing its own words implements the trait. Empty is
+  `f64`, `Uuid` and `jiff::Timestamp`; a type needing its own words implements the trait. A
+  `jiff::Timestamp` leaf renders `type="datetime-local"`: the control carries no zone, so the stored
+  instant renders in UTC and a submission is read back as UTC. Empty is
   the presence rule's business, not the typed one: a typed column has no spelling for "no value", so
   an empty submission on an optional typed field reaches the record fn as `""` exactly as any other
   optional column does.

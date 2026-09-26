@@ -63,6 +63,7 @@ async fn stale_cursor_after_concurrent_delete_offers_first_page() {
                 email: format!("void{:02}@example.com", i),
                 role: "member",
                 active: true,
+                age: 30,
                 created_at: "2024-03-01T00:00:00Z".parse::<jiff::Timestamp>().unwrap(),
             })
             .exec(&mut db_q)
@@ -128,23 +129,15 @@ async fn no_js_fallbacks_cover_search_filter_sort_pager() {
             status: "published".to_string(),
             featured: false,
             created_at: "2024-02-01T00:00:00Z".parse::<jiff::Timestamp>().unwrap(),
-            image_path: "extra.jpg".to_string(),
+            cover_id: None,
             tags: "extra".to_string(),
             seo: showcase::models::Seo {
                 title: "Extra".to_string(),
                 description: String::new(),
             },
             publication: showcase::models::Publication::Published {
-                published_at: "2024-02-01T00:00:00Z".to_string(),
+                published_at: "2024-02-01T00:00:00Z".parse::<jiff::Timestamp>().unwrap(),
                 canonical_url: String::new(),
-            },
-            media: showcase::models::Media::Image {
-                url: "extra.jpg".to_string(),
-                alt: String::new(),
-            },
-            post_stats: showcase::models::PostStats {
-                word_count: 0,
-                read_minutes: 0,
             },
             author_id: authors[0].id,
         })

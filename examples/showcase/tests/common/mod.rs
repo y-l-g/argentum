@@ -111,23 +111,15 @@ pub async fn tenanted_db() -> (Db, uuid::Uuid, uuid::Uuid) {
         status: "published".to_string(),
         featured: true,
         created_at: "2024-01-15T09:30:00Z".parse::<jiff::Timestamp>().unwrap(),
-        image_path: "/images/t1.jpg".to_string(),
+        cover_id: None,
         tags: "t1".to_string(),
         seo: showcase::models::Seo {
             title: "T1 SEO".to_string(),
             description: String::new(),
         },
         publication: showcase::models::Publication::Published {
-            published_at: "2024-01-15T09:30:00Z".to_string(),
+            published_at: "2024-01-15T09:30:00Z".parse::<jiff::Timestamp>().unwrap(),
             canonical_url: String::new(),
-        },
-        media: showcase::models::Media::Image {
-            url: "/images/t1.jpg".to_string(),
-            alt: String::new(),
-        },
-        post_stats: showcase::models::PostStats {
-            word_count: 0,
-            read_minutes: 0,
         },
         author_id: a1.id,
     })
@@ -141,23 +133,15 @@ pub async fn tenanted_db() -> (Db, uuid::Uuid, uuid::Uuid) {
         status: "draft".to_string(),
         featured: false,
         created_at: "2024-06-01T12:00:00Z".parse::<jiff::Timestamp>().unwrap(),
-        image_path: "/images/t2.jpg".to_string(),
+        cover_id: None,
         tags: "t2".to_string(),
         seo: showcase::models::Seo {
             title: "T2 SEO".to_string(),
             description: String::new(),
         },
         publication: showcase::models::Publication::Scheduled {
-            scheduled_at: "2024-07-01T09:00:00Z".to_string(),
+            scheduled_at: "2024-07-01T09:00:00Z".parse::<jiff::Timestamp>().unwrap(),
             scheduled_for: String::new(),
-        },
-        media: showcase::models::Media::Image {
-            url: "/images/t2.jpg".to_string(),
-            alt: String::new(),
-        },
-        post_stats: showcase::models::PostStats {
-            word_count: 0,
-            read_minutes: 0,
         },
         author_id: a2.id,
     })
@@ -469,26 +453,6 @@ pub fn form_body(pairs: &[(&str, &str)]) -> String {
 /// The framing is what a browser sends for a form with a file input, so a
 /// create can carry a real upload through the panel instead of a client-typed
 /// text value.
-pub fn multipart_body(
-    boundary: &str,
-    fields: &[(&str, &str)],
-    files: &[(&str, &str, &str)],
-) -> String {
-    let mut body = String::new();
-    for (name, value) in fields {
-        body.push_str(&format!(
-            "--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"\r\n\r\n{value}\r\n"
-        ));
-    }
-    for (name, filename, bytes) in files {
-        body.push_str(&format!(
-            "--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"; filename=\"{filename}\"\r\nContent-Type: application/octet-stream\r\n\r\n{bytes}\r\n"
-        ));
-    }
-    body.push_str(&format!("--{boundary}--\r\n"));
-    body
-}
-
 /// The `value` attribute of the named `<input>` in rendered HTML, in either
 /// attribute order.
 ///
@@ -536,26 +500,6 @@ pub fn row_link_key(html: &str, kind: &str) -> Option<String> {
         rest = &rest[at + needle.len()..];
     }
     None
-}
-
-/// The opening `<input …>` tag that carries `type="file"`.
-///
-/// Attributes render in no guaranteed order (topcoat#122), so callers assert
-/// on the whole tag rather than a single attribute's position. Needed because
-/// native validation — `required` on a file input — is exactly what broke the
-/// post edit form, and only the markup can pin it.
-pub fn file_input_tag(html: &str) -> String {
-    let at = html.find("type=\"file\"").expect("a file input");
-    let start = html[..at].rfind("<input").expect("its opening tag");
-    let mut quoted = false;
-    for (offset, byte) in html[start..].bytes().enumerate() {
-        match byte {
-            b'"' => quoted = !quoted,
-            b'>' if !quoted => return html[start..start + offset].to_string(),
-            _ => {}
-        }
-    }
-    panic!("unterminated <input> tag at byte {start}");
 }
 
 /// The first `href="…"` in `html` whose value contains `needle`, with the

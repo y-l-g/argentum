@@ -13,8 +13,8 @@ use http::header::LOCATION;
 use showcase::{
     app::router_for_tests as router,
     models::{
-        Author, BLOCKED_TENANT, Comment, DEMO_ADMIN_EMAIL, DEMO_ADMIN_PASSWORD, Media, Post,
-        PostStats, Publication, Seo,
+        Author, BLOCKED_TENANT, Comment, DEMO_ADMIN_EMAIL, DEMO_ADMIN_PASSWORD, Post, Publication,
+        Seo,
     },
 };
 use uuid::Uuid;
@@ -141,7 +141,7 @@ async fn forged_posts_answer_403_and_change_nothing() {
         "a forged bulk delete must remove nothing"
     );
 
-    // 3./4. Multipart create and edit: the upload path shares the CSRF verify.
+    // 3./4. Multipart create and edit: the multipart path shares the CSRF verify.
     let boundary = "----GateMatrixBoundary";
     for (csrf_part, label) in [
         (
@@ -155,7 +155,7 @@ async fn forged_posts_answer_403_and_change_nothing() {
         let body = format!(
             "--{b}\r\nContent-Disposition: form-data; name=\"title\"\r\n\r\nForged\r\n\
              --{b}\r\nContent-Disposition: form-data; name=\"author_id\"\r\n\r\n{author_id}\r\n\
-             --{b}\r\nContent-Disposition: form-data; name=\"image_path\"; filename=\"x.png\"\r\nContent-Type: image/png\r\n\r\nFORGED\r\n\
+             --{b}\r\nContent-Disposition: form-data; name=\"tags\"\r\n\r\nforged\r\n\
              {csrf_part}--{b}--\r\n",
             b = boundary,
             author_id = author.id,
@@ -174,7 +174,7 @@ async fn forged_posts_answer_403_and_change_nothing() {
         let body = format!(
             "--{b}\r\nContent-Disposition: form-data; name=\"title\"\r\n\r\nForged\r\n\
              --{b}\r\nContent-Disposition: form-data; name=\"author_id\"\r\n\r\n{author_id}\r\n\
-             --{b}\r\nContent-Disposition: form-data; name=\"image_path\"; filename=\"x.png\"\r\nContent-Type: image/png\r\n\r\nFORGED\r\n\
+             --{b}\r\nContent-Disposition: form-data; name=\"tags\"\r\n\r\nforged\r\n\
              {csrf_part}--{b}--\r\n",
             b = boundary,
             author_id = author.id,
@@ -477,23 +477,15 @@ async fn blocked_tenant_is_refused_on_every_read_route() {
         status: "draft".to_string(),
         featured: false,
         created_at: "2024-01-01T00:00:00Z".parse::<jiff::Timestamp>().unwrap(),
-        image_path: "/images/blocked.jpg".to_string(),
+        cover_id: None,
         tags: "blocked".to_string(),
         seo: Seo {
             title: "Blocked SEO".to_string(),
             description: String::new(),
         },
         publication: Publication::Published {
-            published_at: "2024-01-01T00:00:00Z".to_string(),
+            published_at: "2024-01-01T00:00:00Z".parse::<jiff::Timestamp>().unwrap(),
             canonical_url: String::new(),
-        },
-        media: Media::Image {
-            url: "/images/blocked.jpg".to_string(),
-            alt: String::new(),
-        },
-        post_stats: PostStats {
-            word_count: 0,
-            read_minutes: 0,
         },
         author_id: blocked_author.id,
     })

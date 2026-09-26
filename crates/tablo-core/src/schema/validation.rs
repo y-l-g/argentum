@@ -82,6 +82,69 @@ impl TypedValue for jiff::Timestamp {
     const NOUN: &'static str = "timestamp";
 }
 
+/// Whether `T` is the timestamp type a typed field renders as `datetime-local`.
+pub(crate) fn is_timestamp<T>() -> bool {
+    std::any::type_name::<T>() == std::any::type_name::<jiff::Timestamp>()
+}
+
+/// Parse a timestamp submission into its stored spelling.
+///
+/// Accepts what the type accepts (RFC 3339) plus the `datetime-local` shapes a
+/// browser sends (`YYYY-MM-DDTHH:MM`, with optional seconds and fraction),
+/// assumed UTC. Returns the type's canonical `Display`, so a re-read is a
+/// fixpoint.
+pub(crate) fn parse_timestamp_storage(value: &str) -> Result<String, String> {
+    let error = || format!("`{value}` is not a valid timestamp");
+    let trimmed = value.trim();
+    if let Ok(parsed) = trimmed.parse::<jiff::Timestamp>() {
+        return Ok(parsed.to_string());
+    }
+    let normalized = normalize_datetime_local(trimmed).ok_or_else(error)?;
+    match normalized.parse::<jiff::Timestamp>() {
+        Ok(parsed) => Ok(parsed.to_string()),
+        Err(_) => Err(error()),
+    }
+}
+
+/// A `datetime-local` value as the RFC 3339 string a timestamp parses, or
+/// `None` when the shape is not one the control sends.
+fn normalize_datetime_local(value: &str) -> Option<String> {
+    let t = value.find('T')?;
+    let after_t = &value[t + 1..];
+    // A zone offset after the `T` means the value already names its offset;
+    // the direct parse above refused it, so it is not a valid timestamp. A
+    // valid control value carries neither `+` nor `-` after the `T`.
+    if after_t.contains('+') || after_t.contains('-') {
+        return None;
+    }
+    if value.ends_with(['Z', 'z']) {
+        return None;
+    }
+    // `YYYY-MM-DDTHH:MM` needs seconds before the zone; longer shapes carry
+    // their own seconds and fraction.
+    if value.len() == 16 {
+        Some(format!("{value}:00Z"))
+    } else {
+        Some(format!("{value}Z"))
+    }
+}
+
+/// A stored timestamp as the `datetime-local` value its control renders.
+///
+/// The control carries no zone, so the instant renders in UTC truncated to the
+/// minute. Anything that is not a timestamp (empty, old free-text) renders
+/// empty: there is no back-compat spelling for free-text.
+pub(crate) fn format_timestamp_input(storage: &str) -> String {
+    let trimmed = storage.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    match trimmed.parse::<jiff::Timestamp>() {
+        Ok(parsed) => parsed.strftime("%Y-%m-%dT%H:%M").to_string(),
+        Err(_) => String::new(),
+    }
+}
+
 /// How a typed field reads a submitted string back.
 ///
 /// A `String` field keeps the identity parser — store what was typed — so the
@@ -125,7 +188,11 @@ impl Rules {
 
     /// Add the typed parse rule for `T`.
     pub(crate) fn typed<T: TypedValue>(mut self) -> Self {
-        self.parser = Some(typed_parser::<T>());
+        if is_timestamp::<T>() {
+            self.parser = Some(std::sync::Arc::new(parse_timestamp_storage));
+        } else {
+            self.parser = Some(typed_parser::<T>());
+        }
         self
     }
 

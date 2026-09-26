@@ -228,6 +228,16 @@ pub trait Resource: Sized + Send + Sync + 'static {
         None
     }
 
+    /// A public URL for one record, rendered as a "View public post"-style
+    /// link on the detail and edit pages when `Some`.
+    ///
+    /// The default declares none, so no link renders. A resource whose records
+    /// have a public page overrides this with its URL — the showcase's posts
+    /// return their `/blog/{id}` page.
+    fn public_url(_cx: &Cx, _record: &Self::Model) -> Option<String> {
+        None
+    }
+
     /// The URL slug for this resource's pages, e.g. `"users"` mounts the list
     /// at `{panel prefix}/users`.
     ///
@@ -392,6 +402,19 @@ pub trait Resource: Sized + Send + Sync + 'static {
     /// The default is empty, so a resource with no form still lists.
     fn form(_cx: &Cx) -> Schema {
         Schema::empty()
+    }
+
+    /// App-level field validation beyond the Schema's own rules.
+    ///
+    /// Runs after the Schema's required/typed/relationship checks inside
+    /// `prepare_submission` and before the unique probe. Returns field errors
+    /// keyed by field name; empty means valid. The default declares none, so
+    /// a resource without custom rules keeps the Schema's verdict alone.
+    ///
+    /// A range rule lives here, never in a record fn: a record fn error is a
+    /// 500, while this renders inline with a 200 and writes nothing.
+    fn validate(_cx: &Cx, _values: &HashMap<String, String>) -> HashMap<String, Vec<String>> {
+        HashMap::new()
     }
 
     /// Sidebar entry for the resource.

@@ -197,6 +197,7 @@ mod tests {
             email: "ada@example.com".to_string(),
             role: "admin".to_string(),
             active: true,
+            age: 36,
             created_at: jiff::Timestamp::now(),
         };
         UserResource::after_commit(&Cx::default(), Committed::created(user))

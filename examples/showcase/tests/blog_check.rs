@@ -9,7 +9,7 @@
 
 use showcase::{
     app::router_for_tests as router,
-    models::{Author, DEMO_TENANT, Media, Post, PostStats, Publication, Seo},
+    models::{Author, DEMO_TENANT, Post, Publication, Seo},
 };
 
 use crate::common::{TestClient, body_string, demo_client, empty_schema_db, full_db};
@@ -60,23 +60,15 @@ async fn create_published(
         status: "published".to_string(),
         featured: false,
         created_at: created_at.parse::<jiff::Timestamp>().expect("a timestamp"),
-        image_path: String::new(),
+        cover_id: None,
         tags: String::new(),
         seo: Seo {
             title: String::new(),
             description: excerpt.to_string(),
         },
         publication: Publication::Published {
-            published_at: String::new(),
+            published_at: created_at.parse::<jiff::Timestamp>().expect("a timestamp"),
             canonical_url: String::new(),
-        },
-        media: Media::Image {
-            url: String::new(),
-            alt: String::new(),
-        },
-        post_stats: PostStats {
-            word_count: 0,
-            read_minutes: 0,
         },
         author_id: author.id,
     })
@@ -192,37 +184,48 @@ async fn blog_detail_renders_body_cover_and_seo_description() {
         html.contains("Ada Author"),
         "the detail page must name the author: {html}"
     );
-    // The seeded cover is a bare filename no route serves, so the page renders
-    // no image rather than a broken one.
+    // A post with no picked cover renders no image rather than a broken one.
     assert!(
         !html.contains("<img"),
-        "a filename that names no route must not render as a cover: {html}"
+        "a post with no cover must render no image: {html}"
     );
 }
 
 #[tokio::test]
 async fn a_servable_cover_renders_as_an_image() {
+    use showcase::models::{DEMO_TENANT, MediaAsset};
+
     let db = full_db().await;
     let router = router(db.clone());
     let post = published_post(&db).await;
 
-    // The demo uploader stores the URL it returned, a rooted path the panel
-    // serves — the shape a cover has once it is a real upload.
+    // The cover is a picked library row: the row stores the served URL the
+    // uploader returned, and the post names the row.
     let stored = "/uploads/cover.png".to_string();
     let mut db_q = db.clone();
+    let asset = toasty::create!(MediaAsset {
+        tenant_id: DEMO_TENANT,
+        path: stored.clone(),
+        filename: "cover.png".to_string(),
+        kind: "image".to_string(),
+        created_at: "2024-01-15T09:30:00Z".parse::<jiff::Timestamp>().unwrap(),
+    })
+    .exec(&mut db_q)
+    .await
+    .expect("create the cover row");
     Post::filter(Post::fields().id().eq(post.id))
         .update()
-        .image_path(stored.clone())
+        .cover_id(Some(asset.id))
         .exec(&mut db_q)
         .await
-        .expect("point the post at a servable cover");
+        .expect("point the post at the cover row");
 
     let response = TestClient::new(&router).get(&post_path(&post)).await;
     assert_eq!(response.status(), 200);
     let html = body_string(response).await;
     assert!(
         html.contains(&format!("src=\"{stored}\"")),
-        "a rooted cover path must render as an image: {html}"
+        "a picked cover must render as an image: {html}"
     );
 }
 

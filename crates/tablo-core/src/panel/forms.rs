@@ -413,6 +413,10 @@ fn form_values_from_bytes(bytes: &[u8]) -> HashMap<String, String> {
 /// than the record's: the shell renders each one's path as a hidden
 /// `keep_<field>` control, so the submit a corrected form makes can keep a file
 /// the browser's empty file input cannot resend.
+//
+// The public link rides alongside the form state: one more argument rather
+// than a second render entry point.
+#[allow(clippy::too_many_arguments)]
 async fn render_form_page<'a, R: Resource>(
     cx: &'a Cx,
     title: String,
@@ -420,6 +424,7 @@ async fn render_form_page<'a, R: Resource>(
     values: &HashMap<String, String>,
     errors: &HashMap<String, Vec<String>>,
     carried: &HashSet<String>,
+    public_url: Option<String>,
 ) -> Result<BoxView<'a>> {
     let schema = R::form(cx);
     let form_html = schema.render_with(cx, values, errors).await?;
@@ -446,7 +451,14 @@ async fn render_form_page<'a, R: Resource>(
     Ok(view! {
         cx =>
         tablo_ui::page(
-            tablo_ui::page_header(tablo_ui::page_title((title.clone())))
+            tablo_ui::page_header(
+                tablo_ui::page_title((title.clone()))
+                if let Some(public) = public_url {
+                    <a href=(public) class="text-sm text-muted-foreground underline">
+                        "View public post"
+                    </a>
+                }
+            )
             tablo_ui::page_content(
                 <form
                     method="post"
@@ -497,6 +509,7 @@ pub(crate) fn resource_create<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> 
             &HashMap::new(),
             &HashMap::new(),
             &HashSet::new(),
+            None,
         )
         .await?;
         Ok(html)
@@ -721,6 +734,10 @@ async fn check_unique<R: Resource>(
 /// rendering — the re-rendered form reloads relationship options on
 /// its own handle, which would block on the pool while the tx holds it —
 /// so the drop is enforced here rather than trusted at each call site.
+//
+// The public link rides through to the re-rendered form for the same reason
+// as above.
+#[allow(clippy::too_many_arguments)]
 async fn rerender_invalid_form<'a, R: Resource>(
     cx: &'a Cx,
     tx: toasty::Transaction<'_>,
@@ -729,9 +746,10 @@ async fn rerender_invalid_form<'a, R: Resource>(
     values: &HashMap<String, String>,
     errors: &HashMap<String, Vec<String>>,
     carried: &HashSet<String>,
+    public_url: Option<String>,
 ) -> Result<BoxView<'a>> {
     drop(tx);
-    render_form_page::<R>(cx, title, submit_label, values, errors, carried).await
+    render_form_page::<R>(cx, title, submit_label, values, errors, carried, public_url).await
 }
 
 /// Shared create/edit POST success tail: Post/Redirect/Get with a
@@ -821,6 +839,11 @@ async fn prepare_submission<R: Resource>(
     // A rejected upload owns its field's error slot: "required" would restate
     // the symptom (nothing was stored) and hide the reason.
     errors.extend(upload_errors);
+    // App-level rules render inline like the Schema's own: a record fn error
+    // is a 500, so a range or cross-field rule lives here, never there.
+    for (field, field_errors) in R::validate(cx, &values) {
+        errors.entry(field).or_default().extend(field_errors);
+    }
     Ok(Submission {
         schema,
         values,
@@ -912,6 +935,7 @@ pub(crate) fn resource_create_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<
                 &values,
                 &errors,
                 &carried,
+                None,
             )
             .await;
         }
@@ -938,6 +962,7 @@ pub(crate) fn resource_edit<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
         }
         crate::csrf::ensure_token(cx);
         let values = R::hydrate_form_values(cx, &record);
+        let public = R::public_url(cx, &record);
         let html = render_form_page::<R>(
             cx,
             format!("Edit {}", R::navigation_label()),
@@ -945,6 +970,7 @@ pub(crate) fn resource_edit<R: Resource>(cx: &Cx, _body: Body) -> BoxView<'_> {
             &values,
             &HashMap::new(),
             &HashSet::new(),
+            public,
         )
         .await?;
         Ok(html)
@@ -998,6 +1024,7 @@ pub(crate) fn resource_edit_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_
             errors.entry(name).or_default().extend(errs);
         }
         if !errors.is_empty() {
+            let public = R::public_url(cx, &record);
             return rerender_invalid_form::<R>(
                 cx,
                 tx,
@@ -1006,6 +1033,7 @@ pub(crate) fn resource_edit_post<R: Resource>(cx: &Cx, body: Body) -> BoxView<'_
                 &values,
                 &errors,
                 &carried,
+                public,
             )
             .await;
         }

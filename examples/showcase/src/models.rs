@@ -25,6 +25,9 @@ pub struct User {
     /// "admin" or "member" — the form renders them as a static-options Select.
     pub role: String,
     pub active: bool,
+    /// A stored integer the form binds through `TextInput::typed`: optional,
+    /// zero or more.
+    pub age: i64,
     pub created_at: Timestamp,
 }
 
@@ -70,10 +73,9 @@ pub struct Seo {
 /// nullable column (`publication_scheduled_for`, `publication_canonical_url`,
 /// `publication_reason`).
 ///
-/// The timestamps are `String` rather than `jiff::Timestamp` because a bound
-/// field is a `String` lens: the Schema's text fields accept `Path<M, String>`,
-/// and a typed leaf (a timestamp, an integer) cannot bind as text yet. The
-/// shared column's *coalescing* is what this demonstrates.
+/// The timestamps are `jiff::Timestamp`: the form binds them through
+/// `TextInput::typed`, which renders `type="datetime-local"` and reads the
+/// submission back as UTC.
 #[derive(Debug, Clone, PartialEq, toasty::Embed, tablo_core::EmbeddedForm)]
 pub enum Publication {
     #[column(variant = 1)]
@@ -82,75 +84,23 @@ pub enum Publication {
         /// declares it, so its label is written there.
         #[shared(timestamp)]
         #[form(label = "Publication timestamp")]
-        scheduled_at: String,
+        scheduled_at: Timestamp,
         scheduled_for: String,
     },
     #[column(variant = 2)]
     Published {
         #[shared(timestamp)]
-        published_at: String,
+        published_at: Timestamp,
         #[form(label = "Canonical URL")]
         canonical_url: String,
     },
     #[column(variant = 3)]
     Archived {
         #[shared(timestamp)]
-        archived_at: String,
+        archived_at: Timestamp,
         #[form(label = "Archive reason")]
         reason: String,
     },
-}
-
-/// Image / video attachment — an embedded enum with an embedded struct **nested
-/// inside a variant**.
-///
-/// `Video` carries a `Poster`, which itself embeds a `Credit`, so the column is
-/// `media_poster_credit_author` — three levels deep, one flat column.
-#[derive(Debug, Clone, toasty::Embed, tablo_core::EmbeddedForm)]
-pub struct Credit {
-    #[form(label = "Poster credit")]
-    pub author: String,
-    pub licence: String,
-}
-
-#[derive(Debug, Clone, toasty::Embed, tablo_core::EmbeddedForm)]
-pub struct Poster {
-    #[form(label = "Poster URL")]
-    pub url: String,
-    pub credit: Credit,
-}
-
-#[derive(Debug, Clone, toasty::Embed, tablo_core::EmbeddedForm)]
-pub enum Media {
-    #[column(variant = 1)]
-    Image {
-        #[form(label = "Image URL")]
-        url: String,
-        #[form(label = "Image alt")]
-        alt: String,
-    },
-    #[column(variant = 2)]
-    Video {
-        // Distinct from `Image::url` on purpose: two variant fields mapping to
-        // one column is a schema error unless they declare `#[shared(..)]` —
-        // which is the right answer only when they mean the same thing.
-        #[form(label = "Video URL")]
-        video_url: String,
-        poster: Poster,
-    },
-}
-
-/// Post statistics — an embedded struct.
-///
-/// Embedding flattens it into `post_stats_word_count` /
-/// `post_stats_read_minutes`, and those are integers the form binds through
-/// `TextInput::typed`.
-#[derive(Debug, Clone, toasty::Embed, tablo_core::EmbeddedForm)]
-pub struct PostStats {
-    #[form(label = "Word count")]
-    pub word_count: i64,
-    #[form(label = "Read minutes")]
-    pub read_minutes: i64,
 }
 
 /// Post with BelongsTo Author and HasMany Comments (relations via include + computed).
@@ -168,15 +118,15 @@ pub struct Post {
     pub status: String,
     pub featured: bool,
     pub created_at: Timestamp,
-    pub image_path: String,
+    /// The library row this post shows as its cover, if any. An optional
+    /// single picker: the form offers the tenant's media rows and stores the
+    /// picked row's id.
+    pub cover_id: Option<uuid::Uuid>,
     pub tags: String,
     /// Embedded struct.
     pub seo: Seo,
     /// Shared column + per-variant payloads.
     pub publication: Publication,
-    /// Embedded struct nested inside an enum variant.
-    pub media: Media,
-    pub post_stats: PostStats,
     #[index]
     pub author_id: uuid::Uuid,
     #[belongs_to(key = author_id, references = id)]
@@ -199,22 +149,13 @@ pub struct Comment {
 
 /// One stored file in the media library — the `medias` table.
 ///
-/// **`owner_type`/`owner_id` are a polymorphic pair.** A media row names the
-/// record it belongs to without a foreign key, because that record is a `Post`
-/// or a `User` and Toasty's typed relations express one target table. So there
-/// is no `#[belongs_to]` here and no `#[has_many]` on either owner: the
-/// database enforces nothing, [`crate::media`] checks the owner exists before
-/// it writes, and deleting an owner leaves its media rows dangling rather than
-/// cascading. ADR-0021 records the tradeoff.
-///
-/// The name is `MediaAsset`, not `Media` or `Attachment`: `Media` is the
-/// embedded enum on `Post` — an image/video *description* in the post's own
-/// columns, with no bytes and no owner — and "Attachment" is only the label
-/// over that value's controls in the post form. `CONTEXT.md` keeps the three
-/// apart.
+/// A WordPress-style library: one row per stored file with the tenant that
+/// uploaded it, the `path` the `Uploader` returned, the client's `filename`,
+/// a `kind`, and a timestamp. Rows carry no owner: a post shows one row as
+/// its cover through its own `cover_id`, and the library lists one tenant's
+/// rows. ADR-0021 records the shape.
 #[derive(Debug, Clone, toasty::Model)]
 #[table = "medias"]
-#[index(owner_type, owner_id)]
 pub struct MediaAsset {
     #[key]
     #[auto]
@@ -223,10 +164,6 @@ pub struct MediaAsset {
     /// the library lists one tenant's media.
     #[index]
     pub tenant_id: uuid::Uuid,
-    /// Which table `owner_id` names: [`crate::media::OWNER_POST`] or
-    /// [`crate::media::OWNER_USER`].
-    pub owner_type: String,
-    pub owner_id: uuid::Uuid,
     /// What the app's [`Uploader`](tablo_core::Uploader) returned, stored
     /// verbatim and rendered as the URL the file is served at.
     pub path: String,

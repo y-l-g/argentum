@@ -3,75 +3,64 @@ use showcase::{
     models::{Author, Post},
 };
 
-use crate::common::{
-    body_string, demo_client, file_input_tag, full_db, multipart_body, post_count,
-};
+use crate::common::{body_string, demo_client, full_db, post_count};
 
 #[tokio::test]
-async fn posts_create_shows_fileupload_and_repeater() {
+async fn posts_create_shows_cover_picker_and_repeater() {
     let db = full_db().await;
     let router = router(db.clone());
     let client = demo_client(&router, &db).await;
     let resp = client.get("/admin/posts/create").await;
     assert!(resp.status().is_success());
     let html = body_string(resp).await;
-    // FileUpload should be an input type="file" with for/id linking
+    // One media source: the cover is a picked library row, not a file input.
     assert!(
-        html.contains("type=\"file\""),
-        "missing file input {}",
-        html
+        !html.contains("type=\"file\""),
+        "the post form must not upload a cover directly: {html}"
     );
     assert!(
-        html.contains("for=\"image_path\"") || html.contains("for=\"image\""),
-        "missing for/id linking {}",
-        html
+        html.contains("name=\"cover_id\""),
+        "missing cover picker {html}"
     );
     assert!(
         html.contains("data-slot=\"field\""),
-        "missing field wrapper {}",
-        html
+        "missing field wrapper {html}"
     );
     // Repeater should render nested schema with Tags label and inner Tag input
-    assert!(html.contains("Tags"), "missing Repeater label {}", html);
+    assert!(html.contains("Tags"), "missing Repeater label {html}");
     assert!(
         html.contains("for=\"tags\"") || html.contains("name=\"tags\""),
-        "missing tags input {}",
-        html
+        "missing tags input {html}"
     );
     // Content/Group composition: sectioned story fields and a grouped metadata
     // grid.
-    assert!(html.contains("Content"), "missing Content section {}", html);
+    assert!(html.contains("Content"), "missing Content section {html}");
     assert!(
         html.contains("name=\"status\"") && html.contains("name=\"featured\""),
-        "missing lifecycle selects {}",
-        html
+        "missing lifecycle selects {html}"
     );
-    // The form's own labels: the flag select reads "Featured" and
-    // the embedded media value reads "Attachment".
+    // The form's own labels: the flag select reads "Featured" and the cover
+    // picker reads "Cover".
     assert!(
         html.contains("Featured</label>"),
-        "missing Featured label for the flag select {}",
-        html
+        "missing Featured label for the flag select {html}"
     );
     assert!(
-        html.contains(">Attachment<"),
-        "missing Attachment section {}",
-        html
+        html.contains(">Cover<") || html.contains("name=\"cover_id\""),
+        "missing Cover picker {html}"
     );
     assert!(
         html.contains("field-group"),
-        "missing Group container {}",
-        html
+        "missing Group container {html}"
     );
     assert!(
         html.contains("grid grid-cols-2") || html.contains("grid-cols-2"),
-        "missing Grid {}",
-        html
+        "missing Grid {html}"
     );
 }
 
 #[tokio::test]
-async fn posts_create_invalid_fileupload_repeater_shows_errors() {
+async fn posts_create_invalid_repeater_shows_errors() {
     let db = full_db().await;
     let router = router(db.clone());
     let client = demo_client(&router, &db).await;
@@ -80,29 +69,24 @@ async fn posts_create_invalid_fileupload_repeater_shows_errors() {
     let mut db2 = db.clone();
     let authors = Author::all().exec(&mut db2).await.unwrap();
     let first = &authors[0];
-    // Missing image_path (a required FileUpload). The optional Tags group is
-    // empty, which is absent — not an error.
+    // Missing title (required). The optional Tags group is empty, which is
+    // absent — not an error.
     let resp = client
         .csrf(&csrf)
         .post_form(
             "/admin/posts/create",
-            format!(
-                "title=Test&author_id={}&image_path=&tags=&csrf_token={csrf}",
-                first.id
-            ),
+            format!("title=&author_id={}&tags=&csrf_token={csrf}", first.id),
         )
         .await;
     let status = resp.status();
     let html = body_string(resp).await;
     assert!(
         status.is_success(),
-        "invalid should be 200, got {} {}",
-        status,
-        html
+        "invalid should be 200, got {status} {html}"
     );
     assert!(
-        html.contains("Cover image is required"),
-        "missing required error for the file field, got {html}"
+        html.contains("Title is required"),
+        "missing required error for the title field, got {html}"
     );
     assert_eq!(
         post_count(&db).await,
@@ -112,7 +96,7 @@ async fn posts_create_invalid_fileupload_repeater_shows_errors() {
 }
 
 #[tokio::test]
-async fn posts_create_valid_fileupload_repeater_creates() {
+async fn posts_create_valid_repeater_creates() {
     let db = full_db().await;
     let router = router(db.clone());
     let client = demo_client(&router, &db).await;
@@ -122,20 +106,14 @@ async fn posts_create_valid_fileupload_repeater_creates() {
     let first = &authors[0];
     let before = Post::all().exec(&mut db2).await.unwrap().len();
     let author_id = first.id.to_string();
-    let boundary = "----FileRepeaterBoundary";
-    let body = multipart_body(
-        boundary,
-        &[
-            ("title", "Valid With Files"),
-            ("author_id", &author_id),
-            ("tags", "valid,tags"),
-            ("csrf_token", &csrf),
-        ],
-        &[("image_path", "valid.jpg", "FAKEBYTES")],
-    );
     let resp = client
         .csrf(&csrf)
-        .post_multipart("/admin/posts/create", boundary, body)
+        .post_form(
+            "/admin/posts/create",
+            format!(
+                "title=Valid+With+Tags&author_id={author_id}&cover_id=&tags=valid%2Ctags&csrf_token={csrf}"
+            ),
+        )
         .await;
     assert!(
         resp.status().is_redirection(),
@@ -145,18 +123,15 @@ async fn posts_create_valid_fileupload_repeater_creates() {
     let mut db2 = db.clone();
     let after = Post::all().exec(&mut db2).await.unwrap().len();
     assert_eq!(after, before + 1);
-    let created = Post::filter(Post::fields().title().eq("Valid With Files".to_string()))
+    let created = Post::filter(Post::fields().title().eq("Valid With Tags".to_string()))
         .first()
         .exec(&mut db2)
         .await
         .unwrap();
     assert!(created.is_some());
     let post = created.unwrap();
-    // No uploader is installed on this router, so the file part stores the
-    // parser's sanitized basename — never text the client typed.
-    //
-    assert_eq!(post.image_path, "valid.jpg");
     assert_eq!(post.tags, "valid,tags");
+    assert_eq!(post.cover_id, None);
 }
 
 /// An optional Repeater with a `required` inner input must not fail an empty
@@ -177,20 +152,12 @@ async fn posts_create_with_empty_optional_tags_group_submits() {
     let before = Post::all().exec(&mut db2).await.unwrap().len();
 
     let author_id = authors[0].id.to_string();
-    let boundary = "----FileRepeaterBoundary";
-    let body = multipart_body(
-        boundary,
-        &[
-            ("title", "No Tags"),
-            ("author_id", &author_id),
-            ("tags", ""),
-            ("csrf_token", &csrf),
-        ],
-        &[("image_path", "notags.jpg", "FAKEBYTES")],
-    );
     let resp = client
         .csrf(&csrf)
-        .post_multipart("/admin/posts/create", boundary, body)
+        .post_form(
+            "/admin/posts/create",
+            format!("title=No+Tags&author_id={author_id}&cover_id=&tags=&csrf_token={csrf}"),
+        )
         .await;
     let status = resp.status();
     assert!(
@@ -229,52 +196,20 @@ async fn users_create_form_stays_urlencoded() {
 }
 
 #[tokio::test]
-async fn multipart_body_limit_matches_urlencoded_cap() {
-    // GH #90: the BodyLimit layer gives multipart the same 10 MiB cap as
-    // urlencoded (Topcoat's 2 MiB default would 413 uploads we accept).
+async fn posts_create_form_stays_urlencoded_without_uploads() {
+    // One media source: the post form picks a library row instead of uploading
+    // bytes, so it stays urlencoded like every other plain form.
     let db = full_db().await;
     let router = router(db.clone());
     let client = demo_client(&router, &db).await;
-    let mut db_q = db.clone();
-    let authors = Author::all().exec(&mut db_q).await.unwrap();
-    let csrf = uuid::Uuid::new_v4().to_string();
-    let boundary = "----LimitTest";
-    // 3 MiB streams fine (above Topcoat's 2 MiB default).
-    let big_ok = "a".repeat(3 * 1024 * 1024);
-    let body = format!(
-        "--{b}\r\nContent-Disposition: form-data; name=\"title\"\r\n\r\nT\r\n\
-         --{b}\r\nContent-Disposition: form-data; name=\"author_id\"\r\n\r\n{id}\r\n\
-         --{b}\r\nContent-Disposition: form-data; name=\"image_path\"; filename=\"big.jpg\"\r\nContent-Type: image/jpeg\r\n\r\n{blob}\r\n\
-         --{b}\r\nContent-Disposition: form-data; name=\"tags\"\r\n\r\nt\r\n\
-         --{b}\r\nContent-Disposition: form-data; name=\"csrf_token\"\r\n\r\n{csrf}\r\n\
-         --{b}--\r\n",
-        b = boundary,
-        id = authors[0].id,
-        blob = big_ok,
-    );
-    let resp = client
-        .csrf(&csrf)
-        .post_multipart("/admin/posts/create", boundary, body)
-        .await;
+    let resp = client.get("/admin/posts/create").await;
+    assert!(resp.status().is_success());
+    let html = body_string(resp).await;
     assert!(
-        resp.status().is_redirection(),
-        "3 MiB multipart must pass the 10 MiB cap, got {}",
-        resp.status()
+        !html.contains("multipart/form-data"),
+        "the post form carries no file input, got {}",
+        &html[..html.len().min(2000)]
     );
-    // 11 MiB is a 413 without buffering the whole body first.
-    let big_no = "a".repeat(11 * 1024 * 1024);
-    let body = format!(
-        "--{b}\r\nContent-Disposition: form-data; name=\"title\"\r\n\r\n{blob}\r\n\
-         --{b}\r\nContent-Disposition: form-data; name=\"csrf_token\"\r\n\r\n{csrf}\r\n\
-         --{b}--\r\n",
-        b = boundary,
-        blob = big_no,
-    );
-    let resp = client
-        .csrf(&csrf)
-        .post_multipart("/admin/posts/create", boundary, body)
-        .await;
-    assert_eq!(resp.status(), 413, "11 MiB multipart must be rejected");
 }
 
 #[tokio::test]
@@ -315,79 +250,4 @@ fn opening_tag_at(html: &str, start: usize) -> &str {
         }
     }
     panic!("unterminated tag at byte {start}");
-}
-
-/// The edit form surfaces the stored image path, drops the native `required`
-/// from the file control, and preserves the stored value when the submit leaves
-/// the control untouched.
-#[tokio::test]
-async fn posts_edit_without_reupload_keeps_the_stored_image() {
-    let db = full_db().await;
-    let router = router(db.clone());
-    let client = demo_client(&router, &db).await;
-
-    let mut db2 = db.clone();
-    let post = Post::filter(Post::fields().title().eq("Hello Toasty".to_string()))
-        .first()
-        .exec(&mut db2)
-        .await
-        .unwrap()
-        .expect("the seeded post");
-    let original_image = post.image_path.clone();
-    assert!(
-        !original_image.is_empty(),
-        "the fixture must store an image path for this test to mean anything"
-    );
-
-    // The edit form: stored path visible, control not requiring a re-upload.
-    let resp = client.get(&format!("/admin/posts/{}/edit", post.id)).await;
-    assert_eq!(resp.status(), 200);
-    let html = body_string(resp).await;
-    assert!(
-        html.contains(&format!("data-file-current=\"{original_image}\"")),
-        "the edit must show the stored image path, got {html}"
-    );
-    assert!(
-        html.contains("Leave empty to keep the current file."),
-        "the edit must explain that an empty control keeps the file, got {html}"
-    );
-    // The regression itself: a `required` file input is unsubmittable when
-    // empty, which is what made an untouched edit impossible in a browser.
-    let tag = file_input_tag(&html);
-    assert!(
-        !tag.contains("required"),
-        "the edit's file control must not be natively required, got {tag}"
-    );
-
-    // Save with the file control left untouched (empty), as a browser does
-    // when the user does not pick a new file: title only, no `image_path`.
-    let csrf = uuid::Uuid::new_v4().to_string();
-    let resp = client
-        .csrf(&csrf)
-        .post_form(
-            &format!("/admin/posts/{}/edit", post.id),
-            format!(
-                "title=Hello+Toasty+Edited&author_id={}&image_path=&tags=rust,async&body=Edited+body&status=published&featured=true&csrf_token={csrf}",
-                post.author_id
-            ),
-        )
-        .await;
-    assert!(
-        resp.status().is_redirection(),
-        "an untouched file input must not block the save, got {}",
-        resp.status()
-    );
-
-    let mut db3 = db.clone();
-    let saved = Post::filter(Post::fields().id().eq(post.id))
-        .first()
-        .exec(&mut db3)
-        .await
-        .unwrap()
-        .expect("the post still exists");
-    assert_eq!(
-        saved.image_path, original_image,
-        "an untouched file input must preserve the stored path (GH #90)"
-    );
-    assert_eq!(saved.title, "Hello Toasty Edited");
 }
