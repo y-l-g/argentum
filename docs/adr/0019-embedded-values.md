@@ -62,8 +62,8 @@ nodes.
 
 ## Consequences
 
-- The showcase's embedded form sections are four declarations (`Seo::form(..)`, `Publication::form(..)`,
-  `Media::form(..)`, `PostStats::form(..)`), and its update path stops spelling flattened column names
+- The showcase's embedded form sections are two declarations (`Seo::form(..)`,
+  `Publication::form(..)`), and its update path stops spelling flattened column names
   to decide whether a value was submitted.
 - **Editing keeps the stored variant** because the browser carries the discriminant back; a hand-written
   POST that names one switches it (`post_edit_switches_the_publication_variant_explicitly`).

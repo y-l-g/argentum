@@ -113,9 +113,8 @@ async fn posts_create_valid_redirects_and_creates() {
     let authors = Author::all().exec(&mut db2).await.unwrap();
     let first = &authors[0];
     let before = Post::all().exec(&mut db2).await.unwrap().len();
-    // `image_path` is a required `FileUpload`, so it arrives as a file part
-    // `router_for_tests` installs no uploader, so the parser's
-    // sanitized basename is what the record stores.
+    // The cover is an optional relationship picker, so the create posts
+    // urlencoded with an empty `cover_id`.
     let author_id = first.id.to_string();
     let resp = client
         .csrf(&csrf)

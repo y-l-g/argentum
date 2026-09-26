@@ -620,7 +620,8 @@ async fn user_age_round_trips_and_refuses_a_negative() {
     );
 
     let csrf = uuid::Uuid::new_v4().to_string();
-    // A negative age is refused and writes nothing; a valid one round-trips.
+    // A negative age is refused inline and writes nothing; a valid one
+    // round-trips, and an empty one stores zero like a create.
     let before = User::filter(User::fields().id().eq(user.id))
         .first()
         .exec(&mut db_q)
@@ -638,10 +639,16 @@ async fn user_age_round_trips_and_refuses_a_negative() {
             ),
         )
         .await;
-    assert!(
-        !resp.status().is_redirection(),
-        "a negative age must not save, got {}",
+    assert_eq!(
+        resp.status(),
+        200,
+        "a negative age re-renders the form inline, got {}",
         resp.status()
+    );
+    let html = body_string(resp).await;
+    assert!(
+        html.contains("Age must be zero or more"),
+        "the refusal must name the range inline, got {html}"
     );
     let still = User::filter(User::fields().id().eq(user.id))
         .first()
@@ -672,4 +679,29 @@ async fn user_age_round_trips_and_refuses_a_negative() {
         .unwrap()
         .expect("the user still exists");
     assert_eq!(saved.age, 42);
+
+    // Clearing the input stores zero like a create, instead of failing the
+    // parse.
+    let resp = client
+        .csrf(&csrf)
+        .post_form(
+            &format!("/admin/users/{}/edit", user.id),
+            format!(
+                "name={}&email={}&age=&csrf_token={csrf}",
+                user.name, user.email
+            ),
+        )
+        .await;
+    assert!(
+        resp.status().is_redirection(),
+        "an empty age stores zero, got {}",
+        resp.status()
+    );
+    let cleared = User::filter(User::fields().id().eq(user.id))
+        .first()
+        .exec(&mut db_q)
+        .await
+        .unwrap()
+        .expect("the user still exists");
+    assert_eq!(cleared.age, 0);
 }

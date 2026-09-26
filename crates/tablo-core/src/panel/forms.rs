@@ -839,6 +839,11 @@ async fn prepare_submission<R: Resource>(
     // A rejected upload owns its field's error slot: "required" would restate
     // the symptom (nothing was stored) and hide the reason.
     errors.extend(upload_errors);
+    // App-level rules render inline like the Schema's own: a record fn error
+    // is a 500, so a range or cross-field rule lives here, never there.
+    for (field, field_errors) in R::validate(cx, &values) {
+        errors.entry(field).or_default().extend(field_errors);
+    }
     Ok(Submission {
         schema,
         values,

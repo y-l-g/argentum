@@ -404,6 +404,19 @@ pub trait Resource: Sized + Send + Sync + 'static {
         Schema::empty()
     }
 
+    /// App-level field validation beyond the Schema's own rules.
+    ///
+    /// Runs after the Schema's required/typed/relationship checks inside
+    /// `prepare_submission` and before the unique probe. Returns field errors
+    /// keyed by field name; empty means valid. The default declares none, so
+    /// a resource without custom rules keeps the Schema's verdict alone.
+    ///
+    /// A range rule lives here, never in a record fn: a record fn error is a
+    /// 500, while this renders inline with a 200 and writes nothing.
+    fn validate(_cx: &Cx, _values: &HashMap<String, String>) -> HashMap<String, Vec<String>> {
+        HashMap::new()
+    }
+
     /// Sidebar entry for the resource.
     ///
     /// The default declares a label ([`Self::navigation_label`]) and no URL:

@@ -106,6 +106,21 @@ where
     }
 }
 
+/// The kept age: absent keeps the stored value, empty stores zero like a
+/// create, otherwise the parsed value. Range is the validation layer's
+/// (`UserResource::validate`), never this helper's: reaching here with a
+/// negative means the form was bypassed.
+fn kept_age(values: &HashMap<String, String>, current: i64) -> Result<i64> {
+    match values.get("age") {
+        None => Ok(current),
+        Some(v) if v.trim().is_empty() => Ok(0),
+        Some(v) => v
+            .trim()
+            .parse::<i64>()
+            .map_err(|e| topcoat::Error::from(std::io::Error::other(format!("invalid age: {e}")))),
+    }
+}
+
 /// The submitted embedded value for `field`; an absent group keeps `current`
 /// The submit may omit a section the form did not render.
 fn kept_embedded<M, T, L>(
@@ -323,6 +338,27 @@ impl Resource for UserResource {
         map
     }
 
+    /// A stored integer holds zero or more: empty submits are the presence
+    /// rule's (optional, so allowed), a non-number is the typed rule's, and a
+    /// negative is this hook's — all render inline with a 200 and write
+    /// nothing, never a 500 from a record fn.
+    fn validate(_cx: &Cx, values: &HashMap<String, String>) -> HashMap<String, Vec<String>> {
+        let mut errors = HashMap::new();
+        if let Some(raw) = values.get("age") {
+            let trimmed = raw.trim();
+            if !trimmed.is_empty()
+                && let Ok(parsed) = trimmed.parse::<i64>()
+                && parsed < 0
+            {
+                errors.insert(
+                    "age".to_string(),
+                    vec!["Age must be zero or more".to_string()],
+                );
+            }
+        }
+        errors
+    }
+
     /// Wake the live feed after a committed write, so an open page re-reads the
     /// users it shows.
     async fn after_commit(_cx: &Cx, _committed: Committed<User>) -> Result<()> {
@@ -347,19 +383,16 @@ impl Resource for UserResource {
             values.get("active").map(|s| s.trim().to_string()),
             Some(a) if a == "false"
         );
-        // An optional stored integer: empty stays zero, a present value parses
-        // and refuses a negative inline before the record fn runs.
+        // An optional stored integer: empty stores zero. A non-number is the
+        // typed rule's inline error; a negative is `validate`'s. Both render
+        // before a record fn runs, so reaching here with either means the form
+        // was bypassed.
         let age = match values.get("age").map(|s| s.trim().to_string()) {
             Some(s) if !s.is_empty() => s.parse::<i64>().map_err(|e| {
                 topcoat::Error::from(std::io::Error::other(format!("invalid age: {e}")))
             })?,
             _ => 0,
         };
-        if age < 0 {
-            return Err(topcoat::Error::from(std::io::Error::other(
-                "invalid age: must be zero or more",
-            )));
-        }
         // The created row goes back to the framework: it is what
         // `after_commit` names for this write.
         toasty::create!(User {
@@ -387,12 +420,7 @@ impl Resource for UserResource {
         let email = kept(&values, "email", &record.email);
         let role = kept_one_of(&values, "role", &["admin", "member"], &record.role);
         let active = kept_bool(&values, "active", record.active);
-        let age = kept_parsed(&values, "age", record.age)?;
-        if age < 0 {
-            return Err(topcoat::Error::from(std::io::Error::other(
-                "invalid age: must be zero or more",
-            )));
-        }
+        let age = kept_age(&values, record.age)?;
         // The updated row goes back to the framework: it is what
         // `after_commit` names, and it is already the committed state.
         toasty::update!(record {
@@ -1316,30 +1344,18 @@ pub fn router(db: Db) -> Router {
 /// loudly when its generated bundle is missing, while tests can exercise the
 /// server-rendered markup without pretending an asset bundle exists.
 ///
-/// It installs **no uploader** either, which pins the framework's default: a
-/// `FileUpload` with no store keeps the sanitized client filename.
-/// A test that wants the demo store uses [`router_with_uploads`].
+/// It installs **no uploader** either, which pins the framework's default for
+/// a `FileUpload` with no store. A test that needs the demo store uses
+/// [`router_with_app_uploads`].
 pub fn router_for_tests(db: Db) -> Router {
     build_router(db, None, None)
-}
-
-/// Build the showcase router with uploads enabled against `dir`.
-///
-/// Assets are left out, like [`router_for_tests`]: the upload tests assert on
-/// markup and on the served bytes, not on the stylesheet. Used by the upload
-/// tests, which need a directory of their own — the application's is shared
-/// state on disk.
-pub fn router_with_uploads(db: Db, dir: impl Into<PathBuf>) -> Router {
-    build_router(db, None, Some(dir.into()))
 }
 
 /// Build the showcase router with uploads at the directory the application
 /// itself uses.
 ///
-/// [`router_with_uploads`] takes a directory so the framework's upload tests
-/// can own theirs; this one is the configuration the app runs with, which is
-/// what the media library's page writes through — the panel's `serve_dir` mount
-/// and the store are two ends of one directory.
+/// The media library's page writes through this configuration — the panel's
+/// `serve_dir` mount and the store are two ends of one directory.
 pub fn router_with_app_uploads(db: Db) -> Router {
     build_router(db, None, Some(upload_dir()))
 }

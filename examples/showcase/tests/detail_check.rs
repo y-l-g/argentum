@@ -137,6 +137,23 @@ async fn post_detail_renders_the_record_read_only() {
 }
 
 #[tokio::test]
+async fn post_edit_page_links_the_public_post() {
+    // The edit header carries the same public link as the detail header, so
+    // an editor reaches the published page without returning to the list.
+    let db = full_db().await;
+    let router = router(db.clone());
+    let client = demo_client(&router, &db).await;
+    let mut db_q = db.clone();
+    let id = a_post_id(&mut db_q).await;
+
+    let html = body_string(client.get(&format!("/admin/posts/{id}/edit")).await).await;
+    assert!(
+        html.contains("View public post") && html.contains(&format!("/blog/{id}")),
+        "edit page must link the public post: {html}"
+    );
+}
+
+#[tokio::test]
 async fn post_detail_is_scoped_like_every_other_route() {
     // Unknown id and wrong tenant are one answer (ADR-0002): the load runs
     // through the tenant-scoped query, so the page cannot tell the caller

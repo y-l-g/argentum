@@ -14,7 +14,7 @@ Schema::new((
     )),
     Grid::new(2).schema((
         TextInput::r#for(User::fields().name()),
-        FileUpload::r#for(Post::fields().image_path()),
+        FileUpload::r#for(MediaAsset::fields().path()),
     )),
 ))
 ```
