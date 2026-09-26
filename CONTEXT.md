@@ -93,8 +93,8 @@ typed PK — action chrome without `pk` is a render error, not a silent 404 (GH 
 
 Row chrome is opt-in per resource (`TableChrome`, GH #226) and gated per record by the table's
 **row policy** (`Table::row_actions`, GH #235), which the panel wires from the resource's
-`can_view`/`can_update`/`can_delete`: a refused row renders no link, and a delete-refused row a
-**disabled** bulk checkbox labelled with the reason. The handler's all-or-nothing check stays as
+`can_view`/`can_update`/`can_delete`: a refused row renders no link and no bulk checkbox.
+The handler's all-or-nothing check stays as
 the safety net for a hand-crafted POST.
 
 A `live_search(true)` table hands its chrome to the page's `TableSignals`: the shard's tracked
@@ -187,8 +187,8 @@ _Avoid_: Writable, Mutable, can_edit
 A **chrome switch**, not a policy predicate: `Resource::deletable()` decides whether the row
 Delete button and the bulk checkbox column render (GH #96). Defaults to `false` (GH #226).
 A resource that opts in overrides it to `true` alongside `can_view` + `can_delete`, which the
-panel applies per record (GH #235): a refused row renders no Delete link and a **disabled** bulk
-checkbox labelled with the reason. It grants nothing: `delete_record`/`bulk_delete_records`
+panel applies per record (GH #235): a refused row renders no Delete link and no bulk
+checkbox. It grants nothing: `delete_record`/`bulk_delete_records`
 re-check `can_delete` on the loaded record inside the handler's transaction.
 
 _Avoid_: Destroyable, Removable, can_delete

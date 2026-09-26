@@ -135,7 +135,7 @@ pub trait Resource: Sized + Send + Sync + 'static {
     ///
     /// This flag is the whole-resource gate; the panel wires the predicates into
     /// the table's row policy ([`Table::row_actions`]), so a row they refuse
-    /// renders no Delete link and a disabled bulk checkbox. The handler keeps
+    /// renders no Delete link and no bulk checkbox. The handler keeps
     /// its all-or-nothing check as the safety net for a hand-crafted POST.
     fn deletable() -> bool {
         false

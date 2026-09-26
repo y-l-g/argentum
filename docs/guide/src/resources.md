@@ -46,9 +46,9 @@ omission has to fail loudly instead of quietly:
   predicates are
   applied **per row** (GH #235). The panel wires them into the table's row policy, so a row
   `can_update()` refuses renders no Edit link, a row `can_delete()` refuses renders no Delete link
-  and a **disabled bulk checkbox** labelled with the reason, and a row `can_view()` refuses renders
+  and no bulk checkbox, and a row `can_view()` refuses renders
   no View link. Select-all therefore submits only the rows the handler will accept — the showcase's
-  SSO-guarded user is the worked example: its row keeps the View link and nothing else. The handler
+  SSO-guarded user is the worked example: its row renders no action link and no checkbox. The handler
   keeps its all-or-nothing check on the POST as the safety net for a hand-crafted request. The
   `View` link needs no flag at all — it is derived from whether the resource declares a `view()`
   schema, so there the route and the row link cannot disagree.

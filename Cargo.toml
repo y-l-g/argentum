@@ -46,6 +46,7 @@ toasty = { git = "https://github.com/tokio-rs/toasty", branch = "main", default-
 toasty-core = { git = "https://github.com/tokio-rs/toasty", branch = "main" }
 topcoat-ui = { git = "https://github.com/tokio-rs/topcoat", branch = "main" }
 topcoat-ui-registry = { git = "https://github.com/tokio-rs/topcoat", branch = "main" }
+inventory = "0.3"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 uuid = "1.23"
 jiff = "0.2"

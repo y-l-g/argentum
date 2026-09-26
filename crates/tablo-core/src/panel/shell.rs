@@ -387,6 +387,12 @@ impl Panel {
                         separator(orientation: SeparatorOrientation::Vertical)
                         <div class="font-semibold text-foreground">(header_title)</div>
                         <div class="ml-auto flex items-center gap-2">
+                            <a
+                                href="/blog"
+                                class="text-sm text-muted-foreground hover:text-foreground"
+                            >
+                                "View blog"
+                            </a>
                             (account_view)
                             (header_theme_toggle)
                         </div>

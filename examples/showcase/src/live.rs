@@ -28,8 +28,8 @@ use topcoat::{
 
 use crate::{app::UserResource, models::User};
 
-/// Where the live feed lives.
-pub const LIVE_PATH: &str = "/admin/live";
+/// Where the dashboard lives: the panel root.
+pub const LIVE_PATH: &str = "/admin";
 
 /// How many of the newest users the feed shows.
 const FEED_ROWS: usize = 20;
@@ -78,17 +78,19 @@ fn subscribe() -> tokio::sync::broadcast::Receiver<()> {
     BOARD.subscribe()
 }
 
-/// `GET /admin/live` — the panel page holding the live feed.
+/// `GET /admin` — the panel dashboard holding the live feed.
 ///
 /// The attribute spells the path [`LIVE_PATH`] names; the integration test
-/// requests `LIVE_PATH`, so a drift between the two fails the test.
-#[page("/admin/live")]
+/// requests `LIVE_PATH`, so a drift between the two fails the test. The panel
+/// declares this page's sidebar entry with `Panel::dashboard`, so no root
+/// redirect collides with it.
+#[page("/admin")]
 async fn live_page(cx: &Cx) -> Result<impl View> {
     Ok(view! {
         cx =>
         tablo_ui::page(
             tablo_ui::page_header(
-                tablo_ui::page_title("Live activity")
+                tablo_ui::page_title("Dashboard")
                 tablo_ui::page_description(
                     "The newest users, re-read after every committed write and pushed over a WebSocket."
                 )

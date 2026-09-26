@@ -133,6 +133,7 @@ dependencies = [
  "heck",
  "http",
  "http-body-util",
+ "inventory",
  "jiff",
  "password-hash",
  "percent-encoding",

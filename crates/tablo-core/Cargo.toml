@@ -29,6 +29,7 @@ form_urlencoded = "1.2"
 heck = "0.5"
 http = "1"
 http-body-util = { version = "0.1", features = ["channel"] }
+inventory.workspace = true
 jiff.workspace = true
 password-hash = { version = "0.6", optional = true, features = ["getrandom"] }
 percent-encoding.workspace = true

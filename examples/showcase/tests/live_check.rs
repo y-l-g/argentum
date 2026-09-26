@@ -1,5 +1,5 @@
-//! The live feed: a panel write reaches an open page, and the page marks the
-//! WebSocket connection Topcoat opens for the feed's shard.
+//! The dashboard's live feed: a panel write reaches an open page, and the page
+//! marks the WebSocket connection Topcoat opens for the feed's shard.
 //!
 //! The connection itself is the browser runtime's; what a server-side test can
 //! pin is the markup and the wiring behind it — the page renders the rows, the
@@ -39,10 +39,10 @@ fn feed(html: &str) -> &str {
     &html[at..]
 }
 
-/// The page renders the feed and asks for a connection on the shard, not the
-/// page.
+/// The dashboard page renders the feed and asks for a connection on the shard,
+/// not the page.
 #[tokio::test]
-async fn the_live_page_renders_the_feed_and_requests_a_shard_connection() {
+async fn the_dashboard_renders_the_feed_and_requests_a_shard_connection() {
     let db = seeded_db().await;
     let router = router(db.clone());
     let client = demo_client(&router, &db).await;
@@ -54,10 +54,7 @@ async fn the_live_page_renders_the_feed_and_requests_a_shard_connection() {
         status.is_success(),
         "GET {LIVE_PATH} renders the panel page, got {status}"
     );
-    assert!(
-        html.contains(">Live activity</h1>"),
-        "the page heading: {html}"
-    );
+    assert!(html.contains(">Dashboard</h1>"), "the page heading: {html}");
     assert!(html.contains("data-live-feed"), "the feed region: {html}");
 
     // `connected(cx)` marks the render that needs a connection. The marker sits
