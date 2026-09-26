@@ -1,7 +1,6 @@
 ## Summary
 
-What changed and why. Link the issue (`Closes #123`). If an AI agent did the
-work, name the model and describe what it did.
+What changed and why. Link the issue (`Closes #123`).
 
 ## Verification
 
