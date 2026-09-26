@@ -29,6 +29,12 @@ async fn comments_list_shows_body_and_post_title() {
         !html.contains("(unloaded)"),
         "unloaded marker leaked into list: {html}"
     );
+    // The removed placeholder keeps its row: the list still shows the
+    // moderation state instead of dropping the row.
+    assert!(
+        html.contains("[removed]"),
+        "the moderation placeholder must stay visible: {html}"
+    );
 }
 
 #[tokio::test]

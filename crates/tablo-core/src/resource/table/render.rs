@@ -15,6 +15,8 @@ use topcoat::{Result, context::Cx, icon::icon, runtime::Event, view::*};
 
 use super::{
     super::{
+        ColumnWidth,
+        column::NARROW_DEFAULT_PERCENT,
         filter::Filter,
         state::{
             TablePage, TableSignals, TableState, bulk_delete_url, delete_action_url,
@@ -36,7 +38,28 @@ pub(crate) const LIVE_SEARCH_DEBOUNCE_MS: u32 = 200;
 /// the row's `Delete` is denied, so selecting it could only produce
 /// a batch the handler refuses. Read aloud by a screen reader in place of the
 /// checkbox's usual "Select row" label, and offered as the pointer tooltip too.
+///
+/// A row with no allowed action at all carries the same reason on the badge
+/// that stands in for its links ([`LOCKED_ROW_LABEL`]).
 pub(crate) const DENIED_ROW_REASON: &str = "You cannot delete this row";
+
+/// The label a row whose policy allows no action renders in place of its
+/// row-action links: the cell is never left empty, so a locked row reads as a
+/// state rather than as missing chrome. Generic on purpose — the framework
+/// knows only the [`RowActions`] outcome, not whether the record is
+/// SSO-managed or a removed placeholder — with [`DENIED_ROW_REASON`] as its
+/// tooltip, the same reason the row's disabled bulk checkbox carries.
+pub(crate) const LOCKED_ROW_LABEL: &str = "Locked";
+
+/// The readability floor one [`ColumnWidth::Wide`](super::super::ColumnWidth::Wide)
+/// column contributes to the table's `min-width`, in whole rem.
+///
+/// A wide column declares no width — it takes what the declared columns leave —
+/// so a sum of declared widths alone would let it crush to zero on a narrow
+/// viewport (the measured 38px cells at 480px). Six rem keeps body text
+/// readable and, summed across the wide columns, trips the wrapper's
+/// horizontal scroll before the fixed layout crushes them.
+const WIDE_COLUMN_MIN_REM: u8 = 6;
 
 /// The share of the table the bulk-selection column claims: one
 /// checkbox plus the cell's `p-3` padding at the widths a list is read at. A
@@ -137,10 +160,18 @@ fn hidden_state_inputs<'a>(cx: &'a Cx, inputs: Vec<(&'static str, Option<String>
 /// per declared column, in column order, plus the two chrome columns.
 /// `None` is a column that declares no width — a wide column, which takes a
 /// share of what the declared ones leave.
+///
+/// `actions_min` is the actions column's content floor for its body cells
+/// (the header carries the share *and* the floor); `table_min_width` is the
+/// table-level floor — the sum of the declared widths — that lets the
+/// wrapper's `overflow-x-auto` scroll on a narrow viewport instead of
+/// crushing the cells.
 struct ColumnWidths {
     cells: Vec<Option<Cow<'static, str>>>,
     bulk: Option<Cow<'static, str>>,
     actions: Option<Cow<'static, str>>,
+    actions_min: Option<Cow<'static, str>>,
+    table_min_width: Option<Cow<'static, str>>,
 }
 
 impl<M> Table<M> {
@@ -362,7 +393,12 @@ impl<M> Table<M> {
         // so they are resolved once here: the same CSS for every row, and a
         // `for` whose expression names `self.columns` would carry the table's
         // borrow into the view.
-        let cell_widths = self.column_widths().cells;
+        let ColumnWidths {
+            cells: cell_widths,
+            actions_min,
+            table_min_width,
+            ..
+        } = self.column_widths();
         let mut pager_views: Vec<BoxView<'_>> = Vec::new();
         let body: BoxView<'_> = if page.rows.is_empty() {
             let empty_cell = self
@@ -371,7 +407,7 @@ impl<M> Table<M> {
             view! {
                 cx =>
                 table(
-                    attrs: attributes! { class="table-fixed" },
+                    attrs: attributes! { class="table-fixed" style=(table_min_width.as_deref()) },
                     (head)
                     (empty_cell)
                 )
@@ -397,9 +433,12 @@ impl<M> Table<M> {
                 // literal, and the decision carries no per-column value. Each
                 // column's width, which does, rides the `th`/`td` inline
                 // `style`. Fixed layout is what stops a filter or a
-                // page change from re-measuring the columns.
+                // page change from re-measuring the columns. The `min-width`
+                // is the sum of those declared widths: with `w-full` the
+                // table never exceeds its container on its own, so without
+                // the floor the wrapper's `overflow-x-auto` never scrolls.
                 table(
-                    attrs: attributes! { class="table-fixed" },
+                    attrs: attributes! { class="table-fixed" style=(table_min_width.as_deref()) },
                     (head)
                     table_body(
                         #[key(row.key.as_str())]
@@ -412,6 +451,7 @@ impl<M> Table<M> {
                             let delete_action_for_row = row.delete_action.clone();
                             let delete_dialog_for_row = delete_dialog_id.clone();
                             let selectable_for_row = row.selectable;
+                            let locked_for_row = row.locked;
                             let row_dom_id = row_dom_id(&key_for_row);
                             if let Some(header) = row.group_header.clone() {
                                 table_row(
@@ -465,50 +505,65 @@ impl<M> Table<M> {
                                         (cell.clone())
                                     )
                                 }
-                                if view_for_row.is_some()
-                                    || edit_for_row.is_some()
-                                    || open_for_row.is_some() {
+                                // Every row carries the actions cell its header
+                                // declares, even a row locked out of every
+                                // link. The cell repeats only the column's
+                                // content floor — never a width share, which
+                                // the header row owns — so the buttons fit
+                                // instead of spilling past the table.
+                                if with_actions {
                                     table_cell(
-                                        <div class="flex gap-2">
-                                            if let Some(url) = view_for_row {
-                                                <a
-                                                    href=(url)
-                                                    class=(button_variants(
-                                                        ButtonVariant::Outline,
-                                                        ButtonSize::Md,
-                                                    ))
-                                                >
-                                                    "View"
-                                                </a>
-                                            }
-                                            if let Some(url) = edit_for_row {
-                                                <a
-                                                    href=(url)
-                                                    class=(button_variants(
-                                                        ButtonVariant::Outline,
-                                                        ButtonSize::Md,
-                                                    ))
-                                                >
-                                                    "Edit"
-                                                </a>
-                                            }
-                                            if let (Some(url), Some(action)) = (
-                                                open_for_row,
-                                                delete_action_for_row,
-                                            ) {
-                                                <a
-                                                    href=(url)
-                                                    data-row-delete-trigger=(delete_dialog_for_row)
-                                                    data-row-delete-action=(action)
-                                                    class=(button_variants(
-                                                        ButtonVariant::Destructive,
-                                                        ButtonSize::Md,
-                                                    ))
-                                                >
-                                                    "Delete"
-                                                </a>
-                                            }
-                                        </div>
+                                        attrs: attributes! { style=(actions_min.as_deref()) },
+                                        if locked_for_row {
+                                            <span
+                                                class="inline-flex items-center rounded-md border border-border bg-muted px-2 py-1 text-xs font-medium text-muted-foreground"
+                                                title=(DENIED_ROW_REASON)
+                                            >
+                                                (LOCKED_ROW_LABEL)
+                                            </span>
+                                        }
+                                        if !locked_for_row {
+                                            <div class="flex gap-2">
+                                                if let Some(url) = view_for_row {
+                                                    <a
+                                                        href=(url)
+                                                        class=(button_variants(
+                                                            ButtonVariant::Outline,
+                                                            ButtonSize::Md,
+                                                        ))
+                                                    >
+                                                        "View"
+                                                    </a>
+                                                }
+                                                if let Some(url) = edit_for_row {
+                                                    <a
+                                                        href=(url)
+                                                        class=(button_variants(
+                                                            ButtonVariant::Outline,
+                                                            ButtonSize::Md,
+                                                        ))
+                                                    >
+                                                        "Edit"
+                                                    </a>
+                                                }
+                                                if let (Some(url), Some(action)) = (
+                                                    open_for_row,
+                                                    delete_action_for_row,
+                                                ) {
+                                                    <a
+                                                        href=(url)
+                                                        data-row-delete-trigger=(delete_dialog_for_row)
+                                                        data-row-delete-action=(action)
+                                                        class=(button_variants(
+                                                            ButtonVariant::Destructive,
+                                                            ButtonSize::Md,
+                                                        ))
+                                                    >
+                                                        "Delete"
+                                                    </a>
+                                                }
+                                            </div>
+                                        }
                                     )
                                 }
                             )
@@ -788,6 +843,10 @@ impl<M> Table<M> {
                     .as_ref()
                     .filter(|_| actions.delete)
                     .map(|prefix| delete_action_url(prefix, &record_id));
+                // A row with no allowed action keeps its actions cell: the
+                // template renders the locked badge in place of the links.
+                // Read before the URLs move into the view below.
+                let locked = view_url.is_none() && edit_url.is_none() && delete_url.is_none();
                 RowView {
                     key,
                     record_id,
@@ -797,6 +856,7 @@ impl<M> Table<M> {
                     delete_url,
                     delete_action,
                     selectable: actions.delete,
+                    locked,
                     group: group_key.map(|group| group(row)),
                     group_header: None,
                 }
@@ -1042,6 +1102,9 @@ impl<M> Table<M> {
         let head = self
             .render_thead(cx, state, &path, with_actions, with_bulk, None)
             .await?;
+        // The same floor the loaded table carries, so the swap lands without
+        // a layout shift.
+        let table_min_width = self.column_widths().table_min_width;
         let column_count = self.columns.len();
         let inner = view! {
             cx =>
@@ -1054,7 +1117,7 @@ impl<M> Table<M> {
                     <div class="animate-pulse rounded-md bg-foreground/10 h-9 w-64"></div>
                 </div>
                 table(
-                    attrs: attributes! { class="table-fixed" },
+                    attrs: attributes! { class="table-fixed" style=(table_min_width.as_deref()) },
                     (head)
                     table_body(
                         #[key(i)]
@@ -1771,18 +1834,37 @@ impl<M> Table<M> {
         self.delete_prefix.is_some() || self.edit_prefix.is_some() || self.view_prefix.is_some()
     }
 
+    /// How many row links sit side by side in the actions column.
+    fn action_link_count(&self) -> usize {
+        usize::from(self.view_prefix.is_some())
+            + usize::from(self.edit_prefix.is_some())
+            + usize::from(self.delete_prefix.is_some())
+    }
+
     /// The share of the table the row-actions column claims: the row
     /// links sit side by side and each is a fixed-size control, so the share
     /// grows with the number of links the table renders. The values hold the
     /// widest set at a 1280px window and the narrower sets inside it.
     fn actions_percent(&self) -> u8 {
-        let links = usize::from(self.view_prefix.is_some())
-            + usize::from(self.edit_prefix.is_some())
-            + usize::from(self.delete_prefix.is_some());
-        match links {
+        match self.action_link_count() {
             2 => 18,
             3.. => 25,
             _ => 12,
+        }
+    }
+
+    /// The content floor of the row-actions column, in whole rem: one row of
+    /// `Md` buttons plus the cell's `p-3` padding, by link count. The share
+    /// above is a fraction of the table and shrinks with it, so on a narrow
+    /// viewport the buttons would spill past the table and clip against the
+    /// chrome's `overflow-hidden`; the floor keeps the column as wide as its
+    /// buttons, and the table's `min-width` keeps the table as wide as its
+    /// columns, so the wrapper scrolls instead.
+    fn actions_min_rem(&self) -> u8 {
+        match self.action_link_count() {
+            2 => 11,
+            3.. => 15,
+            _ => 7,
         }
     }
 
@@ -1795,12 +1877,23 @@ impl<M> Table<M> {
     /// declared ones leave, and a table that spends every percent on declared
     /// columns leaves them none. An explicit `Rem`/`Percent` is emitted as
     /// declared.
+    ///
+    /// The table-level `min-width` is the sum of those declarations: every
+    /// share as emitted, every `Rem` verbatim, the actions column's content
+    /// floor, and one [`WIDE_COLUMN_MIN_REM`] per wide column (which declares
+    /// nothing and would otherwise crush to zero). With `w-full` the table
+    /// never exceeds its container on its own, so without the floor the
+    /// wrapper's `overflow-x-auto` never scrolls; with it the table keeps its
+    /// measure on a narrow viewport and the wrapper scrolls. Emitted only
+    /// when the sum carries a length — shares alone are a fraction of the
+    /// container and can never overflow it.
     fn column_widths(&self) -> ColumnWidths
     where
         M: toasty::schema::Model,
     {
         let bulk = self.bulk_enabled().then_some(BULK_COLUMN_PERCENT);
         let actions = self.with_actions().then(|| self.actions_percent());
+        let actions_floor = self.with_actions().then(|| self.actions_min_rem());
         let total: u32 = bulk
             .into_iter()
             .chain(
@@ -1826,10 +1919,51 @@ impl<M> Table<M> {
                     .or_else(|| width.default_percent().map(default_style))
             })
             .collect();
+        // The `min-width` terms, in layout order: the shares first, then the
+        // lengths as one rem total. A scaled share is the emitted one, so the
+        // floor and the column agree.
+        let mut percent_terms: Vec<u8> = Vec::new();
+        if let Some(share) = bulk {
+            percent_terms.push(scaled_default_percent(share, total));
+        }
+        let mut rem_total: u32 = 0;
+        for col in &self.columns {
+            match col.column_width() {
+                ColumnWidth::Wide => rem_total += u32::from(WIDE_COLUMN_MIN_REM),
+                ColumnWidth::Narrow => {
+                    percent_terms.push(scaled_default_percent(NARROW_DEFAULT_PERCENT, total));
+                }
+                ColumnWidth::Rem(rem) => rem_total += u32::from(rem),
+                ColumnWidth::Percent(share) => percent_terms.push(share),
+            }
+        }
+        let mut actions_style = None;
+        if let (Some(share), Some(floor)) = (actions, actions_floor) {
+            let scaled = scaled_default_percent(share, total);
+            percent_terms.push(scaled);
+            rem_total += u32::from(floor);
+            actions_style = Some(Cow::Owned(format!(
+                "width: {scaled}%; min-width: {floor}rem"
+            )));
+        }
+        let table_min_width = (rem_total > 0).then(|| {
+            let mut parts: Vec<String> = percent_terms
+                .iter()
+                .map(|share| format!("{share}%"))
+                .collect();
+            parts.push(format!("{rem_total}rem"));
+            if parts.len() == 1 {
+                Cow::Owned(format!("min-width: {}", parts[0]))
+            } else {
+                Cow::Owned(format!("min-width: calc({})", parts.join(" + ")))
+            }
+        });
         ColumnWidths {
             cells,
             bulk: bulk.map(default_style),
-            actions: actions.map(default_style),
+            actions: actions_style,
+            actions_min: actions_floor.map(|floor| Cow::Owned(format!("min-width: {floor}rem"))),
+            table_min_width,
         }
     }
 
@@ -1960,6 +2094,10 @@ impl<M> Table<M> {
             heads.push(
                 view! {
                     cx =>
+                    // The share sizes the column at wide viewports; the floor
+                    // sizes it to its buttons at narrow ones, where the share
+                    // alone would let them spill past the table. Each row's
+                    // `td` repeats only the floor.
                     table_head(
                         attrs: attributes! { style=(widths.actions.as_deref()) },
                         "Actions"
@@ -2019,6 +2157,11 @@ struct RowView {
     /// `bulk.js` never lets it into the selection transport and select-all
     /// cannot submit a batch the handler refuses wholesale.
     selectable: bool,
+    /// Whether the row's policy allows no action at all: the template renders
+    /// the [`LOCKED_ROW_LABEL`] badge in place of the links instead of an
+    /// empty cell, so the row still carries the actions column its header
+    /// declares.
+    locked: bool,
     /// The row's group label, when `?group_by=` named the declared group.
     /// Carried on every row so the page-local shim can order by it.
     group: Option<String>,
@@ -2138,13 +2281,40 @@ mod tests {
         &html[start..end]
     }
 
+    /// The layout a `<table ...>` tag declares, independent of attribute
+    /// order: the sorted `class`/`style` values the tag carries. Two tags
+    /// declaring the same layout compare equal even when the serializer
+    /// emits `style` before `class` in one and after it in the other.
+    fn normalized_table_tag(tag: &str) -> (String, String) {
+        (table_attr(tag, "class"), table_attr(tag, "style"))
+    }
+
+    /// The value of one quoted attribute inside a tag, or empty when absent.
+    fn table_attr(tag: &str, name: &str) -> String {
+        let marker = format!("{name}=\"");
+        let Some(at) = tag.find(&marker) else {
+            return String::new();
+        };
+        let rest = &tag[at + marker.len()..];
+        let mut classes: Vec<&str> = rest
+            .split('"')
+            .next()
+            .unwrap_or_default()
+            .split_whitespace()
+            .collect();
+        classes.sort_unstable();
+        classes.join(" ")
+    }
+
     /// Every whole-percent width a rendered table declares, in document order.
-    /// A length declaration is skipped: those carry a unit.
+    /// A length declaration is skipped: those carry a unit. A share paired
+    /// with a content floor (`width: 18%; min-width: 11rem`) still parses: the
+    /// share ends at the `;`, not at the attribute's closing quote.
     fn declared_percents(html: &str) -> Vec<u32> {
         html.match_indices("style=\"width: ")
             .filter_map(|(at, marker)| {
                 html[at + marker.len()..]
-                    .split('"')
+                    .split(['"', ';'])
                     .next()?
                     .strip_suffix('%')?
                     .parse()
@@ -2378,12 +2548,17 @@ mod tests {
 
     /// the chrome columns declare a share of the table too — the
     /// header row is the row `table-fixed` measures — and the share grows with
-    /// the number of row links, which sit side by side.
+    /// the number of row links, which sit side by side. The actions column
+    /// pairs its share with a content floor (`min-width: 11rem`), on the
+    /// header and on every row's cell, so the buttons fit instead of spilling
+    /// past the table on a narrow viewport.
     #[tokio::test]
     async fn chrome_columns_declare_their_widths() {
-        // Each case: the row links to wire, and the share Actions claims.
-        let cases: [(usize, &str); 3] = [(1, "12%"), (2, "18%"), (3, "25%")];
-        for (links, expected) in cases {
+        // Each case: the row links to wire, the share Actions claims, and the
+        // floor that holds its buttons.
+        let cases: [(usize, &str, &str); 3] =
+            [(1, "12%", "7rem"), (2, "18%", "11rem"), (3, "25%", "15rem")];
+        for (links, expected, floor) in cases {
             let cx = CxTestBuilder::new().build();
             let mut chrome_table = Table::<User>::r#for(&cx)
                 .id(|u| u.id.to_string())
@@ -2413,10 +2588,16 @@ mod tests {
                 .unwrap()
                 .render(&cx);
             assert_eq!(
-                html.matches(&format!("style=\"width: {expected}\""))
-                    .count(),
+                html.matches(&format!("width: {expected}")).count(),
                 1,
                 "{links} row links must claim {expected} in the header row, got {html}"
+            );
+            // The floor rides the header and every row's cell, so the buttons
+            // fit whatever the share shrinks to.
+            assert_eq!(
+                html.matches(&format!("min-width: {floor}")).count(),
+                2,
+                "{links} row links must floor the actions column at {floor}, got {html}"
             );
             // The bulk checkbox claims its own share, and only when the table
             // renders one.
@@ -2789,6 +2970,82 @@ mod tests {
         assert!(
             !ada_tag.contains("disabled") && ada_tag.contains("aria-label=\"Select row\""),
             "the allowed row's checkbox must stay enabled, got {ada_tag}"
+        );
+    }
+
+    /// The `<tr>…</tr>` chunk holding the row checkbox with `value`, without
+    /// its closing tag: the row's own cells scoped down from the page.
+    fn row_chunk<'a>(html: &'a str, value: &str) -> &'a str {
+        let at = html
+            .find(&format!("value=\"{value}\""))
+            .unwrap_or_else(|| panic!("missing the row checkbox with value {value}"));
+        let start = html[..at].rfind("<tr").expect("the row's opening tag");
+        let end = html[at..].find("</tr>").expect("the row's closing tag") + at;
+        &html[start..end]
+    }
+
+    #[tokio::test]
+    async fn fully_locked_rows_keep_their_actions_cell_with_no_links() {
+        // A row the policy locks out of every link keeps its actions cell all
+        // the same: the cell stays aligned with the header instead of going
+        // missing, and the row carries as many cells as the header.
+        let cx = CxTestBuilder::new().build();
+        let ada = User {
+            id: uuid::Uuid::new_v4(),
+            name: "Ada".to_string(),
+        };
+        let ken = User {
+            id: uuid::Uuid::new_v4(),
+            name: "Ken".to_string(),
+        };
+        let ken_id = ken.id.to_string();
+        let ada_id = ada.id.to_string();
+        let policy_table = Table::<User>::r#for(&cx)
+            .id(|u| u.id.to_string())
+            .pk(|u| u.id.to_string())
+            .columns(TextColumn::r#for(User::fields().name(), |u| u.name.clone()))
+            .with_delete("/admin/users".to_string())
+            .with_edit("/admin/users".to_string())
+            .with_bulk_delete(true)
+            .row_actions(|u: &User| {
+                let allowed = u.name != "Ken";
+                RowActions {
+                    view: allowed,
+                    edit: allowed,
+                    delete: allowed,
+                }
+            });
+        let page: TablePage<User> = vec![ada, ken].into();
+        let html = policy_table
+            .render(&cx, page)
+            .await
+            .unwrap()
+            .single()
+            .await
+            .unwrap()
+            .render(&cx);
+        // The locked row renders no action link at all.
+        let ken_row = row_chunk(&html, &ken_id);
+        assert!(
+            !ken_row.contains("/admin/users/"),
+            "the locked row must render no action link at all, got {ken_row}"
+        );
+        // The allowed row keeps its links, so the absence above is not
+        // passing on a page that renders no chrome at all.
+        let ada_row = row_chunk(&html, &ada_id);
+        assert!(
+            ada_row.contains(&format!("/admin/users/{ada_id}/edit")),
+            "the allowed row must keep its links, got {ada_row}"
+        );
+        // Alignment: the locked row carries a cell per header, badge
+        // included. Counted on the closing tags: `<thead` itself opens
+        // with `<th`.
+        let thead_at = html.find("<thead").expect("a header row");
+        let thead_end = html.find("</thead>").expect("its end");
+        assert_eq!(
+            ken_row.matches("</td>").count(),
+            html[thead_at..thead_end].matches("</th>").count(),
+            "the locked row must carry a cell per header, got {ken_row}"
         );
     }
 
@@ -3570,9 +3827,19 @@ mod tests {
             html.contains("Ada"),
             "swap payload must be rows, got {html}"
         );
+        // Attribute order is a serializer detail: `table` merges its own
+        // classes with the caller's `attrs`, so the skeleton may emit
+        // `style` before `class` while the swapped table emits them the
+        // other way round. What matters for GH #240 is the same layout —
+        // the same classes and the same floor — not the same byte order.
+        let swapped_tag = table_tag(&html);
+        assert!(
+            swapped_tag.contains("table-fixed") && skeleton_table.contains("table-fixed"),
+            "the swapped table must declare the skeleton's layout (GH #240), got {html}"
+        );
         assert_eq!(
-            table_tag(&html),
-            skeleton_table,
+            normalized_table_tag(swapped_tag),
+            normalized_table_tag(&skeleton_table),
             "the swapped table must declare the skeleton's layout (GH #240), got {html}"
         );
     }

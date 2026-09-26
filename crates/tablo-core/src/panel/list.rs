@@ -67,7 +67,8 @@ pub(crate) fn declared_chrome<R: Resource>(cx: &Cx) -> TableChrome {
 /// `can_view` for View, `can_view` + `can_update` for Edit, `can_view` +
 /// `can_delete` for Delete and the bulk checkbox. A row the predicate refuses
 /// renders no link and a disabled checkbox, while the handler keeps its
-/// all-or-nothing check for a hand-crafted POST.
+/// all-or-nothing check for a hand-crafted POST. A row refused every action
+/// keeps its actions cell with a `Locked` badge in place of the links.
 ///
 /// `live` selects the shard variant: the swapped region is everything except the
 /// toolbar the page owns eagerly (the live host owns those slots, so a swap must
