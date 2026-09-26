@@ -106,7 +106,13 @@ async fn comments_create_form_shows_post_select() {
     let resp = client.get("/admin/comments/create").await;
     assert!(resp.status().is_success());
     let html = body_string(resp).await;
-    assert!(html.contains("name=\"body\""), "missing body input: {html}");
+    assert!(html.contains("name=\"body\""), "missing body field: {html}");
+    // The body is prose, so the form renders a textarea rather than a
+    // one-line input — the same shape the post body uses.
+    assert!(
+        html.contains("<textarea"),
+        "the comment body must render as a textarea: {html}"
+    );
     assert!(
         html.contains("name=\"post_id\""),
         "missing post select: {html}"

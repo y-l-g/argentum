@@ -6,20 +6,35 @@
 use std::collections::HashMap;
 
 use tablo_ui::{
-    FieldLegendVariant, card, card_content, card_header, card_title, field_error as ui_field_error,
-    field_group as ui_field_group, field_legend as ui_field_legend, field_set as ui_field_set,
+    card_content, card_header, card_title, field_error as ui_field_error,
+    field_group as ui_field_group,
 };
-use topcoat::{Result, context::Cx, view::*};
+use topcoat::{
+    Result,
+    context::Cx,
+    view::{StaticClass, class, *},
+};
 
 use super::{
     Schema,
     tree::{IntoSchema, Mode, RenderSource},
 };
 
+/// The one titled-group container: `Section` and `Repeater` render the same
+/// border-only panel, so every titled group on a form looks alike.
+///
+/// The shape is the `card` primitive's — rounded panel with header/content
+/// rhythm — without its opaque paint: no `bg-card`, no `shadow-sm`. Overlays
+/// keep the primitive as-is (dialogs, sheets and popovers sit above the page
+/// and need the fill and the shadow); a form panel sits on the page
+/// background, so it draws only its border.
+const PANEL: StaticClass =
+    class!("flex flex-col gap-5 rounded-xl border border-border py-6 text-card-foreground");
+
 /// Section — titled container with an optional child `Schema`.
 ///
 /// The single customization seam for form layout in v1: additive `class` is
-/// allowed on the `card` container only (narrow seam, no per-field `attrs`).
+/// allowed on the panel container only (narrow seam, no per-field `attrs`).
 /// This keeps Token editing in `styles.css` as the primary theming mechanism.
 #[derive(Debug)]
 pub struct Section {
@@ -42,8 +57,8 @@ impl Section {
         self
     }
 
-    /// Additive `class` hook on the `card` container (narrow seam).
-    /// Merged via `class!` against Token classes, never replacing them.
+    /// Additive `class` hook on the panel container (narrow seam).
+    /// Merged via `class!` against the panel classes, never replacing them.
     pub fn class(mut self, class: impl Into<String>) -> Self {
         self.extra_class = Some(class.into());
         self
@@ -60,28 +75,26 @@ impl Section {
             let child_view = schema.render_source(cx, source).await?;
             Ok(view! {
                 cx =>
-                card(
-                    attrs: attributes! { class=(extra.clone()) },
+                <div class=(class!(PANEL, extra.clone()))>
                     card_header(card_title((title)))
                     card_content(
                         attrs: attributes! { class="flex flex-col gap-6" },
                         (child_view)
                     )
-                )
+                </div>
             }
             .boxed())
         } else {
-            // Header-only on purpose: the card is `flex flex-col gap-5`, so an
+            // Header-only on purpose: the panel is `flex flex-col gap-5`, so an
             // empty `card_content` would be a zero-height flex item that still
             // takes a gap slot and adds 20px below the title for nothing.
             // The gap-6 class rides `card_content` only where there
             // are children to space.
             Ok(view! {
                 cx =>
-                card(
-                    attrs: attributes! { class=(extra.clone()) },
+                <div class=(class!(PANEL, extra.clone()))>
                     card_header(card_title((title)))
-                )
+                </div>
             }
             .boxed())
         }
@@ -247,14 +260,15 @@ impl Grid {
 /// Repeater — nested Schema repeated as a group (in-memory for v1, no DB array).
 ///
 /// v1 honesty: this is a single-entry group, not a multi-row repeater —
-/// one titled fieldset with its nested schema once, no add/remove UI, no JS, no
+/// one titled panel with its nested schema once, no add/remove UI, no JS, no
 /// indexed field names (`tags[0]`). Indexed multi-entry semantics, per-entry
 /// validation, and hydration via split/join or a real relation are deferred.
 /// `required` means "the inner fields must not all be empty" and its error is
 /// keyed by label and rendered inline.
 ///
-/// The fieldset keeps its border while `Group` and `Tabs` draw none:
-/// it delimits repeated rows, whereas a `Section` groups a page's sections.
+/// The panel is `Section`'s panel: one container style for every titled group,
+/// with the title inside the box. A `Section` is the titled group; the
+/// repeater is only the repeat mechanism. `Group` and `Tabs` draw no box.
 #[derive(Debug)]
 pub struct Repeater {
     pub(crate) label: String,
@@ -291,6 +305,7 @@ impl Repeater {
         source: &RenderSource<'_>,
     ) -> Result<BoxView<'a>> {
         let title = self.label.clone();
+        let title_id = repeater_title_id(&self.label);
         // A view renders the group's label over its children's values:
         // a required group is a statement about a submit that cannot happen
         // here, so no `*`, no `aria-invalid`, no error slot.
@@ -301,17 +316,24 @@ impl Repeater {
             };
             return Ok(view! {
                 cx =>
-                ui_field_set(
-                    attrs: attributes! { class="ac-field rounded-md border border-border p-4" },
-                    ui_field_legend(
-                        variant: FieldLegendVariant::Label,
-                        attrs: attributes! {},
-                        (title)
+                <div
+                    class=(class!(PANEL, "ac-field"))
+                    role="group"
+                    aria-labelledby=(title_id.clone())
+                >
+                    card_header(
+                        card_title(
+                            attrs: attributes! { id=(title_id.clone()) },
+                            (title)
+                        )
                     )
                     if let Some(child_view) = child_view {
-                        <div class="grid gap-4">(child_view)</div>
+                        card_content(
+                            attrs: attributes! { class="flex flex-col gap-6" },
+                            <div class="grid gap-4">(child_view)</div>
+                        )
                     }
-                )
+                </div>
             }
             .boxed());
         }
@@ -324,80 +346,94 @@ impl Repeater {
         let own_errors: &[String] = source.errors_for(&self.label);
         let has_error = !own_errors.is_empty();
         let error_text = own_errors.first().cloned().unwrap_or_default();
-        // The group's error is described by the fieldset, so it needs an id to
+        // The group's error is described by the panel, so it needs an id to
         // be referenced by; the label is the key, and a label is not
         // usable as one (ids cannot carry whitespace).
         let error_id = repeater_error_id(&self.label);
         let container_class = if has_error {
-            "ac-field ac-field--error rounded-md border border-border p-4"
+            "ac-field ac-field--error"
         } else {
-            "ac-field rounded-md border border-border p-4"
+            "ac-field"
         };
-        // `field_legend` (unlike `field_label`) has no invalid state of its
-        // own, so the group colors its legend when it is invalid.
-        let legend_class = if has_error { "text-destructive" } else { "" };
+        // `card_title` has no invalid state of its own, so the group colors
+        // its title when it is invalid.
+        let title_class = if has_error { "text-destructive" } else { "" };
         if let Some(schema) = &self.children {
             let child_view = schema.render_source(cx, source).await?;
             Ok(view! {
                 cx =>
-                ui_field_set(
-                    attrs: attributes! {
-                        class=(container_class)
-                        data-invalid=(has_error.then_some("true"))
-                        aria-invalid=(if has_error { "true" } else { "false" })
-                        aria-describedby=(has_error.then_some(error_id.clone()))
-                    },
-                    ui_field_legend(
-                        variant: FieldLegendVariant::Label,
-                        attrs: attributes! { class=(legend_class) },
-                        (title)
-                        if required {
-                            <span class="text-destructive" aria-hidden="true">"*"</span>
+                <div
+                    class=(class!(PANEL, container_class))
+                    role="group"
+                    aria-labelledby=(title_id.clone())
+                    data-invalid=(has_error.then_some("true"))
+                    aria-invalid=(if has_error { "true" } else { "false" })
+                    aria-describedby=(has_error.then_some(error_id.clone()))
+                >
+                    card_header(
+                        card_title(
+                            attrs: attributes! { id=(title_id.clone()) class=(title_class) },
+                            (title)
+                            if required {
+                                <span class="text-destructive" aria-hidden="true">
+                                    "*"
+                                </span>
+                            }
+                        )
+                    )
+                    card_content(
+                        attrs: attributes! { class="flex flex-col gap-6" },
+                        <div class="grid gap-4">(child_view)</div>
+                        if has_error {
+                            ui_field_error(
+                                attrs: attributes! {
+                                    id=(error_id.clone())
+                                    class="ac-error"
+                                    aria-live="polite"
+                                },
+                                (error_text)
+                            )
                         }
                     )
-                    <div class="grid gap-4">(child_view)</div>
-                    if has_error {
-                        ui_field_error(
-                            attrs: attributes! {
-                                id=(error_id.clone())
-                                class="ac-error"
-                                aria-live="polite"
-                            },
-                            (error_text)
-                        )
-                    }
-                )
+                </div>
             }
             .boxed())
         } else {
             Ok(view! {
                 cx =>
-                ui_field_set(
-                    attrs: attributes! {
-                        class=(container_class)
-                        data-invalid=(has_error.then_some("true"))
-                        aria-invalid=(if has_error { "true" } else { "false" })
-                        aria-describedby=(has_error.then_some(error_id.clone()))
-                    },
-                    ui_field_legend(
-                        variant: FieldLegendVariant::Label,
-                        attrs: attributes! { class=(legend_class) },
-                        (title)
-                        if required {
-                            <span class="text-destructive" aria-hidden="true">"*"</span>
-                        }
+                <div
+                    class=(class!(PANEL, container_class))
+                    role="group"
+                    aria-labelledby=(title_id.clone())
+                    data-invalid=(has_error.then_some("true"))
+                    aria-invalid=(if has_error { "true" } else { "false" })
+                    aria-describedby=(has_error.then_some(error_id.clone()))
+                >
+                    card_header(
+                        card_title(
+                            attrs: attributes! { id=(title_id.clone()) class=(title_class) },
+                            (title)
+                            if required {
+                                <span class="text-destructive" aria-hidden="true">
+                                    "*"
+                                </span>
+                            }
+                        )
                     )
                     if has_error {
-                        ui_field_error(
-                            attrs: attributes! {
-                                id=(error_id.clone())
-                                class="ac-error"
-                                aria-live="polite"
-                            },
-                            (error_text)
+                        card_content(
+                            attrs: attributes! { class="flex flex-col gap-6" },
+                            ui_field_error(
+                                attrs: attributes! {
+                                    id=(error_id.clone())
+                                    class="ac-error"
+                                    aria-live="polite"
+                                },
+                                (error_text)
+                            )
                         )
                     }
-                )
+                </div>
             }
             .boxed())
         }
@@ -411,6 +447,15 @@ impl Repeater {
 /// slugged: ASCII alphanumerics lowercased, every other run collapsed to one
 /// `-`.
 fn repeater_error_id(label: &str) -> String {
+    format!("{}-error", repeater_slug(label))
+}
+
+/// The DOM id of a repeater's title node, labelling the panel as a group.
+fn repeater_title_id(label: &str) -> String {
+    format!("{}-title", repeater_slug(label))
+}
+
+fn repeater_slug(label: &str) -> String {
     let mut slug = String::with_capacity(label.len());
     for character in label.chars() {
         if character.is_ascii_alphanumeric() {
@@ -419,7 +464,7 @@ fn repeater_error_id(label: &str) -> String {
             slug.push('-');
         }
     }
-    format!("{}-error", slug.trim_matches('-'))
+    slug.trim_matches('-').to_string()
 }
 
 /// Tabs — layout primitive for tabbed content (in-memory for v1, no JS).
@@ -427,7 +472,7 @@ fn repeater_error_id(label: &str) -> String {
 /// Static `div` grouping for v1: a stacked column until tab JS lands.
 /// Documented, not a placeholder bug. The container is layout-only: a
 /// flex column carrying the vertical rhythm, with no border, background or
-/// padding — `Section` is the only container that draws a card.
+/// padding — only titled groups (`Section` and `Repeater`) draw a panel.
 #[derive(Debug)]
 pub struct Tabs {
     pub(crate) children: Option<Schema>,
@@ -528,7 +573,7 @@ mod tests {
         );
         assert!(
             html.find("Account").expect("the title") < html.find("data-slot=\"field\"").unwrap(),
-            "the field must sit inside the section's card, got {html}"
+            "the field must sit inside the section's panel, got {html}"
         );
     }
 
@@ -746,8 +791,8 @@ mod tests {
             "repeater error must reach the HTML, got {html}"
         );
         // Same inline error contract as TextInput, wired to the group: the
-        // fieldset carries the invalid state and describes itself with the
-        // error node's id. The legend's colour is paint, not state:
+        // panel carries the invalid state and describes itself with the
+        // error node's id. The title's colour is paint, not state:
         // these three state hooks are what a regression would break.
         assert!(
             html.contains("data-invalid=\"true\"")
