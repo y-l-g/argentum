@@ -46,6 +46,12 @@ Notes:
   explicit `Rem` does not shrink with the table, so a table narrower than its lengths leaves the field
   columns no space at all. The width is emitted as an inline `style` — Tailwind generates only the class
   literals it finds in source — and a value wider than its column truncates with an ellipsis.
+- A `w-full` table never exceeds its container on its own, so on a narrow viewport the percentages
+  would crush the cells instead of scrolling: the table carries a `min-width` summing its declared
+  widths (shares as emitted, lengths verbatim, one readability floor per wide column, a content floor on
+  the actions column), and the wrapper's `overflow-x-auto` scrolls once the table is wider than its
+  container. The actions column pairs its share with that floor on its header and cells, so the row
+  buttons fit instead of spilling past the table.
 - Computed columns render only. They do not affect search or sort.
 
 Filters:
@@ -92,7 +98,9 @@ Panel wires the bulk checkbox column when the resource opts in with `deletable()
 chrome is opt-in, and the flag pairs with `can_view` + `can_delete`). The column then follows those
 predicates per record (GH #235): a row either one refuses renders its checkbox `disabled`
 with the reason as its accessible label, so select-all never submits a key the handler would refuse
-the whole batch over. Bulk delete asks first: the bulk bar's
+the whole batch over. A row refused every action keeps its actions cell with a `Locked` badge in place
+of the links — carrying the same reason as its tooltip — so the row reads as locked rather than as
+missing chrome, and the row keeps a cell per header. Bulk delete asks first: the bulk bar's
 button opens an alert dialog that names how many rows are selected, and its confirm control is the
 only thing carrying the `confirm=1` the handler requires — a POST without that marker is a 400, so
 the safeguard does not depend on the script that opens the dialog (GH #184).

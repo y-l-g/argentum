@@ -14,3 +14,5 @@ Name anything not run and why. The full set is in `CONTRIBUTING.md`.
 - [ ] If `view!` markup changed, `topcoat fmt` ran with the CLI built from the locked rev.
 - [ ] If a doc claim changed, it was verified against the code.
 - [ ] No history or narrative in code comments or docs (`docs/dev/PROSE.md`).
+- [ ] Every added test pins a behavior, not copy or style (`docs/dev/TESTING.md`).
+- [ ] Every added comment explains WHY in one precise sentence (`docs/dev/PROSE.md`).
